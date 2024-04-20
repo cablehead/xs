@@ -11,6 +11,5 @@ older xs:
 - sled index + cacache CAS, a server runs over a local unix domain socket to
   provide coordination
 - client protcol is hyper: http1.1
-
 - designed to be run as a nushell plugin??
-- need poc
+    - need poc: what does it look like calling back into the host `nu`
