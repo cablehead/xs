@@ -15,24 +15,14 @@ older xs:
     - need poc: what does it look like calling back into the host `nu`
 
 
-Some notes:
-
-cross.stream / xs design
-
-Backend:
+## notes
 
 - [xs](https://github.com/cablehead/xs): current version is a PoC
-
 - currently it just provides a persistent lightweight, flexible event stream
-
 - current version uses LMDB and server-less polling to pick up new items
 - want: switch to sled + a server that listens on a local unix domain socket
 - server facilitates watching for updates + managing processes
-
-- want ephemeral events (I'm pretty sure)
-
+- want ephemeral events
 - put, cat / tail [reverse], get, last, first, next
-
 - want: k/v storage to manage cursors + materialized views + state, ability to subscribe to updates
-
-- i think xs should be able to manage processes ala [daemontools](http://cr.yp.to/daemontools.html), [runit](https://smarden.org/runit/), [Pueue](https://github.com/Nukesor/pueue)
+- xs should be able to manage processes ala [daemontools](http://cr.yp.to/daemontools.html), [runit](https://smarden.org/runit/), [Pueue](https://github.com/Nukesor/pueue)
