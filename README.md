@@ -1,10 +1,9 @@
-
 older xs:
 
-- sled index with cacache CAS v1, no concurrency: https://github.com/cablehead/xs-3
 - original, lmdb index/store (pre realizing the event primary content should be
   stored in a CAS), so concurrent, but polling for subscribe:
   https://github.com/cablehead/xs
+- sled index with cacache CAS v1, no concurrency: https://github.com/cablehead/xs-3
 
 # a-new-xs
 
