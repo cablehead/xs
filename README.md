@@ -2,7 +2,7 @@ older xs:
 
 - original, lmdb index/store (pre realizing the event primary content should be
   stored in a CAS), so concurrent, but polling for subscribe:
-  https://github.com/cablehead/xs
+  https://github.com/cablehead/xs-0
 - sled index with cacache CAS v1, no concurrency: https://github.com/cablehead/xs-3
 
 # a-new-xs
@@ -16,7 +16,7 @@ older xs:
 
 ## notes
 
-- [xs](https://github.com/cablehead/xs): current version is a PoC
+- [xs](https://github.com/cablehead/xs-0): current version is a PoC
 - currently it just provides a persistent lightweight, flexible event stream
 - current version uses LMDB and server-less polling to pick up new items
 - want: switch to sled + a server that listens on a local unix domain socket
