@@ -1,6 +1,6 @@
 # xs
 
-- sled index + cacache CAS, a server runs over a local unix domain socket to
+- [fjall](https://github.com/fjall-rs/fjall) index + [cacache](https://github.com/zkat/cacache-rs) CAS, a server runs over a local unix domain socket to
   provide coordination
 - client protcol is hyper: http1.1
 
@@ -14,8 +14,8 @@
 
 ## Path Traveled
 
-- [xs-3](https://github.com/cablehead/xs-3): sled index with cacache CAS v1, no concurrency
+- [xs-3](https://github.com/cablehead/xs-3): [sled](https://github.com/spacejam/sled) index with [cacache](https://github.com/zkat/cacache-rs) CAS v1, no concurrency
 - [xs-0](https://github.com/cablehead/xs-0) original experiment.
-    -LMDB combined index / content store (pre realizing the event primary content should be
+    -[LMDB](http://www.lmdb.tech/doc/) combined index / content store (pre realizing the event primary content should be
   stored in a CAS)
     - Multi-process concurrent, but polling for subscribe
