@@ -2,14 +2,19 @@
 
 - [fjall](https://github.com/fjall-rs/fjall) index + [cacache](https://github.com/zkat/cacache-rs) CAS, a server runs over a local unix domain socket to
   provide coordination
-- client protocol is hyper: http1.1
+- client protocol is [hyper](https://hyper.rs/guides/1/server/echo/): http1.1 only
 
 ## notes
 
 - put, cat / tail [reverse], get, last, first, next
 - want ephemeral events
-- as well as the event stream: a k/v storage to manage cursors + materialized views + state, ability to subscribe to updates
+- as well as the event stream: a basic k/v store to manage cursors + materialized views
+- ability to subscribe to updates
+    - to both events
+    - and materialized views
 - should be able to manage processes ala [daemontools](http://cr.yp.to/daemontools.html), [runit](https://smarden.org/runit/), [Pueue](https://github.com/Nukesor/pueue)
+    - or: simply runs snippets of [nushell](https://github.com/nushell/nushell.git) on new event
+    - the snippets are registered via the event stream
 - server facilitates watching for updates + managing processes
 
 ## Path Traveled
