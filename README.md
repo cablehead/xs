@@ -6,7 +6,7 @@
 
 ## notes
 
-- put, cat / tail [reverse], get, last, first, next
+- put, cat / tail [reverse], get, last, first, next, previous
 - want ephemeral events
 - as well as the event stream: a basic k/v store to manage cursors + materialized views
 - ability to subscribe to updates
