@@ -1,6 +1,8 @@
-use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct Frame {
@@ -11,7 +13,7 @@ pub struct Frame {
 pub struct Store {
     _keyspace: Keyspace,
     partition: PartitionHandle,
-    cache_path: PathBuf,
+    cas_path: PathBuf,
 }
 
 impl Store {
@@ -22,19 +24,22 @@ impl Store {
         let partition = keyspace
             .open_partition("main", PartitionCreateOptions::default())
             .unwrap();
-        let cache_path = Path::new(path).join("cas");
+        let cas_path = Path::new(path).join("cas");
         Store {
             _keyspace: keyspace,
             partition,
-            cache_path,
+            cas_path,
         }
     }
 
-    pub fn put(&mut self, content: &[u8]) -> Frame {
-        let h = cacache::write_hash_sync(&self.cache_path, content).unwrap();
+    pub async fn cas_open(&self) -> cacache::Result<cacache::Writer> {
+        cacache::WriteOpts::new().open_hash(&self.cas_path).await
+    }
+
+    pub fn put(&mut self, hash: ssri::Integrity) -> Frame {
         let frame = Frame {
             id: scru128::new(),
-            hash: h,
+            hash,
         };
         let encoded: Vec<u8> = bincode::serialize(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();

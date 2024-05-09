@@ -18,3 +18,4 @@ tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 static_assertions = "1.1.0"
+temp-dir = "0.1.13"
