@@ -1,6 +1,6 @@
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct Frame {
@@ -11,7 +11,7 @@ pub struct Frame {
 pub struct Store {
     _keyspace: Keyspace,
     partition: PartitionHandle,
-    cache_path: String,
+    cache_path: PathBuf,
 }
 
 impl Store {
@@ -22,11 +22,7 @@ impl Store {
         let partition = keyspace
             .open_partition("main", PartitionCreateOptions::default())
             .unwrap();
-        let cache_path = Path::new(path)
-            .join("cas")
-            .into_os_string()
-            .into_string()
-            .unwrap();
+        let cache_path = Path::new(path).join("cas");
         Store {
             _keyspace: keyspace,
             partition,
@@ -43,5 +39,16 @@ impl Store {
         let encoded: Vec<u8> = bincode::serialize(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
         frame
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use static_assertions::assert_impl_all;
+
+    #[test]
+    fn store_send_sync() {
+        assert_impl_all!(Store: Send, Sync);
     }
 }
