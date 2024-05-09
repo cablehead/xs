@@ -7,19 +7,40 @@ use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::StatusCode;
-use hyper::{Request, Response};
+use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-async fn handle(req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn get(req: Request<hyper::body::Incoming>) -> HTTPResult {
     let preview = "hai".to_string();
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "text/html")
         .body(full(preview))?)
+}
+
+async fn post(req: Request<hyper::body::Incoming>) -> HTTPResult {
+    let mut body = req.into_body();
+    while let Some(frame) = body.frame().await {
+        let data = frame?.into_data().unwrap();
+        eprintln!("data: {:?}", &data);
+    }
+    let preview = "POST".to_string();
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "text/html")
+        .body(full(preview))?)
+}
+
+async fn handle(req: Request<hyper::body::Incoming>) -> HTTPResult {
+    eprintln!("req: {:?}", &req);
+    match req.method() {
+        &Method::GET => get(req).await,
+        &Method::POST => post(req).await,
+        _ => response_404(),
+    }
 }
 
 pub async fn serve() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
