@@ -17,7 +17,7 @@ use crate::store::Store;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-async fn get(_req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn get(_store: Store, _req: Request<hyper::body::Incoming>) -> HTTPResult {
     let preview = "hai".to_string();
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -34,7 +34,6 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     let mut writer = writer.compat_write();
     while let Some(frame) = body.frame().await {
         let data = frame?.into_data().unwrap();
-        eprintln!("data: {:?}", &data);
         writer.write_all(&data).await?;
     }
     // get the original writer back
@@ -52,7 +51,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
 async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     eprintln!("req: {:?}", &req);
     match req.method() {
-        &Method::GET => get(req).await,
+        &Method::GET => get(store, req).await,
         &Method::POST => post(store, req).await,
         _ => response_404(),
     }
