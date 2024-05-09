@@ -1,7 +1,9 @@
-#![allow(warnings)]
 use std::error::Error;
 
+use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
+// needed to convert async-std AsyncWrite to a tokio AsyncWrite
+use tokio_util::compat::FuturesAsyncWriteCompatExt;
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Bytes;
@@ -10,10 +12,12 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
+use crate::store::Store;
+
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-async fn get(req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn get(_req: Request<hyper::body::Incoming>) -> HTTPResult {
     let preview = "hai".to_string();
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -21,37 +25,49 @@ async fn get(req: Request<hyper::body::Incoming>) -> HTTPResult {
         .body(full(preview))?)
 }
 
-async fn post(req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     let mut body = req.into_body();
+
+    let writer = store.cas_open().await?;
+
+    // convert writer from async-std -> tokio
+    let mut writer = writer.compat_write();
     while let Some(frame) = body.frame().await {
         let data = frame?.into_data().unwrap();
         eprintln!("data: {:?}", &data);
+        writer.write_all(&data).await?;
     }
-    let preview = "POST".to_string();
+    // get the original writer back
+    let writer = writer.into_inner();
+
+    let hash = writer.commit().await?;
+    let frame = store.put(hash);
+
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", "text/html")
-        .body(full(preview))?)
+        .header("Content-Type", "application/json")
+        .body(full(serde_json::to_string(&frame).unwrap()))?)
 }
 
-async fn handle(req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     eprintln!("req: {:?}", &req);
     match req.method() {
         &Method::GET => get(req).await,
-        &Method::POST => post(req).await,
+        &Method::POST => post(store, req).await,
         _ => response_404(),
     }
 }
 
-pub async fn serve() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("let's go");
-    let listener = UnixListener::bind("./sock").unwrap();
+    let listener = UnixListener::bind(store.path.join("sock")).unwrap();
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
+        let store = store.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(move |req| handle(req)))
+                .serve_connection(io, service_fn(move |req| handle(store.clone(), req)))
                 .await
             {
                 // Match against the error kind to selectively ignore `NotConnected` errors

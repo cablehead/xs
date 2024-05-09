@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -10,30 +10,32 @@ pub struct Frame {
     pub hash: ssri::Integrity,
 }
 
+#[derive(Clone)]
 pub struct Store {
     _keyspace: Keyspace,
     partition: PartitionHandle,
-    cas_path: PathBuf,
+    pub path: PathBuf,
 }
 
 impl Store {
-    pub fn new(path: &str) -> Store {
-        let config = Config::new(path);
+    pub fn new(path: PathBuf) -> Store {
+        let config = Config::new(&path);
         let keyspace = config.open().unwrap();
 
         let partition = keyspace
             .open_partition("main", PartitionCreateOptions::default())
             .unwrap();
-        let cas_path = Path::new(path).join("cas");
         Store {
             _keyspace: keyspace,
             partition,
-            cas_path,
+            path,
         }
     }
 
     pub async fn cas_open(&self) -> cacache::Result<cacache::Writer> {
-        cacache::WriteOpts::new().open_hash(&self.cas_path).await
+        cacache::WriteOpts::new()
+            .open_hash(&self.path.join("cas"))
+            .await
     }
 
     pub fn put(&mut self, hash: ssri::Integrity) -> Frame {
