@@ -26,6 +26,8 @@ impl Store {
             .open_partition("main", PartitionCreateOptions::default())
             .unwrap();
         Store {
+            // keep a reference to the keyspace, so we get a fsync when the store is dropped:
+            // https://github.com/fjall-rs/fjall/discussions/44
             _keyspace: keyspace,
             partition,
             path,
