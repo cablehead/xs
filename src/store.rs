@@ -30,7 +30,7 @@ enum Command {
 
 impl Store {
     pub fn spawn(path: PathBuf) -> Store {
-        let config = Config::new(&path);
+        let config = Config::new(&path.join("fjall"));
         let keyspace = config.open().unwrap();
         let partition = keyspace
             .open_partition("main", PartitionCreateOptions::default())
@@ -84,7 +84,7 @@ impl Store {
 
     pub async fn cas_open(&self) -> cacache::Result<cacache::Writer> {
         cacache::WriteOpts::new()
-            .open_hash(&self.path.join("cas"))
+            .open_hash(&self.path.join("cacache"))
             .await
     }
 
