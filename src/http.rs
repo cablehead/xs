@@ -59,9 +59,9 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
 
 async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     eprintln!("req: {:?}", &req);
-    match req.method() {
-        &Method::GET => get(store, req).await,
-        &Method::POST => post(store, req).await,
+    match *req.method() {
+        Method::GET => get(store, req).await,
+        Method::POST => post(store, req).await,
         _ => response_404(),
     }
 }

@@ -30,7 +30,7 @@ enum Command {
 
 impl Store {
     pub fn spawn(path: PathBuf) -> Store {
-        let config = Config::new(&path.join("fjall"));
+        let config = Config::new(path.join("fjall"));
         let keyspace = config.open().unwrap();
         let partition = keyspace
             .open_partition("main", PartitionCreateOptions::default())
