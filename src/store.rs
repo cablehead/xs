@@ -44,38 +44,38 @@ impl Store {
             commands_tx: tx,
         };
 
-        std::thread::spawn(move || {
-            let mut subscribers: Vec<mpsc::Sender<Frame>> = Vec::new();
-            while let Some(command) = rx.blocking_recv() {
-                match command {
-                    Command::Subscribe(sender) => {
-                        subscribers.push(sender);
-                    }
-                    Command::Put(frame) => {
-                        subscribers.retain(|sender| sender.blocking_send(frame.clone()).is_ok());
+        {
+            let store = store.clone();
+            std::thread::spawn(move || {
+                let mut subscribers: Vec<mpsc::Sender<Frame>> = Vec::new();
+                'outer: while let Some(command) = rx.blocking_recv() {
+                    match command {
+                        Command::Subscribe(tx) => {
+                            for record in &store.partition.iter() {
+                                let record = record.unwrap();
+                                let frame: Frame = bincode::deserialize(&record.1).unwrap();
+                                if tx.blocking_send(frame).is_err() {
+                                    // looks like the tx closed, skip adding it to subscribers
+                                    continue 'outer;
+                                }
+                            }
+
+                            subscribers.push(tx);
+                        }
+                        Command::Put(frame) => {
+                            subscribers.retain(|tx| tx.blocking_send(frame.clone()).is_ok());
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
+
         store
     }
 
     pub async fn subscribe(&self) -> mpsc::Receiver<Frame> {
         let (tx, rx) = mpsc::channel::<Frame>(100);
-
-        /*
-        // Load past events and send to the new subscriber
-        let past_events = get_past_events(last_id);
-        for event in past_events {
-            if let Err(_) = tx.send(event).await {
-                eprintln!("Failed to send past event to subscriber");
-                break;
-            }
-        }
-        */
-
         self.commands_tx.send(Command::Subscribe(tx)).await.unwrap(); // our thread went away?
-
         rx
     }
 

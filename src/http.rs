@@ -18,13 +18,6 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 async fn get(_store: Store, _req: Request<hyper::body::Incoming>) -> HTTPResult {
-    /*
-    for record in &store.partition.iter() {
-        let record = record.unwrap();
-        let decoded: Frame = bincode::deserialize(&record.1).unwrap();
-    }
-    */
-
     let preview = "hai".to_string();
     Ok(Response::builder()
         .status(StatusCode::OK)
