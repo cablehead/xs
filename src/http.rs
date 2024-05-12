@@ -2,9 +2,13 @@ use std::error::Error;
 
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
+
 // needed to convert async-std AsyncWrite to a tokio AsyncWrite
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
 
+use http_body_util::StreamBody;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
@@ -17,12 +21,17 @@ use crate::store::Store;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-async fn get(_store: Store, _req: Request<hyper::body::Incoming>) -> HTTPResult {
-    let preview = "hai".to_string();
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "text/html")
-        .body(full(preview))?)
+async fn get(store: Store, _req: Request<hyper::body::Incoming>) -> HTTPResult {
+    let rx = store.subscribe().await;
+    let stream = ReceiverStream::new(rx);
+    let stream = stream.map(|frame| {
+        eprintln!("streaming");
+        let mut encoded = serde_json::to_vec(&frame).unwrap();
+        encoded.push(b'\n');
+        Ok(hyper::body::Frame::data(bytes::Bytes::from(encoded)))
+    });
+    let body = StreamBody::new(stream).boxed();
+    Ok(Response::new(body))
 }
 
 async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {

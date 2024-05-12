@@ -22,6 +22,7 @@ pub struct Store {
     commands_tx: mpsc::Sender<Command>,
 }
 
+#[derive(Debug)]
 enum Command {
     Subscribe(mpsc::Sender<Frame>),
     Put(Frame),
@@ -49,9 +50,11 @@ impl Store {
             std::thread::spawn(move || {
                 let mut subscribers: Vec<mpsc::Sender<Frame>> = Vec::new();
                 'outer: while let Some(command) = rx.blocking_recv() {
+                    eprintln!("command: {:?}", &command);
                     match command {
                         Command::Subscribe(tx) => {
                             for record in &store.partition.iter() {
+                                eprintln!("record: {:?}", &record);
                                 let record = record.unwrap();
                                 let frame: Frame = bincode::deserialize(&record.1).unwrap();
                                 if tx.blocking_send(frame).is_err() {
