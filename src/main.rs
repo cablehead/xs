@@ -17,6 +17,6 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
-    let store = Store::new(args.path);
+    let store = Store::spawn(args.path);
     http::serve(store).await
 }
