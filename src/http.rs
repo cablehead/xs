@@ -35,7 +35,7 @@ async fn get(store: Store, _req: Request<hyper::body::Incoming>) -> HTTPResult {
 }
 
 async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    let mut body = req.into_body();
+    let (parts, mut body) = req.into_parts();
 
     let writer = store.cas_open().await?;
 
@@ -49,7 +49,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     let writer = writer.into_inner();
 
     let hash = writer.commit().await?;
-    let frame = store.put(hash).await;
+    let frame = store.append("".to_string(), Some(hash)).await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

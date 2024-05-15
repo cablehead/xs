@@ -19,4 +19,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     let store = Store::spawn(args.path);
     http::serve(store).await
+    // TODO: graceful shutdown
 }

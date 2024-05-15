@@ -9,7 +9,8 @@ use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct Frame {
     pub id: scru128::Scru128Id,
-    pub hash: ssri::Integrity,
+    pub topic: String,
+    pub hash: Option<ssri::Integrity>,
 }
 
 #[derive(Clone)]
@@ -88,9 +89,10 @@ impl Store {
             .await
     }
 
-    pub async fn put(&mut self, hash: ssri::Integrity) -> Frame {
+    pub async fn append(&mut self, topic: String, hash: Option<ssri::Integrity>) -> Frame {
         let frame = Frame {
             id: scru128::new(),
+            topic,
             hash,
         };
         let encoded: Vec<u8> = bincode::serialize(&frame).unwrap();
