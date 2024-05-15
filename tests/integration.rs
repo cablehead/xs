@@ -27,7 +27,19 @@ async fn test_integration() {
         .expect("Failed to run date | curl command");
 
     let frame: Frame = serde_json::from_str(&output).expect("Failed to parse JSON into Frame");
-    println!("{:?}", frame.hash.unwrap().to_string());
+    let output = cmd!(
+        "sh",
+        "-c",
+        format!(
+            "curl -v --unix-socket {}/sock 'localhost/cas/{}'",
+            temp_dir.path().display(),
+            frame.hash.unwrap().to_string(),
+        )
+    )
+    .read()
+    .expect("Failed to run date | curl command");
+
+    eprintln!("output: {:?}", &output);
 
     // Clean up
     let _ = cli_process.kill();

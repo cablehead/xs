@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use tokio::io::AsyncWriteExt;
@@ -16,24 +17,47 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
+use path_tree::PathTree;
+
 use crate::store::Store;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    let uri = req.uri();
+enum Routes {
+    Root,
+    CasGet,
+}
 
-    let rx = store.subscribe().await;
-    let stream = ReceiverStream::new(rx);
-    let stream = stream.map(|frame| {
-        eprintln!("streaming");
-        let mut encoded = serde_json::to_vec(&frame).unwrap();
-        encoded.push(b'\n');
-        Ok(hyper::body::Frame::data(bytes::Bytes::from(encoded)))
-    });
-    let body = StreamBody::new(stream).boxed();
-    Ok(Response::new(body))
+async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
+    let mut tree = PathTree::new();
+    let _ = tree.insert("/", Routes::Root);
+    let _ = tree.insert("/cas/:hash+", Routes::CasGet);
+
+    eprintln!("path: {:?}", req.uri().path());
+
+    match tree.find(req.uri().path()) {
+        Some((h, p)) => match h {
+            Routes::Root => {
+                let rx = store.subscribe().await;
+                let stream = ReceiverStream::new(rx);
+                let stream = stream.map(|frame| {
+                    eprintln!("streaming");
+                    let mut encoded = serde_json::to_vec(&frame).unwrap();
+                    encoded.push(b'\n');
+                    Ok(hyper::body::Frame::data(bytes::Bytes::from(encoded)))
+                });
+                let body = StreamBody::new(stream).boxed();
+                Ok(Response::new(body))
+            }
+
+            Routes::CasGet => Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .body(full("let's go"))?),
+        },
+        None => response_404(),
+    }
 }
 
 async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
