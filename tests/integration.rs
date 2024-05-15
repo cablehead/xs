@@ -5,6 +5,8 @@ use assert_cmd::cargo::cargo_bin;
 use duct::cmd;
 use tempfile::TempDir;
 
+use xs::store::Frame;
+
 #[tokio::test]
 async fn test_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -18,14 +20,16 @@ async fn test_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let output = cmd!("sh", "-c", format!(
-        "date | curl -v -X POST -T - --unix-socket {}/sock 'localhost/stream/cross/pasteboard?foo=bar'",
+        "echo 123 | curl -v -X POST -T - --unix-socket {}/sock 'localhost/stream/cross/pasteboard?foo=bar'",
         temp_dir.path().display()
     ))
-        .stderr_to_stdout()
         .read()
         .expect("Failed to run date | curl command");
 
-    println!("{}", output);
+
+    let frame: Frame = serde_json::from_str(&output).expect("Failed to parse JSON into Frame");
+     println!("{:?}", frame);
+
 
     // Clean up
     let _ = cli_process.kill();

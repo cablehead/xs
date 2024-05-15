@@ -2,10 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-mod http;
-mod store;
-
-use crate::store::Store;
+use xs::store::Store;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -18,6 +15,6 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     let store = Store::spawn(args.path);
-    http::serve(store).await
+    xs::http::serve(store).await
     // TODO: graceful shutdown
 }

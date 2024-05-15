@@ -3,6 +3,12 @@ name = "xs"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "xs"
+
+[[bin]]
+name = "xs"
+
 [dependencies]
 async-std = "1.12.0"
 bincode = "1.3.3"

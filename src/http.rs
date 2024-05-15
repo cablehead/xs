@@ -21,7 +21,9 @@ use crate::store::Store;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-async fn get(store: Store, _req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
+    let uri = req.uri();
+
     let rx = store.subscribe().await;
     let stream = ReceiverStream::new(rx);
     let stream = stream.map(|frame| {
