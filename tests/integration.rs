@@ -18,7 +18,7 @@ async fn test_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let output = cmd!("sh", "-c", format!(
-        "date | curl -v --data-binary @- --unix-socket {}/sock 'localhost/stream.cross.pasteboard?foo=bar'",
+        "date | curl -v -X POST -T - --unix-socket {}/sock 'localhost/stream/cross/pasteboard?foo=bar'",
         temp_dir.path().display()
     ))
         .stderr_to_stdout()
