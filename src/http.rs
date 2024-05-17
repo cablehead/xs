@@ -63,6 +63,7 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
+            // convert reader from async-std -> tokio
             let reader = reader.compat();
             let stream = ReaderStream::new(reader);
 
