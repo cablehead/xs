@@ -650,9 +650,9 @@ checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
 
 [[package]]
 name = "fjall"
-version = "0.8.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab3800c3477b7301a74bd5dd737fa09500ff84c9c6b6b42c00a9ec0f740d80b9"
+checksum = "a653a1036106d670d6d3adf23dae5f5d7601cf79f95763d5061b4e6c59fdcde0"
 dependencies = [
  "byteorder",
  "crc32fast",
@@ -837,12 +837,6 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "guardian"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6817154789d2e9bb2af0486500e774af579d0e6539247044f06d803b141448b5"
 
 [[package]]
 name = "h2"
@@ -1073,19 +1067,19 @@ dependencies = [
 
 [[package]]
 name = "lsm-tree"
-version = "0.8.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b5e735ab24ba81565aadd8c7a84be7e9df500db4af619bce79e20a036bc8f2d"
+checksum = "671d16472d743c7230d78afc2e0aaba86c2783ff72e1babcabc49f408e7f789f"
 dependencies = [
  "byteorder",
  "crc32fast",
  "crossbeam-skiplist",
  "double-ended-peekable",
- "guardian",
  "log",
  "lz4_flex",
  "path-absolutize",
  "quick_cache",
+ "self_cell",
  "tempfile",
 ]
 
@@ -1494,6 +1488,12 @@ dependencies = [
  "rand_chacha",
  "serde",
 ]
+
+[[package]]
+name = "self_cell"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d369a96f978623eb3dc28807c4852d6cc617fed53da5d3c400feff1ef34a714a"
 
 [[package]]
 name = "serde"

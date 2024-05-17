@@ -54,7 +54,7 @@ impl Store {
                     eprintln!("command: {:?}", &command);
                     match command {
                         Command::Subscribe(tx) => {
-                            for record in &store.partition.iter() {
+                            for record in store.partition.iter() {
                                 eprintln!("record: {:?}", &record);
                                 let record = record.unwrap();
                                 let frame: Frame = bincode::deserialize(&record.1).unwrap();
