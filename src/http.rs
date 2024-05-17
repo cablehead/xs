@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::error::Error;
+use std::str::FromStr;
 
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
@@ -17,8 +17,6 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use path_tree::PathTree;
-
 use crate::store::Store;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -26,37 +24,48 @@ type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 enum Routes {
     Root,
-    CasGet,
+    CasGet(ssri::Integrity),
+    NotFound,
+}
+
+fn match_route(path: &str) -> Routes {
+    match path {
+        "/" => Routes::Root,
+        p if p.starts_with("/cas/") => {
+            if let Some(hash) = p.strip_prefix("/cas/") {
+                if let Ok(integrity) = ssri::Integrity::from_str(hash) {
+                    return Routes::CasGet(integrity);
+                }
+            }
+
+            Routes::NotFound
+        }
+        _ => Routes::NotFound,
+    }
 }
 
 async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    let mut tree = PathTree::new();
-    let _ = tree.insert("/", Routes::Root);
-    let _ = tree.insert("/cas/:hash+", Routes::CasGet);
-
     eprintln!("path: {:?}", req.uri().path());
+    match match_route(req.uri().path()) {
+        Routes::Root => {
+            let rx = store.subscribe().await;
+            let stream = ReceiverStream::new(rx);
+            let stream = stream.map(|frame| {
+                eprintln!("streaming");
+                let mut encoded = serde_json::to_vec(&frame).unwrap();
+                encoded.push(b'\n');
+                Ok(hyper::body::Frame::data(bytes::Bytes::from(encoded)))
+            });
+            let body = StreamBody::new(stream).boxed();
+            Ok(Response::new(body))
+        }
 
-    match tree.find(req.uri().path()) {
-        Some((h, p)) => match h {
-            Routes::Root => {
-                let rx = store.subscribe().await;
-                let stream = ReceiverStream::new(rx);
-                let stream = stream.map(|frame| {
-                    eprintln!("streaming");
-                    let mut encoded = serde_json::to_vec(&frame).unwrap();
-                    encoded.push(b'\n');
-                    Ok(hyper::body::Frame::data(bytes::Bytes::from(encoded)))
-                });
-                let body = StreamBody::new(stream).boxed();
-                Ok(Response::new(body))
-            }
+        Routes::CasGet(hash) => Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/json")
+            .body(full(format!("let's go: {:?}", &hash)))?),
 
-            Routes::CasGet => Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "application/json")
-                .body(full("let's go"))?),
-        },
-        None => response_404(),
+        Routes::NotFound => response_404(),
     }
 }
 

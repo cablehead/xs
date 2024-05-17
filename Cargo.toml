@@ -19,7 +19,6 @@ fjall = "0.8"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
-path-tree = "0.7.7"
 scru128 = { version = "3", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
