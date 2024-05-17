@@ -39,7 +39,7 @@ async fn test_integration() {
     .read()
     .expect("Failed to run date | curl command");
 
-    eprintln!("output: {:?}", &output);
+    assert_eq!("123", &output);
 
     // Clean up
     let _ = cli_process.kill();

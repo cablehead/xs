@@ -83,7 +83,11 @@ impl Store {
         rx
     }
 
-    pub async fn cas_open(&self) -> cacache::Result<cacache::Writer> {
+    pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
+        cacache::Reader::open_hash(&self.path.join("cacache"), hash).await
+    }
+
+    pub async fn cas_writer(&self) -> cacache::Result<cacache::Writer> {
         cacache::WriteOpts::new()
             .open_hash(&self.path.join("cacache"))
             .await

@@ -5,9 +5,10 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
+use tokio_util::io::ReaderStream;
 
-// needed to convert async-std AsyncWrite to a tokio AsyncWrite
-use tokio_util::compat::FuturesAsyncWriteCompatExt;
+// needed to convert async-std AsyncRead/Write to a tokio AsyncRead/Write
+use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 use http_body_util::StreamBody;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
@@ -60,12 +61,19 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
             Ok(Response::new(body))
         }
 
-        Routes::CasGet(hash) => Ok(Response::builder()
-            .status(StatusCode::OK)
-            // todo content-type
-            // i think this means ingest content should require a content-type and / or mime-type
-            // .header("Content-Type", "application/json")
-            .body(full(format!("let's go: {:?}", &hash)))?),
+        Routes::CasGet(hash) => {
+            let reader = store.cas_reader(hash).await?;
+            let reader = reader.compat();
+            let stream = ReaderStream::new(reader);
+
+            let stream = stream.map(|frame| {
+                let frame = frame.unwrap();
+                Ok(hyper::body::Frame::data(frame))
+            });
+
+            let body = StreamBody::new(stream).boxed();
+            Ok(Response::new(body))
+        }
 
         Routes::NotFound => response_404(),
     }
@@ -76,7 +84,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     eprintln!("parts: {:?}", &parts);
     eprintln!("uri: {:?}", &parts.uri.path());
 
-    let writer = store.cas_open().await?;
+    let writer = store.cas_writer().await?;
 
     // convert writer from async-std -> tokio
     let mut writer = writer.compat_write();
