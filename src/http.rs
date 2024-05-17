@@ -62,7 +62,9 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
 
         Routes::CasGet(hash) => Ok(Response::builder()
             .status(StatusCode::OK)
-            .header("Content-Type", "application/json")
+            // todo content-type
+            // i think this means ingest content should require a content-type and / or mime-type
+            // .header("Content-Type", "application/json")
             .body(full(format!("let's go: {:?}", &hash)))?),
 
         Routes::NotFound => response_404(),
