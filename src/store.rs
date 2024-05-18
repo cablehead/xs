@@ -218,7 +218,7 @@ mod tests_read_options {
                 },
             },
             TestCase {
-                input: Some("follow=true&last_id=123"),
+                input: Some("follow&last_id=123"),
                 expected: ReadOptions {
                     follow: true,
                     last_id: Some(String::from("123")),
