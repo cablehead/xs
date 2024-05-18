@@ -4,17 +4,32 @@ alias and-then = if ($in | is-not-empty)
 alias ? = if ($in | is-not-empty) { $in }
 alias ?? = ? else { return }
 
-def h. [
+def build-query [params] {
+    $params | columns | each { |x|
+        let value = ($params | get $x)
+        match ( $value | describe ) {
+            "string" => $"($x)=($value)",
+            "bool" => (if $value { $x }),
+        }
+    } | and-then { $"?($in | str join "&")" }
+}
+
+export def h. [
     path: string
     --last-id: string
+    --follow
 ] {
-    let query = ( $last_id | and-then { $"?( {last_id: $last_id} | url build-query)" }  )
+    let query = ( build-query { "last-id": $last_id, follow: $follow } )
     let url = $"localhost($path)($query)"
+    print $url
     curl -sN --unix-socket ./store/sock $url | lines | each { from json }
 }
 
-h. / --last-id "foo"
 
-# let clip = ( h. / | first )
-# $clip.hash
-# h. $"/cas/($clip.hash)"
+def main [] {
+    # let clip = ( h. / | first )
+    # $clip.hash
+    # h. $"/cas/($clip.hash)"
+    print ( h. / )
+    print ( h. / --last-id "123" --follow)
+}
