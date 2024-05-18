@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use scru128::Scru128Id;
+
 use serde::{Deserialize, Serialize};
 
 use tokio::sync::mpsc;
@@ -8,7 +10,7 @@ use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct Frame {
-    pub id: scru128::Scru128Id,
+    pub id: Scru128Id,
     pub topic: String,
     pub hash: Option<ssri::Integrity>,
 }
@@ -40,7 +42,7 @@ where
 pub struct ReadOptions {
     #[serde(default, deserialize_with = "deserialize_bool")]
     pub follow: bool,
-    pub last_id: Option<String>,
+    pub last_id: Option<Scru128Id>,
 }
 
 impl ReadOptions {
@@ -211,17 +213,17 @@ mod tests_read_options {
                 },
             },
             TestCase {
-                input: Some("last_id=123"),
+                input: Some("last_id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
                     follow: false,
-                    last_id: Some(String::from("123")),
+                    last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
                 },
             },
             TestCase {
-                input: Some("follow&last_id=123"),
+                input: Some("follow&last_id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
                     follow: true,
-                    last_id: Some(String::from("123")),
+                    last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
                 },
             },
         ];
