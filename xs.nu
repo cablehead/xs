@@ -14,16 +14,22 @@ def build-query [params] {
     } | and-then { $"?($in | str join "&")" }
 }
 
-export def h. [
+export def cat [
     store: string
-    path: string
     --last-id: string
     --follow
 ] {
+    let path = "/"
     let query = ( build-query { "last-id": $last_id, follow: $follow } )
     let url = $"localhost($path)($query)"
-    print $url
     curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
+}
+
+export def cas [
+    store: string
+    hash: string
+] {
+    curl -sN --unix-socket $"($store)/sock" $"localhost/cas/($hash)"
 }
 
 
@@ -31,6 +37,6 @@ def main [] {
     # let clip = ( h. / | first )
     # $clip.hash
     # h. $"/cas/($clip.hash)"
-    print ( h. ./store / )
-    print ( h. ./store / --last-id "123" --follow)
+    print ( cat ./store )
+    print ( cat ./store --last-id "123" --follow)
 }
