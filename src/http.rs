@@ -46,12 +46,15 @@ fn match_route(path: &str) -> Routes {
 }
 
 async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    eprintln!("path: {:?}", req.uri().path());
+    eprintln!("uri: {:?}", req.uri());
     match match_route(req.uri().path()) {
         Routes::Root => {
-            let rx = store
-                .subscribe(ReadOptions::from_query(req.uri().query()))
-                .await;
+            let options = match ReadOptions::from_query(req.uri().query()) {
+                Ok(opts) => opts,
+                Err(err) => return response_400(err),
+            };
+
+            let rx = store.subscribe(options).await;
             let stream = ReceiverStream::new(rx);
             let stream = stream.map(|frame| {
                 eprintln!("streaming");
@@ -148,6 +151,13 @@ fn response_404() -> HTTPResult {
     Ok(Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(empty())?)
+}
+
+fn response_400<E: std::error::Error>(err: E) -> HTTPResult {
+    let body = full(err.to_string());
+    Ok(Response::builder()
+        .status(StatusCode::BAD_REQUEST)
+        .body(body)?)
 }
 
 fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, BoxError> {

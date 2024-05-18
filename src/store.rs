@@ -38,18 +38,19 @@ where
     }
 }
 
-#[derive(PartialEq, Deserialize, Debug, Default)]
+#[derive(PartialEq, Deserialize, Clone, Debug, Default)]
 pub struct ReadOptions {
     #[serde(default, deserialize_with = "deserialize_bool")]
     pub follow: bool,
+    #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
 }
 
 impl ReadOptions {
-    pub fn from_query(query: Option<&str>) -> Self {
+    pub fn from_query(query: Option<&str>) -> Result<Self, serde_urlencoded::de::Error> {
         match query {
-            Some(q) => serde_urlencoded::from_str(q).unwrap(),
-            None => Self::default(),
+            Some(q) => serde_urlencoded::from_str(q),
+            None => Ok(Self::default()),
         }
     }
 }
@@ -213,14 +214,14 @@ mod tests_read_options {
                 },
             },
             TestCase {
-                input: Some("last_id=03BIDZVKNOTGJPVUEW3K23G45"),
+                input: Some("last-id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
                     follow: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
                 },
             },
             TestCase {
-                input: Some("follow&last_id=03BIDZVKNOTGJPVUEW3K23G45"),
+                input: Some("follow&last-id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
                     follow: true,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
@@ -230,7 +231,9 @@ mod tests_read_options {
 
         for case in &test_cases {
             let options = ReadOptions::from_query(case.input);
-            assert_eq!(options, case.expected);
+            assert_eq!(options, Ok(case.expected.clone()));
         }
+
+        assert!(ReadOptions::from_query(Some("last-id=123")).is_err());
     }
 }
