@@ -49,7 +49,9 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     eprintln!("path: {:?}", req.uri().path());
     match match_route(req.uri().path()) {
         Routes::Root => {
-            let rx = store.subscribe(ReadOptions { follow: false }).await;
+            let rx = store
+                .subscribe(ReadOptions::from_query(req.uri().query()))
+                .await;
             let stream = ReceiverStream::new(rx);
             let stream = stream.map(|frame| {
                 eprintln!("streaming");

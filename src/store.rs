@@ -23,9 +23,33 @@ pub struct Store {
     commands_tx: mpsc::Sender<Command>,
 }
 
-#[derive(Debug)]
+use serde::Deserializer;
+
+fn deserialize_follow<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    match s.as_str() {
+        "false" | "no" | "0" => Ok(false),
+        _ => Ok(true),
+    }
+}
+
+#[derive(Deserialize, Debug, Default)]
 pub struct ReadOptions {
+    #[serde(default, deserialize_with = "deserialize_follow")]
     pub follow: bool,
+    pub last_id: Option<String>,
+}
+
+impl ReadOptions {
+    pub fn from_query(query: Option<&str>) -> Self {
+        match query {
+            Some(q) => serde_urlencoded::from_str(q).unwrap(),
+            None => Self::default(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -128,5 +152,20 @@ mod tests {
     #[test]
     fn store_send_sync() {
         assert_impl_all!(Store: Send, Sync);
+    }
+}
+
+#[cfg(test)]
+mod tests_read_options {
+    use super::*;
+
+    #[test]
+    fn test_from_query() {
+        assert_eq!(ReadOptions::from_query(None).follow, false);
+        assert_eq!(ReadOptions::from_query(Some("foo=bar")).follow, false);
+        assert_eq!(ReadOptions::from_query(Some("follow")).follow, true);
+        assert_eq!(ReadOptions::from_query(Some("follow=1")).follow, true);
+        assert_eq!(ReadOptions::from_query(Some("follow=yes")).follow, true);
+        assert_eq!(ReadOptions::from_query(Some("follow=true")).follow, true);
     }
 }

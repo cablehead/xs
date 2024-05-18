@@ -1,11 +1,20 @@
-#!/usr/bin/env -S nu --stdin
+#!/usr/bin/env -S nu
 
-def h. [path: string] {
-    curl -sN --unix-socket ./store/sock $"'localhost($path)'" | lines | each { from json }
+alias and-then = if ($in | is-not-empty)
+alias ? = if ($in | is-not-empty) { $in }
+alias ?? = ? else { return }
+
+def h. [
+    path: string
+    --last-id: string
+] {
+    let query = ( $last_id | and-then { $"?( {last_id: $last_id} | url build-query)" }  )
+    let url = $"localhost($path)($query)"
+    curl -sN --unix-socket ./store/sock $url | lines | each { from json }
 }
 
-let clip = ( h. / | first )
+h. / --last-id "foo"
 
-$clip.hash
-
-h. $"/cas/($clip.hash)"
+# let clip = ( h. / | first )
+# $clip.hash
+# h. $"/cas/($clip.hash)"
