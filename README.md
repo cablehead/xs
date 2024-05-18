@@ -12,6 +12,7 @@ Built with:
 - [cacache](https://github.com/zkat/cacache-rs): for content (CAS)
 - [hyper](https://hyper.rs/guides/1/server/echo/): provides an HTTP/1.1 API
   over a local Unix domain socket for subscriptions, etc.
+- [nushell](https://www.nushell.sh): for scripting and [interop](https://utopia.rosano.ca/interoperable-visions/)
 
 ## desired features
 
