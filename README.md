@@ -4,7 +4,7 @@ An event stream store for personal, local-first use. Think
 [SQLite](https://www.sqlite.org), but specializing in the [event
 sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
-![screenshot](./docs/screenshots/screenshot.png)
+![screenshot](./docs/screenshot.png)
 
 Built with:
 
