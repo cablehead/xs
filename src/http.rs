@@ -18,7 +18,7 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use crate::store::Store;
+use crate::store::{ReadOptions, Store};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -49,7 +49,7 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     eprintln!("path: {:?}", req.uri().path());
     match match_route(req.uri().path()) {
         Routes::Root => {
-            let rx = store.subscribe().await;
+            let rx = store.subscribe(ReadOptions { follow: false }).await;
             let stream = ReceiverStream::new(rx);
             let stream = stream.map(|frame| {
                 eprintln!("streaming");

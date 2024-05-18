@@ -24,9 +24,14 @@ pub struct Store {
 }
 
 #[derive(Debug)]
+pub struct ReadOptions {
+    pub follow: bool,
+}
+
+#[derive(Debug)]
 enum Command {
-    Subscribe(mpsc::Sender<Frame>),
-    Put(Frame),
+    Read(mpsc::Sender<Frame>, ReadOptions),
+    Append(Frame),
 }
 
 impl Store {
@@ -53,7 +58,7 @@ impl Store {
                 'outer: while let Some(command) = rx.blocking_recv() {
                     eprintln!("command: {:?}", &command);
                     match command {
-                        Command::Subscribe(tx) => {
+                        Command::Read(tx, options) => {
                             for record in store.partition.iter() {
                                 eprintln!("record: {:?}", &record);
                                 let record = record.unwrap();
@@ -63,10 +68,11 @@ impl Store {
                                     continue 'outer;
                                 }
                             }
-
-                            subscribers.push(tx);
+                            if options.follow {
+                                subscribers.push(tx);
+                            }
                         }
-                        Command::Put(frame) => {
+                        Command::Append(frame) => {
                             subscribers.retain(|tx| tx.blocking_send(frame.clone()).is_ok());
                         }
                     }
@@ -77,9 +83,12 @@ impl Store {
         store
     }
 
-    pub async fn subscribe(&self) -> mpsc::Receiver<Frame> {
+    pub async fn subscribe(&self, options: ReadOptions) -> mpsc::Receiver<Frame> {
         let (tx, rx) = mpsc::channel::<Frame>(100);
-        self.commands_tx.send(Command::Subscribe(tx)).await.unwrap(); // our thread went away?
+        self.commands_tx
+            .send(Command::Read(tx, options))
+            .await
+            .unwrap(); // our thread went away?
         rx
     }
 
@@ -103,7 +112,7 @@ impl Store {
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
 
         self.commands_tx
-            .send(Command::Put(frame.clone()))
+            .send(Command::Append(frame.clone()))
             .await
             .unwrap(); // our thread went away?
 
