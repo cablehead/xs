@@ -102,7 +102,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     let writer = writer.into_inner();
 
     let hash = writer.commit().await?;
-    let frame = store.append(parts.uri.path().to_string(), Some(hash)).await;
+    let frame = store.append(parts.uri.path(), Some(hash)).await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

@@ -1,3 +1,4 @@
+use std::ops::Bound;
 use std::path::PathBuf;
 
 use scru128::Scru128Id;
@@ -83,11 +84,16 @@ impl Store {
             std::thread::spawn(move || {
                 let mut subscribers: Vec<mpsc::Sender<Frame>> = Vec::new();
                 'outer: while let Some(command) = rx.blocking_recv() {
-                    eprintln!("command: {:?}", &command);
                     match command {
                         Command::Read(tx, options) => {
-                            for record in store.partition.iter() {
-                                eprintln!("record: {:?}", &record);
+                            let range = match &options.last_id {
+                                Some(last_id) => (
+                                    Bound::Excluded(last_id.to_bytes()),
+                                    Bound::<[u8; 16]>::Unbounded,
+                                ),
+                                None => (Bound::Unbounded, Bound::Unbounded),
+                            };
+                            for record in store.partition.range(range) {
                                 let record = record.unwrap();
                                 let frame: Frame = bincode::deserialize(&record.1).unwrap();
                                 if tx.blocking_send(frame).is_err() {
@@ -129,10 +135,10 @@ impl Store {
             .await
     }
 
-    pub async fn append(&mut self, topic: String, hash: Option<ssri::Integrity>) -> Frame {
+    pub async fn append(&mut self, topic: &str, hash: Option<ssri::Integrity>) -> Frame {
         let frame = Frame {
             id: scru128::new(),
-            topic,
+            topic: topic.to_string(),
             hash,
         };
         let encoded: Vec<u8> = bincode::serialize(&frame).unwrap();
@@ -242,10 +248,35 @@ mod tests_read_options {
 mod tests_store {
     use super::*;
     use tempfile::TempDir;
+    use tokio_stream::StreamExt;
 
     #[tokio::test]
     async fn test_basics() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::spawn(temp_dir.into_path());
+        let mut store = Store::spawn(temp_dir.into_path());
+
+        let f1 = store.append("/stream", None).await;
+        let f2 = store.append("/stream", None).await;
+
+        let recver = store.read(ReadOptions::default()).await;
+        assert_eq!(
+            tokio_stream::wrappers::ReceiverStream::new(recver)
+                .collect::<Vec<Frame>>()
+                .await,
+            vec![f1.clone(), f2.clone()]
+        );
+
+        let recver = store
+            .read(ReadOptions {
+                follow: false,
+                last_id: Some(f1.id),
+            })
+            .await;
+        assert_eq!(
+            tokio_stream::wrappers::ReceiverStream::new(recver)
+                .collect::<Vec<Frame>>()
+                .await,
+            vec![f2]
+        );
     }
 }
