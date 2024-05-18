@@ -1,14 +1,23 @@
 # xs
 
-- [fjall](https://github.com/fjall-rs/fjall) index + [cacache](https://github.com/zkat/cacache-rs) CAS, a server runs over a local unix domain socket to
-  provide coordination
-- client protocol is [hyper](https://hyper.rs/guides/1/server/echo/): http1.1 only
+An event stream store for personal, local-first use. Think
+[SQLite](https://www.sqlite.org), but specializing in the [event
+sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
-## notes
+![screenshot](./docs/screenshots/screenshot.png)
 
-- put, cat / tail [reverse], get, last, first, next, previous
-- want ephemeral events
-- as well as the event stream: a basic k/v store to manage cursors + materialized views
+Built with:
+
+- [fjall](https://github.com/fjall-rs/fjall): for indexing and metadata
+- [cacache](https://github.com/zkat/cacache-rs): for content (CAS)
+- [hyper](https://hyper.rs/guides/1/server/echo/): provides an HTTP/1.1 API
+  over a local Unix domain socket for subscriptions, etc.
+
+## desired features
+
+- event stream: append, cat / tail [reverse], get, last, first, next, previous
+- ephemeral events
+- as well as the event stream: a k/v store fo cursors and materialized views
 - ability to subscribe to updates
     - to both events
     - and materialized views
