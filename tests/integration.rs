@@ -37,7 +37,7 @@ async fn test_integration() {
         )
     )
     .read()
-    .expect("Failed to run date | curl command");
+    .unwrap();
 
     assert_eq!("123", &output);
 

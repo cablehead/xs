@@ -54,7 +54,7 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
                 Err(err) => return response_400(err),
             };
 
-            let rx = store.subscribe(options).await;
+            let rx = store.read(options).await;
             let stream = ReceiverStream::new(rx);
             let stream = stream.map(|frame| {
                 eprintln!("streaming");

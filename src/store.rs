@@ -110,7 +110,7 @@ impl Store {
         store
     }
 
-    pub async fn subscribe(&self, options: ReadOptions) -> mpsc::Receiver<Frame> {
+    pub async fn read(&self, options: ReadOptions) -> mpsc::Receiver<Frame> {
         let (tx, rx) = mpsc::channel::<Frame>(100);
         self.commands_tx
             .send(Command::Read(tx, options))
@@ -153,7 +153,7 @@ mod tests {
     use static_assertions::assert_impl_all;
 
     #[test]
-    fn store_send_sync() {
+    fn test_store_is_send_sync() {
         assert_impl_all!(Store: Send, Sync);
     }
 }
@@ -235,5 +235,17 @@ mod tests_read_options {
         }
 
         assert!(ReadOptions::from_query(Some("last-id=123")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod tests_store {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_basics() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::spawn(temp_dir.into_path());
     }
 }
