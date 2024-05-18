@@ -25,7 +25,7 @@ pub struct Store {
 
 use serde::Deserializer;
 
-fn deserialize_follow<'de, D>(deserializer: D) -> Result<bool, D::Error>
+fn deserialize_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -36,9 +36,9 @@ where
     }
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(PartialEq, Deserialize, Debug, Default)]
 pub struct ReadOptions {
-    #[serde(default, deserialize_with = "deserialize_follow")]
+    #[serde(default, deserialize_with = "deserialize_bool")]
     pub follow: bool,
     pub last_id: Option<String>,
 }
@@ -159,13 +159,76 @@ mod tests {
 mod tests_read_options {
     use super::*;
 
+    #[derive(Debug)]
+    struct TestCase<'a> {
+        input: Option<&'a str>,
+        expected: ReadOptions,
+    }
+
     #[test]
     fn test_from_query() {
-        assert_eq!(ReadOptions::from_query(None).follow, false);
-        assert_eq!(ReadOptions::from_query(Some("foo=bar")).follow, false);
-        assert_eq!(ReadOptions::from_query(Some("follow")).follow, true);
-        assert_eq!(ReadOptions::from_query(Some("follow=1")).follow, true);
-        assert_eq!(ReadOptions::from_query(Some("follow=yes")).follow, true);
-        assert_eq!(ReadOptions::from_query(Some("follow=true")).follow, true);
+        let test_cases = [
+            TestCase {
+                input: None,
+                expected: ReadOptions {
+                    follow: false,
+                    last_id: None,
+                },
+            },
+            TestCase {
+                input: Some("foo=bar"),
+                expected: ReadOptions {
+                    follow: false,
+                    last_id: None,
+                },
+            },
+            TestCase {
+                input: Some("follow"),
+                expected: ReadOptions {
+                    follow: true,
+                    last_id: None,
+                },
+            },
+            TestCase {
+                input: Some("follow=1"),
+                expected: ReadOptions {
+                    follow: true,
+                    last_id: None,
+                },
+            },
+            TestCase {
+                input: Some("follow=yes"),
+                expected: ReadOptions {
+                    follow: true,
+                    last_id: None,
+                },
+            },
+            TestCase {
+                input: Some("follow=true"),
+                expected: ReadOptions {
+                    follow: true,
+                    last_id: None,
+                },
+            },
+            TestCase {
+                input: Some("last_id=123"),
+                expected: ReadOptions {
+                    follow: false,
+                    last_id: Some(String::from("123")),
+                },
+            },
+            TestCase {
+                input: Some("follow=true&last_id=123"),
+                expected: ReadOptions {
+                    follow: true,
+                    last_id: Some(String::from("123")),
+                },
+            },
+        ];
+
+        for case in &test_cases {
+            let options = ReadOptions::from_query(case.input.map(String::from).as_deref());
+            assert_eq!(options, case.expected);
+        }
     }
 }
