@@ -227,7 +227,7 @@ mod tests_read_options {
         ];
 
         for case in &test_cases {
-            let options = ReadOptions::from_query(case.input.map(String::from).as_deref());
+            let options = ReadOptions::from_query(case.input);
             assert_eq!(options, case.expected);
         }
     }
