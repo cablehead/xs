@@ -20,7 +20,7 @@ async fn test_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let output = cmd!("sh", "-c", format!(
-        "echo 123 | curl -v -X POST -T - --unix-socket {}/sock 'localhost/stream/cross/pasteboard?foo=bar'",
+        "echo 123 | curl -s -X POST -T - --unix-socket {}/sock 'localhost/stream/cross/pasteboard?foo=bar'",
         temp_dir.path().display()
     ))
         .read()
@@ -31,7 +31,7 @@ async fn test_integration() {
         "sh",
         "-c",
         format!(
-            "curl -v --unix-socket {}/sock 'localhost/cas/{}'",
+            "curl -s --unix-socket {}/sock 'localhost/cas/{}'",
             temp_dir.path().display(),
             frame.hash.unwrap().to_string(),
         )
