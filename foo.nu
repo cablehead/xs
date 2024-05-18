@@ -15,6 +15,7 @@ def build-query [params] {
 }
 
 export def h. [
+    store: string
     path: string
     --last-id: string
     --follow
@@ -22,7 +23,7 @@ export def h. [
     let query = ( build-query { "last-id": $last_id, follow: $follow } )
     let url = $"localhost($path)($query)"
     print $url
-    curl -sN --unix-socket ./store/sock $url | lines | each { from json }
+    curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
 }
 
 
@@ -30,6 +31,6 @@ def main [] {
     # let clip = ( h. / | first )
     # $clip.hash
     # h. $"/cas/($clip.hash)"
-    print ( h. / )
-    print ( h. / --last-id "123" --follow)
+    print ( h. ./store / )
+    print ( h. ./store / --last-id "123" --follow)
 }
