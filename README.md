@@ -4,11 +4,11 @@
 [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
 
 ```
-Status: WIP  [████.................... 20%]
+Status: WIP  [████............ 20%]
 ```
 
-An event stream store for personal, local-first use. Think
-[SQLite](https://www.sqlite.org), but specializing in the [event
+An event stream store for personal, local-first use. Kinda like the
+[`sqlite3` cli](https://sqlite.org/cli.html), but specializing in the [event
 sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
 ![screenshot](./docs/screenshot.png)
