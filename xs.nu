@@ -25,6 +25,13 @@ export def cat [
     curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
 }
 
+export def append [
+    store: string
+    topic: string
+] {
+    curl -s -T - -X POST --unix-socket $"($store)/sock" $"localhost($topic)"
+}
+
 export def cas [
     store: string
     hash: string
