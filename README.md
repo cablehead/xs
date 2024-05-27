@@ -23,7 +23,15 @@ Built with:
 
 ## desired features
 
-- event stream: append, cat / tail [reverse], get, last, first, next, previous
+- event stream: 
+    - [x] append
+    - [x] cat
+    - [ ] tail (reverse)
+    - [ ] get
+    - [ ] last
+    - [ ] first
+    - [ ] next
+    - [ ] previous
 - ephemeral events
 - as well as the event stream: a k/v store fo cursors and materialized views
 - ability to subscribe to updates
