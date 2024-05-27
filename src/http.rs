@@ -51,7 +51,7 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
         Routes::Root => {
             let options = match ReadOptions::from_query(req.uri().query()) {
                 Ok(opts) => opts,
-                Err(err) => return response_400(err),
+                Err(err) => return response_400(err.to_string()),
             };
 
             let rx = store.read(options).await;
@@ -89,6 +89,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     let (parts, mut body) = req.into_parts();
     eprintln!("parts: {:?}", &parts);
     eprintln!("uri: {:?}", &parts.uri.path());
+    eprintln!("headers: {:?}", &parts.headers);
 
     let writer = store.cas_writer().await?;
 
@@ -101,8 +102,26 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     // get the original writer back
     let writer = writer.into_inner();
 
+    let link_id = match parts
+        .headers
+        .get("xs-link-id")
+        .map(|x| x.to_str())
+        .transpose()
+        .unwrap()
+        .map(|s| {
+            scru128::Scru128Id::from_str(s)
+                .map_err(|_| format!("xs-link-id isn't a valid scru128: {}", s))
+        })
+        .transpose()
+    {
+        Ok(link_id) => link_id,
+        Err(e) => return response_400(e.to_string()),
+    };
+
+    eprintln!("link_id: {:?}", &link_id);
+
     let hash = writer.commit().await?;
-    let frame = store.append(parts.uri.path(), Some(hash)).await;
+    let frame = store.append(parts.uri.path(), Some(hash), link_id).await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -111,7 +130,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
 }
 
 async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    eprintln!("req: {:?}", &req);
+    eprintln!("\n\nreq: {:?}", &req);
     match *req.method() {
         Method::GET => get(store, req).await,
         Method::POST => post(store, req).await,
@@ -153,8 +172,8 @@ fn response_404() -> HTTPResult {
         .body(empty())?)
 }
 
-fn response_400<E: std::error::Error>(err: E) -> HTTPResult {
-    let body = full(err.to_string());
+fn response_400(message: String) -> HTTPResult {
+    let body = full(message);
     Ok(Response::builder()
         .status(StatusCode::BAD_REQUEST)
         .body(body)?)

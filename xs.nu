@@ -14,6 +14,20 @@ def build-query [params] {
     } | and-then { $"?($in | str join "&")" }
 }
 
+def flatten-params [params] {
+    $params | columns | each {|name|
+        $params | get $name | and-then {
+            let value = $in
+            if $value == true {
+                [$name]
+            } else {
+                [$name, $value]
+            }
+
+        }
+    } | flatten
+}
+
 export def cat [
     store: string
     --last-id: string
@@ -28,8 +42,13 @@ export def cat [
 export def append [
     store: string
     topic: string
+    --link-id: string
 ] {
-    curl -s -T - -X POST --unix-socket $"($store)/sock" $"localhost($topic)"
+    curl -s -T - -X POST ...(
+        $link_id | and-then {
+            ["-H" $"xs-link-id: ($link_id)"]
+        } | default []
+    ) --unix-socket $"($store)/sock" $"localhost($topic)"
 }
 
 export def cas [

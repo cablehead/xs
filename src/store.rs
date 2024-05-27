@@ -14,6 +14,7 @@ pub struct Frame {
     pub id: Scru128Id,
     pub topic: String,
     pub hash: Option<ssri::Integrity>,
+    pub link_id: Option<Scru128Id>,
 }
 
 #[derive(Clone)]
@@ -135,11 +136,12 @@ impl Store {
             .await
     }
 
-    pub async fn append(&mut self, topic: &str, hash: Option<ssri::Integrity>) -> Frame {
+    pub async fn append(&mut self, topic: &str, hash: Option<ssri::Integrity>, link_id: Option<Scru128Id>) -> Frame {
         let frame = Frame {
             id: scru128::new(),
             topic: topic.to_string(),
             hash,
+            link_id,
         };
         let encoded: Vec<u8> = bincode::serialize(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
@@ -255,8 +257,8 @@ mod tests_store {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path());
 
-        let f1 = store.append("/stream", None).await;
-        let f2 = store.append("/stream", None).await;
+        let f1 = store.append("/stream", None, None).await;
+        let f2 = store.append("/stream", None, None).await;
 
         let recver = store.read(ReadOptions::default()).await;
         assert_eq!(
