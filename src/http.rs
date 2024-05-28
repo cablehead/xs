@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::str::FromStr;
 
+use scru128::Scru128Id;
+
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::ReceiverStream;
@@ -25,6 +27,7 @@ type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 enum Routes {
     Root,
+    Get(Scru128Id),
     CasGet(ssri::Integrity),
     NotFound,
 }
@@ -38,10 +41,15 @@ fn match_route(path: &str) -> Routes {
                     return Routes::CasGet(integrity);
                 }
             }
-
             Routes::NotFound
         }
-        _ => Routes::NotFound,
+        p => {
+            if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
+                Routes::Get(id)
+            } else {
+                Routes::NotFound
+            }
+        }
     }
 }
 
@@ -81,6 +89,17 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
             Ok(Response::new(body))
         }
 
+        Routes::Get(id) => {
+            if let Some(frame) = store.get(&id) {
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "application/json")
+                    .body(full(serde_json::to_string(&frame).unwrap()))?)
+            } else {
+                response_404()
+            }
+        }
+
         Routes::NotFound => response_404(),
     }
 }
@@ -109,8 +128,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
         .transpose()
         .unwrap()
         .map(|s| {
-            scru128::Scru128Id::from_str(s)
-                .map_err(|_| format!("xs-link-id isn't a valid scru128: {}", s))
+            Scru128Id::from_str(s).map_err(|_| format!("xs-link-id isn't a valid scru128: {}", s))
         })
         .transpose()
     {
