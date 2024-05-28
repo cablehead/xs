@@ -126,6 +126,11 @@ impl Store {
         rx
     }
 
+    pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
+        let res = self.partition.get(id.to_bytes()).unwrap();
+        res.map(|value| bincode::deserialize(&value).unwrap())
+    }
+
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
         cacache::Reader::open_hash(&self.path.join("cacache"), hash).await
     }
@@ -136,7 +141,12 @@ impl Store {
             .await
     }
 
-    pub async fn append(&mut self, topic: &str, hash: Option<ssri::Integrity>, link_id: Option<Scru128Id>) -> Frame {
+    pub async fn append(
+        &mut self,
+        topic: &str,
+        hash: Option<ssri::Integrity>,
+        link_id: Option<Scru128Id>,
+    ) -> Frame {
         let frame = Frame {
             id: scru128::new(),
             topic: topic.to_string(),
@@ -253,7 +263,16 @@ mod tests_store {
     use tokio_stream::StreamExt;
 
     #[tokio::test]
-    async fn test_basics() {
+    async fn test_get() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = Store::spawn(temp_dir.into_path());
+        let frame = store.append("/stream", None, None).await;
+        let got = store.get(&frame.id);
+        assert_eq!(Some(frame.clone()), got);
+    }
+
+    #[tokio::test]
+    async fn test_stream_basics() {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path());
 
