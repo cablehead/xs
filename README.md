@@ -26,13 +26,17 @@ Built with:
 - event stream: 
     - [x] append
     - [x] cat
-    - [ ] tail (reverse)
-    - [ ] get
+        - [x] last-id
+        - [x] follow
+    - [ ] tac
+        - [ ] last-id
+    - [x] get
     - [ ] last
     - [ ] first
-    - [ ] next
-    - [ ] previous
-- ephemeral events
+    - [ ] next?
+    - [ ] previous?
+- [x] cas, get
+- ephemeral events / content
 - as well as the event stream: a k/v store fo cursors and materialized views
 - ability to subscribe to updates
     - to both events
