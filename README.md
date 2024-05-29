@@ -39,8 +39,8 @@ Built with:
 - ephemeral events / content
 - as well as the event stream: a k/v store fo cursors and materialized views
 - ability to subscribe to updates
-    - to both events
-    - and materialized views
+    - [x] to both events (`cat --follow`)
+    - [ ] and materialized views
 - should be able to manage processes ala [daemontools](http://cr.yp.to/daemontools.html), [runit](https://smarden.org/runit/), [Pueue](https://github.com/Nukesor/pueue)
     - or: simply runs snippets of [nushell](https://github.com/nushell/nushell.git) on new event
     - the snippets are registered via the event stream
