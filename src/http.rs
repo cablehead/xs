@@ -37,6 +37,7 @@ fn match_route(path: &str) -> Routes {
         "/" => Routes::Root,
         p if p.starts_with("/cas/") => {
             if let Some(hash) = p.strip_prefix("/cas/") {
+                eprintln!("hash: '{}'", &hash);
                 if let Ok(integrity) = ssri::Integrity::from_str(hash) {
                     return Routes::CasGet(integrity);
                 }
@@ -121,25 +122,25 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     // get the original writer back
     let writer = writer.into_inner();
 
-    let link_id = match parts
+    let meta = match parts
         .headers
-        .get("xs-link-id")
+        .get("xs-meta")
         .map(|x| x.to_str())
         .transpose()
         .unwrap()
         .map(|s| {
-            Scru128Id::from_str(s).map_err(|_| format!("xs-link-id isn't a valid scru128: {}", s))
+            serde_json::from_str(s).map_err(|_| format!("xs-meta isn't valid JSON: {}", s))
         })
         .transpose()
     {
-        Ok(link_id) => link_id,
+        Ok(meta) => meta,
         Err(e) => return response_400(e.to_string()),
     };
 
-    eprintln!("link_id: {:?}", &link_id);
+    eprintln!("meta: {:?}", &meta);
 
     let hash = writer.commit().await?;
-    let frame = store.append(parts.uri.path(), Some(hash), link_id).await;
+    let frame = store.append(parts.uri.path(), Some(hash), meta).await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

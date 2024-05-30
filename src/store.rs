@@ -14,7 +14,7 @@ pub struct Frame {
     pub id: Scru128Id,
     pub topic: String,
     pub hash: Option<ssri::Integrity>,
-    pub link_id: Option<Scru128Id>,
+    pub meta: Option<serde_json::Value>,
 }
 
 #[derive(Clone)]
@@ -96,7 +96,7 @@ impl Store {
                             };
                             for record in store.partition.range(range) {
                                 let record = record.unwrap();
-                                let frame: Frame = bincode::deserialize(&record.1).unwrap();
+                                let frame: Frame = serde_json::from_slice(&record.1).unwrap();
                                 if tx.blocking_send(frame).is_err() {
                                     // looks like the tx closed, skip adding it to subscribers
                                     continue 'outer;
@@ -128,7 +128,7 @@ impl Store {
 
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
         let res = self.partition.get(id.to_bytes()).unwrap();
-        res.map(|value| bincode::deserialize(&value).unwrap())
+        res.map(|value| serde_json::from_slice(&value).unwrap())
     }
 
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
@@ -145,15 +145,15 @@ impl Store {
         &mut self,
         topic: &str,
         hash: Option<ssri::Integrity>,
-        link_id: Option<Scru128Id>,
+        meta: Option<serde_json::Value>,
     ) -> Frame {
         let frame = Frame {
             id: scru128::new(),
             topic: topic.to_string(),
             hash,
-            link_id,
+            meta,
         };
-        let encoded: Vec<u8> = bincode::serialize(&frame).unwrap();
+        let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
 
         self.commands_tx
@@ -266,7 +266,9 @@ mod tests_store {
     async fn test_get() {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path());
-        let frame = store.append("/stream", None, None).await;
+        let meta = serde_json::json!({"key": "value"});
+        eprintln!("meta: {:?}", &meta);
+        let frame = store.append("/stream", None, Some(meta)).await;
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);
     }

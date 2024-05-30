@@ -30,7 +30,7 @@ def flatten-params [params] {
 
 export def cat [
     store: string
-    --last-id: string
+    --last-id: any
     --follow
 ] {
     let path = "/"
@@ -39,14 +39,22 @@ export def cat [
     curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
 }
 
+export def stream-get [
+    store: string
+    id: string
+] {
+    let url = $"localhost/($id)"
+    curl -sN --unix-socket $"($store)/sock" $url | from json
+}
+
 export def append [
     store: string
     topic: string
-    --link-id: string
+    --meta: string
 ] {
     curl -s -T - -X POST ...(
-        $link_id | and-then {
-            ["-H" $"xs-link-id: ($link_id)"]
+        $meta | and-then {
+            ["-H" $"xs-meta: ($meta)"]
         } | default []
     ) --unix-socket $"($store)/sock" $"localhost($topic)"
 }
