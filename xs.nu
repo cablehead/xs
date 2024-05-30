@@ -1,5 +1,3 @@
-#!/usr/bin/env -S nu
-
 alias and-then = if ($in | is-not-empty)
 alias ? = if ($in | is-not-empty) { $in }
 alias ?? = ? else { return }
@@ -64,13 +62,4 @@ export def cas [
     hash: string
 ] {
     curl -sN --unix-socket $"($store)/sock" $"localhost/cas/($hash)"
-}
-
-
-def main [] {
-    # let clip = ( h. / | first )
-    # $clip.hash
-    # h. $"/cas/($clip.hash)"
-    print ( cat ./store )
-    print ( cat ./store --last-id "123" --follow)
 }
