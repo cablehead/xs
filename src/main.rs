@@ -9,6 +9,10 @@ use xs::store::Store;
 struct Args {
     #[clap(value_parser)]
     path: PathBuf,
+
+    /// Enables a HTTP endpoint. Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
+    http: Option<String>,
 }
 
 #[tokio::main]

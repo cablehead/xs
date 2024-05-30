@@ -45,6 +45,12 @@ Built with:
     - or: simply runs snippets of [nushell](https://github.com/nushell/nushell.git) on new event
     - the snippets are registered via the event stream
 - server facilitates watching for updates + managing processes
+- [ ] builtin http server:
+    - [ ] You can optionally serve HTTP requests from your store. Requests are
+    written to the event stream as `http.request` and then the connection
+    watches the event stream for a `http.response`.
+    - [ ] You can register event handlers that subscribe to `http.request`
+      events and emit `http.response` events.
 
 ## Path Traveled
 
