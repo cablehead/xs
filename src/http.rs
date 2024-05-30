@@ -140,7 +140,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     eprintln!("meta: {:?}", &meta);
 
     let hash = writer.commit().await?;
-    let frame = store.append(parts.uri.path(), Some(hash), meta).await;
+    let frame = store.append(parts.uri.path().trim_start_matches('/'), Some(hash), meta).await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

@@ -56,7 +56,7 @@ export def append [
         $meta | and-then {
             ["-H" $"xs-meta: ($meta)"]
         } | default []
-    ) --unix-socket $"($store)/sock" $"localhost($topic)"
+    ) --unix-socket $"($store)/sock" $"localhost(if ($topic | str starts-with '/') { $topic } else { $"/($topic)" })"
 }
 
 export def cas [
