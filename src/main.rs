@@ -20,7 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     let store = Store::spawn(args.path);
     if let Some(addr) = args.http {
-        let _ = xs::http::serve(store.clone(), &addr).await;
+        let store = store.clone();
+        tokio::spawn(async move {
+            let _ = xs::http::serve(store, &addr).await;
+        });
     }
     xs::api::serve(store).await
     // TODO: graceful shutdown
