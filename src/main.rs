@@ -19,6 +19,9 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     let store = Store::spawn(args.path);
-    xs::http::serve(store).await
+    if let Some(addr) = args.http {
+        let _ = xs::http::serve(store.clone(), &addr).await;
+    }
+    xs::api::serve(store).await
     // TODO: graceful shutdown
 }

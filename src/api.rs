@@ -158,7 +158,7 @@ async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult
 }
 
 pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("let's go");
+    println!("starting api: {:?}", &store.path);
     let listener = UnixListener::bind(store.path.join("sock")).unwrap();
     loop {
         let (stream, _) = listener.accept().await?;

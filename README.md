@@ -4,7 +4,7 @@
 [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
 
 ```
-Status: WIP  [████............ 20%]
+Status: WIP  [██████.......... 30%]
 ```
 
 An event stream store for personal, local-first use. Kinda like the
