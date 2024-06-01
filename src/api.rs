@@ -128,9 +128,7 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
         .map(|x| x.to_str())
         .transpose()
         .unwrap()
-        .map(|s| {
-            serde_json::from_str(s).map_err(|_| format!("xs-meta isn't valid JSON: {}", s))
-        })
+        .map(|s| serde_json::from_str(s).map_err(|_| format!("xs-meta isn't valid JSON: {}", s)))
         .transpose()
     {
         Ok(meta) => meta,
@@ -140,7 +138,9 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
     eprintln!("meta: {:?}", &meta);
 
     let hash = writer.commit().await?;
-    let frame = store.append(parts.uri.path().trim_start_matches('/'), Some(hash), meta).await;
+    let frame = store
+        .append(parts.uri.path().trim_start_matches('/'), Some(hash), meta)
+        .await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
