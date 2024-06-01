@@ -1,21 +1,55 @@
+use std::collections::HashMap;
 use std::error::Error;
+
+use serde::{Deserialize, Serialize};
 
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::{Request, Response, StatusCode};
+use hyper::StatusCode;
 use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
 use crate::store::Store;
 
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
-type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Request {
+    pub stamp: scru128::Scru128Id,
+    pub message: String,
+    pub proto: String,
+    #[serde(with = "http_serde::method")]
+    pub method: http::method::Method,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_ip: Option<std::net::IpAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_port: Option<u16>,
+    #[serde(with = "http_serde::header_map")]
+    pub headers: http::header::HeaderMap,
+    #[serde(with = "http_serde::uri")]
+    pub uri: http::Uri,
+    pub path: String,
+    pub query: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<Response>,
+}
 
-async fn handle(_store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+pub struct Response {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+}
+
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
+
+async fn handle(_store: Store, req: hyper::Request<hyper::body::Incoming>) -> HTTPResult {
     eprintln!("\n\nreq: {:?}", &req);
-    Ok(Response::builder()
+    Ok(hyper::Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(full("Hello world.\n".to_string()))?)
