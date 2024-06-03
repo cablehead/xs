@@ -133,14 +133,29 @@ async fn handle(
         Err("event stream ended")
     }
 
-    let response = wait_for_response(&store, frame.id).await.unwrap();
+    let meta = wait_for_response(&store, frame.id).await.unwrap();
 
-    eprintln!("RESPONSE {:?}", response);
+    eprintln!("RESPONSE {:?}", meta);
 
-    Ok(hyper::Response::builder()
-        .status(response.status.unwrap_or(200))
-        .header("Content-Type", "application/json")
-        .body(full(serde_json::to_string(&frame).unwrap()))?)
+    let res = hyper::Response::builder();
+    let mut res = res.status(meta.status.unwrap_or(200));
+    {
+        let res_headers = res.headers_mut().unwrap();
+        if let Some(headers) = meta.headers {
+            for (key, value) in headers {
+                res_headers.insert(
+                    http::header::HeaderName::from_bytes(key.as_bytes()).unwrap(),
+                    http::header::HeaderValue::from_bytes(value.as_bytes()).unwrap(),
+                );
+            }
+        }
+
+        if !res_headers.contains_key("content-type") {
+            res_headers.insert("content-type", "text/plain".parse().unwrap());
+        }
+    }
+
+    Ok(res.body(full(serde_json::to_string(&frame).unwrap()))?)
 }
 
 pub async fn serve(
