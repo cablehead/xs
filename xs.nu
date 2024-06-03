@@ -48,11 +48,11 @@ export def stream-get [
 export def append [
     store: string
     topic: string
-    --meta: string
+    --meta: record
 ] {
     curl -s -T - -X POST ...(
         $meta | and-then {
-            ["-H" $"xs-meta: ($meta)"]
+            ["-H" $"xs-meta: ($meta | to json -r)"]
         } | default []
     ) --unix-socket $"($store)/sock" $"localhost(if ($topic | str starts-with '/') { $topic } else { $"/($topic)" })"
 }
