@@ -15,7 +15,6 @@ use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::StatusCode;
 use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
@@ -111,7 +110,7 @@ async fn handle(
         )
         .await;
 
-    async fn wait_for_response(store: &Store, frame_id: Scru128Id) -> Option<Response> {
+    async fn wait_for_response(store: &Store, frame_id: Scru128Id) -> Result<Response, &str> {
         let mut recver = store
             .read(ReadOptions {
                 follow: true,
@@ -124,22 +123,22 @@ async fn handle(
                 if let Some(meta) = event_frame.meta {
                     if let Ok(res) = serde_json::from_value::<Response>(meta) {
                         if res.request_id == frame_id {
-                            return Some(res);
+                            return Ok(res);
                         }
                     }
                 }
             }
         }
 
-        None
+        Err("event stream ended")
     }
 
-    let response = wait_for_response(&store, frame.id).await;
+    let response = wait_for_response(&store, frame.id).await.unwrap();
 
     eprintln!("RESPONSE {:?}", response);
 
     Ok(hyper::Response::builder()
-        .status(StatusCode::OK)
+        .status(response.status.unwrap_or(200))
         .header("Content-Type", "application/json")
         .body(full(serde_json::to_string(&frame).unwrap()))?)
 }
