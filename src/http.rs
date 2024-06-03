@@ -9,9 +9,13 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
 // needed to convert async-std Async to a tokio Async
+use tokio_stream::StreamExt;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
+use tokio_util::io::ReaderStream;
 
-use http_body_util::{combinators::BoxBody, BodyExt, Full};
+use http_body_util::StreamBody;
+use http_body_util::{combinators::BoxBody, BodyExt};
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -40,7 +44,7 @@ pub struct Request {
 }
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub struct Response {
+pub struct ResponseMeta {
     pub request_id: Scru128Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
@@ -110,7 +114,10 @@ async fn handle(
         )
         .await;
 
-    async fn wait_for_response(store: &Store, frame_id: Scru128Id) -> Result<Response, &str> {
+    async fn wait_for_response(
+        store: &Store,
+        frame_id: Scru128Id,
+    ) -> Result<(Option<ssri::Integrity>, ResponseMeta), &str> {
         let mut recver = store
             .read(ReadOptions {
                 follow: true,
@@ -118,12 +125,12 @@ async fn handle(
             })
             .await;
 
-        while let Some(event_frame) = recver.recv().await {
-            if event_frame.topic == "http.response" {
-                if let Some(meta) = event_frame.meta {
-                    if let Ok(res) = serde_json::from_value::<Response>(meta) {
+        while let Some(frame) = recver.recv().await {
+            if frame.topic == "http.response" {
+                if let Some(meta) = frame.meta {
+                    if let Ok(res) = serde_json::from_value::<ResponseMeta>(meta) {
                         if res.request_id == frame_id {
-                            return Ok(res);
+                            return Ok((frame.hash, res));
                         }
                     }
                 }
@@ -133,9 +140,8 @@ async fn handle(
         Err("event stream ended")
     }
 
-    let meta = wait_for_response(&store, frame.id).await.unwrap();
-
-    eprintln!("RESPONSE {:?}", meta);
+    let (hash, meta) = wait_for_response(&store, frame.id).await.unwrap();
+    let hash = hash.unwrap();
 
     let res = hyper::Response::builder();
     let mut res = res.status(meta.status.unwrap_or(200));
@@ -155,7 +161,19 @@ async fn handle(
         }
     }
 
-    Ok(res.body(full(serde_json::to_string(&frame).unwrap()))?)
+    let reader = store.cas_reader(hash).await?;
+    // convert reader from async-std -> tokio
+    let reader = reader.compat();
+    let stream = ReaderStream::new(reader);
+
+    let stream = stream.map(|frame| {
+        let frame = frame.unwrap();
+        Ok(hyper::body::Frame::data(frame))
+    });
+
+    let body = StreamBody::new(stream).boxed();
+
+    Ok(res.body(body)?)
 }
 
 pub async fn serve(
@@ -190,10 +208,4 @@ pub async fn serve(
             }
         });
     }
-}
-
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, BoxError> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
 }
