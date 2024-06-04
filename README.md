@@ -37,6 +37,7 @@ Built with:
     - [ ] previous?
 - [x] cas, get
 - ephemeral events / content
+- [ ] the ability to stream content out while its still being ingested [#](https://github.com/zkat/cacache-rs/issues/77)
 - as well as the event stream: a k/v store fo cursors and materialized views
 - ability to subscribe to updates
     - [x] to both events (`cat --follow`)
