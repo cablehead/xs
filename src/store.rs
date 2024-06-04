@@ -197,6 +197,7 @@ mod tests_read_options {
                 input: None,
                 expected: ReadOptions {
                     follow: false,
+                    tail: false,
                     last_id: None,
                 },
             },
@@ -204,6 +205,7 @@ mod tests_read_options {
                 input: Some("foo=bar"),
                 expected: ReadOptions {
                     follow: false,
+                    tail: false,
                     last_id: None,
                 },
             },
@@ -211,6 +213,7 @@ mod tests_read_options {
                 input: Some("follow"),
                 expected: ReadOptions {
                     follow: true,
+                    tail: false,
                     last_id: None,
                 },
             },
@@ -218,6 +221,7 @@ mod tests_read_options {
                 input: Some("follow=1"),
                 expected: ReadOptions {
                     follow: true,
+                    tail: false,
                     last_id: None,
                 },
             },
@@ -225,6 +229,7 @@ mod tests_read_options {
                 input: Some("follow=yes"),
                 expected: ReadOptions {
                     follow: true,
+                    tail: false,
                     last_id: None,
                 },
             },
@@ -232,6 +237,7 @@ mod tests_read_options {
                 input: Some("follow=true"),
                 expected: ReadOptions {
                     follow: true,
+                    tail: false,
                     last_id: None,
                 },
             },
@@ -239,6 +245,7 @@ mod tests_read_options {
                 input: Some("last-id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
                     follow: false,
+                    tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
                 },
             },
@@ -246,6 +253,7 @@ mod tests_read_options {
                 input: Some("follow&last-id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
                     follow: true,
+                    tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
                 },
             },
