@@ -4,7 +4,7 @@
 [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
 
 ```
-Status: WIP  [██████.......... 30%]
+Status: WIP  [██████.......... 40%]
 ```
 
 An event stream store for personal, local-first use. Kinda like the
@@ -45,11 +45,11 @@ Built with:
     - or: simply runs snippets of [nushell](https://github.com/nushell/nushell.git) on new event
     - the snippets are registered via the event stream
 - server facilitates watching for updates + managing processes
-- [ ] builtin http server:
-    - [ ] You can optionally serve HTTP requests from your store. Requests are
+- [x] builtin http server:
+    - [x] You can optionally serve HTTP requests from your store. Requests are
     written to the event stream as `http.request` and then the connection
     watches the event stream for a `http.response`.
-    - [ ] You can register event handlers that subscribe to `http.request`
+    - [x] You can register event handlers that subscribe to `http.request`
       events and emit `http.response` events.
 
 ## Path Traveled
