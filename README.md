@@ -28,6 +28,7 @@ Built with:
     - [x] cat
         - [x] last-id
         - [x] follow
+        - [x] tail
     - [ ] tac
         - [ ] last-id
     - [x] get

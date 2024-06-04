@@ -30,9 +30,10 @@ export def cat [
     store: string
     --last-id: any
     --follow
+    --tail
 ] {
     let path = "/"
-    let query = ( build-query { "last-id": $last_id, follow: $follow } )
+    let query = ( build-query { "last-id": $last_id, follow: $follow, tail: $tail } )
     let url = $"localhost($path)($query)"
     curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
 }

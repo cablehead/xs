@@ -121,6 +121,7 @@ async fn handle(
         let mut recver = store
             .read(ReadOptions {
                 follow: true,
+                tail: false,
                 last_id: Some(frame_id),
             })
             .await;

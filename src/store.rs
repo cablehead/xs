@@ -44,6 +44,8 @@ where
 pub struct ReadOptions {
     #[serde(default, deserialize_with = "deserialize_bool")]
     pub follow: bool,
+    #[serde(default, deserialize_with = "deserialize_bool")]
+    pub tail: bool,
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
 }
@@ -87,19 +89,21 @@ impl Store {
                 'outer: while let Some(command) = rx.blocking_recv() {
                     match command {
                         Command::Read(tx, options) => {
-                            let range = match &options.last_id {
-                                Some(last_id) => (
-                                    Bound::Excluded(last_id.to_bytes()),
-                                    Bound::<[u8; 16]>::Unbounded,
-                                ),
-                                None => (Bound::Unbounded, Bound::Unbounded),
-                            };
-                            for record in store.partition.range(range) {
-                                let record = record.unwrap();
-                                let frame: Frame = serde_json::from_slice(&record.1).unwrap();
-                                if tx.blocking_send(frame).is_err() {
-                                    // looks like the tx closed, skip adding it to subscribers
-                                    continue 'outer;
+                            if !options.tail {
+                                let range = match &options.last_id {
+                                    Some(last_id) => (
+                                        Bound::Excluded(last_id.to_bytes()),
+                                        Bound::<[u8; 16]>::Unbounded,
+                                    ),
+                                    None => (Bound::Unbounded, Bound::Unbounded),
+                                };
+                                for record in store.partition.range(range) {
+                                    let record = record.unwrap();
+                                    let frame: Frame = serde_json::from_slice(&record.1).unwrap();
+                                    if tx.blocking_send(frame).is_err() {
+                                        // looks like the tx closed, skip adding it to subscribers
+                                        continue 'outer;
+                                    }
                                 }
                             }
                             if options.follow {
@@ -292,6 +296,7 @@ mod tests_store {
         let recver = store
             .read(ReadOptions {
                 follow: false,
+                tail: false,
                 last_id: Some(f1.id),
             })
             .await;
