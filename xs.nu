@@ -42,8 +42,7 @@ export def process [
     store: string
     callback: closure
 ] {
-    let meta = $in
-    cas $store $meta.hash | do $callback $meta
+    each {|meta| cas $store $meta.hash | do $callback $meta}
 }
 
 export def stream-get [
