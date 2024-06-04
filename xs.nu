@@ -37,6 +37,14 @@ export def cat [
     curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
 }
 
+export def process [
+    store: string
+    callback: closure
+] {
+    let meta = $in
+    cas $store $meta.hash | do $callback $meta
+}
+
 export def stream-get [
     store: string
     id: string
