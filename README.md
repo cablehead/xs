@@ -38,7 +38,7 @@ Built with:
     - [ ] previous?
 - [x] cas, get
 - ephemeral events / content
-- [ ] the ability to stream content out while its still being ingested [#](https://github.com/zkat/cacache-rs/issues/77)
+- [ ] content can be chunked, to accomodate slow streams, e.g server sent events
 - as well as the event stream: a k/v store fo cursors and materialized views
 - ability to subscribe to updates
     - [x] to both events (`cat --follow`)
@@ -46,7 +46,7 @@ Built with:
 - should be able to manage processes ala [daemontools](http://cr.yp.to/daemontools.html), [runit](https://smarden.org/runit/), [Pueue](https://github.com/Nukesor/pueue)
     - or: simply runs snippets of [nushell](https://github.com/nushell/nushell.git) on new event
     - the snippets are registered via the event stream
-- server facilitates watching for updates + managing processes
+    - server facilitates watching for updates + managing processes
 - [x] builtin http server:
     - [x] You can optionally serve HTTP requests from your store. Requests are
     written to the event stream as `http.request` and then the connection
