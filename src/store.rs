@@ -145,6 +145,14 @@ impl Store {
             .await
     }
 
+    pub async fn cas_insert(&self, content: &str) -> cacache::Result<ssri::Integrity> {
+        cacache::write_hash(&self.path.join("cacache"), content).await
+    }
+
+    pub async fn cas_read(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
+        cacache::read_hash(&self.path.join("cacache"), hash).await
+    }
+
     pub async fn append(
         &mut self,
         topic: &str,
