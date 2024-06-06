@@ -19,12 +19,27 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     let store = Store::spawn(args.path);
+
     if let Some(addr) = args.http {
         let store = store.clone();
         tokio::spawn(async move {
             let _ = xs::http::serve(store, &addr).await;
         });
     }
+
+    tokio::spawn(async move {
+        let origin = "wss://gateway.discord.gg";
+        let command = format!(
+            "websocat {} --ping-interval 5 --ping-timeout 10 -E -t",
+            origin
+        );
+        let _ = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .spawn()
+            .expect("Failed to spawn command");
+    });
+
     xs::api::serve(store).await
     // TODO: graceful shutdown
 }
