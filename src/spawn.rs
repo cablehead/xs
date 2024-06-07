@@ -20,6 +20,8 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
     let mut stdin = child.stdin.take().expect("Failed to open stdin");
     let stdout = child.stdout.take().expect("Failed to open stdout");
 
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<bool>();
+
     {
         let store = store.clone();
         tokio::spawn(async move {
@@ -31,19 +33,27 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                 })
                 .await;
 
-            while let Some(frame) = recver.recv().await {
-                eprintln!("FRAME: {:?}", &frame.topic);
-                if frame.topic == "ws.send" {
-                    let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-                    let mut content = content;
-                    content.push(b'\n');
-                    eprintln!("CONTENT: {}", std::str::from_utf8(&content).unwrap());
-                    if let Err(e) = stdin.write_all(&content).await {
-                        eprintln!("Failed to write to stdin: {}", e);
+            loop {
+                tokio::select! {
+                    Some(frame) = recver.recv() => {
+                        eprintln!("FRAME: {:?}", &frame.topic);
+                        if frame.topic == "ws.send" {
+                            let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+                            let mut content = content;
+                            content.push(b'\n');
+                            eprintln!("CONTENT: {}", std::str::from_utf8(&content).unwrap());
+                            if let Err(e) = stdin.write_all(&content).await {
+                                eprintln!("Failed to write to stdin: {}", e);
+                                break;
+                            }
+                        }
+                    },
+                    _ = &mut stop_rx => {
                         break;
                     }
                 }
             }
+
             eprintln!("writer: outie");
         });
     }
