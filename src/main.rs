@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::Parser;
 
@@ -30,8 +31,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            let res = xs::spawn::spawn(store).await;
-            eprintln!("peace from spawn: {:?}", res);
+            loop {
+                let store = store.clone();
+                eprintln!("spawning up");
+                let res = xs::spawn::spawn(store).await;
+                eprintln!("peace from spawn: {:?}", res);
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
         });
     }
 
