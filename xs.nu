@@ -5,25 +5,19 @@ alias ?? = ? else { return }
 def build-query [params] {
     $params | columns | each { |x|
         let value = ($params | get $x)
+        let key = $x | str replace "_" "-"
         match ( $value | describe ) {
-            "string" => $"($x)=($value)",
-            "bool" => (if $value { $x }),
+            "string" => $"($key)=($value)",
+            "bool" => (if $value { $key }),
         }
     } | and-then { $"?($in | str join "&")" }
 }
 
-def flatten-params [params] {
-    $params | columns | each {|name|
-        $params | get $name | and-then {
-            let value = $in
-            if $value == true {
-                [$name]
-            } else {
-                [$name, $value]
-            }
-
-        }
-    } | flatten
+export def _cat [ store: string, flags: record ] {
+    let path = "/"
+    let query = ( build-query $flags )
+    let url = $"localhost($path)($query)"
+    curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
 }
 
 export def cat [
@@ -32,10 +26,7 @@ export def cat [
     --follow
     --tail
 ] {
-    let path = "/"
-    let query = ( build-query { "last-id": $last_id, follow: $follow, tail: $tail } )
-    let url = $"localhost($path)($query)"
-    curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
+    _cat $store { last_id: $last_id, follow: $follow, tail: $tail }
 }
 
 export def process [
