@@ -1,9 +1,10 @@
 use std::ops::Bound;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use scru128::Scru128Id;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use tokio::sync::mpsc;
 
@@ -27,7 +28,40 @@ pub struct Store {
     commands_tx: mpsc::Sender<Command>,
 }
 
-use serde::Deserializer;
+#[derive(PartialEq, Clone, Debug)]
+pub enum FollowOption {
+    Off,
+    On,
+    WithHeartbeat(Duration),
+}
+
+impl Default for FollowOption {
+    fn default() -> Self {
+        FollowOption::Off
+    }
+}
+
+impl<'de> Deserialize<'de> for FollowOption {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+        if s.is_empty() || s == "follow" {
+            Ok(FollowOption::On)
+        } else if let Ok(duration) = s.parse::<u64>() {
+            Ok(FollowOption::WithHeartbeat(Duration::from_millis(
+                duration,
+            )))
+        } else {
+            match s.as_str() {
+                "true" => Ok(FollowOption::On),
+                "false" | "no" => Ok(FollowOption::Off),
+                _ => Err(serde::de::Error::custom("Invalid value for follow option")),
+            }
+        }
+    }
+}
 
 fn deserialize_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
@@ -42,8 +76,8 @@ where
 
 #[derive(PartialEq, Deserialize, Clone, Debug, Default)]
 pub struct ReadOptions {
-    #[serde(default, deserialize_with = "deserialize_bool")]
-    pub follow: bool,
+    #[serde(default)]
+    pub follow: FollowOption,
     #[serde(default, deserialize_with = "deserialize_bool")]
     pub tail: bool,
     #[serde(rename = "last-id")]
@@ -106,8 +140,31 @@ impl Store {
                                     }
                                 }
                             }
-                            if options.follow {
-                                subscribers.push(tx);
+
+                            match options.follow {
+                                FollowOption::On | FollowOption::WithHeartbeat(_) => {
+                                    let frame = Frame {
+                                        id: scru128::new(),
+                                        topic: "stream.cross.the-threshold".into(),
+                                        hash: None,
+                                        meta: None,
+                                    };
+                                    if tx.blocking_send(frame).is_err() {
+                                        // looks like the tx closed, skip adding it to subscribers
+                                        continue 'outer;
+                                    }
+                                    if let FollowOption::WithHeartbeat(duration) =
+                                        options.follow
+                                    {
+                                        // Additional action for FollowWithHeartbeat
+                                        // For example, set up a timer or log the duration
+                                        // Example: println!("Heartbeat duration: {:?}", duration);
+                                    }
+                                    subscribers.push(tx);
+                                }
+                                FollowOption::Off => {
+                                    // Do nothing
+                                }
                             }
                         }
                         Command::Append(frame) => {
@@ -204,7 +261,7 @@ mod tests_read_options {
             TestCase {
                 input: None,
                 expected: ReadOptions {
-                    follow: false,
+                    follow: FollowOption::Off,
                     tail: false,
                     last_id: None,
                 },
@@ -212,7 +269,7 @@ mod tests_read_options {
             TestCase {
                 input: Some("foo=bar"),
                 expected: ReadOptions {
-                    follow: false,
+                    follow: FollowOption::Off,
                     tail: false,
                     last_id: None,
                 },
@@ -220,7 +277,7 @@ mod tests_read_options {
             TestCase {
                 input: Some("follow"),
                 expected: ReadOptions {
-                    follow: true,
+                    follow: FollowOption::On,
                     tail: false,
                     last_id: None,
                 },
@@ -228,7 +285,7 @@ mod tests_read_options {
             TestCase {
                 input: Some("follow=1"),
                 expected: ReadOptions {
-                    follow: true,
+                    follow: FollowOption::WithHeartbeat(Duration::from_millis(1)),
                     tail: false,
                     last_id: None,
                 },
@@ -236,7 +293,7 @@ mod tests_read_options {
             TestCase {
                 input: Some("follow=yes"),
                 expected: ReadOptions {
-                    follow: true,
+                    follow: FollowOption::On,
                     tail: false,
                     last_id: None,
                 },
@@ -244,7 +301,7 @@ mod tests_read_options {
             TestCase {
                 input: Some("follow=true"),
                 expected: ReadOptions {
-                    follow: true,
+                    follow: FollowOption::On,
                     tail: false,
                     last_id: None,
                 },
@@ -252,7 +309,7 @@ mod tests_read_options {
             TestCase {
                 input: Some("last-id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
-                    follow: false,
+                    follow: FollowOption::Off,
                     tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
                 },
@@ -260,7 +317,7 @@ mod tests_read_options {
             TestCase {
                 input: Some("follow&last-id=03BIDZVKNOTGJPVUEW3K23G45"),
                 expected: ReadOptions {
-                    follow: true,
+                    follow: FollowOption::On,
                     tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
                 },
@@ -269,7 +326,7 @@ mod tests_read_options {
 
         for case in &test_cases {
             let options = ReadOptions::from_query(case.input);
-            assert_eq!(options, Ok(case.expected.clone()));
+            assert_eq!(options, Ok(case.expected.clone()), "case {:?}", case.input);
         }
 
         assert!(ReadOptions::from_query(Some("last-id=123")).is_err());
@@ -311,7 +368,7 @@ mod tests_store {
 
         let recver = store
             .read(ReadOptions {
-                follow: false,
+                follow: FollowOption::Off,
                 tail: false,
                 last_id: Some(f1.id),
             })

@@ -1,5 +1,5 @@
 use crate::store::ReadOptions;
-use crate::store::Store;
+use crate::store::{Store, FollowOption};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -27,7 +27,7 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
         tokio::spawn(async move {
             let mut recver = store
                 .read(ReadOptions {
-                    follow: true,
+                    follow: FollowOption::On,
                     tail: true,
                     last_id: None,
                 })

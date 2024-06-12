@@ -22,7 +22,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
-use crate::store::{ReadOptions, Store};
+use crate::store::{ReadOptions, Store, FollowOption};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
@@ -120,7 +120,7 @@ async fn handle(
     ) -> Result<(Option<ssri::Integrity>, ResponseMeta), &str> {
         let mut recver = store
             .read(ReadOptions {
-                follow: true,
+                follow: FollowOption::On,
                 tail: false,
                 last_id: Some(frame_id),
             })
