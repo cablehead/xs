@@ -8,6 +8,7 @@ def build-query [params] {
         let key = $x | str replace "_" "-"
         match ( $value | describe ) {
             "string" => $"($key)=($value)",
+            "int" => $"($key)=($value)",
             "bool" => (if $value { $key }),
         }
     } | and-then { $"?($in | str join "&")" }
@@ -23,9 +24,17 @@ export def _cat [ store: string, flags: record ] {
 export def cat [
     store: string
     --last-id: any
-    --follow
+    --follow: any
     --tail
 ] {
+    let follow = (
+        match ($follow | describe) {
+            "nothing" => false,
+            "bool" => $follow,
+            "int" => ($follow | into int),
+            _ => true,
+        }
+    )
     _cat $store { last_id: $last_id, follow: $follow, tail: $tail }
 }
 
