@@ -42,7 +42,7 @@ impl<'de> Deserialize<'de> for FollowOption {
         D: Deserializer<'de>,
     {
         let s: String = Deserialize::deserialize(deserializer)?;
-        if s.is_empty() || s == "follow" {
+        if s.is_empty() || s == "follow" || s == "yes" {
             Ok(FollowOption::On)
         } else if let Ok(duration) = s.parse::<u64>() {
             Ok(FollowOption::WithHeartbeat(Duration::from_millis(duration)))
