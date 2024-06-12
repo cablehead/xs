@@ -128,7 +128,6 @@ impl Store {
                                     let record = record.unwrap();
                                     let frame: Frame = serde_json::from_slice(&record.1).unwrap();
                                     if tx.blocking_send(frame).is_err() {
-                                        // looks like the tx closed, skip adding it to subscribers
                                         continue 'outer;
                                     }
                                 }
@@ -138,18 +137,12 @@ impl Store {
                                 FollowOption::On | FollowOption::WithHeartbeat(_) => {
                                     let frame = Frame {
                                         id: scru128::new(),
-                                        topic: "stream.cross.the-threshold".into(),
+                                        topic: "stream.cross.threshold".into(),
                                         hash: None,
                                         meta: None,
                                     };
                                     if tx.blocking_send(frame).is_err() {
-                                        // looks like the tx closed, skip adding it to subscribers
                                         continue 'outer;
-                                    }
-                                    if let FollowOption::WithHeartbeat(duration) = options.follow {
-                                        // Additional action for FollowWithHeartbeat
-                                        // For example, set up a timer or log the duration
-                                        // Example: println!("Heartbeat duration: {:?}", duration);
                                     }
                                     subscribers.push(tx);
                                 }
@@ -172,9 +165,27 @@ impl Store {
     pub async fn read(&self, options: ReadOptions) -> mpsc::Receiver<Frame> {
         let (tx, rx) = mpsc::channel::<Frame>(100);
         self.commands_tx
-            .send(Command::Read(tx, options))
+            .send(Command::Read(tx.clone(), options.clone()))
             .await
             .unwrap(); // our thread went away?
+
+        if let FollowOption::WithHeartbeat(duration) = options.follow {
+            tokio::task::spawn(async move {
+                loop {
+                    tokio::time::sleep(duration).await;
+                    let frame = Frame {
+                        id: scru128::new(),
+                        topic: "stream.cross.pulse".into(),
+                        hash: None,
+                        meta: None,
+                    };
+                    if tx.send(frame).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+
         rx
     }
 
@@ -336,9 +347,52 @@ mod tests_store {
         let mut store = Store::spawn(temp_dir.into_path());
         let meta = serde_json::json!({"key": "value"});
         eprintln!("meta: {:?}", &meta);
-        let frame = store.append("/stream", None, Some(meta)).await;
+        let frame = store.append("stream", None, Some(meta)).await;
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);
+    }
+
+    #[tokio::test]
+    async fn test_follow() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = Store::spawn(temp_dir.into_path());
+
+        // Append two initial clips
+        let f1 = store.append("stream", None, None).await;
+        let f2 = store.append("stream", None, None).await;
+
+        // cat the full stream and follow new items with a heartbeat every 5ms
+        let follow_options = ReadOptions {
+            follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
+            tail: false,
+            last_id: None,
+        };
+        let mut recver = store.read(follow_options).await;
+
+        assert_eq!(f1, recver.recv().await.unwrap());
+        assert_eq!(f2, recver.recv().await.unwrap());
+
+        // crossing the threshold
+        assert_eq!(
+            "stream.cross.threshold".to_string(),
+            recver.recv().await.unwrap().topic
+        );
+
+        // Append two more clips
+        let f3 = store.append("stream", None, None).await;
+        let f4 = store.append("stream", None, None).await;
+        assert_eq!(f3, recver.recv().await.unwrap());
+        assert_eq!(f4, recver.recv().await.unwrap());
+
+        // Assert we see some heartbeats
+        assert_eq!(
+            "stream.cross.pulse".to_string(),
+            recver.recv().await.unwrap().topic
+        );
+        assert_eq!(
+            "stream.cross.pulse".to_string(),
+            recver.recv().await.unwrap().topic
+        );
     }
 
     #[tokio::test]
