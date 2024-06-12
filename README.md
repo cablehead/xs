@@ -29,6 +29,7 @@ Built with:
         - [x] last-id
         - [x] follow
         - [x] tail
+        - [x] threshold / heartbeat synthetic events
     - [ ] tac
         - [ ] last-id
     - [x] get
