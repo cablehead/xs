@@ -22,7 +22,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
-use crate::store::{ReadOptions, Store, FollowOption};
+use crate::store::{FollowOption, ReadOptions, Store};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {

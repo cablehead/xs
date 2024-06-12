@@ -28,17 +28,12 @@ pub struct Store {
     commands_tx: mpsc::Sender<Command>,
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Default, PartialEq, Clone, Debug)]
 pub enum FollowOption {
+    #[default]
     Off,
     On,
     WithHeartbeat(Duration),
-}
-
-impl Default for FollowOption {
-    fn default() -> Self {
-        FollowOption::Off
-    }
 }
 
 impl<'de> Deserialize<'de> for FollowOption {
@@ -50,9 +45,7 @@ impl<'de> Deserialize<'de> for FollowOption {
         if s.is_empty() || s == "follow" {
             Ok(FollowOption::On)
         } else if let Ok(duration) = s.parse::<u64>() {
-            Ok(FollowOption::WithHeartbeat(Duration::from_millis(
-                duration,
-            )))
+            Ok(FollowOption::WithHeartbeat(Duration::from_millis(duration)))
         } else {
             match s.as_str() {
                 "true" => Ok(FollowOption::On),
@@ -153,9 +146,7 @@ impl Store {
                                         // looks like the tx closed, skip adding it to subscribers
                                         continue 'outer;
                                     }
-                                    if let FollowOption::WithHeartbeat(duration) =
-                                        options.follow
-                                    {
+                                    if let FollowOption::WithHeartbeat(duration) = options.follow {
                                         // Additional action for FollowWithHeartbeat
                                         // For example, set up a timer or log the duration
                                         // Example: println!("Heartbeat duration: {:?}", duration);

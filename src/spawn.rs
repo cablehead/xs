@@ -1,5 +1,5 @@
 use crate::store::ReadOptions;
-use crate::store::{Store, FollowOption};
+use crate::store::{FollowOption, Store};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
