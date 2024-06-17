@@ -18,7 +18,7 @@ export def _cat [ store: string, flags: record ] {
     let path = "/"
     let query = ( build-query $flags )
     let url = $"localhost($path)($query)"
-    curl -sN --unix-socket $"($store)/sock" $url | lines | each { from json }
+    curl -sN --unix-socket $"($store)/sock" $url | lines | each { |x| $x | from json }
 }
 
 export def cat [
@@ -36,6 +36,17 @@ export def cat [
         }
     )
     _cat $store { last_id: $last_id, follow: $follow, tail: $tail }
+}
+
+export def chomp [
+    store: string
+    chomper: closure
+] {
+    cat $store
+        | insert content {|x| cas ./store $x.hash | from json}
+        | each while { |x|
+            try { do $chomper $x ; [] } catch {|e| print $"HALT: ($e.msg)" ($x | table -e)}
+        } | flatten
 }
 
 export def process [
