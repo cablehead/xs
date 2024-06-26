@@ -14,6 +14,10 @@ struct Args {
     /// Enables a HTTP endpoint. Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     http: Option<String>,
+
+    /// Enable discord websocket (temporary)
+    #[clap(long)]
+    ws: bool,
 }
 
 #[tokio::main]
@@ -28,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 
-    {
+    if args.ws {
         let store = store.clone();
         tokio::spawn(async move {
             loop {
