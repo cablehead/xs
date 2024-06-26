@@ -29,6 +29,7 @@ type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 enum Routes {
     Root,
     Get(Scru128Id),
+    Kv(String),
     CasGet(ssri::Integrity),
     NotFound,
 }
@@ -41,6 +42,14 @@ fn match_route(path: &str) -> Routes {
                 eprintln!("hash: '{}'", &hash);
                 if let Ok(integrity) = ssri::Integrity::from_str(hash) {
                     return Routes::CasGet(integrity);
+                }
+            }
+            Routes::NotFound
+        }
+        p if p.starts_with("/kv/") => {
+            if let Some(path) = p.strip_prefix("/kv/") {
+                if !path.is_empty() {
+                    return Routes::Kv(path.to_string());
                 }
             }
             Routes::NotFound
@@ -91,6 +100,15 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
             Ok(Response::new(body))
         }
 
+        Routes::Kv(path) => {
+            let value = store.kv.get(path.as_bytes()).unwrap();
+            if let Some(value) = value {
+                Ok(Response::new(full(value.to_vec())))
+            } else {
+                response_404()
+            }
+        }
+
         Routes::Get(id) => {
             if let Some(frame) = store.get(&id) {
                 Ok(Response::builder()
@@ -106,13 +124,29 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     }
 }
 
+async fn post_kv(mut store: Store, path: &str, mut body: hyper::body::Incoming) -> HTTPResult {
+    let value = body.collect().await?.to_bytes();
+    store.kv.insert(path.as_bytes(), value.clone()).unwrap();
+    Ok(Response::new(full(value)))
+}
+
 async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
     eprintln!("parts: {:?}", &parts);
     eprintln!("uri: {:?}", &parts.uri.path());
     eprintln!("headers: {:?}", &parts.headers);
-
     eprintln!("body end of stream: {:?}", &body.is_end_stream());
+
+    let path = &parts.uri.path();
+    if path.starts_with("/kv/") {
+        if let Some(path) = path.strip_prefix("/kv/") {
+            if !path.is_empty() {
+                eprintln!("kv path: '{}'", &path);
+                return post_kv(store, path, body).await;
+                return Ok(Response::new(full("POST: kv")));
+            }
+        }
+    }
 
     let hash = if body.is_end_stream() {
         None

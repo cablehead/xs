@@ -25,6 +25,7 @@ pub struct Store {
     // https://github.com/fjall-rs/fjall/discussions/44
     _keyspace: Keyspace,
     pub partition: PartitionHandle,
+    pub kv: PartitionHandle,
     commands_tx: mpsc::Sender<Command>,
 }
 
@@ -96,7 +97,12 @@ impl Store {
     pub fn spawn(path: PathBuf) -> Store {
         let config = Config::new(path.join("fjall"));
         let keyspace = config.open().unwrap();
+
         let partition = keyspace
+            .open_partition("main", PartitionCreateOptions::default())
+            .unwrap();
+
+        let kv = keyspace
             .open_partition("main", PartitionCreateOptions::default())
             .unwrap();
 
@@ -106,6 +112,7 @@ impl Store {
             path,
             _keyspace: keyspace,
             partition,
+            kv,
             commands_tx: tx,
         };
 
