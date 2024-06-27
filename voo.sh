@@ -43,8 +43,8 @@ function! SaveSpecialBuffer()
     " Pipe contents through the command
     let l:output = system(g:pipe_command, l:contents)
     
-    " Display output (you might want to adjust this based on your needs)
-    echo l:output
+    " Display output without triggering the press ENTER prompt
+    silent! exec 'echo l:output'
     
     " Trigger BufWritePost
     silent doautocmd BufWritePost
@@ -52,6 +52,9 @@ function! SaveSpecialBuffer()
     setlocal nomodified
     return 0  " Indicate successful save
 endfunction
+
+
+
 
 " Set up the buffer when Vim starts
 autocmd VimEnter * call SetupSpecialBuffer()
