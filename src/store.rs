@@ -99,11 +99,11 @@ impl Store {
         let keyspace = config.open().unwrap();
 
         let partition = keyspace
-            .open_partition("main", PartitionCreateOptions::default())
+            .open_partition("stream", PartitionCreateOptions::default())
             .unwrap();
 
         let kv = keyspace
-            .open_partition("main", PartitionCreateOptions::default())
+            .open_partition("kv", PartitionCreateOptions::default())
             .unwrap();
 
         let (tx, mut rx) = mpsc::channel::<Command>(32);
@@ -133,7 +133,17 @@ impl Store {
                                 };
                                 for record in store.partition.range(range) {
                                     let record = record.unwrap();
-                                    let frame: Frame = serde_json::from_slice(&record.1).unwrap();
+
+                                    let frame: Frame = match serde_json::from_slice(&record.1) {
+                                        Ok(frame) => frame,
+                                        Err(e) => {
+                                            let key = std::str::from_utf8(&record.0).unwrap();
+                                            let value = std::str::from_utf8(&record.1).unwrap();
+                                            eprintln!("Error deserializing frame: {} {} {}", e, key, value);
+                                            panic!("Failed to deserialize frame: {}", e);
+                                        }
+                                    };
+
                                     if tx.blocking_send(frame).is_err() {
                                         continue 'outer;
                                     }
