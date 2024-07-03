@@ -143,7 +143,6 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
             if !path.is_empty() {
                 eprintln!("kv path: '{}'", &path);
                 return post_kv(store, path, body).await;
-                return Ok(Response::new(full("POST: kv")));
             }
         }
     }
