@@ -17,6 +17,7 @@ use tokio_util::io::ReaderStream;
 use http_body_util::StreamBody;
 use http_body_util::{combinators::BoxBody, BodyExt};
 use hyper::body::Bytes;
+use hyper::body::Body;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
@@ -95,21 +96,26 @@ async fn handle(
         query,
     };
 
-    let writer = store.cas_writer().await?;
-    // convert writer from async-std -> tokio
-    let mut writer = writer.compat_write();
-    while let Some(frame) = body.frame().await {
-        let data = frame?.into_data().unwrap();
-        writer.write_all(&data).await?;
-    }
-    // get the original writer back
-    let writer = writer.into_inner();
-    let hash = writer.commit().await?;
+    let hash = if body.is_end_stream() {
+        None
+    } else {
+        let writer = store.cas_writer().await?;
+
+        // convert writer from async-std -> tokio
+        let mut writer = writer.compat_write();
+        while let Some(frame) = body.frame().await {
+            let data = frame?.into_data().unwrap();
+            writer.write_all(&data).await?;
+        }
+        // get the original writer back
+        let writer = writer.into_inner();
+        Some(writer.commit().await?)
+    };
 
     let frame = store
         .append(
             "http.request",
-            Some(hash),
+            hash,
             Some(serde_json::to_value(&req_meta).unwrap()),
         )
         .await;
