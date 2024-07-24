@@ -363,7 +363,6 @@ mod tests_store {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path());
         let meta = serde_json::json!({"key": "value"});
-        eprintln!("meta: {:?}", &meta);
         let frame = store.append("stream", None, Some(meta)).await;
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);

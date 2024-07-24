@@ -39,7 +39,6 @@ fn match_route(path: &str) -> Routes {
         "/" => Routes::Root,
         p if p.starts_with("/cas/") => {
             if let Some(hash) = p.strip_prefix("/cas/") {
-                eprintln!("hash: '{}'", &hash);
                 if let Ok(integrity) = ssri::Integrity::from_str(hash) {
                     return Routes::CasGet(integrity);
                 }
@@ -65,7 +64,6 @@ fn match_route(path: &str) -> Routes {
 }
 
 async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    eprintln!("uri: {:?}", req.uri());
     match match_route(req.uri().path()) {
         Routes::Root => {
             let options = match ReadOptions::from_query(req.uri().query()) {
@@ -76,7 +74,6 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
             let rx = store.read(options).await;
             let stream = ReceiverStream::new(rx);
             let stream = stream.map(|frame| {
-                eprintln!("streaming");
                 let mut encoded = serde_json::to_vec(&frame).unwrap();
                 encoded.push(b'\n');
                 Ok(hyper::body::Frame::data(bytes::Bytes::from(encoded)))
@@ -132,16 +129,11 @@ async fn post_kv(mut store: Store, path: &str, mut body: hyper::body::Incoming) 
 
 async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
-    eprintln!("parts: {:?}", &parts);
-    eprintln!("uri: {:?}", &parts.uri.path());
-    eprintln!("headers: {:?}", &parts.headers);
-    eprintln!("body end of stream: {:?}", &body.is_end_stream());
 
     let path = &parts.uri.path();
     if path.starts_with("/kv/") {
         if let Some(path) = path.strip_prefix("/kv/") {
             if !path.is_empty() {
-                eprintln!("kv path: '{}'", &path);
                 return post_kv(store, path, body).await;
             }
         }
@@ -176,8 +168,6 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
         Err(e) => return response_400(e.to_string()),
     };
 
-    eprintln!("meta: {:?}", &meta);
-
     let frame = store
         .append(parts.uri.path().trim_start_matches('/'), hash, meta)
         .await;
@@ -189,7 +179,6 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
 }
 
 async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    eprintln!("\n\nreq: {:?}", &req);
     match *req.method() {
         Method::GET => get(store, req).await,
         Method::POST => post(store, req).await,

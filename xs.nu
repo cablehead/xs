@@ -14,7 +14,7 @@ def build-query [params] {
     } | and-then { $"?($in | str join "&")" }
 }
 
-export def _cat [ store: string, flags: record ] {
+def _cat [ store: string, flags: record ] {
     let path = "/"
     let query = ( build-query $flags )
     let url = $"localhost($path)($query)"

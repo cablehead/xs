@@ -38,12 +38,10 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                     frame = recver.recv() => {
                         match frame {
                             Some(frame) => {
-                                eprintln!("FRAME: {:?}", &frame.topic);
                                 if frame.topic == "ws.send" {
                                     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
                                     let mut content = content;
                                     content.push(b'\n');
-                                    eprintln!("CONTENT: {}", std::str::from_utf8(&content).unwrap());
                                     if let Err(e) = stdin.write_all(&content).await {
                                         eprintln!("Failed to write to stdin: {}", e);
                                         break;
@@ -51,7 +49,6 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                                 }
                             },
                             None => {
-                                eprintln!("Receiver closed");
                                 break;
                             }
                         }
@@ -61,8 +58,6 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                     }
                 }
             }
-
-            eprintln!("writer: outie");
         });
     }
 
@@ -76,7 +71,6 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                 Ok(_) => {
                     let hash = store.cas_insert(&line).await.unwrap();
                     let frame = store.append("ws.recv", Some(hash.clone()), None).await;
-                    eprintln!("inserted: {} {:?} :: {:?}", line, hash, frame);
                 }
                 Err(e) => {
                     eprintln!("Failed to read from stdout: {}", e);
@@ -84,14 +78,9 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                 }
             }
         }
-        eprintln!("reader: outie");
     });
 
     let _ = child.wait().await;
-    eprintln!("child: outie");
-
     let _ = stop_tx.send(true);
-    eprintln!("adios spawn");
-
     Ok(())
 }
