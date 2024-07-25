@@ -34,6 +34,13 @@ WIP, thoughts:
   the `xs-meta` HTTP header
 - `/kv/:key` - store the body of the HTTP POST as the value of `key`
 
+### GET
+
+- `/` - pull the event stream
+- `/:id` - pull a specific event by id
+- `/cas/:hash` - pull the content addressed by `hash`
+- `/kv/:key` - pull the value of `key`
+
 ## Desired features
 
 - event stream: 
