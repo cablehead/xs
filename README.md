@@ -21,7 +21,18 @@ Built with:
   over a local Unix domain socket for subscriptions, etc.
 - [nushell](https://www.nushell.sh): for scripting and [interop](https://utopia.rosano.ca/interoperable-visions/)
 
-## desired features
+## Local socket HTTP API
+
+(wip)
+
+### POST
+
+- `/:topic` - append a new event to the stream for `topic` The body of the POST
+  will be stored in the `CAS`. You can also pass arbitrary JSON meta data using
+  the `xs-meta` HTTP header
+- `/kv/:key` - store the body of the HTTP POST as the value of `key`
+
+## Desired features
 
 - event stream: 
     - [x] append
