@@ -23,7 +23,9 @@ Built with:
 
 ## Local socket HTTP API
 
-(wip)
+WIP, thoughts:
+
+- `/:topic` should probably be `/stream/:topic`
 
 ### POST
 
