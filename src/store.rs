@@ -139,7 +139,10 @@ impl Store {
                                         Err(e) => {
                                             let key = std::str::from_utf8(&record.0).unwrap();
                                             let value = std::str::from_utf8(&record.1).unwrap();
-                                            panic!("Failed to deserialize frame: {} {} {}", e, key, value);
+                                            panic!(
+                                                "Failed to deserialize frame: {} {} {}",
+                                                e, key, value
+                                            );
                                         }
                                     };
 
@@ -168,7 +171,15 @@ impl Store {
                             }
                         }
                         Command::Append(frame) => {
-                            subscribers.retain(|tx| tx.blocking_send(frame.clone()).is_ok());
+                            // subscribers.retain(|tx| tx.blocking_send(frame.clone()).is_ok());
+                            subscribers.retain(|tx| {
+                                if tx.blocking_send(frame.clone()).is_ok() {
+                                    true
+                                } else {
+                                    eprintln!("Subscriber not retained");
+                                    false
+                                }
+                            });
                         }
                     }
                 }
