@@ -43,7 +43,7 @@ impl<'de> Deserialize<'de> for FollowOption {
         D: Deserializer<'de>,
     {
         let s: String = Deserialize::deserialize(deserializer)?;
-        if s.is_empty() || s == "follow" || s == "yes" {
+        if s.is_empty() || s == "yes" {
             Ok(FollowOption::On)
         } else if let Ok(duration) = s.parse::<u64>() {
             Ok(FollowOption::WithHeartbeat(Duration::from_millis(duration)))
@@ -139,8 +139,7 @@ impl Store {
                                         Err(e) => {
                                             let key = std::str::from_utf8(&record.0).unwrap();
                                             let value = std::str::from_utf8(&record.1).unwrap();
-                                            eprintln!("Error deserializing frame: {} {} {}", e, key, value);
-                                            panic!("Failed to deserialize frame: {}", e);
+                                            panic!("Failed to deserialize frame: {} {} {}", e, key, value);
                                         }
                                     };
 

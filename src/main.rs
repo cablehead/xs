@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tokio::spawn(async move {
             loop {
                 let store = store.clone();
-                let res = xs::spawn::spawn(store).await;
+                let _ = xs::spawn::spawn(store).await;
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });

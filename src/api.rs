@@ -121,7 +121,7 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     }
 }
 
-async fn post_kv(mut store: Store, path: &str, mut body: hyper::body::Incoming) -> HTTPResult {
+async fn post_kv(store: Store, path: &str, body: hyper::body::Incoming) -> HTTPResult {
     let value = body.collect().await?.to_bytes();
     store.kv.insert(path.as_bytes(), value.clone()).unwrap();
     Ok(Response::new(full(value)))

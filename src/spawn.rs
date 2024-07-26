@@ -70,7 +70,7 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                 Ok(0) => break, // EOF
                 Ok(_) => {
                     let hash = store.cas_insert(&line).await.unwrap();
-                    let frame = store.append("ws.recv", Some(hash.clone()), None).await;
+                    let _ = store.append("ws.recv", Some(hash.clone()), None).await;
                 }
                 Err(e) => {
                     eprintln!("Failed to read from stdout: {}", e);
