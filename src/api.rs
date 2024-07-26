@@ -204,10 +204,10 @@ pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send 
                         .downcast_ref::<std::io::Error>()
                         .map(|io_err| io_err.kind())
                 }) {
-                    // Silently ignore the NotConnected error
+                    // ignore the NotConnected error, hyper's way of saying the client disconnected
                 } else {
-                    // Handle or log other errors
-                    println!("Error serving connection: {:?}", err);
+                    // todo, Handle or log other errors
+                    eprintln!("TBD: {:?}", err);
                 }
             }
         });
