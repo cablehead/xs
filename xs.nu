@@ -25,6 +25,7 @@ export def cat [
     store: string
     --last-id: any
     --follow: any
+    --topic: string
     --tail
 ] {
     let follow = (
@@ -35,7 +36,9 @@ export def cat [
             _ => true,
         }
     )
-    _cat $store { last_id: $last_id, follow: $follow, tail: $tail }
+    _cat $store { last_id: $last_id, follow: $follow, tail: $tail } | if ($topic | is-not-empty) {
+        where {|x| $x.topic == "stream.cross.threshold" or $x.topic == $topic }
+    } else {}
 }
 
 export def chomp [
@@ -70,7 +73,7 @@ export def append [
     --meta: record
 ] {
     curl -s -T - -X POST ...(
-        $meta | and-then {
+        $meta | if ($in | is-not-empty) {
             ["-H" $"xs-meta: ($meta | to json -r)"]
         } | default []
     ) --unix-socket $"($store)/sock" $"localhost(if ($topic | str starts-with '/') { $topic } else { $"/($topic)" })"
