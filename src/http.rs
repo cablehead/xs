@@ -16,8 +16,8 @@ use tokio_util::io::ReaderStream;
 
 use http_body_util::StreamBody;
 use http_body_util::{combinators::BoxBody, BodyExt};
-use hyper::body::Bytes;
 use hyper::body::Body;
+use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
@@ -51,6 +51,8 @@ pub struct ResponseMeta {
     pub status: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub more: Option<bool>,
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -120,33 +122,6 @@ async fn handle(
         )
         .await;
 
-    async fn wait_for_response(
-        store: &Store,
-        frame_id: Scru128Id,
-    ) -> Result<(Option<ssri::Integrity>, ResponseMeta), &str> {
-        let mut recver = store
-            .read(ReadOptions {
-                follow: FollowOption::On,
-                tail: false,
-                last_id: Some(frame_id),
-            })
-            .await;
-
-        while let Some(frame) = recver.recv().await {
-            if frame.topic == "http.response" {
-                if let Some(meta) = frame.meta {
-                    if let Ok(res) = serde_json::from_value::<ResponseMeta>(meta) {
-                        if res.request_id == frame_id {
-                            return Ok((frame.hash, res));
-                        }
-                    }
-                }
-            }
-        }
-
-        Err("event stream ended")
-    }
-
     let (hash, meta) = wait_for_response(&store, frame.id).await.unwrap();
     let hash = hash.unwrap();
 
@@ -215,4 +190,31 @@ pub async fn serve(
             }
         });
     }
+}
+
+async fn wait_for_response(
+    store: &Store,
+    frame_id: Scru128Id,
+) -> Result<(Option<ssri::Integrity>, ResponseMeta), &str> {
+    let mut recver = store
+        .read(ReadOptions {
+            follow: FollowOption::On,
+            tail: false,
+            last_id: Some(frame_id),
+        })
+        .await;
+
+    while let Some(frame) = recver.recv().await {
+        if frame.topic == "http.response" {
+            if let Some(meta) = frame.meta {
+                if let Ok(res) = serde_json::from_value::<ResponseMeta>(meta) {
+                    if res.request_id == frame_id {
+                        return Ok((frame.hash, res));
+                    }
+                }
+            }
+        }
+    }
+
+    Err("event stream ended")
 }
