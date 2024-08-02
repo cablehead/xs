@@ -2284,6 +2284,7 @@ dependencies = [
  "clap",
  "duct",
  "fjall",
+ "futures",
  "http",
  "http-body-util",
  "http-serde",
