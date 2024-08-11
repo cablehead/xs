@@ -176,7 +176,7 @@ impl Store {
                                 if tx.blocking_send(frame.clone()).is_ok() {
                                     true
                                 } else {
-                                    eprintln!("Subscriber not retained");
+                                    tracing::error!("Subscriber not retained");
                                     false
                                 }
                             });

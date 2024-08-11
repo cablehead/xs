@@ -56,24 +56,19 @@ impl Command for XsCasCommand {
         let span = call.head;
 
         let hash: String = call.req(engine_state, stack, 0)?;
-        eprintln!("hash: {:?}", hash);
         let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::IOError {
-            msg: format!("YIKES:: {}", e),
+            msg: format!("Malformed ssri::Integrity:: {}", e),
         })?;
-        eprintln!("HASH: {:?}", hash);
 
-        let rt = tokio::runtime::Runtime::new().map_err(|e| ShellError::IOError {
-            msg: format!("YIKES:: {}", e),
-        })?;
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
         let contents = rt.block_on(async {
-            let mut reader =
-                self.store
-                    .cas_reader(hash)
-                    .await
-                    .map_err(|e| ShellError::IOError {
-                        msg: format!("R:: {}", e),
-                    })?;
+            let mut reader = self
+                .store
+                .cas_reader(hash)
+                .await
+                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
             let mut contents = Vec::new();
             reader
                 .read_to_end(&mut contents)
@@ -100,7 +95,7 @@ fn add_custom_commands(store: Store, mut engine_state: EngineState) -> EngineSta
     };
 
     if let Err(err) = engine_state.merge_delta(delta) {
-        eprintln!("Error adding custom commands: {err:?}");
+        tracing::error!("Error adding custom commands: {err:?}");
     }
 
     engine_state

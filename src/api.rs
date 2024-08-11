@@ -187,7 +187,7 @@ async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult
 }
 
 pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("starting api: {:?}", &store.path);
+    tracing::info!("starting api: {:?}", &store.path);
     let listener = UnixListener::bind(store.path.join("sock")).unwrap();
     loop {
         let (stream, _) = listener.accept().await?;
@@ -207,7 +207,7 @@ pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send 
                     // ignore the NotConnected error, hyper's way of saying the client disconnected
                 } else {
                     // todo, Handle or log other errors
-                    eprintln!("TBD: {:?}", err);
+                    tracing::error!("TBD: {:?}", err);
                 }
             }
         });

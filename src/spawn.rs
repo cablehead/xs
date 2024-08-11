@@ -43,7 +43,7 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                                     let mut content = content;
                                     content.push(b'\n');
                                     if let Err(e) = stdin.write_all(&content).await {
-                                        eprintln!("Failed to write to stdin: {}", e);
+                                        tracing::error!("Failed to write to stdin: {}", e);
                                         break;
                                     }
                                 }
@@ -73,7 +73,7 @@ pub async fn spawn(mut store: Store) -> Result<(), Box<dyn std::error::Error + S
                     let _ = store.append("ws.recv", Some(hash.clone()), None).await;
                 }
                 Err(e) => {
-                    eprintln!("Failed to read from stdout: {}", e);
+                    tracing::error!("Failed to read from stdout: {}", e);
                     break;
                 }
             }

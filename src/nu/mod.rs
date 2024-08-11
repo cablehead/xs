@@ -21,10 +21,8 @@ pub async fn spawn_closure(store: &Store, closure_snippet: String) -> Result<(),
         .await;
 
     std::thread::spawn(move || {
-        let mut i = 0;
         while let Some(frame) = rx.blocking_recv() {
-            run::line(i, frame, &engine_state, &closure, &pool);
-            i += 1;
+            run::line(frame, &engine_state, &closure, &pool);
         }
     });
 

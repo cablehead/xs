@@ -38,6 +38,9 @@ nu-cmd-lang = "0.96.1"
 nu-engine = "0.96.1"
 nu-parser = "0.96.1"
 crossbeam-channel = "0.5.13"
+tracing = "0.1.40"
+console = "0.15.8"
+chrono = "0.4.38"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"

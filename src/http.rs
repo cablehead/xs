@@ -150,7 +150,7 @@ pub async fn serve(
     store: Store,
     addr: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("starting http interface: {:?}", addr);
+    tracing::info!("starting http interface: {:?}", addr);
     let mut listener = Listener::bind(addr).await?;
     loop {
         let (stream, remote_addr) = listener.accept().await?;
@@ -173,7 +173,7 @@ pub async fn serve(
                     // Silently ignore the NotConnected error
                 } else {
                     // Handle or log other errors
-                    println!("Error serving connection: {:?}", err);
+                    tracing::error!("Error serving connection: {:?}", err);
                 }
             }
         });

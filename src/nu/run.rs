@@ -54,7 +54,6 @@ fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
 }
 
 pub fn line(
-    job_number: usize,
     frame: Frame,
     engine_state: &EngineState,
     closure: &Closure,
@@ -63,28 +62,40 @@ pub fn line(
     let engine_state = engine_state.clone();
     let closure = closure.clone();
     pool.execute(move || {
-        println!("Thread {} starting execution", job_number);
+        tracing::debug!(id = frame.id.to_string(), topic = frame.topic, "");
+
         let input = PipelineData::Value(frame_to_value(&frame, Span::unknown()), None);
         match eval_closure(&engine_state, &closure, input) {
             Ok(pipeline_data) => match pipeline_data.into_value(Span::unknown()) {
                 Ok(value) => match value {
-                    Value::String { val, .. } => println!("Thread {}: {}", job_number, val),
+                    Value::String { val, .. } => {
+                        tracing::info!(id = frame.id.to_string(), output = format!(r#""{}""#, val))
+                    }
                     Value::List { vals, .. } => {
                         for val in vals {
-                            println!("Thread {}: {:?}", job_number, val);
+                            tracing::info!(
+                                id = frame.id.to_string(),
+                                output = format!("{:?}", val)
+                            );
                         }
                     }
-                    other => println!("Thread {}: {:?}", job_number, other),
+                    Value::Nothing { .. } => {
+                        tracing::info!(id = frame.id.to_string(), output = "null")
+                    }
+                    other => {
+                        tracing::info!(id = frame.id.to_string(), output = format!("{:?}", other))
+                    }
                 },
                 Err(err) => {
-                    eprintln!(
-                        "Thread {}: Error converting pipeline data: {:?}",
-                        job_number, err
+                    tracing::error!(
+                        id = frame.id.to_string(),
+                        "Error converting pipeline data: {:?}",
+                        err
                     )
                 }
             },
             Err(error) => {
-                eprintln!("Thread {}: Error: {:?}", job_number, error);
+                tracing::error!(id = frame.id.to_string(), "Error: {:?}", error);
             }
         }
     });

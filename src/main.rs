@@ -29,6 +29,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    xs::trace::init();
+
     let args = Args::parse();
     let store = Store::spawn(args.path);
 
