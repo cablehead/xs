@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use clap::Parser;
 
+use xs::nu;
 use xs::store::Store;
 
 #[derive(Parser, Debug)]
@@ -15,7 +16,13 @@ struct Args {
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     http: Option<String>,
 
-    /// Enable discord websocket (temporary)
+    /// A Nushell closure which will be called for every item added to the stream (temporary, you'll be
+    /// able add arbitrary closures at runtime in the future)
+    #[clap(long, value_parser, value_name = "CLOSURE")]
+    closure: Option<String>,
+
+    /// Enable discord websocket (temporary, you'll be able spawn arbitrary CLI commands at runtime
+    /// in the future)
     #[clap(long)]
     ws: bool,
 }
@@ -30,6 +37,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tokio::spawn(async move {
             let _ = xs::http::serve(store, &addr).await;
         });
+    }
+
+    if let Some(closure) = args.closure {
+        let store = store.clone();
+        nu::spawn_closure(&store, closure).await?;
     }
 
     if args.ws {
