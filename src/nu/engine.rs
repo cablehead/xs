@@ -14,25 +14,25 @@ use crate::error::Error;
 use crate::store::Store;
 
 #[derive(Clone)]
-struct XsCasCommand {
+struct CasCommand {
     store: Store,
 }
 
 use nu_engine::CallExt;
 
-impl XsCasCommand {
+impl CasCommand {
     fn new(store: Store) -> Self {
         Self { store }
     }
 }
 
-impl Command for XsCasCommand {
+impl Command for CasCommand {
     fn name(&self) -> &str {
-        "xs cas"
+        ".cas"
     }
 
     fn signature(&self) -> Signature {
-        Signature::build("xs cas")
+        Signature::build(".cas")
             .input_output_types(vec![(Type::Nothing, Type::String)])
             .required(
                 "hash",
@@ -90,7 +90,7 @@ impl Command for XsCasCommand {
 fn add_custom_commands(store: Store, mut engine_state: EngineState) -> EngineState {
     let delta = {
         let mut working_set = StateWorkingSet::new(&engine_state);
-        working_set.add_decl(Box::new(XsCasCommand::new(store)));
+        working_set.add_decl(Box::new(CasCommand::new(store)));
         working_set.render()
     };
 
