@@ -13,7 +13,7 @@ pub fn add_custom_commands(store: Store, mut engine_state: EngineState) -> Engin
     };
 
     if let Err(err) = engine_state.merge_delta(delta) {
-        tracing::error!("Error adding custom commands: {err:?}");
+        eprintln!("Error adding custom commands: {:?}", err);
     }
 
     engine_state

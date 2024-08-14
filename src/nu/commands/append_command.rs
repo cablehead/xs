@@ -1,11 +1,11 @@
-use async_std::io::WriteExt;
+use async_trait::async_trait;
 use nu_engine::CallExt;
 use nu_protocol::{
     Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
 };
 use nu_protocol::engine::{Command, EngineState, Stack};
 use crate::store::Store;
-use crate::nu::util;
+use super::super::util;
 
 #[derive(Clone)]
 pub struct AppendCommand {
@@ -18,6 +18,7 @@ impl AppendCommand {
     }
 }
 
+#[async_trait]
 impl Command for AppendCommand {
     fn name(&self) -> &str {
         ".append"
@@ -40,11 +41,11 @@ impl Command for AppendCommand {
         "writes its input to the CAS and then appends a clip with a hash of this content to the given topic on the stream"
     }
 
-    fn run(
+    async fn run(
         &self,
         engine_state: &EngineState,
         stack: &mut Stack,
-        call: &nu_protocol::engine::Call,
+        call: &nu_protocol::ast::Call,
         input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
@@ -52,67 +53,42 @@ impl Command for AppendCommand {
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         let meta = meta.map(|meta| util::value_to_json(&meta));
 
-        let rt = tokio::runtime::Runtime::new().map_err(|e| ShellError::GenericError(
-            "Failed to create runtime".into(),
+        let mut writer = self.store.cas_writer().await.map_err(|e| ShellError::GenericError(
+            "Failed to create CAS writer".into(),
             e.to_string(),
             Some(span),
             None,
             Vec::new(),
         ))?;
 
-        let frame = rt.block_on(async {
-            let mut writer = self.store.cas_writer().await.map_err(|e| ShellError::GenericError(
-                "Failed to create CAS writer".into(),
-                e.to_string(),
-                Some(span),
-                None,
-                Vec::new(),
-            ))?;
-
-            let hash = match input {
-                PipelineData::Value(value, _) => match value {
-                    Value::Nothing { .. } => Ok(None),
-                    Value::String { val, .. } => {
-                        writer.write_all(val.as_bytes()).await.map_err(|e| ShellError::GenericError(
-                            "Failed to write to CAS".into(),
-                            e.to_string(),
-                            Some(span),
-                            None,
-                            Vec::new(),
-                        ))?;
-                        writer.commit().await.map(Some).map_err(|e| ShellError::GenericError(
-                            "Failed to commit to CAS".into(),
-                            e.to_string(),
-                            Some(span),
-                            None,
-                            Vec::new(),
-                        ))
-                    }
-                    _ => Err(ShellError::GenericError(
-                        "Invalid input type".into(),
-                        "Expected string or nothing".into(),
-                        Some(span),
-                        None,
-                        Vec::new(),
-                    )),
-                },
-                _ => Err(ShellError::GenericError(
-                    "Invalid input type".into(),
-                    "Expected value".into(),
+        let hash = match input {
+            PipelineData::Value(Value::String { val, .. }, ..) => {
+                writer.write_all(val.as_bytes()).await.map_err(|e| ShellError::GenericError(
+                    "Failed to write to CAS".into(),
+                    e.to_string(),
                     Some(span),
                     None,
                     Vec::new(),
-                )),
-            }?;
+                ))?;
+                writer.commit().await.map_err(|e| ShellError::GenericError(
+                    "Failed to commit to CAS".into(),
+                    e.to_string(),
+                    Some(span),
+                    None,
+                    Vec::new(),
+                ))?
+            }
+            PipelineData::Value(Value::Nothing { .. }, ..) => None,
+            _ => return Err(ShellError::TypeMismatch("string or nothing".into(), span)),
+        };
 
-            self.store.append(&topic, hash, meta).await.map_err(|e| ShellError::GenericError(
-                "Failed to append to store".into(),
-                e.to_string(),
-                Some(span),
-                None,
-                Vec::new(),
-            ))
-        })?;
+        let frame = self.store.append(&topic, hash, meta).await.map_err(|e| ShellError::GenericError(
+            "Failed to append to store".into(),
+            e.to_string(),
+            Some(span),
+            None,
+            Vec::new(),
+        ))?;
 
         Ok(PipelineData::Value(
             util::frame_to_value(&frame, span),
@@ -120,4 +96,3 @@ impl Command for AppendCommand {
         ))
     }
 }
-</antArtif

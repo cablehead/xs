@@ -1,4 +1,4 @@
-use async_std::io::ReadExt;
+use async_trait::async_trait;
 use nu_engine::CallExt;
 use nu_protocol::{
     Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
@@ -17,6 +17,7 @@ impl CasCommand {
     }
 }
 
+#[async_trait]
 impl Command for CasCommand {
     fn name(&self) -> &str {
         ".cas"
@@ -37,55 +38,47 @@ impl Command for CasCommand {
         "Retrieve content from the CAS for the given hash"
     }
 
-    fn run(
+    async fn run(
         &self,
         engine_state: &EngineState,
         stack: &mut Stack,
-        call: &nu_protocol::engine::Call,
-        _input: PipelineData,
+        call: &nu_protocol::ast::Call,
+        input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
         let hash: String = call.req(engine_state, stack, 0)?;
         let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::GenericError(
-            "Invalid hash".into(),
+            "Malformed ssri::Integrity".into(),
             e.to_string(),
             Some(span),
             None,
             Vec::new(),
         ))?;
 
-        let rt = tokio::runtime::Runtime::new().map_err(|e| ShellError::GenericError(
-            "Failed to create runtime".into(),
+        let mut reader = self.store.cas_reader(hash).await.map_err(|e| ShellError::GenericError(
+            "Failed to read from CAS".into(),
             e.to_string(),
             Some(span),
             None,
             Vec::new(),
         ))?;
 
-        let contents = rt.block_on(async {
-            let mut reader = self.store.cas_reader(hash).await.map_err(|e| ShellError::GenericError(
-                "Failed to create CAS reader".into(),
-                e.to_string(),
-                Some(span),
-                None,
-                Vec::new(),
-            ))?;
-            let mut contents = Vec::new();
-            reader.read_to_end(&mut contents).await.map_err(|e| ShellError::GenericError(
-                "Failed to read content".into(),
-                e.to_string(),
-                Some(span),
-                None,
-                Vec::new(),
-            ))?;
-            String::from_utf8(contents).map_err(|e| ShellError::GenericError(
-                "Invalid UTF-8".into(),
-                e.to_string(),
-                Some(span),
-                None,
-                Vec::new(),
-            ))
-        })?;
+        let mut contents = Vec::new();
+        reader.read_to_end(&mut contents).await.map_err(|e| ShellError::GenericError(
+            "Failed to read content".into(),
+            e.to_string(),
+            Some(span),
+            None,
+            Vec::new(),
+        ))?;
+
+        let contents = String::from_utf8(contents).map_err(|e| ShellError::GenericError(
+            "Invalid UTF-8".into(),
+            e.to_string(),
+            Some(span),
+            None,
+            Vec::new(),
+        ))?;
 
         Ok(PipelineData::Value(
             Value::String {
