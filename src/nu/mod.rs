@@ -3,6 +3,7 @@ use std::sync::Arc;
 mod engine;
 mod run;
 mod thread_pool;
+mod util;
 
 use crate::error::Error;
 use crate::store::{FollowOption, ReadOptions, Store};

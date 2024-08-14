@@ -3,55 +3,11 @@ use std::sync::Arc;
 use nu_engine::get_eval_block_with_early_return;
 use nu_protocol::engine::Closure;
 use nu_protocol::engine::{EngineState, Stack};
-use nu_protocol::{PipelineData, Record, ShellError, Span, Value};
+use nu_protocol::{PipelineData, ShellError, Span, Value};
 
 use crate::nu::thread_pool;
+use crate::nu::util;
 use crate::store::Frame;
-
-fn frame_to_value(frame: &Frame, span: Span) -> Value {
-    let mut record = Record::new();
-
-    record.push("id", Value::string(frame.id.to_string(), span));
-    record.push("topic", Value::string(frame.topic.clone(), span));
-
-    if let Some(hash) = &frame.hash {
-        record.push("hash", Value::string(hash.to_string(), span));
-    }
-
-    if let Some(meta) = &frame.meta {
-        record.push("meta", json_to_value(meta, span));
-    }
-
-    Value::record(record, span)
-}
-
-fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
-    match json {
-        serde_json::Value::Null => Value::nothing(span),
-        serde_json::Value::Bool(b) => Value::bool(*b, span),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Value::int(i, span)
-            } else if let Some(f) = n.as_f64() {
-                Value::float(f, span)
-            } else {
-                Value::string(n.to_string(), span)
-            }
-        }
-        serde_json::Value::String(s) => Value::string(s, span),
-        serde_json::Value::Array(arr) => {
-            let values: Vec<Value> = arr.iter().map(|v| json_to_value(v, span)).collect();
-            Value::list(values, span)
-        }
-        serde_json::Value::Object(obj) => {
-            let mut record = Record::new();
-            for (k, v) in obj {
-                record.push(k, json_to_value(v, span));
-            }
-            Value::record(record, span)
-        }
-    }
-}
 
 pub fn line(
     frame: Frame,
@@ -64,7 +20,7 @@ pub fn line(
     pool.execute(move || {
         tracing::debug!(id = frame.id.to_string(), topic = frame.topic, "");
 
-        let input = PipelineData::Value(frame_to_value(&frame, Span::unknown()), None);
+        let input = PipelineData::Value(util::frame_to_value(&frame, Span::unknown()), None);
         match eval_closure(&engine_state, &closure, input) {
             Ok(pipeline_data) => match pipeline_data.into_value(Span::unknown()) {
                 Ok(value) => match value {
