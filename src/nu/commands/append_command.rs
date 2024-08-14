@@ -1,11 +1,11 @@
-use async_trait::async_trait;
-use nu_engine::CallExt;
-use nu_protocol::{
-    Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
-};
-use nu_protocol::engine::{Command, EngineState, Stack};
+use crate::nu::util;
 use crate::store::Store;
-use super::super::util;
+use async_std::io::WriteExt;
+use nu_engine::CallExt;
+use nu_protocol::engine::{Command, EngineState, Stack};
+use nu_protocol::{
+    ast::Call, Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
+};
 
 #[derive(Clone)]
 pub struct AppendCommand {
@@ -18,7 +18,6 @@ impl AppendCommand {
     }
 }
 
-#[async_trait]
 impl Command for AppendCommand {
     fn name(&self) -> &str {
         ".append"
@@ -38,57 +37,75 @@ impl Command for AppendCommand {
     }
 
     fn usage(&self) -> &str {
-        "writes its input to the CAS and then appends a clip with a hash of this content to the given topic on the stream"
+        "writes its input to the CAS and then appends a clip with a hash of this content to the
+            given topic on the stream"
     }
 
-    async fn run(
+    fn run(
         &self,
         engine_state: &EngineState,
         stack: &mut Stack,
-        call: &nu_protocol::ast::Call,
+        call: &Call,
         input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
+
+        let mut store = self.store.clone();
+
         let topic: String = call.req(engine_state, stack, 0)?;
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         let meta = meta.map(|meta| util::value_to_json(&meta));
 
-        let mut writer = self.store.cas_writer().await.map_err(|e| ShellError::GenericError(
-            "Failed to create CAS writer".into(),
-            e.to_string(),
-            Some(span),
-            None,
-            Vec::new(),
-        ))?;
+        // Create a Tokio runtime for blocking async operations
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
-        let hash = match input {
-            PipelineData::Value(Value::String { val, .. }, ..) => {
-                writer.write_all(val.as_bytes()).await.map_err(|e| ShellError::GenericError(
-                    "Failed to write to CAS".into(),
-                    e.to_string(),
-                    Some(span),
-                    None,
-                    Vec::new(),
-                ))?;
-                writer.commit().await.map_err(|e| ShellError::GenericError(
-                    "Failed to commit to CAS".into(),
-                    e.to_string(),
-                    Some(span),
-                    None,
-                    Vec::new(),
-                ))?
-            }
-            PipelineData::Value(Value::Nothing { .. }, ..) => None,
-            _ => return Err(ShellError::TypeMismatch("string or nothing".into(), span)),
-        };
+        let frame = rt.block_on(async {
+            let mut writer = store
+                .cas_writer()
+                .await
+                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
-        let frame = self.store.append(&topic, hash, meta).await.map_err(|e| ShellError::GenericError(
-            "Failed to append to store".into(),
-            e.to_string(),
-            Some(span),
-            None,
-            Vec::new(),
-        ))?;
+            let hash = match input {
+                PipelineData::Value(value, _) => match value {
+                    Value::Nothing { .. } => Ok(None),
+                    Value::String { val, .. } => {
+                        // Write the string data
+                        writer
+                            .write_all(val.as_bytes())
+                            .await
+                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                        // Commit the writer and return the hash
+                        let hash = writer
+                            .commit()
+                            .await
+                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                        Ok(Some(hash))
+                    }
+                    _ => Err(ShellError::PipelineMismatch {
+                        exp_input_type: "string or nothing".into(),
+                        dst_span: span,
+                        src_span: value.span(),
+                    }),
+                },
+                PipelineData::ListStream(_stream, ..) => {
+                    // Handle the ListStream case (for now, we'll just panic)
+                    panic!("ListStream handling is not yet implemented");
+                }
+                PipelineData::ByteStream(_stream, ..) => {
+                    // Handle the ByteStream case (for now, we'll just panic)
+                    panic!("ByteStream handling is not yet implemented");
+                }
+                PipelineData::Empty => Ok(None),
+            }?;
+
+            eprintln!("meta: {:?}", meta);
+
+            let frame = store.append(topic.as_str(), hash, meta).await;
+            Ok::<_, ShellError>(frame)
+        })?;
 
         Ok(PipelineData::Value(
             util::frame_to_value(&frame, span),

@@ -1,8 +1,8 @@
-mod cas_command;
 mod append_command;
+mod cas_command;
 
-use nu_protocol::engine::EngineState;
 use crate::store::Store;
+use nu_protocol::engine::EngineState;
 
 pub fn add_custom_commands(store: Store, mut engine_state: EngineState) -> EngineState {
     let delta = {

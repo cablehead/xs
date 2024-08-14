@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use tokio::sync::Semaphore;
+use super::commands::add_custom_commands;
+use super::util;
+use crate::error::Error;
+use crate::store::{Frame, Store};
 use nu_protocol::engine::{Closure, EngineState, Stack};
 use nu_protocol::{PipelineData, ShellError, Span, Value};
-use crate::error::Error;
-use crate::store::{Store, Frame};
-use super::util;
-use super::commands::add_custom_commands;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 pub struct Engine {
     engine_state: Arc<EngineState>,
@@ -17,7 +17,7 @@ impl Engine {
     pub fn new(store: Store, thread_count: usize) -> Self {
         let mut engine_state = nu_command::create_default_context();
         engine_state = add_custom_commands(store.clone(), engine_state);
-        
+
         Self {
             engine_state: Arc::new(engine_state),
             store,
@@ -28,26 +28,26 @@ impl Engine {
     pub fn parse_closure(&self, closure_snippet: &str) -> Result<Closure, Error> {
         let mut working_set = nu_protocol::engine::StateWorkingSet::new(&self.engine_state);
         let block = nu_parser::parse(&mut working_set, None, closure_snippet.as_bytes(), false);
-        
+
         let closure = nu_protocol::engine::Closure {
             block_id: block.block_id,
             captures: block.captures.clone(),
         };
-        
+
         Ok(closure)
     }
 
     pub async fn run_closure(&self, closure: &Closure, frame: Frame) -> Result<Value, Error> {
         let permit = self.semaphore.clone().acquire_owned().await.unwrap();
-        
+
         let engine_state = self.engine_state.clone();
         let closure = closure.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let mut stack = Stack::new();
             let input = PipelineData::Value(util::frame_to_value(&frame, Span::unknown()), None);
-            
+
             match eval_closure(&engine_state, &closure, input) {
                 Ok(pipeline_data) => pipeline_data.into_value(Span::unknown()),
                 Err(err) => Err(err),
@@ -59,7 +59,12 @@ impl Engine {
     }
 
     pub async fn wait_for_completion(&self) {
-        let permits = self.semaphore.clone().acquire_many_owned(self.semaphore.available_permits() as u32).await.unwrap();
+        let permits = self
+            .semaphore
+            .clone()
+            .acquire_many_owned(self.semaphore.available_permits() as u32)
+            .await
+            .unwrap();
         drop(permits);
     }
 }
