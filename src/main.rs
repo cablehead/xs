@@ -4,7 +4,7 @@ use std::time::Duration;
 use clap::Parser;
 
 use xs::nu;
-use xs::store::Store;
+use xs::store::{FollowOption, ReadOptions, Store};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -33,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let args = Args::parse();
     let store = Store::spawn(args.path);
+    let engine = nu::Engine::new(store.clone(), 10)?;
 
     if let Some(addr) = args.http {
         let store = store.clone();
@@ -41,9 +42,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 
-    if let Some(closure) = args.closure {
+    if let Some(closure_snippet) = args.closure {
+        let engine = engine.clone();
         let store = store.clone();
-        nu::spawn_closure(&store, closure).await?;
+        let closure = engine.parse_closure(&closure_snippet)?;
+
+        tokio::spawn(async move {
+            let mut rx = store
+                .read(ReadOptions {
+                    follow: FollowOption::On,
+                    tail: false,
+                    last_id: None,
+                })
+                .await;
+
+            while let Some(frame) = rx.recv().await {
+                let result = engine.run_closure(&closure, frame).await;
+                match result {
+                    Ok(value) => {
+                        // Handle the result, e.g., log it
+                        tracing::info!(output = ?value);
+                    }
+                    Err(err) => {
+                        tracing::error!("Error running closure: {:?}", err);
+                    }
+                }
+            }
+        });
     }
 
     if args.ws {
@@ -57,6 +82,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 
-    xs::api::serve(store).await
     // TODO: graceful shutdown
+    xs::api::serve(store).await?;
+    engine.wait_for_completion().await;
+
+    Ok(())
 }
