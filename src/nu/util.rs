@@ -1,6 +1,5 @@
-use nu_protocol::{Record, Span, Value};
-
 use crate::store::Frame;
+use nu_protocol::{Record, Span, Value};
 
 pub fn frame_to_value(frame: &Frame, span: Span) -> Value {
     let mut record = Record::new();
@@ -52,12 +51,9 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
         Value::Nothing { .. } => serde_json::Value::Null,
         Value::Bool { val, .. } => serde_json::Value::Bool(*val),
         Value::Int { val, .. } => serde_json::Value::Number((*val).into()),
-        Value::Float { val, .. } => {
-            match serde_json::Number::from_f64(*val) {
-                Some(n) => serde_json::Value::Number(n),
-                None => serde_json::Value::Null, // or handle this case as appropriate
-            }
-        }
+        Value::Float { val, .. } => serde_json::Number::from_f64(*val)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         Value::String { val, .. } => serde_json::Value::String(val.clone()),
         Value::List { vals, .. } => {
             serde_json::Value::Array(vals.iter().map(value_to_json).collect())
@@ -69,7 +65,6 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
-        // Handle other variants as needed
-        _ => serde_json::Value::Null, // Default case for unhandled variants
+        _ => serde_json::Value::Null,
     }
 }
