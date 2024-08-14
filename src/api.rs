@@ -33,6 +33,7 @@ enum Routes {
     KvGet(String),
     KvPut(String),
     CasGet(ssri::Integrity),
+    PipePost(Scru128Id),
     NotFound,
 }
 
@@ -40,6 +41,14 @@ fn match_route(method: &Method, path: &str) -> Routes {
     match (method, path) {
         (&Method::GET, "/") => Routes::StreamCat,
         (&Method::POST, "/") => Routes::StreamAppend,
+        (&Method::POST, p) if p.starts_with("/pipe/") => {
+            if let Some(id_str) = p.strip_prefix("/pipe/") {
+                if let Ok(id) = Scru128Id::from_str(id_str) {
+                    return Routes::PipePost(id);
+                }
+            }
+            Routes::NotFound
+        }
         (&Method::GET, p) if p.starts_with("/kv/") => {
             if let Some(key) = p.strip_prefix("/kv/") {
                 if !key.is_empty() {
@@ -135,6 +144,8 @@ async fn handle(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPRe
             }
         }
 
+        Routes::PipePost(id) => handle_pipe_post(&mut store, id, req.into_body()).await,
+
         Routes::NotFound => response_404(),
     }
 }
@@ -185,6 +196,20 @@ async fn handle_stream_append(
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(full(serde_json::to_string(&frame).unwrap()))?)
+}
+
+async fn handle_pipe_post(
+    store: &mut Store,
+    id: Scru128Id,
+    body: hyper::body::Incoming,
+) -> HTTPResult {
+    // TODO: Implement pipe post logic here
+    // This function should handle posting to a pipe identified by the given Scru128Id
+
+    // Placeholder response
+    Ok(Response::builder()
+        .status(StatusCode::NOT_IMPLEMENTED)
+        .body(full("Pipe post not yet implemented"))?)
 }
 
 pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
