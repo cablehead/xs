@@ -1,239 +1,72 @@
-use async_std::io::WriteExt;
-use futures::io::AsyncReadExt;
+use std::sync::Arc;
+use crossbeam_channel::{bounded, Sender};
+use nu_protocol::{PipelineData, Span, Value};
+use nu_engine::get_eval_block_with_early_return;
+use nu_protocol::engine::{Closure, EngineState, Stack, StateWorkingSet};
+use crate::store::{Store, Frame};
+use crate::nu::commands::mod::add_custom_commands;
+use crate::nu::Error;
 
-use nu_cli::{add_cli_context, gather_parent_env_vars};
-use nu_cmd_lang::create_default_context;
-use nu_command::add_shell_command_context;
-use nu_engine::eval_block;
-use nu_parser::parse;
-use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{Call, Closure};
-use nu_protocol::engine::{Command, EngineState, Stack, StateWorkingSet};
-use nu_protocol::{Category, PipelineData, ShellError, Signature, Span, SyntaxShape, Type, Value};
-
-use crate::error::Error;
-use crate::nu::util;
-use crate::store::Store;
-
-#[derive(Clone)]
-struct CasCommand {
-    store: Store,
+pub struct Engine {
+    engine_state: Arc<EngineState>,
+    tx: Sender<Arc<dyn FnOnce() + Send + Sync + 'static>>,
 }
 
-use nu_engine::CallExt;
+impl Engine {
+    pub fn new(store: Store, thread_count: usize) -> Result<Self, Error> {
+        let mut engine_state = nu_cmd_lang::create_default_context();
+        engine_state = add_custom_commands(store, engine_state);
 
-impl CasCommand {
-    fn new(store: Store) -> Self {
-        Self { store }
-    }
-}
+        let (tx, rx) = bounded::<Arc<dyn FnOnce() + Send + Sync + 'static>>(0);
 
-impl Command for CasCommand {
-    fn name(&self) -> &str {
-        ".cas"
-    }
-
-    fn signature(&self) -> Signature {
-        Signature::build(".cas")
-            .input_output_types(vec![(Type::Nothing, Type::String)])
-            .required(
-                "hash",
-                SyntaxShape::String,
-                "hash of the content to retrieve",
-            )
-            .category(Category::Experimental)
-    }
-
-    fn usage(&self) -> &str {
-        "Retrieve content from the CAS for the given hash"
-    }
-
-    fn run(
-        &self,
-        engine_state: &EngineState,
-        stack: &mut Stack,
-        call: &Call,
-        _input: PipelineData,
-    ) -> Result<PipelineData, ShellError> {
-        let span = call.head;
-
-        let hash: String = call.req(engine_state, stack, 0)?;
-        let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::IOError {
-            msg: format!("Malformed ssri::Integrity:: {}", e),
-        })?;
-
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-        let contents = rt.block_on(async {
-            let mut reader = self
-                .store
-                .cas_reader(hash)
-                .await
-                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-            let mut contents = Vec::new();
-            reader
-                .read_to_end(&mut contents)
-                .await
-                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-            String::from_utf8(contents).map_err(|e| ShellError::IOError { msg: e.to_string() })
-        })?;
-
-        Ok(PipelineData::Value(
-            Value::String {
-                val: contents,
-                internal_span: span,
-            },
-            None,
-        ))
-    }
-}
-
-#[derive(Clone)]
-struct AppendCommand {
-    store: Store,
-}
-
-impl AppendCommand {
-    fn new(store: Store) -> Self {
-        Self { store }
-    }
-}
-
-impl Command for AppendCommand {
-    fn name(&self) -> &str {
-        ".append"
-    }
-
-    fn signature(&self) -> Signature {
-        Signature::build(".append")
-            // TODO output type should be Record
-            .input_output_types(vec![(Type::Any, Type::Any)])
-            .required("topic", SyntaxShape::String, "this clip's topic")
-            .named(
-                "meta",
-                SyntaxShape::Record(vec![]),
-                "arbitrary metadata",
-                None,
-            )
-            .category(Category::Experimental)
-    }
-
-    fn usage(&self) -> &str {
-        "writes its input to the CAS and then appends a clip with a hash of this content to the
-            given topic on the stream"
-    }
-
-    fn run(
-        &self,
-        engine_state: &EngineState,
-        stack: &mut Stack,
-        call: &Call,
-        input: PipelineData,
-    ) -> Result<PipelineData, ShellError> {
-        let span = call.head;
-
-        let mut store = self.store.clone();
-
-        let topic: String = call.req(engine_state, stack, 0)?;
-        let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-        let meta = meta.map(|meta| util::value_to_json(&meta));
-
-        // Create a Tokio runtime for blocking async operations
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-        let frame = rt.block_on(async {
-            let mut writer = store
-                .cas_writer()
-                .await
-                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-            let hash = match input {
-                PipelineData::Value(value, _) => match value {
-                    Value::Nothing { .. } => Ok(None),
-                    Value::String { val, .. } => {
-                        // Write the string data
-                        writer
-                            .write_all(val.as_bytes())
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        // Commit the writer and return the hash
-                        let hash = writer
-                            .commit()
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        Ok(Some(hash))
-                    }
-                    _ => Err(ShellError::PipelineMismatch {
-                        exp_input_type: "string or nothing".into(),
-                        dst_span: span,
-                        src_span: value.span(),
-                    }),
-                },
-                PipelineData::ListStream(_stream, ..) => {
-                    // Handle the ListStream case (for now, we'll just panic)
-                    panic!("ListStream handling is not yet implemented");
+        for _ in 0..thread_count {
+            let rx = rx.clone();
+            let engine_state = engine_state.clone();
+            std::thread::spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    job();
                 }
-                PipelineData::ByteStream(_stream, ..) => {
-                    // Handle the ByteStream case (for now, we'll just panic)
-                    panic!("ByteStream handling is not yet implemented");
-                }
-                PipelineData::Empty => Ok(None),
-            }?;
+            });
+        }
 
-            eprintln!("meta: {:?}", meta);
-
-            let frame = store.append(topic.as_str(), hash, meta).await;
-            Ok::<_, ShellError>(frame)
-        })?;
-
-        Ok(PipelineData::Value(
-            util::frame_to_value(&frame, span),
-            None,
-        ))
-    }
-}
-
-fn add_custom_commands(store: Store, mut engine_state: EngineState) -> EngineState {
-    let delta = {
-        let mut working_set = StateWorkingSet::new(&engine_state);
-        working_set.add_decl(Box::new(CasCommand::new(store.clone())));
-        working_set.add_decl(Box::new(AppendCommand::new(store)));
-        working_set.render()
-    };
-
-    if let Err(err) = engine_state.merge_delta(delta) {
-        tracing::error!("Error adding custom commands: {err:?}");
+        Ok(Self {
+            engine_state: Arc::new(engine_state),
+            tx,
+        })
     }
 
-    engine_state
-}
+    pub fn parse_closure(&self, closure_snippet: &str) -> Result<Closure, Error> {
+        let mut working_set = StateWorkingSet::new(&self.engine_state);
+        let block = nu_parser::parse(&mut working_set, None, closure_snippet.as_bytes(), false);
+        let closure = Closure {
+            block_id: self.engine_state.add_block(block.clone()),
+            captures: block.captures.iter().map(|idx| (*idx, Value::Nothing { span: Span::unknown() })).collect(),
+        };
+        Ok(closure)
+    }
 
-pub fn create(store: Store) -> Result<EngineState, Error> {
-    let mut engine_state = create_default_context();
-    engine_state = add_shell_command_context(engine_state);
-    engine_state = add_cli_context(engine_state);
-    engine_state = add_custom_commands(store, engine_state);
+    pub fn run_closure(&self, closure: &Closure, frame: Frame) -> Result<Value, Error> {
+        let engine_state = self.engine_state.clone();
+        let closure = closure.clone();
+        let (tx_result, rx_result) = bounded(1);
 
-    let init_cwd = std::env::current_dir()?;
-    gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
+        self.tx.send(Arc::new(move || {
+            let mut stack = Stack::new();
+            let input = PipelineData::Value(crate::nu::util::frame_to_value(&frame, Span::unknown()), None);
+            let block = engine_state.get_block(closure.block_id);
+            let eval_block_with_early_return = get_eval_block_with_early_return(&engine_state);
 
-    Ok(engine_state)
-}
+            let result = eval_block_with_early_return(&engine_state, &mut stack, block, input)
+                .and_then(|pipeline_data| pipeline_data.into_value(Span::unknown()));
 
-pub fn parse_closure(
-    engine_state: &mut EngineState,
-    closure_snippet: &str,
-) -> Result<Closure, ShellError> {
-    let mut working_set = StateWorkingSet::new(engine_state);
-    let block = parse(&mut working_set, None, closure_snippet.as_bytes(), false);
-    engine_state.merge_delta(working_set.render())?;
+            let _ = tx_result.send(result);
+        }))?;
 
-    let mut stack = Stack::new();
-    let result =
-        eval_block::<WithoutDebug>(engine_state, &mut stack, &block, PipelineData::empty())?;
-    result.into_value(Span::unknown())?.into_closure()
+        rx_result.recv()?.map_err(Error::from)
+    }
+
+    pub fn wait_for_completion(&self) {
+        // Drop the sender to signal no more jobs
+        drop(self.tx.clone());
+    }
 }
