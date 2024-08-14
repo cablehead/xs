@@ -33,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let args = Args::parse();
     let store = Store::spawn(args.path);
+    let engine = nu::Engine::new(store.clone(), 10); // Assuming 10 threads, adjust as needed
 
     if let Some(addr) = args.http {
         let store = store.clone();
@@ -41,9 +42,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 
-    if let Some(closure) = args.closure {
-        let store = store.clone();
-        nu::spawn_closure(&store, closure).await?;
+    if let Some(closure_snippet) = args.closure {
+        let closure = engine.parse_closure(&closure_snippet)?;
+
+        tokio::spawn(async move {
+            let mut rx = store
+                .read(ReadOptions {
+                    follow: FollowOption::On,
+                    tail: false,
+                    last_id: None,
+                })
+                .await;
+
+            while let Some(frame) = rx.recv().await {
+                let result = engine.run_closure(&closure, frame);
+                match result {
+                    Ok(value) => {
+                        // Handle the result, e.g., log it
+                        tracing::info!(output = ?value);
+                    }
+                    Err(err) => {
+                        tracing::error!("Error running closure: {:?}", err);
+                    }
+                }
+            }
+
+            engine.wait_for_completion();
+        });
     }
 
     if args.ws {
