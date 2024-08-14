@@ -215,7 +215,7 @@ async fn handle_pipe_post(
 
     let frame = store.get(&id).unwrap();
 
-    let value = engine.run_closure(closure, frame).await?;
+    let value = closure.run(frame).await?;
     let json = value_to_json(&value);
     let bytes = serde_json::to_vec(&json)?;
 

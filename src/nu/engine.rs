@@ -8,7 +8,7 @@ use nu_command::add_shell_command_context;
 use nu_engine::eval_block;
 use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{Closure, EngineState, Stack, StateWorkingSet};
+use nu_protocol::engine::{EngineState, Stack, StateWorkingSet};
 use nu_protocol::{PipelineData, ShellError, Span, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -68,10 +68,37 @@ impl ThreadPool {
     }
 }
 
+pub struct Closure {
+    engine_state: EngineState,
+    pool: ThreadPool,
+    closure: nu_protocol::engine::Closure,
+}
+
 #[derive(Clone)]
 pub struct Engine {
     engine_state: EngineState,
     pool: ThreadPool,
+}
+
+impl Closure {
+    pub async fn run(&self, frame: Frame) -> Result<Value, Error> {
+        let engine_state = self.engine_state.clone();
+        let closure = self.closure.clone();
+        let pool = self.pool.clone();
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        pool.execute(move || {
+            let input = PipelineData::Value(util::frame_to_value(&frame, Span::unknown()), None);
+            let result = match eval_closure(&engine_state, &closure, input) {
+                Ok(pipeline_data) => pipeline_data.into_value(Span::unknown()),
+                Err(err) => Err(err),
+            };
+            let _ = tx.send(result);
+        });
+
+        rx.await.unwrap().map_err(Error::from)
+    }
 }
 
 impl Engine {
@@ -99,25 +126,13 @@ impl Engine {
         let mut stack = Stack::new();
         let result =
             eval_block::<WithoutDebug>(&engine_state, &mut stack, &block, PipelineData::empty())?;
-        result.into_value(Span::unknown())?.into_closure()
-    }
+        let closure = result.into_value(Span::unknown())?.into_closure()?;
 
-    pub async fn run_closure(&self, closure: Closure, frame: Frame) -> Result<Value, Error> {
-        let engine_state = self.engine_state.clone();
-        let pool = self.pool.clone();
-
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        pool.execute(move || {
-            let input = PipelineData::Value(util::frame_to_value(&frame, Span::unknown()), None);
-            let result = match eval_closure(&engine_state, &closure, input) {
-                Ok(pipeline_data) => pipeline_data.into_value(Span::unknown()),
-                Err(err) => Err(err),
-            };
-            let _ = tx.send(result);
-        });
-
-        rx.await.unwrap().map_err(Error::from)
+        Ok(Closure {
+            engine_state,
+            pool: self.pool.clone(),
+            closure,
+        })
     }
 
     pub async fn wait_for_completion(&self) {
@@ -127,7 +142,7 @@ impl Engine {
 
 fn eval_closure(
     engine_state: &EngineState,
-    closure: &Closure,
+    closure: &nu_protocol::engine::Closure,
     input: PipelineData,
 ) -> Result<PipelineData, ShellError> {
     let block = engine_state.get_block(closure.block_id);
