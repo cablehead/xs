@@ -21,6 +21,7 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
+use crate::nu::{value_to_json, Engine};
 use crate::store::{ReadOptions, Store};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -84,7 +85,11 @@ fn match_route(method: &Method, path: &str) -> Routes {
     }
 }
 
-async fn handle(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn handle(
+    mut store: Store,
+    engine: Engine,
+    req: Request<hyper::body::Incoming>,
+) -> HTTPResult {
     let method = req.method();
     let path = req.uri().path();
 
@@ -144,7 +149,7 @@ async fn handle(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPRe
             }
         }
 
-        Routes::PipePost(id) => handle_pipe_post(&mut store, id, req.into_body()).await,
+        Routes::PipePost(id) => handle_pipe_post(&mut store, engine, id, req.into_body()).await,
 
         Routes::NotFound => response_404(),
     }
@@ -200,38 +205,42 @@ async fn handle_stream_append(
 
 async fn handle_pipe_post(
     store: &mut Store,
+    engine: Engine,
     id: Scru128Id,
     body: hyper::body::Incoming,
 ) -> HTTPResult {
-    // TODO: Implement pipe post logic here
-    // This function should handle posting to a pipe identified by the given Scru128Id
+    let bytes = body.collect().await?.to_bytes();
+    let closure_snippet = std::str::from_utf8(&bytes)?;
+    let closure = engine.parse_closure(closure_snippet)?;
 
-    // read the body into a string
-    let body = body.collect().await?.to_bytes();
-
-    // retrieve the frame from the store
     let frame = store.get(&id).unwrap();
 
-    eprintln!("pipe id: {:?}", id);
-    eprintln!("pipe frame: {:?}", frame);
-    eprintln!("pipe post: {:?}", body);
+    let value = engine.run_closure(closure, frame).await?;
+    let json = value_to_json(&value);
+    let bytes = serde_json::to_vec(&json)?;
 
-    // Placeholder response
     Ok(Response::builder()
         .status(StatusCode::NOT_IMPLEMENTED)
-        .body(full("Pipe post not yet implemented"))?)
+        .body(full(bytes))?)
 }
 
-pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn serve(
+    store: Store,
+    engine: Engine,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::info!("starting api: {:?}", &store.path);
     let listener = UnixListener::bind(store.path.join("sock")).unwrap();
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let store = store.clone();
+        let engine = engine.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(move |req| handle(store.clone(), req)))
+                .serve_connection(
+                    io,
+                    service_fn(move |req| handle(store.clone(), engine.clone(), req)),
+                )
                 .await
             {
                 // Match against the error kind to selectively ignore `NotConnected` errors

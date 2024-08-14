@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // TODO: graceful shutdown
-    xs::api::serve(store).await?;
+    xs::api::serve(store, engine.clone()).await?;
     engine.wait_for_completion().await;
 
     Ok(())
