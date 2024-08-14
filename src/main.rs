@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let args = Args::parse();
     let store = Store::spawn(args.path);
-    let engine = nu::Engine::new(store.clone(), 10); // Assuming 10 threads, adjust as needed
+    let engine = nu::Engine::new(store.clone(), 10)?;
 
     if let Some(addr) = args.http {
         let store = store.clone();

@@ -10,20 +10,21 @@ use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, EngineState, Stack, StateWorkingSet};
 use nu_protocol::{PipelineData, ShellError, Span, Value};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 pub struct ThreadPool {
-    workers: Vec<tokio::task::JoinHandle<()>>,
+    _workers: Vec<tokio::task::JoinHandle<()>>,
     sender: crossbeam_channel::Sender<Box<dyn FnOnce() + Send + 'static>>,
 }
 
 impl ThreadPool {
     pub fn new(size: usize) -> Self {
-        let (sender, receiver) = crossbeam_channel::unbounded();
+        let (sender, receiver) =
+            crossbeam_channel::unbounded::<Box<dyn FnOnce() + Send + 'static>>();
         let receiver = Arc::new(receiver);
 
-        let workers = (0..size)
+        let _workers = (0..size)
             .map(|_| {
                 let receiver = receiver.clone();
                 tokio::spawn(async move {
@@ -34,7 +35,7 @@ impl ThreadPool {
             })
             .collect();
 
-        ThreadPool { workers, sender }
+        ThreadPool { _workers, sender }
     }
 
     pub fn execute<F>(&self, f: F)
@@ -48,7 +49,6 @@ impl ThreadPool {
 #[derive(Clone)]
 pub struct Engine {
     engine_state: EngineState,
-    store: Store,
     pool: Arc<ThreadPool>,
     active_count: Arc<AtomicUsize>,
 }
@@ -65,7 +65,6 @@ impl Engine {
 
         Ok(Self {
             engine_state,
-            store,
             pool: Arc::new(ThreadPool::new(thread_count)),
             active_count: Arc::new(AtomicUsize::new(0)),
         })
@@ -78,12 +77,8 @@ impl Engine {
         engine_state.merge_delta(working_set.render())?;
 
         let mut stack = Stack::new();
-        let result = eval_block::<WithoutDebug>(
-            &engine_state,
-            &mut stack,
-            &block,
-            PipelineData::empty(),
-        )?;
+        let result =
+            eval_block::<WithoutDebug>(&engine_state, &mut stack, &block, PipelineData::empty())?;
         result.into_value(Span::unknown())?.into_closure()
     }
 
