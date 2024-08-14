@@ -206,6 +206,16 @@ async fn handle_pipe_post(
     // TODO: Implement pipe post logic here
     // This function should handle posting to a pipe identified by the given Scru128Id
 
+    // read the body into a string
+    let body = body.collect().await?.to_bytes();
+
+    // retrieve the frame from the store
+    let frame = store.get(&id).unwrap();
+
+    eprintln!("pipe id: {:?}", id);
+    eprintln!("pipe frame: {:?}", frame);
+    eprintln!("pipe post: {:?}", body);
+
     // Placeholder response
     Ok(Response::builder()
         .status(StatusCode::NOT_IMPLEMENTED)
