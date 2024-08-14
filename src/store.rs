@@ -6,8 +6,6 @@ use scru128::Scru128Id;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use tokio::sync::mpsc;
-
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -26,7 +24,7 @@ pub struct Store {
     _keyspace: Keyspace,
     pub partition: PartitionHandle,
     pub kv: PartitionHandle,
-    commands_tx: mpsc::Sender<Command>,
+    commands_tx: tokio::sync::mpsc::Sender<Command>,
 }
 
 #[derive(Default, PartialEq, Clone, Debug)]
@@ -89,7 +87,7 @@ impl ReadOptions {
 
 #[derive(Debug)]
 enum Command {
-    Read(mpsc::Sender<Frame>, ReadOptions),
+    Read(tokio::sync::mpsc::Sender<Frame>, ReadOptions),
     Append(Frame),
 }
 
@@ -106,7 +104,7 @@ impl Store {
             .open_partition("kv", PartitionCreateOptions::default())
             .unwrap();
 
-        let (tx, mut rx) = mpsc::channel::<Command>(32);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(32);
 
         let store = Store {
             path,
@@ -119,7 +117,7 @@ impl Store {
         {
             let store = store.clone();
             std::thread::spawn(move || {
-                let mut subscribers: Vec<mpsc::Sender<Frame>> = Vec::new();
+                let mut subscribers: Vec<tokio::sync::mpsc::Sender<Frame>> = Vec::new();
                 'outer: while let Some(command) = rx.blocking_recv() {
                     match command {
                         Command::Read(tx, options) => {
@@ -189,8 +187,8 @@ impl Store {
         store
     }
 
-    pub async fn read(&self, options: ReadOptions) -> mpsc::Receiver<Frame> {
-        let (tx, rx) = mpsc::channel::<Frame>(100);
+    pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<Frame>(100);
         self.commands_tx
             .send(Command::Read(tx.clone(), options.clone()))
             .await

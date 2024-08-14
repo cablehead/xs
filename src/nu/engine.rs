@@ -11,46 +11,67 @@ use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, EngineState, Stack, StateWorkingSet};
 use nu_protocol::{PipelineData, ShellError, Span, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
+#[derive(Clone)]
 pub struct ThreadPool {
-    _workers: Vec<tokio::task::JoinHandle<()>>,
-    sender: crossbeam_channel::Sender<Box<dyn FnOnce() + Send + 'static>>,
+    tx: crossbeam_channel::Sender<Box<dyn FnOnce() + Send + 'static>>,
+    active_count: Arc<AtomicUsize>,
+    completion_pair: Arc<(Mutex<()>, Condvar)>,
 }
 
 impl ThreadPool {
     pub fn new(size: usize) -> Self {
-        let (sender, receiver) =
-            crossbeam_channel::unbounded::<Box<dyn FnOnce() + Send + 'static>>();
-        let receiver = Arc::new(receiver);
+        let (tx, rx) = crossbeam_channel::bounded::<Box<dyn FnOnce() + Send + 'static>>(0);
+        let active_count = Arc::new(AtomicUsize::new(0));
+        let completion_pair = Arc::new((Mutex::new(()), Condvar::new()));
 
-        let _workers = (0..size)
-            .map(|_| {
-                let receiver = receiver.clone();
-                tokio::spawn(async move {
-                    while let Ok(job) = receiver.recv() {
-                        job();
+        for _ in 0..size {
+            let rx = rx.clone();
+            let active_count = active_count.clone();
+            let completion_pair = completion_pair.clone();
+
+            std::thread::spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    active_count.fetch_add(1, Ordering::SeqCst);
+                    job();
+                    if active_count.fetch_sub(1, Ordering::SeqCst) == 1 {
+                        let (lock, cvar) = &*completion_pair;
+                        let guard = lock.lock().unwrap();
+                        cvar.notify_all();
+                        drop(guard);
                     }
-                })
-            })
-            .collect();
+                }
+            });
+        }
 
-        ThreadPool { _workers, sender }
+        ThreadPool {
+            tx,
+            active_count,
+            completion_pair,
+        }
     }
 
     pub fn execute<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static,
     {
-        self.sender.send(Box::new(f)).unwrap();
+        self.tx.send(Box::new(f)).unwrap();
+    }
+
+    pub fn wait_for_completion(&self) {
+        let (lock, cvar) = &*self.completion_pair;
+        let mut guard = lock.lock().unwrap();
+        while self.active_count.load(Ordering::SeqCst) > 0 {
+            guard = cvar.wait(guard).unwrap();
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct Engine {
     engine_state: EngineState,
-    pool: Arc<ThreadPool>,
-    active_count: Arc<AtomicUsize>,
+    pool: ThreadPool,
 }
 
 impl Engine {
@@ -65,8 +86,7 @@ impl Engine {
 
         Ok(Self {
             engine_state,
-            pool: Arc::new(ThreadPool::new(thread_count)),
-            active_count: Arc::new(AtomicUsize::new(0)),
+            pool: ThreadPool::new(thread_count),
         })
     }
 
@@ -82,12 +102,9 @@ impl Engine {
         result.into_value(Span::unknown())?.into_closure()
     }
 
-    pub async fn run_closure(&self, closure: &Closure, frame: Frame) -> Result<Value, Error> {
-        self.active_count.fetch_add(1, Ordering::SeqCst);
+    pub async fn run_closure(&self, closure: Closure, frame: Frame) -> Result<Value, Error> {
         let engine_state = self.engine_state.clone();
-        let closure = closure.clone();
         let pool = self.pool.clone();
-        let active_count = self.active_count.clone();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
 
@@ -97,7 +114,6 @@ impl Engine {
                 Ok(pipeline_data) => pipeline_data.into_value(Span::unknown()),
                 Err(err) => Err(err),
             };
-            active_count.fetch_sub(1, Ordering::SeqCst);
             let _ = tx.send(result);
         });
 
@@ -105,9 +121,7 @@ impl Engine {
     }
 
     pub async fn wait_for_completion(&self) {
-        while self.active_count.load(Ordering::SeqCst) > 0 {
-            tokio::task::yield_now().await;
-        }
+        self.pool.wait_for_completion()
     }
 }
 

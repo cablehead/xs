@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .await;
 
             while let Some(frame) = rx.recv().await {
-                let result = engine.run_closure(&closure, frame).await;
+                let result = engine.run_closure(closure.clone(), frame).await;
                 match result {
                     Ok(value) => {
                         // Handle the result, e.g., log it
