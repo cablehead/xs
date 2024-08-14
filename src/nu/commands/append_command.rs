@@ -2,10 +2,8 @@ use crate::nu::util;
 use crate::store::Store;
 use async_std::io::WriteExt;
 use nu_engine::CallExt;
-use nu_protocol::engine::{Command, EngineState, Stack};
-use nu_protocol::{
-    ast::Call, Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
-};
+use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 #[derive(Clone)]
 pub struct AppendCommand {
@@ -37,8 +35,7 @@ impl Command for AppendCommand {
     }
 
     fn usage(&self) -> &str {
-        "writes its input to the CAS and then appends a clip with a hash of this content to the
-            given topic on the stream"
+        "writes its input to the CAS and then appends a clip with a hash of this content to the given topic on the stream"
     }
 
     fn run(
@@ -56,7 +53,6 @@ impl Command for AppendCommand {
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         let meta = meta.map(|meta| util::value_to_json(&meta));
 
-        // Create a Tokio runtime for blocking async operations
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
@@ -70,13 +66,11 @@ impl Command for AppendCommand {
                 PipelineData::Value(value, _) => match value {
                     Value::Nothing { .. } => Ok(None),
                     Value::String { val, .. } => {
-                        // Write the string data
                         writer
                             .write_all(val.as_bytes())
                             .await
                             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
-                        // Commit the writer and return the hash
                         let hash = writer
                             .commit()
                             .await

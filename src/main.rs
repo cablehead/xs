@@ -4,7 +4,7 @@ use std::time::Duration;
 use clap::Parser;
 
 use xs::nu;
-use xs::store::Store;
+use xs::store::{FollowOption, ReadOptions, Store};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -43,6 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     if let Some(closure_snippet) = args.closure {
+        let engine = engine.clone();
+        let store = store.clone();
         let closure = engine.parse_closure(&closure_snippet)?;
 
         tokio::spawn(async move {
@@ -55,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .await;
 
             while let Some(frame) = rx.recv().await {
-                let result = engine.run_closure(&closure, frame);
+                let result = engine.run_closure(&closure, frame).await;
                 match result {
                     Ok(value) => {
                         // Handle the result, e.g., log it
@@ -66,8 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
             }
-
-            engine.wait_for_completion();
         });
     }
 
@@ -82,6 +82,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 
-    xs::api::serve(store).await
     // TODO: graceful shutdown
+    xs::api::serve(store).await?;
+    engine.wait_for_completion().await;
+
+    Ok(())
 }

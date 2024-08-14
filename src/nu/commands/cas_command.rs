@@ -1,10 +1,8 @@
 use crate::store::Store;
 use futures::io::AsyncReadExt;
 use nu_engine::CallExt;
-use nu_protocol::engine::{Command, EngineState, Stack};
-use nu_protocol::{
-    ast::Call, Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
-};
+use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 #[derive(Clone)]
 pub struct CasCommand {
@@ -71,7 +69,7 @@ impl Command for CasCommand {
         Ok(PipelineData::Value(
             Value::String {
                 val: contents,
-                span,
+                internal_span: span,
             },
             None,
         ))
