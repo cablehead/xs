@@ -27,17 +27,36 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 enum Routes {
-    Root,
-    Get(Scru128Id),
-    Kv(String),
+    StreamCat,
+    StreamAppend,
+    StreamItemGet(Scru128Id),
+    KvGet(String),
+    KvPut(String),
     CasGet(ssri::Integrity),
     NotFound,
 }
 
-fn match_route(path: &str) -> Routes {
-    match path {
-        "/" => Routes::Root,
-        p if p.starts_with("/cas/") => {
+fn match_route(method: &Method, path: &str) -> Routes {
+    match (method, path) {
+        (&Method::GET, "/") => Routes::StreamCat,
+        (&Method::POST, "/") => Routes::StreamAppend,
+        (&Method::GET, p) if p.starts_with("/kv/") => {
+            if let Some(key) = p.strip_prefix("/kv/") {
+                if !key.is_empty() {
+                    return Routes::KvGet(key.to_string());
+                }
+            }
+            Routes::NotFound
+        }
+        (&Method::PUT, p) if p.starts_with("/kv/") => {
+            if let Some(key) = p.strip_prefix("/kv/") {
+                if !key.is_empty() {
+                    return Routes::KvPut(key.to_string());
+                }
+            }
+            Routes::NotFound
+        }
+        (&Method::GET, p) if p.starts_with("/cas/") => {
             if let Some(hash) = p.strip_prefix("/cas/") {
                 if let Ok(integrity) = ssri::Integrity::from_str(hash) {
                     return Routes::CasGet(integrity);
@@ -45,27 +64,23 @@ fn match_route(path: &str) -> Routes {
             }
             Routes::NotFound
         }
-        p if p.starts_with("/kv/") => {
-            if let Some(path) = p.strip_prefix("/kv/") {
-                if !path.is_empty() {
-                    return Routes::Kv(path.to_string());
-                }
-            }
-            Routes::NotFound
-        }
-        p => {
+        (&Method::GET, p) => {
             if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
-                Routes::Get(id)
+                Routes::StreamItemGet(id)
             } else {
                 Routes::NotFound
             }
         }
+        _ => Routes::NotFound,
     }
 }
 
-async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    match match_route(req.uri().path()) {
-        Routes::Root => {
+async fn handle(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
+    let method = req.method();
+    let path = req.uri().path();
+
+    match match_route(method, path) {
+        Routes::StreamCat => {
             let options = match ReadOptions::from_query(req.uri().query()) {
                 Ok(opts) => opts,
                 Err(err) => return response_400(err.to_string()),
@@ -82,9 +97,21 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
             Ok(Response::new(body))
         }
 
+        Routes::StreamAppend => handle_stream_append(&mut store, req).await,
+
+        Routes::KvGet(key) => {
+            let value = store.kv.get(key.as_bytes()).unwrap();
+            if let Some(value) = value {
+                Ok(Response::new(full(value.to_vec())))
+            } else {
+                response_404()
+            }
+        }
+
+        Routes::KvPut(key) => handle_kv_put(store, &key, req.into_body()).await,
+
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
-            // convert reader from async-std -> tokio
             let reader = reader.compat();
             let stream = ReaderStream::new(reader);
 
@@ -97,16 +124,7 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
             Ok(Response::new(body))
         }
 
-        Routes::Kv(path) => {
-            let value = store.kv.get(path.as_bytes()).unwrap();
-            if let Some(value) = value {
-                Ok(Response::new(full(value.to_vec())))
-            } else {
-                response_404()
-            }
-        }
-
-        Routes::Get(id) => {
+        Routes::StreamItemGet(id) => {
             if let Some(frame) = store.get(&id) {
                 Ok(Response::builder()
                     .status(StatusCode::OK)
@@ -121,36 +139,27 @@ async fn get(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
     }
 }
 
-async fn post_kv(store: Store, path: &str, body: hyper::body::Incoming) -> HTTPResult {
+async fn handle_kv_put(store: Store, key: &str, body: hyper::body::Incoming) -> HTTPResult {
     let value = body.collect().await?.to_bytes();
-    store.kv.insert(path.as_bytes(), value.clone()).unwrap();
+    store.kv.insert(key.as_bytes(), value.clone()).unwrap();
     Ok(Response::new(full(value)))
 }
 
-async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
+async fn handle_stream_append(
+    store: &mut Store,
+    req: Request<hyper::body::Incoming>,
+) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
-
-    let path = &parts.uri.path();
-    if path.starts_with("/kv/") {
-        if let Some(path) = path.strip_prefix("/kv/") {
-            if !path.is_empty() {
-                return post_kv(store, path, body).await;
-            }
-        }
-    }
 
     let hash = if body.is_end_stream() {
         None
     } else {
         let writer = store.cas_writer().await?;
-
-        // convert writer from async-std -> tokio
         let mut writer = writer.compat_write();
         while let Some(frame) = body.frame().await {
             let data = frame?.into_data().unwrap();
             writer.write_all(&data).await?;
         }
-        // get the original writer back
         let writer = writer.into_inner();
         Some(writer.commit().await?)
     };
@@ -176,14 +185,6 @@ async fn post(mut store: Store, req: Request<hyper::body::Incoming>) -> HTTPResu
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(full(serde_json::to_string(&frame).unwrap()))?)
-}
-
-async fn handle(store: Store, req: Request<hyper::body::Incoming>) -> HTTPResult {
-    match *req.method() {
-        Method::GET => get(store, req).await,
-        Method::POST => post(store, req).await,
-        _ => response_404(),
-    }
 }
 
 pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
