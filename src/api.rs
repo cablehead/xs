@@ -164,6 +164,8 @@ async fn handle(
 
         Routes::PipePost(id) => handle_pipe_post(&mut store, engine, id, req.into_body()).await,
 
+        Routes::Spawn => handle_spawn(&mut store, engine, req.into_body()).await,
+
         Routes::NotFound => response_404(),
     }
 }
@@ -236,6 +238,25 @@ async fn handle_pipe_post(
     } else {
         response_404()
     }
+}
+
+async fn handle_spawn(
+    store: &mut Store,
+    engine: Engine,
+    body: hyper::body::Incoming,
+) -> HTTPResult {
+    let bytes = body.collect().await?.to_bytes();
+    let closure_snippet = std::str::from_utf8(&bytes)?;
+    eprintln!("closure_snippet: {:?}", closure_snippet);
+    let closure = engine.parse_closure(closure_snippet)?;
+
+    let mut rx = closure.spawn();
+
+    while let Some(value) = rx.recv().await {
+        eprintln!("value: {:?}", value);
+    }
+
+    response_404()
 }
 
 pub async fn serve(
