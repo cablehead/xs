@@ -9,6 +9,10 @@ export def .cas [hash: string] {
     h. get $"./store/sock//cas/($hash)"
 }
 
+export def .get [id: string] {
+    h. get $"./store/sock//($id)" | from json
+}
+
 export def .append [topic: string --meta: record] {
     h. post $"./store/sock//($topic)" --headers {"xs-meta": ($meta | to json -r)}
 }
