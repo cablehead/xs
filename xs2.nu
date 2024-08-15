@@ -17,7 +17,7 @@ export def .append [topic: string --meta: record] {
     h. post $"./store/sock//($topic)" --headers {"xs-meta": ($meta | to json -r)}
 }
 
-export def .pipe [id: string] {
-    h. post $"./store/sock//pipe/($id)"
+export def .pipe [id: string snippet: closure] {
+    view source $snippet | h. post $"./store/sock//pipe/($id)"
 }
 
