@@ -213,15 +213,17 @@ async fn handle_pipe_post(
     let closure_snippet = std::str::from_utf8(&bytes)?;
     let closure = engine.parse_closure(closure_snippet)?;
 
-    let frame = store.get(&id).unwrap();
+    if let Some(frame) = store.get(&id) {
+        let value = closure.run(frame).await?;
+        let json = value_to_json(&value);
+        let bytes = serde_json::to_vec(&json)?;
 
-    let value = closure.run(frame).await?;
-    let json = value_to_json(&value);
-    let bytes = serde_json::to_vec(&json)?;
-
-    Ok(Response::builder()
-        .status(StatusCode::NOT_IMPLEMENTED)
-        .body(full(bytes))?)
+        Ok(Response::builder()
+            .status(StatusCode::NOT_IMPLEMENTED)
+            .body(full(bytes))?)
+    } else {
+        response_404()
+    }
 }
 
 pub async fn serve(
