@@ -35,12 +35,15 @@ enum Routes {
     KvPut(String),
     CasGet(ssri::Integrity),
     PipePost(Scru128Id),
+    Spawn,
     NotFound,
 }
 
 fn match_route(method: &Method, path: &str) -> Routes {
     match (method, path) {
         (&Method::GET, "/") => Routes::StreamCat,
+
+        (&Method::POST, "/spawn") => Routes::Spawn,
 
         (&Method::POST, p) if p.starts_with("/pipe/") => {
             if let Some(id_str) = p.strip_prefix("/pipe/") {
@@ -50,6 +53,7 @@ fn match_route(method: &Method, path: &str) -> Routes {
             }
             Routes::NotFound
         }
+
         (&Method::GET, p) if p.starts_with("/kv/") => {
             if let Some(key) = p.strip_prefix("/kv/") {
                 if !key.is_empty() {
@@ -58,6 +62,7 @@ fn match_route(method: &Method, path: &str) -> Routes {
             }
             Routes::NotFound
         }
+
         (&Method::PUT, p) if p.starts_with("/kv/") => {
             if let Some(key) = p.strip_prefix("/kv/") {
                 if !key.is_empty() {
@@ -66,6 +71,7 @@ fn match_route(method: &Method, path: &str) -> Routes {
             }
             Routes::NotFound
         }
+
         (&Method::GET, p) if p.starts_with("/cas/") => {
             if let Some(hash) = p.strip_prefix("/cas/") {
                 if let Ok(integrity) = ssri::Integrity::from_str(hash) {
