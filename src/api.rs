@@ -29,7 +29,7 @@ type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 enum Routes {
     StreamCat,
-    StreamAppend,
+    StreamAppend(String),
     StreamItemGet(Scru128Id),
     KvGet(String),
     KvPut(String),
@@ -41,7 +41,7 @@ enum Routes {
 fn match_route(method: &Method, path: &str) -> Routes {
     match (method, path) {
         (&Method::GET, "/") => Routes::StreamCat,
-        (&Method::POST, "/") => Routes::StreamAppend,
+
         (&Method::POST, p) if p.starts_with("/pipe/") => {
             if let Some(id_str) = p.strip_prefix("/pipe/") {
                 if let Ok(id) = Scru128Id::from_str(id_str) {
@@ -74,6 +74,7 @@ fn match_route(method: &Method, path: &str) -> Routes {
             }
             Routes::NotFound
         }
+
         (&Method::GET, p) => {
             if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
                 Routes::StreamItemGet(id)
@@ -81,6 +82,12 @@ fn match_route(method: &Method, path: &str) -> Routes {
                 Routes::NotFound
             }
         }
+
+        (&Method::POST, path) if path.starts_with('/') => {
+            let topic = path.trim_start_matches('/');
+            Routes::StreamAppend(topic.to_string())
+        }
+
         _ => Routes::NotFound,
     }
 }
@@ -111,7 +118,7 @@ async fn handle(
             Ok(Response::new(body))
         }
 
-        Routes::StreamAppend => handle_stream_append(&mut store, req).await,
+        Routes::StreamAppend(topic) => handle_stream_append(&mut store, req, topic).await,
 
         Routes::KvGet(key) => {
             let value = store.kv.get(key.as_bytes()).unwrap();
@@ -164,6 +171,7 @@ async fn handle_kv_put(store: Store, key: &str, body: hyper::body::Incoming) -> 
 async fn handle_stream_append(
     store: &mut Store,
     req: Request<hyper::body::Incoming>,
+    topic: String,
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
@@ -193,9 +201,7 @@ async fn handle_stream_append(
         Err(e) => return response_400(e.to_string()),
     };
 
-    let frame = store
-        .append(parts.uri.path().trim_start_matches('/'), hash, meta)
-        .await;
+    let frame = store.append(&topic, hash, meta).await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
