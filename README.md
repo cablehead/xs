@@ -11,6 +11,8 @@ Status: WIP  [██████████...... 50%]
 
 ## Built-in Topics
 
+- `stream.cross.start` - emmitted when server mounts the stream to expose an API
+
 - `stream.cross.pulse` - a heartbeat event you can configure to be emitted every
   N seconds when in follow mode
 
