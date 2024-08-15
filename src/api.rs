@@ -219,7 +219,7 @@ async fn handle_pipe_post(
         let bytes = serde_json::to_vec(&json)?;
 
         Ok(Response::builder()
-            .status(StatusCode::NOT_IMPLEMENTED)
+            .status(StatusCode::OK)
             .body(full(bytes))?)
     } else {
         response_404()
