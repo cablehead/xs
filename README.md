@@ -38,6 +38,11 @@ Built with:
   replaying events and events that are newly arriving in real-time via a live
   subscription
 
+- `stream.cross.register.generator`
+  - meta: topic
+- `stream.cross.register.duplex`
+- `stream.cross.register.handler`
+
 ## Local socket HTTP API
 
 WIP, thoughts:
