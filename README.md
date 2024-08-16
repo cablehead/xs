@@ -9,17 +9,6 @@ Status: WIP  [██████████...... 50%]
 
 > "You don't so much run it, as poke _at_ it."
 
-## Built-in Topics
-
-- `stream.cross.start` - emmitted when server mounts the stream to expose an API
-
-- `stream.cross.pulse` - a heartbeat event you can configure to be emitted every
-  N seconds when in follow mode
-
-- `stream.cross.theshold` - a synthetic event that marks the boudarry between
-  replaying previous record events, and events which new arriving in real-time
-  via a live subscription
-
 ## Overview / Sketch
 
 An event stream store for personal, local-first use. Kinda like the
@@ -36,6 +25,17 @@ Built with:
   a local Unix domain socket for subscriptions, etc.
 - [nushell](https://www.nushell.sh): for scripting and
   [interop](https://utopia.rosano.ca/interoperable-visions/)
+
+## Built-in Topics
+
+- `stream.cross.start` - emitted when the server mounts the stream to expose an API
+
+- `stream.cross.pulse` - a heartbeat event you can configure to be emitted every
+  N seconds when in follow mode
+
+- `stream.cross.threshold` - a synthetic event that marks the boundary between
+  replaying previous record events and events that are newly arriving in real-time
+  via a live subscription
 
 ## Local socket HTTP API
 
