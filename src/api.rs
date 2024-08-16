@@ -249,13 +249,7 @@ async fn handle_spawn(
     let closure_snippet = std::str::from_utf8(&bytes)?;
     eprintln!("closure_snippet: {:?}", closure_snippet);
     let closure = engine.parse_closure(closure_snippet)?;
-
-    let mut rx = closure.spawn();
-
-    while let Some(value) = rx.recv().await {
-        eprintln!("value: {:?}", value);
-    }
-
+    closure.spawn(store.clone());
     response_404()
 }
 

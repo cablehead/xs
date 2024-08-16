@@ -100,47 +100,44 @@ impl Closure {
         rx.await.unwrap().map_err(Error::from)
     }
 
-    pub fn spawn(&self) -> tokio::sync::mpsc::Receiver<String> {
+    pub fn spawn(&self, store: Store) {
         let engine_state = self.engine_state.clone();
         let closure = self.closure.clone();
-        let pool = self.pool.clone();
-
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         std::thread::spawn(move || {
-            let input = PipelineData::empty();
+            loop {
+                let input = PipelineData::empty();
+                let pipeline = eval_closure(&engine_state, &closure, input).unwrap();
 
-            let pipeline = eval_closure(&engine_state, &closure, input).unwrap();
-
-            match pipeline {
-                PipelineData::Empty => {
-                    // Close the channel immediately
-                }
-                PipelineData::Value(value, _) => {
-                    if let Value::String { val, .. } = value {
-                        let _ = tx.blocking_send(val);
-                    } else {
-                        panic!("Unexpected Value type in PipelineData::Value");
+                match pipeline {
+                    PipelineData::Empty => {
+                        // Close the channel immediately
                     }
-                }
-                PipelineData::ListStream(mut stream, _) => {
-                    while let Some(value) = stream.next_value() {
+                    PipelineData::Value(value, _) => {
                         if let Value::String { val, .. } = value {
-                            if tx.blocking_send(val).is_err() {
-                                break; // Channel closed, stop processing
-                            }
+                            eprintln!("APPEND {}", val);
                         } else {
-                            panic!("Unexpected Value type in ListStream");
+                            panic!("Unexpected Value type in PipelineData::Value");
                         }
                     }
+                    PipelineData::ListStream(mut stream, _) => {
+                        while let Some(value) = stream.next_value() {
+                            if let Value::String { val, .. } = value {
+                                eprintln!("APPEND {}", val);
+                            } else {
+                                panic!("Unexpected Value type in ListStream");
+                            }
+                        }
+                    }
+                    PipelineData::ByteStream(_, _) => {
+                        panic!("ByteStream not supported");
+                    }
                 }
-                PipelineData::ByteStream(_, _) => {
-                    panic!("ByteStream not supported");
-                }
+
+                eprintln!("closure ended, sleeping for a second");
+                std::thread::sleep(std::time::Duration::from_secs(1));
             }
         });
-
-        rx
     }
 }
 
