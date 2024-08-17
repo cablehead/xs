@@ -74,12 +74,6 @@ pub struct Closure {
     closure: nu_protocol::engine::Closure,
 }
 
-#[derive(Clone)]
-pub struct Engine {
-    engine_state: EngineState,
-    pool: ThreadPool,
-}
-
 impl Closure {
     pub async fn run(&self, frame: Frame) -> Result<Value, Error> {
         let engine_state = self.engine_state.clone();
@@ -151,6 +145,12 @@ impl Closure {
             }
         });
     }
+}
+
+#[derive(Clone)]
+pub struct Engine {
+    engine_state: EngineState,
+    pool: ThreadPool,
 }
 
 impl Engine {
