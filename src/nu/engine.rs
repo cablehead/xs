@@ -104,6 +104,18 @@ impl Closure {
         let engine_state = self.engine_state.clone();
         let closure = self.closure.clone();
 
+        fn append(
+            mut store: Store,
+            content: String,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let hash = store.cas_insert(&content).await?;
+                let _ = store.append("warble", Some(hash), None).await;
+                Ok(())
+            })
+        }
+
         std::thread::spawn(move || {
             loop {
                 let input = PipelineData::empty();
@@ -115,7 +127,7 @@ impl Closure {
                     }
                     PipelineData::Value(value, _) => {
                         if let Value::String { val, .. } = value {
-                            eprintln!("APPEND {}", val);
+                            append(store.clone(), val).unwrap();
                         } else {
                             panic!("Unexpected Value type in PipelineData::Value");
                         }
@@ -123,7 +135,7 @@ impl Closure {
                     PipelineData::ListStream(mut stream, _) => {
                         while let Some(value) = stream.next_value() {
                             if let Value::String { val, .. } = value {
-                                eprintln!("APPEND {}", val);
+                                append(store.clone(), val).unwrap();
                             } else {
                                 panic!("Unexpected Value type in ListStream");
                             }
