@@ -28,20 +28,21 @@ Built with:
 
 ## Built-in Topics
 
-- `stream.cross.start` - emitted when the server mounts the stream to expose an
+- `stream.cross.start`: emitted when the server mounts the stream to expose an
   API
 
-- `stream.cross.pulse` - a heartbeat event you can configure to be emitted every
+- `stream.cross.pulse`: (synthetic) a heartbeat event you can configure to be emitted every
   N seconds when in follow mode
 
-- `stream.cross.threshold` - a synthetic event that marks the boundary between
+- `stream.cross.threshold`: (synthetic) marks the boundary between
   replaying events and events that are newly arriving in real-time via a live
   subscription
 
-- `stream.cross.register.generator`
+- `stream.cross.generator.spawn`
+- `stream.cross.generator.terminate`
+- `stream.cross.duplex.spawn`
   - meta: topic
-- `stream.cross.register.duplex`
-- `stream.cross.register.handler`
+- `stream.cross.handler.spawn`
 
 ## Local socket HTTP API
 
