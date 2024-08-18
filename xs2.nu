@@ -2,10 +2,11 @@ export alias "h. get" = h. request get
 export alias "h. post" = h. request post
 
 export def .cat [] {
-    h. get ./store/sock | lines | each {from json}
+    h. get ./store/sock | lines | each {|x| $x | from json}
 }
 
-export def .cas [hash: string] {
+export def .cas [hash?: string] {
+    let hash = if ($hash | is-not-empty) { $hash } else { $in }
     h. get $"./store/sock//cas/($hash)"
 }
 

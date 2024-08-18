@@ -39,9 +39,9 @@ Built with:
   subscription
 
 - `stream.cross.generator.spawn`
+  - meta: topic
 - `stream.cross.generator.terminate`
 - `stream.cross.duplex.spawn`
-  - meta: topic
 - `stream.cross.handler.spawn`
 
 ## Local socket HTTP API
