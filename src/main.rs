@@ -35,6 +35,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let store = Store::spawn(args.path);
     let engine = nu::Engine::new(store.clone(), 10)?;
 
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            let _ = xs::tasks::serve(store).await;
+        });
+    }
+
     if let Some(addr) = args.http {
         let store = store.clone();
         tokio::spawn(async move {

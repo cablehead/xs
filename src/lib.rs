@@ -5,4 +5,5 @@ pub mod listener;
 pub mod nu;
 pub mod spawn;
 pub mod store;
+pub mod tasks;
 pub mod trace;
