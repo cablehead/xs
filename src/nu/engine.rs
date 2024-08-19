@@ -101,12 +101,16 @@ impl Closure {
         fn append(
             mut store: Store,
             topic: &str,
+            postfix: &str,
             content: String,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 let hash = store.cas_insert(&content).await?;
-                let _ = store.append(topic, Some(hash), None).await;
+                // TODO: add the associated generator_id to meta
+                let _ = store
+                    .append(&format!("{}.{}", topic, postfix), Some(hash), None)
+                    .await;
                 Ok(())
             })
         }
@@ -126,7 +130,7 @@ impl Closure {
                     PipelineData::Value(value, _) => {
                         if let Value::String { val, .. } = value {
                             // TODO: post fix .recv
-                            append(store.clone(), &topic, val).unwrap();
+                            append(store.clone(), &topic, "recv", val).unwrap();
                         } else {
                             panic!("Unexpected Value type in PipelineData::Value");
                         }
@@ -134,8 +138,7 @@ impl Closure {
                     PipelineData::ListStream(mut stream, _) => {
                         while let Some(value) = stream.next_value() {
                             if let Value::String { val, .. } = value {
-                                // TODO: post fix .recv
-                                append(store.clone(), &topic, val).unwrap();
+                                append(store.clone(), &topic, "recv", val).unwrap();
                             } else {
                                 panic!("Unexpected Value type in ListStream");
                             }
