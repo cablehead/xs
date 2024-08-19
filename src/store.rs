@@ -409,14 +409,8 @@ mod tests_store {
         assert_eq!(f4, recver.recv().await.unwrap());
 
         // Assert we see some heartbeats
-        assert_eq!(
-            "xs.pulse".to_string(),
-            recver.recv().await.unwrap().topic
-        );
-        assert_eq!(
-            "xs.pulse".to_string(),
-            recver.recv().await.unwrap().topic
-        );
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
 
     #[tokio::test]
