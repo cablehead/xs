@@ -7,8 +7,6 @@
 Status: WIP  [██████████...... 50%]
 ```
 
-> "You don't so much run it, as poke _at_ it."
-
 ## Overview / Sketch
 
 An event stream store for personal, local-first use. Kinda like the
@@ -16,6 +14,8 @@ An event stream store for personal, local-first use. Kinda like the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
 ![screenshot](./docs/screenshot.png)
+
+> "You don't so much run it, as poke _at_ it."
 
 Built with:
 
