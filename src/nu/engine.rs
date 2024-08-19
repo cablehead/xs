@@ -115,7 +115,6 @@ impl Closure {
             })
         }
 
-        eprintln!("spawning generator for topic: {}", topic);
         tracing::info!("spawning generator for topic: {}", topic);
 
         std::thread::spawn(move || {
