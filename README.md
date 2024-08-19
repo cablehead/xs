@@ -39,7 +39,7 @@ Built with:
   subscription
 
 - `xs.generator.spawn`
-  - meta:: topic: string, duplex: bool
+    - meta:: topic: string, duplex: bool
     - `xs.generator.terminate`
 
 - `xs.handler.spawn`
