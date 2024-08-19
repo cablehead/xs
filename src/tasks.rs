@@ -1,4 +1,6 @@
 /// manages watching for tasks command events, and then the lifecycle of these tasks
+use scru128::Scru128Id;
+
 use tokio::io::AsyncReadExt;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
@@ -68,6 +70,7 @@ pub async fn serve(
                     spawn(
                         engine.clone(),
                         store.clone(),
+                        frame.id,
                         meta.topic.clone(),
                         expression,
                     );
@@ -84,25 +87,34 @@ pub async fn serve(
     Ok(())
 }
 
-pub fn spawn(engine: nu::Engine, store: Store, topic: String, expression: String) {
+pub fn spawn(
+    engine: nu::Engine,
+    store: Store,
+    source_id: Scru128Id,
+    topic: String,
+    expression: String,
+) {
     fn append(
         mut store: Store,
+        source_id: Scru128Id,
         topic: &str,
         postfix: &str,
         content: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            // TODO: add the associated generator_id to meta
-
             let hash = if let Some(content) = content {
                 Some(store.cas_insert(&content).await?)
             } else {
                 None
             };
 
+            let meta = serde_json::json!({
+                "source_id": source_id.to_string(),
+            });
+
             let _ = store
-                .append(&format!("{}.{}", topic, postfix), hash, None)
+                .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
                 .await;
             Ok(())
         })
@@ -111,7 +123,7 @@ pub fn spawn(engine: nu::Engine, store: Store, topic: String, expression: String
     tracing::info!("spawning generator for topic: {}", topic);
 
     std::thread::spawn(move || {
-        let _ = append(store.clone(), &topic, "start", None);
+        let _ = append(store.clone(), source_id.clone(), &topic, "start", None);
 
         loop {
             let input = PipelineData::empty();
@@ -123,7 +135,8 @@ pub fn spawn(engine: nu::Engine, store: Store, topic: String, expression: String
                 }
                 PipelineData::Value(value, _) => {
                     if let Value::String { val, .. } = value {
-                        append(store.clone(), &topic, "recv", Some(val)).unwrap();
+                        append(store.clone(), source_id.clone(), &topic, "recv", Some(val))
+                            .unwrap();
                     } else {
                         panic!("Unexpected Value type in PipelineData::Value");
                     }
@@ -131,7 +144,8 @@ pub fn spawn(engine: nu::Engine, store: Store, topic: String, expression: String
                 PipelineData::ListStream(mut stream, _) => {
                     while let Some(value) = stream.next_value() {
                         if let Value::String { val, .. } = value {
-                            append(store.clone(), &topic, "recv", Some(val)).unwrap();
+                            append(store.clone(), source_id.clone(), &topic, "recv", Some(val))
+                                .unwrap();
                         } else {
                             panic!("Unexpected Value type in ListStream");
                         }

@@ -250,7 +250,7 @@ impl Store {
             meta: meta.clone(),
         };
 
-        tracing::debug!(meta = ?meta, "APPEND {} {}", frame.id, frame.topic);
+        tracing::debug!("APPEND {} {} ", frame.id, frame.topic);
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
 
