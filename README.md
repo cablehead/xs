@@ -40,8 +40,10 @@ Built with:
 
 - `xs.generator.spawn`
   - meta:: topic: string, duplex: bool
-- `xs.generator.terminate`
+    - `xs.generator.terminate`
+
 - `xs.handler.spawn`
+    - `xs.handler.terminate`
 
 ## Local socket HTTP API
 
