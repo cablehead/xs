@@ -1,3 +1,7 @@
+use tokio::io::AsyncReadExt;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+use crate::nu::Engine;
 /// manages watching for tasks command events, and then the lifecycle of these tasks
 use crate::store::{FollowOption, ReadOptions, Store};
 
@@ -29,7 +33,10 @@ struct GeneratorMeta {
     topic: String,
 }
 
-pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn serve(
+    store: Store,
+    engine: Engine,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::task::spawn(async move {
         let options = ReadOptions {
             follow: FollowOption::On,
@@ -48,7 +55,28 @@ pub async fn serve(store: Store) -> Result<(), Box<dyn std::error::Error + Send 
                     .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok());
 
                 if let Some(meta) = meta {
-                    tracing::info!("meta: {:?}  -- TODO: spawn the generator", meta.topic);
+                    // TODO: emit a .err event on any of these unwraps
+                    let hash = frame.hash.unwrap();
+                    let reader = store.cas_reader(hash).await.unwrap();
+                    let mut closure_snippet = String::new();
+                    reader
+                        .compat()
+                        .read_to_string(&mut closure_snippet)
+                        .await
+                        .unwrap();
+                    eprintln!("1 XXX: {:?}", closure_snippet);
+                    let closure = engine
+                        .parse_closure(&closure_snippet)
+                        .map_err(|err| {
+                            eprintln!("error parsing closure: {:?}", err);
+                            tracing::error!("error parsing closure: {:?}", err);
+                            err
+                        })
+                        .unwrap();
+                    eprintln!("1");
+                    closure.spawn(store.clone(), meta.topic.clone());
+
+                    eprintln!("SPAWNED generator for topic: {}", meta.topic);
                 } else {
                     tracing::error!(
                         "bad meta data: {:?} -- TODO: emit a .err event if bad meta data",

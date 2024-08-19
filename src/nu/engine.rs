@@ -94,21 +94,25 @@ impl Closure {
         rx.await.unwrap().map_err(Error::from)
     }
 
-    pub fn spawn(&self, store: Store) {
+    pub fn spawn(&self, store: Store, topic: String) {
         let engine_state = self.engine_state.clone();
         let closure = self.closure.clone();
 
         fn append(
             mut store: Store,
+            topic: &str,
             content: String,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 let hash = store.cas_insert(&content).await?;
-                let _ = store.append("warble", Some(hash), None).await;
+                let _ = store.append(topic, Some(hash), None).await;
                 Ok(())
             })
         }
+
+        eprintln!("spawning generator for topic: {}", topic);
+        tracing::info!("spawning generator for topic: {}", topic);
 
         std::thread::spawn(move || {
             loop {
@@ -121,7 +125,8 @@ impl Closure {
                     }
                     PipelineData::Value(value, _) => {
                         if let Value::String { val, .. } = value {
-                            append(store.clone(), val).unwrap();
+                            // TODO: post fix .recv
+                            append(store.clone(), &topic, val).unwrap();
                         } else {
                             panic!("Unexpected Value type in PipelineData::Value");
                         }
@@ -129,7 +134,8 @@ impl Closure {
                     PipelineData::ListStream(mut stream, _) => {
                         while let Some(value) = stream.next_value() {
                             if let Value::String { val, .. } = value {
-                                append(store.clone(), val).unwrap();
+                                // TODO: post fix .recv
+                                append(store.clone(), &topic, val).unwrap();
                             } else {
                                 panic!("Unexpected Value type in ListStream");
                             }
@@ -170,15 +176,24 @@ impl Engine {
     }
 
     pub fn parse_closure(&self, closure_snippet: &str) -> Result<Closure, ShellError> {
+        eprintln!("parsing closure: {}", closure_snippet);
         let mut working_set = StateWorkingSet::new(&self.engine_state);
         let block = parse(&mut working_set, None, closure_snippet.as_bytes(), false);
         let mut engine_state = self.engine_state.clone();
         engine_state.merge_delta(working_set.render())?;
 
+        eprintln!("evaluating closure");
+
         let mut stack = Stack::new();
         let result =
             eval_block::<WithoutDebug>(&engine_state, &mut stack, &block, PipelineData::empty())?;
+
+        // TODO: taking a closure isn't ergonomic
+        // we should just take a block
+        eprintln!("closure step 2");
         let closure = result.into_value(Span::unknown())?.into_closure()?;
+
+        eprintln!("closure evaluated");
 
         Ok(Closure {
             engine_state,

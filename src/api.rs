@@ -249,7 +249,7 @@ async fn handle_spawn(
     let closure_snippet = std::str::from_utf8(&bytes)?;
     eprintln!("closure_snippet: {:?}", closure_snippet);
     let closure = engine.parse_closure(closure_snippet)?;
-    closure.spawn(store.clone());
+    closure.spawn(store.clone(), "warble".to_string());
     response_404()
 }
 
