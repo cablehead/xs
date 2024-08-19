@@ -43,6 +43,7 @@ Built with:
     - `xs.generator.terminate`
 
 - `xs.handler.spawn`
+    - meta:: run-from: start, tail, id?
     - `xs.handler.terminate`
 
 ## Local socket HTTP API
