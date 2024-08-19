@@ -49,7 +49,6 @@ pub async fn serve(
         let mut recver = store.read(options).await;
         tracing::warn!("TODO: dedupe commands until threshold");
         while let Some(frame) = recver.recv().await {
-            tracing::info!("topic: {:?}", frame.topic);
             if frame.topic == "xs.generator.spawn" {
                 let meta = frame
                     .meta

@@ -247,8 +247,10 @@ impl Store {
             id: scru128::new(),
             topic: topic.to_string(),
             hash,
-            meta,
+            meta: meta.clone(),
         };
+
+        tracing::debug!(meta = ?meta, "APPEND {} {}", frame.id, frame.topic);
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
 
