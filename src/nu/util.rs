@@ -1,22 +1,5 @@
 use crate::store::Frame;
-use nu_protocol::{Record, Span, Value};
-
-pub fn frame_to_value(frame: &Frame, span: Span) -> Value {
-    let mut record = Record::new();
-
-    record.push("id", Value::string(frame.id.to_string(), span));
-    record.push("topic", Value::string(frame.topic.clone(), span));
-
-    if let Some(hash) = &frame.hash {
-        record.push("hash", Value::string(hash.to_string(), span));
-    }
-
-    if let Some(meta) = &frame.meta {
-        record.push("meta", json_to_value(meta, span));
-    }
-
-    Value::record(record, span)
-}
+use nu_protocol::{PipelineData, Record, Span, Value};
 
 pub fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
     match json {
@@ -44,6 +27,27 @@ pub fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
             Value::record(record, span)
         }
     }
+}
+
+pub fn frame_to_value(frame: &Frame, span: Span) -> Value {
+    let mut record = Record::new();
+
+    record.push("id", Value::string(frame.id.to_string(), span));
+    record.push("topic", Value::string(frame.topic.clone(), span));
+
+    if let Some(hash) = &frame.hash {
+        record.push("hash", Value::string(hash.to_string(), span));
+    }
+
+    if let Some(meta) = &frame.meta {
+        record.push("meta", json_to_value(meta, span));
+    }
+
+    Value::record(record, span)
+}
+
+pub fn frame_to_pipeline(frame: &Frame) -> PipelineData {
+    PipelineData::Value(frame_to_value(frame, Span::unknown()), None)
 }
 
 pub fn value_to_json(value: &Value) -> serde_json::Value {

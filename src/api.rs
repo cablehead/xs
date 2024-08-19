@@ -21,7 +21,9 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use crate::nu::{value_to_json, Engine};
+use nu_protocol::Span;
+
+use crate::nu;
 use crate::store::{ReadOptions, Store};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -97,7 +99,7 @@ fn match_route(method: &Method, path: &str) -> Routes {
 
 async fn handle(
     mut store: Store,
-    engine: Engine,
+    engine: nu::Engine,
     req: Request<hyper::body::Incoming>,
 ) -> HTTPResult {
     let method = req.method();
@@ -214,17 +216,19 @@ async fn handle_stream_append(
 
 async fn handle_pipe_post(
     store: &mut Store,
-    engine: Engine,
+    engine: nu::Engine,
     id: Scru128Id,
     body: hyper::body::Incoming,
 ) -> HTTPResult {
     let bytes = body.collect().await?.to_bytes();
-    let closure_snippet = std::str::from_utf8(&bytes)?;
-    let closure = engine.parse_closure(closure_snippet)?;
+    let expression = std::str::from_utf8(&bytes)?.to_string();
 
     if let Some(frame) = store.get(&id) {
-        let value = closure.run(frame).await?;
-        let json = value_to_json(&value);
+        let input = nu::frame_to_pipeline(&frame);
+        let value = engine
+            .eval(input, expression)
+            .and_then(|pipeline_data| pipeline_data.into_value(Span::unknown()))?;
+        let json = nu::value_to_json(&value);
         let bytes = serde_json::to_vec(&json)?;
 
         Ok(Response::builder()
@@ -237,7 +241,7 @@ async fn handle_pipe_post(
 
 pub async fn serve(
     store: Store,
-    engine: Engine,
+    engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::info!("starting api: {:?}", &store.path);
     let listener = UnixListener::bind(store.path.join("sock")).unwrap();
