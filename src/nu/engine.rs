@@ -128,7 +128,6 @@ impl Closure {
                     }
                     PipelineData::Value(value, _) => {
                         if let Value::String { val, .. } = value {
-                            // TODO: post fix .recv
                             append(store.clone(), &topic, "recv", val).unwrap();
                         } else {
                             panic!("Unexpected Value type in PipelineData::Value");
