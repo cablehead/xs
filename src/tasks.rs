@@ -7,8 +7,8 @@ use crate::store::{FollowOption, ReadOptions, Store};
 
 /*
 
-A thread that watches the event stream for stream.cross.generator.spawn and
-stream.cross.generator.terminate
+A thread that watches the event stream for xs.generator.spawn and
+xs.generator.terminate
 
 On start up reads the stream until threshold: what's it building up there: basicly a filter with a
 dedupe on a given key. When it hits thre threshold: it plays the events its saved up: and then
@@ -16,7 +16,7 @@ responds to events in realtime.
 
 When it sees one it spawns a generator:
 - store engine, closure, runs in its own thread, so no thread pool
-- emits an stream.cross.generator.spawn.err event if bad meta data
+- emits an xs.generator.spawn.err event if bad meta data
 - emits a topic.start event {generator_id: id}
 - on stop emits a stop event: meta reason
 - restarts until terminated or replaced
@@ -48,7 +48,7 @@ pub async fn serve(
         tracing::warn!("TODO: dedupe commands until threshold");
         while let Some(frame) = recver.recv().await {
             tracing::info!("topic: {:?}", frame.topic);
-            if frame.topic == "stream.cross.generator.spawn" {
+            if frame.topic == "xs.generator.spawn" {
                 let meta = frame
                     .meta
                     .clone()

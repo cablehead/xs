@@ -37,7 +37,7 @@ export def cat [
         }
     )
     _cat $store { last_id: $last_id, follow: $follow, tail: $tail } | if ($topic | is-not-empty) {
-        where {|x| $x.topic == "stream.cross.threshold" or $x.topic == $topic }
+        where {|x| $x.topic == "xs.threshold" or $x.topic == $topic }
     } else {}
 }
 

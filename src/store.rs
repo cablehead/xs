@@ -154,7 +154,7 @@ impl Store {
                                 FollowOption::On | FollowOption::WithHeartbeat(_) => {
                                     let frame = Frame {
                                         id: scru128::new(),
-                                        topic: "stream.cross.threshold".into(),
+                                        topic: "xs.threshold".into(),
                                         hash: None,
                                         meta: None,
                                     };
@@ -200,7 +200,7 @@ impl Store {
                     tokio::time::sleep(duration).await;
                     let frame = Frame {
                         id: scru128::new(),
-                        topic: "stream.cross.pulse".into(),
+                        topic: "xs.pulse".into(),
                         hash: None,
                         meta: None,
                     };
@@ -398,7 +398,7 @@ mod tests_store {
 
         // crossing the threshold
         assert_eq!(
-            "stream.cross.threshold".to_string(),
+            "xs.threshold".to_string(),
             recver.recv().await.unwrap().topic
         );
 
@@ -410,11 +410,11 @@ mod tests_store {
 
         // Assert we see some heartbeats
         assert_eq!(
-            "stream.cross.pulse".to_string(),
+            "xs.pulse".to_string(),
             recver.recv().await.unwrap().topic
         );
         assert_eq!(
-            "stream.cross.pulse".to_string(),
+            "xs.pulse".to_string(),
             recver.recv().await.unwrap().topic
         );
     }
