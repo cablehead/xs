@@ -2,7 +2,7 @@ export alias "h. get" = h. request get
 export alias "h. post" = h. request post
 
 export def .cat [
-    --follow
+    --follow (-f)
 ] {
     let postfix = if $follow { "//?follow" } else { "" }
     h. get $"./store/sock($postfix)" | lines | each {|x| $x | from json}
