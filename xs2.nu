@@ -1,16 +1,22 @@
 export alias "h. get" = h. request get
 export alias "h. post" = h. request post
 
+alias and-then = if ($in | is-not-empty)
+alias ? = if ($in | is-not-empty) { $in }
+alias ?? = ? else { return }
+
 export def .cat [
     --follow (-f)
 ] {
     let postfix = if $follow { "//?follow" } else { "" }
-    h. get $"./store/sock($postfix)" | lines | each {|x| $x | from json}
+    h. get $"./store/sock($postfix)" | lines | each { |x| $x | from json }
 }
 
 export def .cas [hash?: string] {
-    let hash = if ($hash | is-not-empty) { $hash } else { $in }
-    h. get $"./store/sock//cas/($hash)"
+    $hash | and-then {
+        let uri = $"./store/sock//cas/($hash)"
+        h. get $uri
+    }
 }
 
 export def .get [id: string] {
