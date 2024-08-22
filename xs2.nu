@@ -12,11 +12,20 @@ export def .cat [
     h. get $"./store/sock($postfix)" | lines | each { |x| $x | from json }
 }
 
-export def .cas [hash?: string] {
-    $hash | and-then {
-        let uri = $"./store/sock//cas/($hash)"
-        h. get $uri
+def read_hash [hash?: any] {
+    match ($hash | describe -d | get type) {
+        "string" => $hash
+        "record" => ($hash | get hash?)
+        _ => null
     }
+}
+
+export def .cas [hash?: any] {
+    let alt = $in
+    let hash = read_hash (if $hash != null { $hash } else { $alt })
+    if $hash == null { return }
+    let uri = $"./store/sock//cas/($hash)"
+    h. get $uri
 }
 
 export def .get [id: string] {
@@ -31,3 +40,23 @@ export def .pipe [id: string snippet: closure] {
     view source $snippet | h. post $"./store/sock//pipe/($id)"
 }
 
+
+export def .test [] {
+    use std assert;
+    let cases = [
+        [
+            "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE="
+            "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE="
+        ]
+        [
+            {hash: "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE="}
+            "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE="
+        ]
+        [ null null ]
+        [ {goo: 123} null ]
+    ]
+
+    for case in $cases {
+        assert equal (read_hash $case.0) $case.1
+    }
+}
