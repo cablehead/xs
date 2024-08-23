@@ -33,8 +33,9 @@ a new one: so all events generated are now linked to the new id.
 */
 
 #[derive(Debug, serde::Deserialize)]
-struct GeneratorMeta {
+pub struct GeneratorMeta {
     topic: String,
+    duplex: Option<bool>,
 }
 
 pub async fn serve(
@@ -67,13 +68,7 @@ pub async fn serve(
                         .read_to_string(&mut expression)
                         .await
                         .unwrap();
-                    spawn(
-                        engine.clone(),
-                        store.clone(),
-                        frame.id,
-                        meta.topic.clone(),
-                        expression,
-                    );
+                    spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
                 } else {
                     tracing::error!(
                         "bad meta data: {:?} -- TODO: emit a .err event if bad meta data",
@@ -87,11 +82,11 @@ pub async fn serve(
     Ok(())
 }
 
-pub fn spawn(
+pub async fn spawn(
     engine: nu::Engine,
     store: Store,
     source_id: Scru128Id,
-    topic: String,
+    meta: GeneratorMeta,
     expression: String,
 ) {
     fn append(
@@ -100,7 +95,7 @@ pub fn spawn(
         topic: &str,
         postfix: &str,
         content: Option<String>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
             let hash = if let Some(content) = content {
@@ -113,18 +108,31 @@ pub fn spawn(
                 "source_id": source_id.to_string(),
             });
 
-            let _ = store
+            let frame = store
                 .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
                 .await;
-            Ok(())
+            Ok(frame)
         })
     }
 
-    tracing::info!("spawning generator for topic: {}", topic);
+    let start = append(store.clone(), source_id, &meta.topic, "start", None).unwrap();
+
+    if meta.duplex.unwrap_or(false) {
+        let store = store.clone();
+        tokio::task::spawn(async move {
+            let options = ReadOptions {
+                follow: FollowOption::On,
+                tail: false,
+                last_id: Some(start.id),
+            };
+            let mut recver = store.read(options).await;
+            while let Some(frame) = recver.recv().await {
+                eprintln!("TODO: handle duplex: {:?}", frame);
+            }
+        });
+    }
 
     std::thread::spawn(move || {
-        let _ = append(store.clone(), source_id, &topic, "start", None);
-
         loop {
             let input = PipelineData::empty();
             let pipeline = engine.eval(input, expression.clone()).unwrap();
@@ -135,7 +143,7 @@ pub fn spawn(
                 }
                 PipelineData::Value(value, _) => {
                     if let Value::String { val, .. } = value {
-                        append(store.clone(), source_id, &topic, "recv", Some(val)).unwrap();
+                        append(store.clone(), source_id, &meta.topic, "recv", Some(val)).unwrap();
                     } else {
                         panic!("Unexpected Value type in PipelineData::Value");
                     }
@@ -143,7 +151,8 @@ pub fn spawn(
                 PipelineData::ListStream(mut stream, _) => {
                     while let Some(value) = stream.next_value() {
                         if let Value::String { val, .. } = value {
-                            append(store.clone(), source_id, &topic, "recv", Some(val)).unwrap();
+                            append(store.clone(), source_id, &meta.topic, "recv", Some(val))
+                                .unwrap();
                         } else {
                             panic!("Unexpected Value type in ListStream");
                         }
