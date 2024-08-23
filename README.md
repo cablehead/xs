@@ -7,8 +7,6 @@
 Status: WIP  [██████████...... 50%]
 ```
 
-> "You don't so much run it, as poke _at_ it."
-
 ## Overview / Sketch
 
 An event stream store for personal, local-first use. Kinda like the
@@ -16,6 +14,8 @@ An event stream store for personal, local-first use. Kinda like the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
 ![screenshot](./docs/screenshot.png)
+
+> "You don't so much run it, as poke _at_ it."
 
 Built with:
 
@@ -28,15 +28,23 @@ Built with:
 
 ## Built-in Topics
 
-- `stream.cross.start` - emitted when the server mounts the stream to expose an
+- `xs.start`: emitted when the server mounts the stream to expose an
   API
 
-- `stream.cross.pulse` - a heartbeat event you can configure to be emitted every
+- `xs.pulse`: (synthetic) a heartbeat event you can configure to be emitted every
   N seconds when in follow mode
 
-- `stream.cross.threshold` - a synthetic event that marks the boundary between
+- `xs.threshold`: (synthetic) marks the boundary between
   replaying events and events that are newly arriving in real-time via a live
   subscription
+
+- `xs.generator.spawn`
+    - meta:: topic: string, duplex: bool
+    - `xs.generator.terminate`
+
+- `xs.handler.spawn`
+    - meta:: run-from: start, tail, id?
+    - `xs.handler.terminate`
 
 ## Local socket HTTP API
 

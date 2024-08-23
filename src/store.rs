@@ -154,7 +154,7 @@ impl Store {
                                 FollowOption::On | FollowOption::WithHeartbeat(_) => {
                                     let frame = Frame {
                                         id: scru128::new(),
-                                        topic: "stream.cross.threshold".into(),
+                                        topic: "xs.threshold".into(),
                                         hash: None,
                                         meta: None,
                                     };
@@ -200,7 +200,7 @@ impl Store {
                     tokio::time::sleep(duration).await;
                     let frame = Frame {
                         id: scru128::new(),
-                        topic: "stream.cross.pulse".into(),
+                        topic: "xs.pulse".into(),
                         hash: None,
                         meta: None,
                     };
@@ -247,8 +247,10 @@ impl Store {
             id: scru128::new(),
             topic: topic.to_string(),
             hash,
-            meta,
+            meta: meta.clone(),
         };
+
+        tracing::debug!("APPEND {} {} ", frame.id, frame.topic);
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
 
@@ -398,7 +400,7 @@ mod tests_store {
 
         // crossing the threshold
         assert_eq!(
-            "stream.cross.threshold".to_string(),
+            "xs.threshold".to_string(),
             recver.recv().await.unwrap().topic
         );
 
@@ -409,14 +411,8 @@ mod tests_store {
         assert_eq!(f4, recver.recv().await.unwrap());
 
         // Assert we see some heartbeats
-        assert_eq!(
-            "stream.cross.pulse".to_string(),
-            recver.recv().await.unwrap().topic
-        );
-        assert_eq!(
-            "stream.cross.pulse".to_string(),
-            recver.recv().await.unwrap().topic
-        );
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
 
     #[tokio::test]
