@@ -152,14 +152,16 @@ impl Store {
 
                             match options.follow {
                                 FollowOption::On | FollowOption::WithHeartbeat(_) => {
-                                    let frame = Frame {
-                                        id: scru128::new(),
-                                        topic: "xs.threshold".into(),
-                                        hash: None,
-                                        meta: None,
-                                    };
-                                    if tx.blocking_send(frame).is_err() {
-                                        continue 'outer;
+                                    if !options.tail {
+                                        let frame = Frame {
+                                            id: scru128::new(),
+                                            topic: "xs.threshold".into(),
+                                            hash: None,
+                                            meta: None,
+                                        };
+                                        if tx.blocking_send(frame).is_err() {
+                                            continue 'outer;
+                                        }
                                     }
                                     subscribers.push(tx);
                                 }
@@ -250,7 +252,6 @@ impl Store {
             meta: meta.clone(),
         };
 
-        tracing::debug!("APPEND {} {} ", frame.id, frame.topic);
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
 

@@ -5,6 +5,24 @@ use chrono::{Local, Utc};
 use console::Term;
 use tracing::field::Visit;
 
+use crate::store::{FollowOption, ReadOptions, Store};
+
+pub async fn log_stream(store: Store) {
+    let options = ReadOptions {
+        follow: FollowOption::On,
+        tail: true,
+        last_id: None,
+    };
+    let mut recver = store.read(options).await;
+    while let Some(frame) = recver.recv().await {
+        let now = Utc::now().with_timezone(&Local);
+        let formatted_time = now.format("%H:%M:%S%.3f").to_string();
+        let id = frame.id.to_string();
+        let id = &id[id.len() - 5..];
+        eprintln!("{} {:>5} {}", formatted_time, id, frame.topic);
+    }
+}
+
 struct FooSubscriber;
 
 impl FooSubscriber {
