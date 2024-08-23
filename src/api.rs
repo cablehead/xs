@@ -240,10 +240,10 @@ async fn handle_pipe_post(
 }
 
 pub async fn serve(
-    store: Store,
+    mut store: Store,
     engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!("starting api: {:?}", &store.path);
+    let _ = store.append("xs.start", None, None).await;
     let listener = UnixListener::bind(store.path.join("sock")).unwrap();
     loop {
         let (stream, _) = listener.accept().await?;
