@@ -123,7 +123,7 @@ pub fn spawn(
     tracing::info!("spawning generator for topic: {}", topic);
 
     std::thread::spawn(move || {
-        let _ = append(store.clone(), source_id.clone(), &topic, "start", None);
+        let _ = append(store.clone(), source_id, &topic, "start", None);
 
         loop {
             let input = PipelineData::empty();
@@ -135,8 +135,7 @@ pub fn spawn(
                 }
                 PipelineData::Value(value, _) => {
                     if let Value::String { val, .. } = value {
-                        append(store.clone(), source_id.clone(), &topic, "recv", Some(val))
-                            .unwrap();
+                        append(store.clone(), source_id, &topic, "recv", Some(val)).unwrap();
                     } else {
                         panic!("Unexpected Value type in PipelineData::Value");
                     }
@@ -144,8 +143,7 @@ pub fn spawn(
                 PipelineData::ListStream(mut stream, _) => {
                     while let Some(value) = stream.next_value() {
                         if let Value::String { val, .. } = value {
-                            append(store.clone(), source_id.clone(), &topic, "recv", Some(val))
-                                .unwrap();
+                            append(store.clone(), source_id, &topic, "recv", Some(val)).unwrap();
                         } else {
                             panic!("Unexpected Value type in ListStream");
                         }
