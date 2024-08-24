@@ -4,7 +4,7 @@ use scru128::Scru128Id;
 use tokio::io::AsyncReadExt;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
-use nu_protocol::{PipelineData, Span, Value};
+use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
 
 use crate::error::Error;
 use crate::nu;
@@ -116,68 +116,97 @@ pub async fn spawn(
         .await
         .unwrap();
 
-    if meta.duplex.unwrap_or(false) {
+    use futures::StreamExt;
+    use tokio_stream::wrappers::ReceiverStream;
+
+    let input_pipeline = if meta.duplex.unwrap_or(false) {
         let store = store.clone();
         let meta = meta.clone();
-        tokio::task::spawn(async move {
-            let options = ReadOptions {
-                follow: FollowOption::On,
-                tail: false,
-                last_id: Some(start.id),
-            };
-            let mut recver = store.read(options).await;
-            while let Some(frame) = recver.recv().await {
-                if frame.topic == format!("{}.send", meta.topic) {
-                    if let Some(hash) = frame.hash {
-                        let content = store.cas_read(&hash).await.unwrap();
-                        let content = std::str::from_utf8(&content).unwrap();
-                        eprintln!("TODO: handle send: '{}'", content);
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: false,
+            last_id: Some(start.id),
+        };
+        let rx = store.read(options).await;
+
+        let stream = ReceiverStream::new(rx);
+        let stream = stream
+            .filter_map(move |frame: Frame| {
+                let store = store.clone();
+                let meta = meta.clone();
+                async move {
+                    if frame.topic == format!("{}.send", meta.topic) {
+                        if let Some(hash) = frame.hash {
+                            if let Ok(content) = store.cas_read(&hash).await {
+                                return Some(content);
+                            }
+                        }
                     }
+                    None
                 }
+            })
+            .boxed();
+
+        let handle = tokio::runtime::Handle::current().clone();
+        // Wrap stream in Option to allow mutable access without moving it
+        let mut stream = Some(stream);
+        let iter = std::iter::from_fn(move || {
+            if let Some(ref mut stream) = stream {
+                handle.block_on(async move { stream.next().await })
+            } else {
+                None
             }
         });
-    }
+
+        tracing::warn!("TODO: can we get a span here?");
+        ByteStream::from_iter(
+            iter,
+            Span::unknown(),
+            engine.state.signals().clone(),
+            ByteStreamType::Unknown,
+        )
+        .into()
+    } else {
+        PipelineData::empty()
+    };
 
     let handle = tokio::runtime::Handle::current().clone();
 
     std::thread::spawn(move || {
         handle.block_on(async {
-            loop {
-                let input = PipelineData::empty();
-                let pipeline = engine.eval(input, expression.clone()).unwrap();
+            let pipeline = engine.eval(input_pipeline, expression.clone()).unwrap();
 
-                match pipeline {
-                    PipelineData::Empty => {
-                        // Close the channel immediately
+            match pipeline {
+                PipelineData::Empty => {
+                    // Close the channel immediately
+                }
+                PipelineData::Value(value, _) => {
+                    if let Value::String { val, .. } = value {
+                        append(store.clone(), source_id, &meta.topic, "recv", Some(val))
+                            .await
+                            .unwrap();
+                    } else {
+                        panic!("Unexpected Value type in PipelineData::Value");
                     }
-                    PipelineData::Value(value, _) => {
+                }
+                PipelineData::ListStream(mut stream, _) => {
+                    while let Some(value) = stream.next_value() {
                         if let Value::String { val, .. } = value {
                             append(store.clone(), source_id, &meta.topic, "recv", Some(val))
                                 .await
                                 .unwrap();
                         } else {
-                            panic!("Unexpected Value type in PipelineData::Value");
+                            panic!("Unexpected Value type in ListStream");
                         }
-                    }
-                    PipelineData::ListStream(mut stream, _) => {
-                        while let Some(value) = stream.next_value() {
-                            if let Value::String { val, .. } = value {
-                                append(store.clone(), source_id, &meta.topic, "recv", Some(val))
-                                    .await
-                                    .unwrap();
-                            } else {
-                                panic!("Unexpected Value type in ListStream");
-                            }
-                        }
-                    }
-                    PipelineData::ByteStream(_, _) => {
-                        panic!("ByteStream not supported");
                     }
                 }
-
-                eprintln!("closure ended, sleeping for a second");
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                PipelineData::ByteStream(_, _) => {
+                    panic!("ByteStream not supported");
+                }
             }
+
+            eprintln!("closure ended, sleeping for a second");
+            std::thread::sleep(std::time::Duration::from_secs(1));
         });
     });
 }
