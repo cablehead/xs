@@ -1,10 +1,12 @@
 /// manages watching for tasks command events, and then the lifecycle of these tasks
+use std::collections::HashMap;
+
 use scru128::Scru128Id;
 
 use tokio::io::AsyncReadExt;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
-use nu_protocol::{PipelineData, Span, Value};
+use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
 
 use crate::error::Error;
 use crate::nu;
@@ -32,9 +34,17 @@ If it sees an a spawn for an existing generator: it stops the current running ge
 a new one: so all events generated are now linked to the new id.
 */
 
-#[derive(Debug, serde::Deserialize)]
-struct GeneratorMeta {
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct GeneratorMeta {
     topic: String,
+    duplex: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+struct GeneratorTask {
+    id: Scru128Id,
+    meta: GeneratorMeta,
+    expression: String,
 }
 
 pub async fn serve(
@@ -48,10 +58,73 @@ pub async fn serve(
             last_id: None,
         };
 
-        let mut recver = store.read(options).await;
-        tracing::warn!("TODO: dedupe commands until threshold");
+        let mut raw_recver = store.read(options).await;
+
+        // dedupe commands until threshold
+        let (tx, mut recver) = tokio::sync::mpsc::channel(1);
+        tokio::task::spawn(async move {
+            let mut seen_threshold = false;
+            let mut collected: HashMap<String, Frame> = HashMap::new();
+
+            while let Some(frame) = raw_recver.recv().await {
+                if seen_threshold {
+                    if tx.send(frame).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+
+                if frame.topic == "xs.threshold" {
+                    seen_threshold = true;
+                    for frame in collected.values() {
+                        if tx.send(frame.clone()).await.is_err() {
+                            break;
+                        }
+                    }
+                    collected.clear();
+                    continue;
+                }
+
+                if frame.topic == "xs.generator.spawn" {
+                    if let Some(topic) = frame.meta.as_ref().and_then(|meta| meta.get("topic")) {
+                        collected.insert(topic.to_string(), frame);
+                    }
+                }
+            }
+        });
+
+        // tracks inflight tasks
+        let mut tasks: HashMap<String, GeneratorTask> = HashMap::new();
+
         while let Some(frame) = recver.recv().await {
+            if frame.topic.ends_with(".stop") {
+                let prefix = frame.topic.trim_end_matches(".stop");
+                if let Some(task) = tasks.get(prefix) {
+                    // respawn the task in a second
+                    let engine = engine.clone();
+                    let store = store.clone();
+                    let task = task.clone();
+                    tokio::task::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        spawn(
+                            engine.clone(),
+                            store.clone(),
+                            task.id,
+                            task.meta.clone(),
+                            task.expression.clone(),
+                        )
+                        .await;
+                    });
+                }
+                continue;
+            }
+
             if frame.topic == "xs.generator.spawn" {
+                if tasks.contains_key(&frame.topic) {
+                    tracing::warn!("TODO: handle updating existing generator");
+                    continue;
+                }
+
                 let meta = frame
                     .meta
                     .clone()
@@ -67,13 +140,17 @@ pub async fn serve(
                         .read_to_string(&mut expression)
                         .await
                         .unwrap();
-                    spawn(
-                        engine.clone(),
-                        store.clone(),
-                        frame.id,
+
+                    tasks.insert(
                         meta.topic.clone(),
-                        expression,
+                        GeneratorTask {
+                            id: frame.id,
+                            meta: meta.clone(),
+                            expression: expression.clone(),
+                        },
                     );
+
+                    spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
                 } else {
                     tracing::error!(
                         "bad meta data: {:?} -- TODO: emit a .err event if bad meta data",
@@ -87,47 +164,99 @@ pub async fn serve(
     Ok(())
 }
 
-pub fn spawn(
+async fn spawn(
     engine: nu::Engine,
     store: Store,
     source_id: Scru128Id,
-    topic: String,
+    meta: GeneratorMeta,
     expression: String,
 ) {
-    fn append(
+    async fn append(
         mut store: Store,
         source_id: Scru128Id,
         topic: &str,
         postfix: &str,
         content: Option<String>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            let hash = if let Some(content) = content {
-                Some(store.cas_insert(&content).await?)
-            } else {
-                None
-            };
+    ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
+        let hash = if let Some(content) = content {
+            Some(store.cas_insert(&content).await?)
+        } else {
+            None
+        };
 
-            let meta = serde_json::json!({
-                "source_id": source_id.to_string(),
-            });
+        let meta = serde_json::json!({
+            "source_id": source_id.to_string(),
+        });
 
-            let _ = store
-                .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
-                .await;
-            Ok(())
-        })
+        let frame = store
+            .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
+            .await;
+        Ok(frame)
     }
 
-    tracing::info!("spawning generator for topic: {}", topic);
+    let start = append(store.clone(), source_id, &meta.topic, "start", None)
+        .await
+        .unwrap();
+
+    use futures::StreamExt;
+    use tokio_stream::wrappers::ReceiverStream;
+
+    let input_pipeline = if meta.duplex.unwrap_or(false) {
+        let store = store.clone();
+        let meta = meta.clone();
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: false,
+            last_id: Some(start.id),
+        };
+        let rx = store.read(options).await;
+
+        let stream = ReceiverStream::new(rx);
+        let stream = stream
+            .filter_map(move |frame: Frame| {
+                let store = store.clone();
+                let meta = meta.clone();
+                async move {
+                    if frame.topic == format!("{}.send", meta.topic) {
+                        if let Some(hash) = frame.hash {
+                            if let Ok(content) = store.cas_read(&hash).await {
+                                return Some(content);
+                            }
+                        }
+                    }
+                    None
+                }
+            })
+            .boxed();
+
+        let handle = tokio::runtime::Handle::current().clone();
+        // Wrap stream in Option to allow mutable access without moving it
+        let mut stream = Some(stream);
+        let iter = std::iter::from_fn(move || {
+            if let Some(ref mut stream) = stream {
+                handle.block_on(async move { stream.next().await })
+            } else {
+                None
+            }
+        });
+
+        tracing::warn!("TODO: can we get a span here?");
+        ByteStream::from_iter(
+            iter,
+            Span::unknown(),
+            engine.state.signals().clone(),
+            ByteStreamType::Unknown,
+        )
+        .into()
+    } else {
+        PipelineData::empty()
+    };
+
+    let handle = tokio::runtime::Handle::current().clone();
 
     std::thread::spawn(move || {
-        let _ = append(store.clone(), source_id, &topic, "start", None);
-
-        loop {
-            let input = PipelineData::empty();
-            let pipeline = engine.eval(input, expression.clone()).unwrap();
+        handle.block_on(async {
+            let pipeline = engine.eval(input_pipeline, expression.clone()).unwrap();
 
             match pipeline {
                 PipelineData::Empty => {
@@ -135,7 +264,9 @@ pub fn spawn(
                 }
                 PipelineData::Value(value, _) => {
                     if let Value::String { val, .. } = value {
-                        append(store.clone(), source_id, &topic, "recv", Some(val)).unwrap();
+                        append(store.clone(), source_id, &meta.topic, "recv", Some(val))
+                            .await
+                            .unwrap();
                     } else {
                         panic!("Unexpected Value type in PipelineData::Value");
                     }
@@ -143,7 +274,9 @@ pub fn spawn(
                 PipelineData::ListStream(mut stream, _) => {
                     while let Some(value) = stream.next_value() {
                         if let Value::String { val, .. } = value {
-                            append(store.clone(), source_id, &topic, "recv", Some(val)).unwrap();
+                            append(store.clone(), source_id, &meta.topic, "recv", Some(val))
+                                .await
+                                .unwrap();
                         } else {
                             panic!("Unexpected Value type in ListStream");
                         }
@@ -154,46 +287,14 @@ pub fn spawn(
                 }
             }
 
-            eprintln!("closure ended, sleeping for a second");
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
+            append(store.clone(), source_id, &meta.topic, "stop", None)
+                .await
+                .unwrap();
+        });
     });
 }
 
-/*
-use xs::store::{FollowOption, ReadOptions, Store};
-
-if let Some(closure_snippet) = args.closure {
-    let engine = engine.clone();
-    let store = store.clone();
-    let closure = engine.parse_closure(&closure_snippet)?;
-
-    tokio::spawn(async move {
-        let mut rx = store
-            .read(ReadOptions {
-                follow: FollowOption::On,
-                tail: false,
-                last_id: None,
-            })
-            .await;
-
-        while let Some(frame) = rx.recv().await {
-            let result = closure.run(frame).await;
-            match result {
-                Ok(value) => {
-                    // Handle the result, e.g., log it
-                    tracing::info!(output = ?value);
-                }
-                Err(err) => {
-                    tracing::error!("Error running closure: {:?}", err);
-                }
-            }
-        }
-    });
-}
-*/
-
-pub async fn handle(
+async fn _handle(
     engine: nu::Engine,
     pool: ThreadPool,
     frame: Frame,
