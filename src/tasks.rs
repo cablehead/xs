@@ -1,4 +1,6 @@
 /// manages watching for tasks command events, and then the lifecycle of these tasks
+use std::collections::HashMap;
+
 use scru128::Scru128Id;
 
 use tokio::io::AsyncReadExt;
@@ -38,6 +40,13 @@ pub struct GeneratorMeta {
     duplex: Option<bool>,
 }
 
+#[derive(Clone, Debug)]
+struct GeneratorTask {
+    id: Scru128Id,
+    meta: GeneratorMeta,
+    expression: String,
+}
+
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
@@ -49,10 +58,75 @@ pub async fn serve(
             last_id: None,
         };
 
-        let mut recver = store.read(options).await;
-        tracing::warn!("TODO: dedupe commands until threshold");
+        let mut raw_recver = store.read(options).await;
+
+        // create a new mspc change, and then spawn a tokio thread to read from recver and write
+        // filtered events to the tx end
+        let (tx, mut recver) = tokio::sync::mpsc::channel(1);
+
+        // dedupe commands until threshold
+        tokio::task::spawn(async move {
+            let mut seen_threshold = false;
+            let mut collected: HashMap<String, Frame> = HashMap::new();
+
+            while let Some(frame) = raw_recver.recv().await {
+                if seen_threshold {
+                    if tx.send(frame).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+
+                if frame.topic == "xs.threshold" {
+                    seen_threshold = true;
+                    for (_, frame) in &collected {
+                        if tx.send(frame.clone()).await.is_err() {
+                            break;
+                        }
+                    }
+                    collected.clear();
+                    continue;
+                }
+
+                if frame.topic == "xs.generator.spawn" {
+                    if let Some(topic) = frame.meta.as_ref().and_then(|meta| meta.get("topic")) {
+                        collected.insert(topic.to_string(), frame);
+                    }
+                }
+            }
+        });
+
+        let mut tasks: HashMap<String, GeneratorTask> = HashMap::new();
+
         while let Some(frame) = recver.recv().await {
+            if frame.topic.ends_with(".stop") {
+                let prefix = frame.topic.trim_end_matches(".stop");
+                if let Some(task) = tasks.get(prefix) {
+                    // respawn the task in a second
+                    let engine = engine.clone();
+                    let store = store.clone();
+                    let task = task.clone();
+                    tokio::task::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        spawn(
+                            engine.clone(),
+                            store.clone(),
+                            task.id,
+                            task.meta.clone(),
+                            task.expression.clone(),
+                        )
+                        .await;
+                    });
+                }
+                continue;
+            }
+
             if frame.topic == "xs.generator.spawn" {
+                if tasks.contains_key(&frame.topic) {
+                    tracing::warn!("TODO: handle updating existing generator");
+                    continue;
+                }
+
                 let meta = frame
                     .meta
                     .clone()
@@ -68,6 +142,16 @@ pub async fn serve(
                         .read_to_string(&mut expression)
                         .await
                         .unwrap();
+
+                    tasks.insert(
+                        meta.topic.clone(),
+                        GeneratorTask {
+                            id: frame.id,
+                            meta: meta.clone(),
+                            expression: expression.clone(),
+                        },
+                    );
+
                     spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
                 } else {
                     tracing::error!(
@@ -82,7 +166,7 @@ pub async fn serve(
     Ok(())
 }
 
-pub async fn spawn(
+async fn spawn(
     engine: nu::Engine,
     store: Store,
     source_id: Scru128Id,
@@ -205,13 +289,14 @@ pub async fn spawn(
                 }
             }
 
-            eprintln!("closure ended, sleeping for a second");
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            append(store.clone(), source_id, &meta.topic, "stop", None)
+                .await
+                .unwrap();
         });
     });
 }
 
-pub async fn handle(
+async fn _handle(
     engine: nu::Engine,
     pool: ThreadPool,
     frame: Frame,
