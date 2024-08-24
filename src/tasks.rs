@@ -60,11 +60,8 @@ pub async fn serve(
 
         let mut raw_recver = store.read(options).await;
 
-        // create a new mspc change, and then spawn a tokio thread to read from recver and write
-        // filtered events to the tx end
-        let (tx, mut recver) = tokio::sync::mpsc::channel(1);
-
         // dedupe commands until threshold
+        let (tx, mut recver) = tokio::sync::mpsc::channel(1);
         tokio::task::spawn(async move {
             let mut seen_threshold = false;
             let mut collected: HashMap<String, Frame> = HashMap::new();
@@ -79,7 +76,7 @@ pub async fn serve(
 
                 if frame.topic == "xs.threshold" {
                     seen_threshold = true;
-                    for (_, frame) in &collected {
+                    for frame in collected.values() {
                         if tx.send(frame.clone()).await.is_err() {
                             break;
                         }
@@ -96,6 +93,7 @@ pub async fn serve(
             }
         });
 
+        // tracks inflight tasks
         let mut tasks: HashMap<String, GeneratorTask> = HashMap::new();
 
         while let Some(frame) = recver.recv().await {
