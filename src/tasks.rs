@@ -182,39 +182,6 @@ pub async fn spawn(
     });
 }
 
-/*
-use xs::store::{FollowOption, ReadOptions, Store};
-
-if let Some(closure_snippet) = args.closure {
-    let engine = engine.clone();
-    let store = store.clone();
-    let closure = engine.parse_closure(&closure_snippet)?;
-
-    tokio::spawn(async move {
-        let mut rx = store
-            .read(ReadOptions {
-                follow: FollowOption::On,
-                tail: false,
-                last_id: None,
-            })
-            .await;
-
-        while let Some(frame) = rx.recv().await {
-            let result = closure.run(frame).await;
-            match result {
-                Ok(value) => {
-                    // Handle the result, e.g., log it
-                    tracing::info!(output = ?value);
-                }
-                Err(err) => {
-                    tracing::error!("Error running closure: {:?}", err);
-                }
-            }
-        }
-    });
-}
-*/
-
 pub async fn handle(
     engine: nu::Engine,
     pool: ThreadPool,
