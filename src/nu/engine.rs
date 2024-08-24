@@ -13,7 +13,7 @@ use crate::store::Store;
 
 #[derive(Clone)]
 pub struct Engine {
-    engine_state: EngineState,
+    pub state: EngineState,
 }
 
 impl Engine {
@@ -26,7 +26,9 @@ impl Engine {
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
 
-        Ok(Self { engine_state })
+        Ok(Self {
+            state: engine_state,
+        })
     }
 
     pub fn eval(
@@ -34,9 +36,9 @@ impl Engine {
         input: PipelineData,
         expression: String,
     ) -> Result<PipelineData, ShellError> {
-        let mut working_set = StateWorkingSet::new(&self.engine_state);
+        let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, expression.as_bytes(), false);
-        let mut engine_state = self.engine_state.clone();
+        let mut engine_state = self.state.clone();
         engine_state.merge_delta(working_set.render())?;
         let mut stack = Stack::new();
         eval_block::<WithoutDebug>(&engine_state, &mut stack, &block, input)
