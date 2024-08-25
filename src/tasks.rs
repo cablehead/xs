@@ -240,7 +240,6 @@ async fn spawn(
             }
         });
 
-        tracing::warn!("TODO: can we get a span here?");
         ByteStream::from_iter(
             iter,
             Span::unknown(),
