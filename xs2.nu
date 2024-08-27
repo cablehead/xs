@@ -6,9 +6,24 @@ alias ? = if ($in | is-not-empty) { $in }
 alias ?? = ? else { return }
 
 export def .cat [
-    --follow (-f)
+    --follow (-f)      # long poll for new events
+    --pulse (-p): int  # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
+    --tail (-t)        # begin long after the end of the stream
 ] {
-    let postfix = if $follow { "//?follow" } else { "" }
+    let params = [
+        (do { |follow, pulse|
+            if $follow {
+                "follow" + (if $pulse != null { $"=($pulse)" } else { "" })
+            }
+        } $follow $pulse)
+
+        (if $tail { "tail" })
+    ] | compact
+
+    let postfix = if ($params | is-not-empty) {
+        "//?" + ($params | str join "&")
+    } else { "" }
+
     h. get $"./store/sock($postfix)" | lines | each { |x| $x | from json }
 }
 
