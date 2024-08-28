@@ -21,10 +21,9 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use nu_protocol::Span;
-
 use crate::nu;
 use crate::store::{ReadOptions, Store};
+use crate::thread_pool::ThreadPool;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -100,6 +99,7 @@ fn match_route(method: &Method, path: &str) -> Routes {
 async fn handle(
     mut store: Store,
     engine: nu::Engine,
+    pool: ThreadPool,
     req: Request<hyper::body::Incoming>,
 ) -> HTTPResult {
     let method = req.method();
@@ -161,7 +161,9 @@ async fn handle(
             }
         }
 
-        Routes::PipePost(id) => handle_pipe_post(&mut store, engine, id, req.into_body()).await,
+        Routes::PipePost(id) => {
+            handle_pipe_post(&mut store, engine, pool.clone(), id, req.into_body()).await
+        }
 
         Routes::NotFound => response_404(),
     }
@@ -217,19 +219,45 @@ async fn handle_stream_append(
 async fn handle_pipe_post(
     store: &mut Store,
     engine: nu::Engine,
+    pool: ThreadPool,
     id: Scru128Id,
     body: hyper::body::Incoming,
 ) -> HTTPResult {
     let bytes = body.collect().await?.to_bytes();
-    let expression = std::str::from_utf8(&bytes)?.to_string();
+    let script = std::str::from_utf8(&bytes)?.to_string();
 
     if let Some(frame) = store.get(&id) {
-        let input = nu::frame_to_pipeline(&frame);
-        let value = engine
-            .eval(input, expression)
-            .and_then(|pipeline_data| pipeline_data.into_value(Span::unknown()))?;
-        let json = nu::value_to_json(&value);
-        let bytes = serde_json::to_vec(&json)?;
+        let mut engine = engine.clone();
+
+        use nu_engine::eval_block;
+        use nu_protocol::debugger::WithoutDebug;
+        use nu_protocol::engine::Stack;
+        use nu_protocol::Span;
+
+        use crate::error::Error;
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        pool.execute(move || {
+            let result = (|| -> Result<Vec<u8>, Error> {
+                let closure = engine.parse_closure(&script)?;
+                let input = nu::frame_to_pipeline(&frame);
+
+                let block = engine.state.get_block(closure.block_id);
+                let mut stack = Stack::new();
+                let output = eval_block::<WithoutDebug>(&engine.state, &mut stack, block, input)?;
+                let value = output.into_value(Span::unknown())?;
+
+                let json = nu::value_to_json(&value);
+                let bytes = serde_json::to_vec(&json)?;
+
+                Ok(bytes)
+            })();
+
+            let _ = tx.send(result);
+        });
+
+        let bytes = rx.await??; // .map_err(Error::from)
 
         Ok(Response::builder()
             .status(StatusCode::OK)
@@ -242,6 +270,7 @@ async fn handle_pipe_post(
 pub async fn serve(
     mut store: Store,
     engine: nu::Engine,
+    pool: ThreadPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = store.append("xs.start", None, None).await;
     let listener = UnixListener::bind(store.path.join("sock")).unwrap();
@@ -250,11 +279,12 @@ pub async fn serve(
         let io = TokioIo::new(stream);
         let store = store.clone();
         let engine = engine.clone();
+        let pool = pool.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_fn(move |req| handle(store.clone(), engine.clone(), req)),
+                    service_fn(move |req| handle(store.clone(), engine.clone(), pool.clone(), req)),
                 )
                 .await
             {

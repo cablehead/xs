@@ -8,10 +8,8 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
 
-use crate::error::Error;
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
-use crate::thread_pool::ThreadPool;
 
 /*
 A thread that watches the event stream for xs.generator.spawn and
@@ -293,6 +291,7 @@ async fn spawn(
     });
 }
 
+/*
 async fn _handle(
     engine: nu::Engine,
     pool: ThreadPool,
@@ -312,3 +311,4 @@ async fn _handle(
 
     rx.await.unwrap().map_err(Error::from)
 }
+*/

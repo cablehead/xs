@@ -5,8 +5,8 @@ use nu_command::add_shell_command_context;
 use nu_engine::eval_block;
 use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{EngineState, Stack, StateWorkingSet};
-use nu_protocol::{PipelineData, ShellError};
+use nu_protocol::engine::{Closure, EngineState, Stack, StateWorkingSet};
+use nu_protocol::{PipelineData, ShellError, Span};
 
 use crate::error::Error;
 use crate::store::Store;
@@ -42,5 +42,18 @@ impl Engine {
         engine_state.merge_delta(working_set.render())?;
         let mut stack = Stack::new();
         eval_block::<WithoutDebug>(&engine_state, &mut stack, &block, input)
+    }
+
+    pub fn parse_closure(&mut self, script: &str) -> Result<Closure, ShellError> {
+        let mut working_set = StateWorkingSet::new(&self.state);
+        let block = parse(&mut working_set, None, script.as_bytes(), false);
+        self.state.merge_delta(working_set.render())?;
+
+        let mut stack = Stack::new();
+        let result =
+            eval_block::<WithoutDebug>(&self.state, &mut stack, &block, PipelineData::empty())?;
+        let closure = result.into_value(Span::unknown())?.into_closure()?;
+
+        Ok(closure)
     }
 }
