@@ -52,8 +52,21 @@ export def .append [topic: string --meta: record] {
     h. post $"./store/sock//($topic)" --headers {"xs-meta": ($meta | to json -r)}
 }
 
-export def .pipe [id: string snippet: closure] {
-    view source $snippet | h. post $"./store/sock//pipe/($id)"
+export def .pipe [id: string] {
+    let sp = (metadata $in).span
+    let script = $in
+    let content = match ($script | describe -d | get type) {
+        "string" => $script
+        "closure" => {view source $script}
+        _ => {return (error make {
+            msg: "script should either be a string or closure"
+            label: {
+                text: "script input"
+                span: $sp
+            }
+        })}
+    }
+    $content | h. post $"./store/sock//pipe/($id)"
 }
 
 
