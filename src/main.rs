@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // TODO: graceful shutdown
-    xs::api::serve(store, engine.clone()).await?;
+    xs::api::serve(store, engine.clone(), pool.clone()).await?;
     pool.wait_for_completion();
 
     Ok(())
