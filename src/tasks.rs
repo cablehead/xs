@@ -45,6 +45,17 @@ struct GeneratorTask {
     expression: String,
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct HandlerMeta {
+    topic: String,
+}
+
+#[derive(Clone, Debug)]
+struct HandlerTask {
+    id: Scru128Id,
+    expression: String,
+}
+
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
@@ -91,8 +102,8 @@ pub async fn serve(
             }
         });
 
-        // tracks inflight generators
         let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
+        let mut handlers: HashMap<String, HandlerTask> = HashMap::new();
 
         while let Some(frame) = recver.recv().await {
             if frame.topic.ends_with(".stop") {
@@ -130,7 +141,7 @@ pub async fn serve(
 
                 if let Some(meta) = meta {
                     // TODO: emit a .err event on any of these unwraps
-                    let hash = frame.hash.unwrap();
+                    let hash = frame.hash.clone().unwrap();
                     let reader = store.cas_reader(hash).await.unwrap();
                     let mut expression = String::new();
                     reader
@@ -156,6 +167,41 @@ pub async fn serve(
                     );
                     continue;
                 };
+            }
+
+            if frame.topic == "xs.handlers.spawn" {
+                if handlers.contains_key(&frame.topic) {
+                    tracing::warn!("TODO: handle updating existing handlers");
+                    continue;
+                }
+
+                let meta = frame
+                    .meta
+                    .clone()
+                    .and_then(|meta| serde_json::from_value::<HandlerMeta>(meta).ok());
+
+                if let Some(meta) = meta {
+                    // TODO: emit a .err event on any of these unwraps
+                    let hash = frame.hash.unwrap();
+                    let reader = store.cas_reader(hash).await.unwrap();
+                    let mut expression = String::new();
+                    reader
+                        .compat()
+                        .read_to_string(&mut expression)
+                        .await
+                        .unwrap();
+
+                    handlers.insert(
+                        meta.topic.clone(),
+                        HandlerTask {
+                            id: frame.id,
+                            expression: expression.clone(),
+                        },
+                    );
+
+                    spawn_handler(engine.clone(), store.clone(), frame.id, meta, expression).await;
+                }
+                continue;
             }
         }
     });
@@ -289,6 +335,15 @@ async fn spawn(
                 .unwrap();
         });
     });
+}
+
+async fn spawn_handler(
+    engine: nu::Engine,
+    store: Store,
+    source_id: Scru128Id,
+    meta: HandlerMeta,
+    expression: String,
+) {
 }
 
 /*
