@@ -6,9 +6,25 @@ alias ? = if ($in | is-not-empty) { $in }
 alias ?? = ? else { return }
 
 export def .cat [
-    --follow (-f)
+    --follow (-f)       # long poll for new events
+    --pulse (-p): int   # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
+    --tail (-t)         # begin long after the end of the stream
+    --last-id (-l): string
 ] {
-    let postfix = if $follow { "//?follow" } else { "" }
+    let params = [
+        (if $follow {
+            "follow" + (if $pulse != null { $"=($pulse)" } else { "" })
+        })
+
+        (if $tail { "tail" })
+
+        (if ($last_id | is-not-empty) { $"last-id=($last_id)" })
+    ] | compact
+
+    let postfix = if ($params | is-not-empty) {
+        "//?" + ($params | str join "&")
+    } else { "" }
+
     h. get $"./store/sock($postfix)" | lines | each { |x| $x | from json }
 }
 
@@ -36,8 +52,21 @@ export def .append [topic: string --meta: record] {
     h. post $"./store/sock//($topic)" --headers {"xs-meta": ($meta | to json -r)}
 }
 
-export def .pipe [id: string snippet: closure] {
-    view source $snippet | h. post $"./store/sock//pipe/($id)"
+export def .pipe [id: string] {
+    let sp = (metadata $in).span
+    let script = $in
+    let content = match ($script | describe -d | get type) {
+        "string" => $script
+        "closure" => {view source $script}
+        _ => {return (error make {
+            msg: "script should either be a string or closure"
+            label: {
+                text: "script input"
+                span: $sp
+            }
+        })}
+    }
+    $content | h. post $"./store/sock//pipe/($id)"
 }
 
 
