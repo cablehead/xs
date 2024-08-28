@@ -245,7 +245,9 @@ async fn handle_pipe_post(
 
                 let block = engine.state.get_block(closure.block_id);
                 let mut stack = Stack::new();
-                let output = eval_block::<WithoutDebug>(&engine.state, &mut stack, block, input)?;
+                let output = eval_block::<WithoutDebug>(&engine.state, &mut stack, block, input);
+                // TODO: surface nushell errors
+                let output = output?;
                 let value = output.into_value(Span::unknown())?;
 
                 let json = nu::value_to_json(&value);

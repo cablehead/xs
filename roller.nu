@@ -41,7 +41,8 @@ def run-roll [] {
 {||
     let frame = $in
     if $frame.topic != "discord.recv" { return }
-    let message = $frame | .cas | from json
+    # TODO: .cas should also be able to take a record, to match xs2.nu's usage
+    let message = $frame | .cas $in.hash | from json
     if $message.op != 0 { return }
     if $message.t != "MESSAGE_CREATE" { return }
     $message.d.content | parse-roller | & {
