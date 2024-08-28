@@ -83,7 +83,7 @@ pub async fn serve(
                     continue;
                 }
 
-                if frame.topic == "xs.generator.spawn" {
+                if ["xs.generator.spawn", "xs.handler.spawn"].contains(&frame.topic.as_str()) {
                     if let Some(topic) = frame.meta.as_ref().and_then(|meta| meta.get("topic")) {
                         collected.insert(topic.to_string(), frame);
                     }
@@ -91,13 +91,13 @@ pub async fn serve(
             }
         });
 
-        // tracks inflight tasks
-        let mut tasks: HashMap<String, GeneratorTask> = HashMap::new();
+        // tracks inflight generators
+        let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
 
         while let Some(frame) = recver.recv().await {
             if frame.topic.ends_with(".stop") {
                 let prefix = frame.topic.trim_end_matches(".stop");
-                if let Some(task) = tasks.get(prefix) {
+                if let Some(task) = generators.get(prefix) {
                     // respawn the task in a second
                     let engine = engine.clone();
                     let store = store.clone();
@@ -118,7 +118,7 @@ pub async fn serve(
             }
 
             if frame.topic == "xs.generator.spawn" {
-                if tasks.contains_key(&frame.topic) {
+                if generators.contains_key(&frame.topic) {
                     tracing::warn!("TODO: handle updating existing generator");
                     continue;
                 }
@@ -139,7 +139,7 @@ pub async fn serve(
                         .await
                         .unwrap();
 
-                    tasks.insert(
+                    generators.insert(
                         meta.topic.clone(),
                         GeneratorTask {
                             id: frame.id,
