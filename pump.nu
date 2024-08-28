@@ -6,7 +6,6 @@ let start = (
     .cat | where topic == "discord.start"
     | if ($in | is-not-empty) { last } else { print "no start"; exit })
 
-
 let state = do $the_init
 
 .cat -fp 1000 -l $start.id | stateful filter $state {|state frame|
@@ -16,4 +15,3 @@ let state = do $the_init
     if ($update | is-empty) { return {} }
     {state: $update}
 }
-

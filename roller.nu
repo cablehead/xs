@@ -1,6 +1,4 @@
-use xs2.nu *
-
-def and-then [action: closure] {
+def & [action: closure] {
     if ($in | is-not-empty) {
         $in | do $action
     }
@@ -19,13 +17,13 @@ def send-message [channel_id: string] {
     http post --content-type application/json  --headers $headers $url $data
 }
 
-export def parse-roller [] {
-    parse --regex '\./roll (?P<dice>\d+)d(?P<sides>\d+)(?:\+(?P<modifier>\d+))?' | and-then {
+def parse-roller [] {
+    parse --regex '\./roll (?P<dice>\d+)d(?P<sides>\d+)(?:\+(?P<modifier>\d+))?' | & {
         update modifier { if $in == "" { "0" } else { $in } } | map-values { into int }
     }
 }
 
-export def run-roll [] {
+def run-roll [] {
    let roll = $in
 
    let dice = (random dice --dice $roll.dice --sides $roll.sides)
@@ -40,13 +38,13 @@ export def run-roll [] {
    $content
 }
 
-.cat -ft | each {
+{||
     let frame = $in
     if $frame.topic != "discord.recv" { return }
     let message = $frame | .cas | from json
     if $message.op != 0 { return }
     if $message.t != "MESSAGE_CREATE" { return }
-    $message.d.content | parse-roller | and-then {
+    $message.d.content | parse-roller | & {
         {
             content: ($in | run-roll),
             message_reference: { message_id: $message.d.id },
