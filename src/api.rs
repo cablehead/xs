@@ -257,7 +257,7 @@ async fn handle_pipe_post(
             let _ = tx.send(result);
         });
 
-        let bytes = rx.await??; // .map_err(Error::from)
+        let bytes = rx.await??;
 
         Ok(Response::builder()
             .status(StatusCode::OK)
