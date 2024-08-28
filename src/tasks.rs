@@ -10,6 +10,7 @@ use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
 
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::thread_pool::ThreadPool;
 
 /*
 A thread that watches the event stream for xs.generator.spawn and
@@ -52,13 +53,14 @@ pub struct HandlerMeta {
 
 #[derive(Clone, Debug)]
 struct HandlerTask {
-    id: Scru128Id,
-    expression: String,
+    _id: Scru128Id,
+    _expression: String,
 }
 
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
+    pool: ThreadPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::task::spawn(async move {
         let options = ReadOptions {
@@ -194,12 +196,20 @@ pub async fn serve(
                     handlers.insert(
                         meta.topic.clone(),
                         HandlerTask {
-                            id: frame.id,
-                            expression: expression.clone(),
+                            _id: frame.id,
+                            _expression: expression.clone(),
                         },
                     );
 
-                    spawn_handler(engine.clone(), store.clone(), frame.id, meta, expression).await;
+                    spawn_handler(
+                        engine.clone(),
+                        store.clone(),
+                        pool.clone(),
+                        frame.id,
+                        meta,
+                        expression,
+                    )
+                    .await;
                 }
                 continue;
             }
@@ -338,32 +348,54 @@ async fn spawn(
 }
 
 async fn spawn_handler(
-    engine: nu::Engine,
+    mut engine: nu::Engine,
     store: Store,
-    source_id: Scru128Id,
+    pool: ThreadPool,
+    _source_id: Scru128Id,
     meta: HandlerMeta,
     expression: String,
 ) {
-}
+    use nu_engine::eval_block;
+    use nu_protocol::debugger::WithoutDebug;
+    use nu_protocol::engine::Stack;
+    use nu_protocol::Span;
 
-/*
-async fn _handle(
-    engine: nu::Engine,
-    pool: ThreadPool,
-    frame: Frame,
-    expression: String,
-) -> Result<Value, Error> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    use crate::error::Error;
 
-    pool.execute(move || {
-        let input = nu::frame_to_pipeline(&frame);
-        let result = match engine.eval(input, expression) {
-            Ok(pipeline_data) => pipeline_data.into_value(Span::unknown()),
-            Err(err) => Err(err),
+    let closure = engine.parse_closure(&expression).unwrap();
+
+    tokio::task::spawn(async move {
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: true,
+            last_id: None,
         };
-        let _ = tx.send(result);
-    });
 
-    rx.await.unwrap().map_err(Error::from)
+        let mut recver = store.read(options).await;
+        while let Some(frame) = recver.recv().await {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+
+            let engine = engine.clone();
+
+            pool.execute(move || {
+                let result = (|| -> Result<Value, Error> {
+                    let input = nu::frame_to_pipeline(&frame);
+
+                    let block = engine.state.get_block(closure.block_id);
+                    let mut stack = Stack::new();
+                    let output =
+                        eval_block::<WithoutDebug>(&engine.state, &mut stack, block, input);
+                    // TODO: surface nushell errors
+                    let output = output?;
+                    let value = output.into_value(Span::unknown())?;
+                    Ok(value)
+                })();
+
+                let _ = tx.send(result);
+            });
+
+            let value = rx.await;
+            eprintln!("Handler {} got value: {:?}", meta.topic, value);
+        }
+    });
 }
-*/

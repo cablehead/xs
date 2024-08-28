@@ -36,8 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     {
         let store = store.clone();
         let engine = engine.clone();
+        let pool = pool.clone();
         tokio::spawn(async move {
-            let _ = xs::tasks::serve(store, engine).await;
+            let _ = xs::tasks::serve(store, engine, pool).await;
         });
     }
 
