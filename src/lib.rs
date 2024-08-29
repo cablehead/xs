@@ -1,5 +1,6 @@
 pub mod api;
 pub mod error;
+pub mod handlers;
 pub mod http;
 pub mod listener;
 pub mod nu;

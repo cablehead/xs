@@ -49,117 +49,137 @@ pub async fn serve(
     store: Store,
     engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let options = ReadOptions {
+        follow: FollowOption::On,
+        tail: false,
+        last_id: None,
+    };
+
+    let mut raw_recver = store.read(options).await;
+
+    // dedupe commands until threshold
+    let (tx, mut recver) = tokio::sync::mpsc::channel(1);
     tokio::task::spawn(async move {
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: false,
-            last_id: None,
-        };
+        let mut seen_threshold = false;
+        let mut collected: HashMap<String, Frame> = HashMap::new();
 
-        let mut raw_recver = store.read(options).await;
-
-        // dedupe commands until threshold
-        let (tx, mut recver) = tokio::sync::mpsc::channel(1);
-        tokio::task::spawn(async move {
-            let mut seen_threshold = false;
-            let mut collected: HashMap<String, Frame> = HashMap::new();
-
-            while let Some(frame) = raw_recver.recv().await {
-                if seen_threshold {
-                    if tx.send(frame).await.is_err() {
-                        break;
-                    }
-                    continue;
-                }
-
-                if frame.topic == "xs.threshold" {
-                    seen_threshold = true;
-                    for frame in collected.values() {
-                        if tx.send(frame.clone()).await.is_err() {
-                            break;
-                        }
-                    }
-                    collected.clear();
-                    continue;
-                }
-
-                if frame.topic == "xs.generator.spawn" {
-                    if let Some(topic) = frame.meta.as_ref().and_then(|meta| meta.get("topic")) {
-                        collected.insert(topic.to_string(), frame);
-                    }
-                }
-            }
-        });
-
-        // tracks inflight tasks
-        let mut tasks: HashMap<String, GeneratorTask> = HashMap::new();
-
-        while let Some(frame) = recver.recv().await {
-            if frame.topic.ends_with(".stop") {
-                let prefix = frame.topic.trim_end_matches(".stop");
-                if let Some(task) = tasks.get(prefix) {
-                    // respawn the task in a second
-                    let engine = engine.clone();
-                    let store = store.clone();
-                    let task = task.clone();
-                    tokio::task::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        spawn(
-                            engine.clone(),
-                            store.clone(),
-                            task.id,
-                            task.meta.clone(),
-                            task.expression.clone(),
-                        )
-                        .await;
-                    });
+        while let Some(frame) = raw_recver.recv().await {
+            if seen_threshold {
+                if tx.send(frame).await.is_err() {
+                    break;
                 }
                 continue;
             }
 
-            if frame.topic == "xs.generator.spawn" {
-                if tasks.contains_key(&frame.topic) {
-                    tracing::warn!("TODO: handle updating existing generator");
-                    continue;
+            if frame.topic == "xs.threshold" {
+                seen_threshold = true;
+                for frame in collected.values() {
+                    if tx.send(frame.clone()).await.is_err() {
+                        break;
+                    }
                 }
+                collected.clear();
+                continue;
+            }
 
-                let meta = frame
-                    .meta
-                    .clone()
-                    .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok());
-
-                if let Some(meta) = meta {
-                    // TODO: emit a .err event on any of these unwraps
-                    let hash = frame.hash.unwrap();
-                    let reader = store.cas_reader(hash).await.unwrap();
-                    let mut expression = String::new();
-                    reader
-                        .compat()
-                        .read_to_string(&mut expression)
-                        .await
-                        .unwrap();
-
-                    tasks.insert(
-                        meta.topic.clone(),
-                        GeneratorTask {
-                            id: frame.id,
-                            meta: meta.clone(),
-                            expression: expression.clone(),
-                        },
-                    );
-
-                    spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
-                } else {
-                    tracing::error!(
-                        "bad meta data: {:?} -- TODO: emit a .err event if bad meta data",
-                        frame.meta
-                    );
-                    continue;
-                };
+            if frame.topic == "xs.generator.spawn" {
+                if let Some(topic) = frame.meta.as_ref().and_then(|meta| meta.get("topic")) {
+                    collected.insert(topic.to_string(), frame);
+                }
             }
         }
     });
+
+    let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
+
+    while let Some(frame) = recver.recv().await {
+        if frame.topic.ends_with(".stop") {
+            let prefix = frame.topic.trim_end_matches(".stop");
+            if let Some(task) = generators.get(prefix) {
+                // respawn the task in a second
+                let engine = engine.clone();
+                let store = store.clone();
+                let task = task.clone();
+                tokio::task::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    spawn(
+                        engine.clone(),
+                        store.clone(),
+                        task.id,
+                        task.meta.clone(),
+                        task.expression.clone(),
+                    )
+                    .await;
+                });
+            }
+            continue;
+        }
+
+        if frame.topic == "xs.generator.spawn" {
+            if generators.contains_key(&frame.topic) {
+                tracing::warn!("TODO: handle updating existing generator");
+                continue;
+            }
+
+            let meta = frame
+                .meta
+                .clone()
+                .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok());
+
+            if let Some(meta) = meta {
+                // TODO: emit a .err event on any of these unwraps
+                let hash = frame.hash.clone().unwrap();
+                let reader = store.cas_reader(hash).await.unwrap();
+                let mut expression = String::new();
+                reader
+                    .compat()
+                    .read_to_string(&mut expression)
+                    .await
+                    .unwrap();
+
+                generators.insert(
+                    meta.topic.clone(),
+                    GeneratorTask {
+                        id: frame.id,
+                        meta: meta.clone(),
+                        expression: expression.clone(),
+                    },
+                );
+
+                spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
+            } else {
+                tracing::error!(
+                    "bad meta data: {:?} -- TODO: emit a .err event if bad meta data",
+                    frame.meta
+                );
+                continue;
+            };
+        }
+    }
     Ok(())
+}
+
+async fn append(
+    mut store: Store,
+    source_id: Scru128Id,
+    topic: &str,
+    postfix: &str,
+    content: Option<String>,
+) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
+    let hash = if let Some(content) = content {
+        Some(store.cas_insert(&content).await?)
+    } else {
+        None
+    };
+
+    let meta = serde_json::json!({
+        "source_id": source_id.to_string(),
+    });
+
+    let frame = store
+        .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
+        .await;
+    Ok(frame)
 }
 
 async fn spawn(
@@ -169,29 +189,6 @@ async fn spawn(
     meta: GeneratorMeta,
     expression: String,
 ) {
-    async fn append(
-        mut store: Store,
-        source_id: Scru128Id,
-        topic: &str,
-        postfix: &str,
-        content: Option<String>,
-    ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
-        let hash = if let Some(content) = content {
-            Some(store.cas_insert(&content).await?)
-        } else {
-            None
-        };
-
-        let meta = serde_json::json!({
-            "source_id": source_id.to_string(),
-        });
-
-        let frame = store
-            .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
-            .await;
-        Ok(frame)
-    }
-
     let start = append(store.clone(), source_id, &meta.topic, "start", None)
         .await
         .unwrap();
@@ -290,25 +287,3 @@ async fn spawn(
         });
     });
 }
-
-/*
-async fn _handle(
-    engine: nu::Engine,
-    pool: ThreadPool,
-    frame: Frame,
-    expression: String,
-) -> Result<Value, Error> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-
-    pool.execute(move || {
-        let input = nu::frame_to_pipeline(&frame);
-        let result = match engine.eval(input, expression) {
-            Ok(pipeline_data) => pipeline_data.into_value(Span::unknown()),
-            Err(err) => Err(err),
-        };
-        let _ = tx.send(result);
-    });
-
-    rx.await.unwrap().map_err(Error::from)
-}
-*/
