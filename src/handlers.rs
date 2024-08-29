@@ -12,6 +12,7 @@ use nu_protocol::{Span, Value};
 
 use crate::error::Error;
 use crate::nu;
+use crate::nu::util::json_to_value;
 use crate::nu::value_to_json;
 use crate::store::{FollowOption, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
@@ -29,18 +30,36 @@ struct HandlerTask {
     meta: HandlerMeta,
     engine: nu::Engine,
     closure: Closure,
-    state: Option<serde_json::Value>,
+    state: Option<Value>,
 }
 
 impl HandlerTask {
     fn new(id: Scru128Id, meta: HandlerMeta, mut engine: nu::Engine, expression: String) -> Self {
         let closure = engine.parse_closure(&expression).unwrap();
+
+        /* TODO: confirm the supplied closure is the right shape
+        let block = &engine_state.get_block(closure.block_id);
+        // Check if the closure has exactly one required positional argument
+        if block.signature.required_positional.len() != 1 {
+            return Err(ShellError::NushellFailedSpanned {
+                msg: "Closure must accept exactly one argument".into(),
+                label: format!(
+                    "Found {} arguments, expected 1",
+                    block.signature.required_positional.len()
+                ),
+                span: Span::unknown(),
+            });
+        }
+        */
+
         Self {
             id,
             meta: meta.clone(),
             engine,
             closure,
-            state: meta.initial_state,
+            state: meta
+                .initial_state
+                .map(|state| json_to_value(&state, Span::unknown())),
         }
     }
 }
@@ -98,23 +117,29 @@ pub async fn serve(
         if threshold_crossed {
             // TODO: I think we want to run all handlers in parallel (up to the pool limit) for
             // each frame, and then wait for all of them to finish before moving on to the next
-            for handler in handlers.values() {
-                let handler = handler.clone();
-
+            for (_, handler) in handlers.iter_mut() {
                 let (tx, rx) = tokio::sync::oneshot::channel();
-
-                let engine = handler.engine.clone();
 
                 {
                     let frame = frame.clone();
+                    let handler = handler.clone();
                     pool.execute(move || {
                         let result = (|| -> Result<Value, Error> {
                             let input = nu::frame_to_pipeline(&frame);
 
-                            let block = engine.state.get_block(handler.closure.block_id);
+                            let block = handler.engine.state.get_block(handler.closure.block_id);
                             let mut stack = Stack::new();
+
+                            if handler.meta.stateful.unwrap_or(false) {
+                                let var_id = block.signature.required_positional[0].var_id.unwrap();
+                                stack.add_var(
+                                    var_id,
+                                    handler.state.unwrap_or(Value::nothing(Span::unknown())),
+                                );
+                            }
+
                             let output = eval_block_with_early_return::<WithoutDebug>(
-                                &engine.state,
+                                &handler.engine.state,
                                 &mut stack,
                                 block,
                                 input,
