@@ -158,24 +158,52 @@ pub async fn serve(
                 // TODO: so we shouldn't block here, but rather collect all the rx.await() futures
                 // for this frame and then wait for all of them to finish before moving on to the
                 let value = rx.await.unwrap().unwrap();
-                match value {
-                    Value::Nothing { .. } => (),
-                    _ => {
-                        let _ = store
-                            .append(
-                                &handler.meta.topic,
-                                Some(
-                                    store
-                                        .cas_insert(&value_to_json(&value).to_string())
-                                        .await
-                                        .unwrap(),
-                                ),
-                                Some(serde_json::json!({
-                                    "handler_id": handler.id.to_string(),
-                                    "frame_id": frame.id.to_string(),
-                                })),
-                            )
-                            .await;
+
+                if handler.meta.stateful.unwrap_or(false) {
+                    match value {
+                        Value::Nothing { .. } => (),
+                        Value::Record { ref val, .. } => {
+                            if let Some(state) = val.get("state") {
+                                handler.state = Some(state.clone());
+                            }
+                            let _ = store
+                                .append(
+                                    &handler.meta.topic,
+                                    Some(
+                                        store
+                                            .cas_insert(&value_to_json(&value).to_string())
+                                            .await
+                                            .unwrap(),
+                                    ),
+                                    Some(serde_json::json!({
+                                        "handler_id": handler.id.to_string(),
+                                        "frame_id": frame.id.to_string(),
+                                    })),
+                                )
+                                .await;
+                        }
+                        _ => panic!("unexpected value type"),
+                    }
+                } else {
+                    match value {
+                        Value::Nothing { .. } => (),
+                        _ => {
+                            let _ = store
+                                .append(
+                                    &handler.meta.topic,
+                                    Some(
+                                        store
+                                            .cas_insert(&value_to_json(&value).to_string())
+                                            .await
+                                            .unwrap(),
+                                    ),
+                                    Some(serde_json::json!({
+                                        "handler_id": handler.id.to_string(),
+                                        "frame_id": frame.id.to_string(),
+                                    })),
+                                )
+                                .await;
+                        }
                     }
                 }
             }
