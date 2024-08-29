@@ -4,7 +4,7 @@
 [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
 
 ```
-Status: WIP  [██████████...... 50%]
+Status: WIP  [██████████...... 60%]
 ```
 
 ## Overview / Sketch
