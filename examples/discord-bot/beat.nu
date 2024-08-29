@@ -1,4 +1,48 @@
-use op.nu *
+const opcode = {
+    dispatch: 0,
+    heartbeat: 1,
+    identify: 2,
+    presence_update: 3,
+    voice_update: 4,
+    resume: 6,
+    reconnect: 7,
+    invalid_session: 9,
+    hello: 10,
+    heartbeat_ack: 11,
+}
+
+def "op heartbeat" [seq?: int] {
+    {
+        "op": $opcode.heartbeat,
+        "d": $seq,
+    }
+}
+
+def "op identify" [token: string, intents: int] {
+    {
+        "op": $opcode.identify,
+        "d": {
+            token: $token,
+            intents: $intents,
+            properties: {
+                os: (sys host | get name),
+                browser: "discord.nu",
+                device: "discord.nu",
+            },
+        },
+    }
+}
+
+def "op resume" [token: string, session_id: string, seq: int] {
+    {
+        "op": $opcode.resume,
+        "d": {
+            token: $token,
+            session_id: $session_id,
+            seq: $seq,
+        },
+    }
+}
 
 def "scru128-since" [$id1, $id2] {
     let t1 = ($id1 | scru128 parse | into int)
@@ -23,7 +67,7 @@ def .send [] {
     to json -r | $"($in)\n" | .append "discord.send"
 }
 
-let the_thing = {|state|
+{|state|
     mut state = $state
     let frame = $in
 
@@ -47,7 +91,7 @@ let the_thing = {|state|
         return
     }
 
-    let message = $frame | .cas | from json
+    let message = $frame | .cas $in.hash | from json
 
     match $message {
         # hello
@@ -113,5 +157,5 @@ let the_thing = {|state|
         }
     }
 
-    $state
+    { state: $state }
 }

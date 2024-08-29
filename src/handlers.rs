@@ -7,7 +7,7 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use nu_engine::eval_block_with_early_return;
 use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{Closure, Stack};
+use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
 use nu_protocol::{Span, Value};
 
 use crate::error::Error;
@@ -145,8 +145,10 @@ pub async fn serve(
                                 input,
                             );
 
-                            // TODO: surface nushell errors
-                            let output = output?;
+                            let output = output.map_err(|err| {
+                                let working_set = StateWorkingSet::new(&handler.engine.state);
+                                nu_protocol::format_error(&working_set, &err)
+                            })?;
                             let value = output.into_value(Span::unknown())?;
                             Ok(value)
                         })();
@@ -157,7 +159,19 @@ pub async fn serve(
 
                 // TODO: so we shouldn't block here, but rather collect all the rx.await() futures
                 // for this frame and then wait for all of them to finish before moving on to the
-                let value = rx.await.unwrap().unwrap();
+                let value = rx.await;
+
+                let value = value.unwrap();
+                let value = match value {
+                    Ok(value) => value,
+                    Err(err) => {
+                        // TODO: should we unregister the handler?
+                        // TODO: I think we should append this to the stream, instead of writing to
+                        // stderr
+                        eprintln!("error: {}", err);
+                        Value::nothing(Span::unknown())
+                    }
+                };
 
                 if handler.meta.stateful.unwrap_or(false) {
                     match value {
