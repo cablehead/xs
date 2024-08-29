@@ -283,7 +283,7 @@ mod tests {
                                 if $in.topic != "count.me" { return }
                                 mut state = $state
                                 $state.count += 1
-                                { state: state }
+                                { state: $state }
                                }"#,
                         )
                         .await
@@ -319,6 +319,26 @@ mod tests {
 
         assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
         assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
-        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "counter".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["frame_id"], frame_count1.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
+        assert_eq!(value, serde_json::json!({ "state": { "count": 1 } }));
+
+        let frame_count2 = store.append("count.me", None, None).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "counter".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["frame_id"], frame_count2.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
+        assert_eq!(value, serde_json::json!({ "state": { "count": 2 } }));
     }
 }
