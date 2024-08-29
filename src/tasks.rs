@@ -171,7 +171,7 @@ pub async fn serve(
                 };
             }
 
-            if frame.topic == "xs.handlers.spawn" {
+            if frame.topic == "xs.handler.spawn" {
                 if handlers.contains_key(&frame.topic) {
                     tracing::warn!("TODO: handle updating existing handlers");
                     continue;
@@ -218,6 +218,29 @@ pub async fn serve(
     Ok(())
 }
 
+async fn append(
+    mut store: Store,
+    source_id: Scru128Id,
+    topic: &str,
+    postfix: &str,
+    content: Option<String>,
+) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
+    let hash = if let Some(content) = content {
+        Some(store.cas_insert(&content).await?)
+    } else {
+        None
+    };
+
+    let meta = serde_json::json!({
+        "source_id": source_id.to_string(),
+    });
+
+    let frame = store
+        .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
+        .await;
+    Ok(frame)
+}
+
 async fn spawn(
     engine: nu::Engine,
     store: Store,
@@ -225,29 +248,6 @@ async fn spawn(
     meta: GeneratorMeta,
     expression: String,
 ) {
-    async fn append(
-        mut store: Store,
-        source_id: Scru128Id,
-        topic: &str,
-        postfix: &str,
-        content: Option<String>,
-    ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
-        let hash = if let Some(content) = content {
-            Some(store.cas_insert(&content).await?)
-        } else {
-            None
-        };
-
-        let meta = serde_json::json!({
-            "source_id": source_id.to_string(),
-        });
-
-        let frame = store
-            .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
-            .await;
-        Ok(frame)
-    }
-
     let start = append(store.clone(), source_id, &meta.topic, "start", None)
         .await
         .unwrap();
@@ -351,7 +351,7 @@ async fn spawn_handler(
     mut engine: nu::Engine,
     store: Store,
     pool: ThreadPool,
-    _source_id: Scru128Id,
+    source_id: Scru128Id,
     meta: HandlerMeta,
     expression: String,
 ) {
@@ -363,6 +363,10 @@ async fn spawn_handler(
     use crate::error::Error;
 
     let closure = engine.parse_closure(&expression).unwrap();
+
+    let _ = append(store.clone(), source_id, &meta.topic, "start", None)
+        .await
+        .unwrap();
 
     tokio::task::spawn(async move {
         let options = ReadOptions {
