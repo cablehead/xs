@@ -398,7 +398,7 @@ async fn spawn_handler(
                 let _ = tx.send(result);
             });
 
-            let value = rx.await;
+            let value = rx.await.unwrap().unwrap();
             eprintln!("Handler {} got value: {:?}", meta.topic, value);
         }
     });
