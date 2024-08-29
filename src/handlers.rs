@@ -265,7 +265,7 @@ mod tests {
                         .unwrap(),
                 ),
                 Some(serde_json::json!({
-                    "topic": "action",
+                    "topic": "counter",
                     "stateful": true,
                     "initial_state": { "count": 0 }
                 })),
