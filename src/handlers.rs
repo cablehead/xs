@@ -19,6 +19,8 @@ use crate::thread_pool::ThreadPool;
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct HandlerMeta {
     topic: String,
+    stateful: Option<bool>,
+    initial_state: Option<serde_json::Value>,
 }
 
 #[derive(Clone)]
@@ -27,6 +29,7 @@ struct HandlerTask {
     meta: HandlerMeta,
     engine: nu::Engine,
     closure: Closure,
+    state: Option<serde_json::Value>,
 }
 
 impl HandlerTask {
@@ -34,9 +37,10 @@ impl HandlerTask {
         let closure = engine.parse_closure(&expression).unwrap();
         Self {
             id,
-            meta,
+            meta: meta.clone(),
             engine,
             closure,
+            state: meta.initial_state,
         }
     }
 }
@@ -89,7 +93,11 @@ pub async fn serve(
             continue;
         }
 
+        // TODO: need to establish the different points at which a handler will pick its starting
+        // point in the stream
         if threshold_crossed {
+            // TODO: I think we want to run all handlers in parallel (up to the pool limit) for
+            // each frame, and then wait for all of them to finish before moving on to the next
             for handler in handlers.values() {
                 let handler = handler.clone();
 
@@ -122,6 +130,8 @@ pub async fn serve(
                     });
                 }
 
+                // TODO: so we shouldn't block here, but rather collect all the rx.await() futures
+                // for this frame and then wait for all of them to finish before moving on to the
                 let value = rx.await.unwrap().unwrap();
                 match value {
                     Value::Nothing { .. } => (),
@@ -156,7 +166,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn test_serve() {
+    async fn test_serve_stateless() {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path());
         let pool = ThreadPool::new(4);
@@ -222,5 +232,68 @@ mod tests {
 
         let _ = store.append("topic3", None, None).await;
         assert_eq!(recver.recv().await.unwrap().topic, "topic3".to_string());
+    }
+
+    #[tokio::test]
+    async fn test_serve_stateful() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = Store::spawn(temp_dir.into_path());
+        let pool = ThreadPool::new(4);
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine, pool).await.unwrap();
+            });
+        }
+
+        let frame_handler = store
+            .append(
+                "xs.handler.register",
+                Some(
+                    store
+                        .cas_insert(
+                            r#"{|state|
+                                if $in.topic != "count.me" { return }
+                                mut state = $state
+                                $state.count += 1
+                                { state: state }
+                               }"#,
+                        )
+                        .await
+                        .unwrap(),
+                ),
+                Some(serde_json::json!({
+                    "topic": "action",
+                    "stateful": true,
+                    "initial_state": { "count": 0 }
+                })),
+            )
+            .await;
+
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: false,
+            last_id: None,
+        };
+
+        let mut recver = store.read(options).await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.handler.register".to_string()
+        );
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.threshold".to_string()
+        );
+
+        let _ = store.append("topic1", None, None).await;
+        let frame_count1 = store.append("count.me", None, None).await;
+
+        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
+        assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
+        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
     }
 }
