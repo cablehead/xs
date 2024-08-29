@@ -42,9 +42,9 @@ Built with:
     - meta:: topic: string, duplex: bool
     - `xs.generator.terminate`
 
-- `xs.handler.spawn`
+- `xs.handler.register`
     - meta:: run-from: start, tail, id?
-    - `xs.handler.terminate`
+    - `xs.handler.unregister`
 
 ## Local socket HTTP API
 
