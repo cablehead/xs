@@ -54,10 +54,14 @@ pub async fn serve(
         tail: false,
         last_id: None,
         compaction_strategy: Some(|frame| {
-            frame
-                .meta
-                .clone()
-                .and_then(|meta| meta.get("topic").map(|value| value.to_string()))
+            if frame.topic == "xs.generator.spawn" {
+                frame
+                    .meta
+                    .clone()
+                    .and_then(|meta| meta.get("topic").map(|value| value.to_string()))
+            } else {
+                None
+            }
         }),
     };
 
