@@ -53,43 +53,15 @@ pub async fn serve(
         follow: FollowOption::On,
         tail: false,
         last_id: None,
-        compaction_strategy: None,
+        compaction_strategy: Some(|frame| {
+            frame
+                .meta
+                .clone()
+                .and_then(|meta| meta.get("topic").map(|value| value.to_string()))
+        }),
     };
 
-    let mut raw_recver = store.read(options).await;
-
-    // dedupe commands until threshold
-    let (tx, mut recver) = tokio::sync::mpsc::channel(1);
-    tokio::task::spawn(async move {
-        let mut seen_threshold = false;
-        let mut collected: HashMap<String, Frame> = HashMap::new();
-
-        while let Some(frame) = raw_recver.recv().await {
-            if seen_threshold {
-                if tx.send(frame).await.is_err() {
-                    break;
-                }
-                continue;
-            }
-
-            if frame.topic == "xs.threshold" {
-                seen_threshold = true;
-                for frame in collected.values() {
-                    if tx.send(frame.clone()).await.is_err() {
-                        break;
-                    }
-                }
-                collected.clear();
-                continue;
-            }
-
-            if frame.topic == "xs.generator.spawn" {
-                if let Some(topic) = frame.meta.as_ref().and_then(|meta| meta.get("topic")) {
-                    collected.insert(topic.to_string(), frame);
-                }
-            }
-        }
-    });
+    let mut recver = store.read(options).await;
 
     let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
 
@@ -117,17 +89,17 @@ pub async fn serve(
         }
 
         if frame.topic == "xs.generator.spawn" {
-            if generators.contains_key(&frame.topic) {
-                tracing::warn!("TODO: handle updating existing generator");
-                continue;
-            }
-
             let meta = frame
                 .meta
                 .clone()
                 .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok());
 
             if let Some(meta) = meta {
+                if generators.contains_key(&meta.topic) {
+                    tracing::warn!("TODO: handle updating existing generator");
+                    continue;
+                }
+
                 // TODO: emit a .err event on any of these unwraps
                 let hash = frame.hash.clone().unwrap();
                 let reader = store.cas_reader(hash).await.unwrap();
@@ -408,5 +380,76 @@ mod tests {
         assert_eq!(meta["source_id"], frame_generator.id.to_string());
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
         assert_eq!(std::str::from_utf8(&content).unwrap(), "hi: henry");
+    }
+
+    #[tokio::test]
+    async fn test_serve_compact() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = Store::spawn(temp_dir.into_path());
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        let _ = store
+            .append(
+                "xs.generator.spawn",
+                Some(
+                    store
+                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                        .await
+                        .unwrap(),
+                ),
+                Some(serde_json::json!({"topic": "toml"})),
+            )
+            .await;
+
+        // replaces the previous generator
+        let frame_generator = store
+            .append(
+                "xs.generator.spawn",
+                Some(
+                    store
+                        .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
+                        .await
+                        .unwrap(),
+                ),
+                Some(serde_json::json!({"topic": "toml"})),
+            )
+            .await;
+
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: true,
+            last_id: None,
+            compaction_strategy: None,
+        };
+        let mut recver = store.read(options).await;
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine).await.unwrap();
+            });
+        }
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "toml.start".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["source_id"], frame_generator.id.to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "toml.recv".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["source_id"], frame_generator.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert_eq!(std::str::from_utf8(&content).unwrap(), r#"name = "xs""#);
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "toml.recv".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["source_id"], frame_generator.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert_eq!(
+            std::str::from_utf8(&content).unwrap(),
+            r#"edition = "2021""#
+        );
     }
 }
