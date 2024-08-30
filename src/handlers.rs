@@ -73,6 +73,7 @@ pub async fn serve(
         follow: FollowOption::On,
         tail: false,
         last_id: None,
+        compaction_strategy: None,
     };
 
     let mut handlers: HashMap<String, HandlerTask> = HashMap::new();
@@ -271,6 +272,7 @@ mod tests {
             follow: FollowOption::On,
             tail: false,
             last_id: None,
+            compaction_strategy: None,
         };
 
         let mut recver = store.read(options).await;
@@ -343,6 +345,7 @@ mod tests {
             follow: FollowOption::On,
             tail: false,
             last_id: None,
+            compaction_strategy: None,
         };
 
         let mut recver = store.read(options).await;

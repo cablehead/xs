@@ -74,6 +74,8 @@ pub struct ReadOptions {
     pub tail: bool,
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
+    #[serde(skip)]
+    pub compaction_strategy: Option<fn(i32) -> i32>,
 }
 
 impl ReadOptions {
@@ -294,6 +296,7 @@ mod tests_read_options {
                     follow: FollowOption::Off,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -302,6 +305,7 @@ mod tests_read_options {
                     follow: FollowOption::Off,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -310,6 +314,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -318,6 +323,7 @@ mod tests_read_options {
                     follow: FollowOption::WithHeartbeat(Duration::from_millis(1)),
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -326,6 +332,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -334,6 +341,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -342,6 +350,7 @@ mod tests_read_options {
                     follow: FollowOption::Off,
                     tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -350,6 +359,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
+                    compaction_strategy: None,
                 },
             },
         ];
@@ -393,6 +403,7 @@ mod tests_store {
             follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
             tail: false,
             last_id: None,
+            compaction_strategy: None,
         };
         let mut recver = store.read(follow_options).await;
 
@@ -437,6 +448,7 @@ mod tests_store {
                 follow: FollowOption::Off,
                 tail: false,
                 last_id: Some(f1.id),
+                compaction_strategy: None,
             })
             .await;
         assert_eq!(

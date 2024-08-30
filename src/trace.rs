@@ -12,6 +12,7 @@ pub async fn log_stream(store: Store) {
         follow: FollowOption::On,
         tail: true,
         last_id: None,
+        compaction_strategy: None,
     };
     let mut recver = store.read(options).await;
     while let Some(frame) = recver.recv().await {

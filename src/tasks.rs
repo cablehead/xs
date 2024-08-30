@@ -53,6 +53,7 @@ pub async fn serve(
         follow: FollowOption::On,
         tail: false,
         last_id: None,
+        compaction_strategy: None,
     };
 
     let mut raw_recver = store.read(options).await;
@@ -203,6 +204,7 @@ async fn spawn(
             follow: FollowOption::On,
             tail: false,
             last_id: Some(start.id),
+            compaction_strategy: None,
         };
         let rx = store.read(options).await;
 
