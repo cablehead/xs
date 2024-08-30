@@ -289,3 +289,76 @@ async fn spawn(
         });
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_serve() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = Store::spawn(temp_dir.into_path());
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine).await.unwrap();
+            });
+        }
+
+        let frame_handler = store
+            .append(
+                "xs.generator.spawn",
+                Some(
+                    store
+                        .cas_insert(
+                            r#"each { |x| $"hi: ($x)" }"#,
+                        )
+                        .await
+                        .unwrap(),
+                ),
+                Some(serde_json::json!({"topic": "greeter"})),
+            )
+            .await;
+
+        return;
+        let _ = store.append("topic1", None, None).await;
+        let frame_topic2 = store.append("topic2", None, None).await;
+
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: false,
+            last_id: None,
+            compaction_strategy: None,
+        };
+
+        let mut recver = store.read(options).await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.handler.register".to_string()
+        );
+
+        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
+        assert_eq!(recver.recv().await.unwrap().topic, "topic2".to_string());
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.threshold".to_string()
+        );
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action".to_string());
+
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["frame_id"], frame_topic2.id.to_string());
+
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert_eq!(content, r#""ran action""#.as_bytes());
+
+        let _ = store.append("topic3", None, None).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "topic3".to_string());
+    }
+}
