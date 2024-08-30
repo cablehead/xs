@@ -421,10 +421,31 @@ mod tests_store {
         let f4 = store.append("stream", None, None).await;
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
+        let head = f4;
 
         // Assert we see some heartbeats
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+
+        // start a new subscriber to exercise compaction_strategy
+        let follow_options = ReadOptions {
+            // follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
+            follow: FollowOption::Off,
+            tail: false,
+            last_id: None,
+            compaction_strategy: Some(|frame| Some(frame.topic.clone())),
+        };
+        let mut recver = store.read(follow_options).await;
+
+        eprintln!("head: {:<6}", head.id);
+        eprintln!("f1:   {:<6}", f1.id);
+        eprintln!("recv: {:<6}", recver.recv().await.unwrap().id);
+
+        // assert_eq!(f1, recver.recv().await.unwrap());
+
+        // Assert we see some heartbeats - note we don't see xs.threshold
+        // assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        // assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
 
     #[tokio::test]
