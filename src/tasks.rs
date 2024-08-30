@@ -251,42 +251,45 @@ async fn spawn(
     let handle = tokio::runtime::Handle::current().clone();
 
     std::thread::spawn(move || {
-        handle.block_on(async {
-            let pipeline = engine.eval(input_pipeline, expression.clone()).unwrap();
+        let pipeline = engine.eval(input_pipeline, expression.clone()).unwrap();
 
-            match pipeline {
-                PipelineData::Empty => {
-                    // Close the channel immediately
-                }
-                PipelineData::Value(value, _) => {
-                    if let Value::String { val, .. } = value {
-                        append(store.clone(), source_id, &meta.topic, "recv", Some(val))
-                            .await
-                            .unwrap();
-                    } else {
-                        panic!("Unexpected Value type in PipelineData::Value");
-                    }
-                }
-                PipelineData::ListStream(mut stream, _) => {
-                    while let Some(value) = stream.next_value() {
-                        if let Value::String { val, .. } = value {
-                            append(store.clone(), source_id, &meta.topic, "recv", Some(val))
-                                .await
-                                .unwrap();
-                        } else {
-                            panic!("Unexpected Value type in ListStream");
-                        }
-                    }
-                }
-                PipelineData::ByteStream(_, _) => {
-                    panic!("ByteStream not supported");
+        match pipeline {
+            PipelineData::Empty => {
+                // Close the channel immediately
+            }
+            PipelineData::Value(value, _) => {
+                if let Value::String { val, .. } = value {
+                    handle
+                        .block_on(async {
+                            append(store.clone(), source_id, &meta.topic, "recv", Some(val)).await
+                        })
+                        .unwrap();
+                } else {
+                    panic!("Unexpected Value type in PipelineData::Value");
                 }
             }
+            PipelineData::ListStream(mut stream, _) => {
+                while let Some(value) = stream.next_value() {
+                    if let Value::String { val, .. } = value {
+                        handle
+                            .block_on(async {
+                                append(store.clone(), source_id, &meta.topic, "recv", Some(val))
+                                    .await
+                            })
+                            .unwrap();
+                    } else {
+                        panic!("Unexpected Value type in ListStream");
+                    }
+                }
+            }
+            PipelineData::ByteStream(_, _) => {
+                panic!("ByteStream not supported");
+            }
+        }
 
-            append(store.clone(), source_id, &meta.topic, "stop", None)
-                .await
-                .unwrap();
-        });
+        handle
+            .block_on(async { append(store.clone(), source_id, &meta.topic, "stop", None).await })
+            .unwrap();
     });
 }
 
@@ -296,7 +299,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn test_serve() {
+    async fn test_serve_duplex() {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path());
         let engine = nu::Engine::new(store.clone()).unwrap();
@@ -308,57 +311,49 @@ mod tests {
             });
         }
 
-        let frame_handler = store
+        let frame_generator = store
             .append(
                 "xs.generator.spawn",
                 Some(
                     store
-                        .cas_insert(
-                            r#"each { |x| $"hi: ($x)" }"#,
-                        )
+                        .cas_insert(r#"each { |x| $"hi: ($x)" }"#)
                         .await
                         .unwrap(),
                 ),
-                Some(serde_json::json!({"topic": "greeter"})),
+                Some(serde_json::json!({"topic": "greeter", "duplex": true})),
             )
             .await;
 
-        return;
-        let _ = store.append("topic1", None, None).await;
-        let frame_topic2 = store.append("topic2", None, None).await;
-
         let options = ReadOptions {
             follow: FollowOption::On,
-            tail: false,
+            tail: true,
             last_id: None,
             compaction_strategy: None,
         };
 
         let mut recver = store.read(options).await;
 
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "xs.handler.register".to_string()
-        );
-
-        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
-        assert_eq!(recver.recv().await.unwrap().topic, "topic2".to_string());
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "xs.threshold".to_string()
-        );
-
         let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action".to_string());
+        assert_eq!(frame.topic, "greeter.start".to_string());
 
+        let _ = store
+            .append(
+                "greeter.send",
+                Some(store.cas_insert(r#"henry"#).await.unwrap()),
+                None,
+            )
+            .await;
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "greeter.send".to_string()
+        );
+
+        // assert we see a reaction from the generator
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "greeter.recv".to_string());
         let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-        assert_eq!(meta["frame_id"], frame_topic2.id.to_string());
-
+        assert_eq!(meta["source_id"], frame_generator.id.to_string());
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        assert_eq!(content, r#""ran action""#.as_bytes());
-
-        let _ = store.append("topic3", None, None).await;
-        assert_eq!(recver.recv().await.unwrap().topic, "topic3".to_string());
+        assert_eq!(std::str::from_utf8(&content).unwrap(), "hi: henry");
     }
 }
