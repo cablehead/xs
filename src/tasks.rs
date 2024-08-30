@@ -299,6 +299,59 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
+    async fn test_serve_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = Store::spawn(temp_dir.into_path());
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine).await.unwrap();
+            });
+        }
+
+        let frame_generator = store
+            .append(
+                "xs.generator.spawn",
+                Some(
+                    store
+                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                        .await
+                        .unwrap(),
+                ),
+                Some(serde_json::json!({"topic": "toml"})),
+            )
+            .await;
+
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: true,
+            last_id: None,
+            compaction_strategy: None,
+        };
+
+        let mut recver = store.read(options).await;
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "toml.start".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "toml.recv".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["source_id"], frame_generator.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert_eq!(std::str::from_utf8(&content).unwrap(), "[package]");
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "toml.recv".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["source_id"], frame_generator.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert_eq!(std::str::from_utf8(&content).unwrap(), r#"name = "xs""#);
+    }
+
+    #[tokio::test]
     async fn test_serve_duplex() {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path());
