@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -222,18 +223,40 @@ fn handle_read_command(
 ) {
     if !options.tail {
         let range = get_range(options.last_id.as_ref());
+        let mut compacted_frames = HashMap::new();
+
         for record in store.partition.range(range) {
             let frame = deserialize_frame(record.unwrap());
-            if tx.blocking_send(frame).is_err() {
-                return;
+
+            if let Some(compaction_strategy) = &options.compaction_strategy {
+                if let Some(key) = compaction_strategy(&frame) {
+                    compacted_frames.insert(key, frame);
+                }
+            } else {
+                send_frame(tx, frame);
+            }
+        }
+
+        // Send compacted frames if a compaction strategy was used
+        if !compacted_frames.is_empty() {
+            for frame in compacted_frames.values() {
+                send_frame(tx, frame.clone());
             }
         }
     }
 
     match options.follow {
         FollowOption::On | FollowOption::WithHeartbeat(_) => {
-            if !options.tail {
-                send_threshold_frame(tx);
+            if !options.tail && options.compaction_strategy.is_none() {
+                send_frame(
+                    tx,
+                    Frame {
+                        id: scru128::new(),
+                        topic: "xs.threshold".into(),
+                        hash: None,
+                        meta: None,
+                    },
+                );
             }
             subscribers.push(tx.clone());
         }
@@ -241,9 +264,19 @@ fn handle_read_command(
     }
 }
 
+fn send_frame(tx: &tokio::sync::mpsc::Sender<Frame>, frame: Frame) {
+    if tx.blocking_send(frame).is_err() {
+        // Handle error or log it
+        tracing::error!("Failed to send frame");
+    }
+}
+
 fn get_range(last_id: Option<&Scru128Id>) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
     match last_id {
-        Some(last_id) => (Bound::Excluded(last_id.as_bytes().to_vec()), Bound::Unbounded),
+        Some(last_id) => (
+            Bound::Excluded(last_id.as_bytes().to_vec()),
+            Bound::Unbounded,
+        ),
         None => (Bound::Unbounded, Bound::Unbounded),
     }
 }
@@ -254,16 +287,6 @@ fn deserialize_frame(record: (Arc<[u8]>, Arc<[u8]>)) -> Frame {
         let value = std::str::from_utf8(&record.1).unwrap();
         panic!("Failed to deserialize frame: {} {} {}", e, key, value)
     })
-}
-
-fn send_threshold_frame(tx: &tokio::sync::mpsc::Sender<Frame>) {
-    let frame = Frame {
-        id: scru128::new(),
-        topic: "xs.threshold".into(),
-        hash: None,
-        meta: None,
-    };
-    let _ = tx.blocking_send(frame);
 }
 
 fn handle_append_command(subscribers: &mut Vec<tokio::sync::mpsc::Sender<Frame>>, frame: Frame) {
@@ -440,23 +463,18 @@ mod tests_store {
 
         // start a new subscriber to exercise compaction_strategy
         let follow_options = ReadOptions {
-            // follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
-            follow: FollowOption::Off,
+            follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
             tail: false,
             last_id: None,
             compaction_strategy: Some(|frame| Some(frame.topic.clone())),
         };
         let mut recver = store.read(follow_options).await;
 
-        eprintln!("head: {:<6}", head.id);
-        eprintln!("f1:   {:<6}", f1.id);
-        eprintln!("recv: {:<6}", recver.recv().await.unwrap().id);
-
-        // assert_eq!(f1, recver.recv().await.unwrap());
+        assert_eq!(head, recver.recv().await.unwrap());
 
         // Assert we see some heartbeats - note we don't see xs.threshold
-        // assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
-        // assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
 
     #[tokio::test]
