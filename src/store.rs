@@ -75,7 +75,7 @@ pub struct ReadOptions {
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
     #[serde(skip)]
-    pub compaction_strategy: Option<fn(i32) -> i32>,
+    pub compaction_strategy: Option<fn(&Frame) -> Option<String>>,
 }
 
 impl ReadOptions {
