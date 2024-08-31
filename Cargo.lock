@@ -2051,7 +2051,7 @@ version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53304fff6ab1e597661eee37e42ea8c47a146fca280af902bb76bff8a896e523"
 dependencies = [
- "nu-ansi-term",
+ "nu-ansi-term 0.50.1",
 ]
 
 [[package]]
@@ -2305,6 +2305,16 @@ dependencies = [
 
 [[package]]
 name = "nu-ansi-term"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77a8165726e8236064dbb45459242600304b42a5ea24ee2948e18e023bf7ba84"
+dependencies = [
+ "overload",
+ "winapi",
+]
+
+[[package]]
+name = "nu-ansi-term"
 version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4a28e057d01f97e61255210fcff094d74ed0466038633e95017f5beb68e4399"
@@ -2326,7 +2336,7 @@ dependencies = [
  "log",
  "lscolors",
  "miette 7.2.0",
- "nu-ansi-term",
+ "nu-ansi-term 0.50.1",
  "nu-cmd-base",
  "nu-color-config",
  "nu-engine",
@@ -2377,7 +2387,7 @@ version = "0.96.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20c04421f551dc774a7a4f63628cf614ba5ebd8986e701bb8d048326e2529f7b"
 dependencies = [
- "nu-ansi-term",
+ "nu-ansi-term 0.50.1",
  "nu-engine",
  "nu-json",
  "nu-protocol",
@@ -2424,7 +2434,7 @@ dependencies = [
  "native-tls",
  "nix",
  "notify-debouncer-full",
- "nu-ansi-term",
+ "nu-ansi-term 0.50.1",
  "nu-cmd-base",
  "nu-color-config",
  "nu-engine",
@@ -2562,7 +2572,7 @@ version = "0.96.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c12747b6606761a1ed790331b0da8256d361db0b65f74e5998d79eb1bdc77e41"
 dependencies = [
- "nu-ansi-term",
+ "nu-ansi-term 0.50.1",
 ]
 
 [[package]]
@@ -2624,7 +2634,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a4256b193316f9b928a0e3041ec853d56f373249da050f61baffd3b502a597f"
 dependencies = [
  "fancy-regex",
- "nu-ansi-term",
+ "nu-ansi-term 0.50.1",
  "nu-color-config",
  "nu-engine",
  "nu-protocol",
@@ -2813,6 +2823,12 @@ dependencies = [
  "libc",
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "overload"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "owo-colors"
@@ -3368,7 +3384,7 @@ dependencies = [
  "crossterm",
  "fd-lock",
  "itertools 0.12.1",
- "nu-ansi-term",
+ "nu-ansi-term 0.50.1",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3746,6 +3762,15 @@ dependencies = [
  "const_format",
  "is_debug",
  "time",
+]
+
+[[package]]
+name = "sharded-slab"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
+dependencies = [
+ "lazy_static",
 ]
 
 [[package]]
@@ -4297,6 +4322,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
 dependencies = [
  "once_cell",
+ "valuable",
+]
+
+[[package]]
+name = "tracing-log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-subscriber"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad0f048c97dbd9faa9b7df56362b8ebcaa52adb06b498c050d2f4e32f90a7a8b"
+dependencies = [
+ "nu-ansi-term 0.46.0",
+ "sharded-slab",
+ "smallvec",
+ "thread_local",
+ "tracing-core",
+ "tracing-log",
 ]
 
 [[package]]
@@ -4592,6 +4643,12 @@ name = "v_htmlescape"
 version = "0.15.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e8257fbc510f0a46eb602c10215901938b5c2a7d5e70fc11483b1d3c9b5b18c"
+
+[[package]]
+name = "valuable"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
 
 [[package]]
 name = "value-bag"
@@ -5176,6 +5233,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 

@@ -191,6 +191,7 @@ async fn wait_for_response(
             follow: FollowOption::On,
             tail: false,
             last_id: Some(frame_id),
+            compaction_strategy: None,
         })
         .await;
 

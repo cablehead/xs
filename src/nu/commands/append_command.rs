@@ -95,8 +95,6 @@ impl Command for AppendCommand {
                 PipelineData::Empty => Ok(None),
             }?;
 
-            eprintln!("meta: {:?}", meta);
-
             let frame = store.append(topic.as_str(), hash, meta).await;
             Ok::<_, ShellError>(frame)
         })?;
