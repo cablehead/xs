@@ -16,7 +16,7 @@ In another session:
 use xs2.nu *
 
 "websocat "wss://gateway.discord.gg/?v=8&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines" |
-    .append discord.spawn --meta {discord" duplex: true}
+    .append discord.spawn --meta {duplex: true}
 
 open examples/discord-bot/beat.nu | .append "discord.heartbeat.register" --meta {
     stateful: true
