@@ -35,6 +35,9 @@ struct HandlerTask {
 
 impl HandlerTask {
     fn new(id: Scru128Id, meta: HandlerMeta, mut engine: nu::Engine, expression: String) -> Self {
+        // TODO: need to establish the different points at which a handler will pick its starting
+        // point in the stream
+
         let closure = engine.parse_closure(&expression).unwrap();
 
         /* TODO: confirm the supplied closure is the right shape
@@ -64,66 +67,30 @@ impl HandlerTask {
     }
 }
 
-pub async fn serve(
+async fn spawn(
     mut store: Store,
-    engine: nu::Engine,
+    handler: HandlerTask,
     pool: ThreadPool,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<tokio::sync::mpsc::Sender<bool>, Box<dyn std::error::Error + Send + Sync>> {
+    let (tx_command, _rx_command) = tokio::sync::mpsc::channel(1);
+
     let options = ReadOptions {
         follow: FollowOption::On,
-        tail: false,
+        tail: true,
         last_id: None,
         compaction_strategy: None,
     };
-
-    let mut handlers: HashMap<String, HandlerTask> = HashMap::new();
-
     let mut recver = store.read(options).await;
 
-    let mut threshold_crossed = false;
-
-    while let Some(frame) = recver.recv().await {
-        if frame.topic == "xs.threshold" {
-            threshold_crossed = true;
-            continue;
-        }
-
-        if frame.topic == "xs.handler.register" {
-            let meta = frame
-                .meta
-                .clone()
-                .and_then(|meta| serde_json::from_value::<HandlerMeta>(meta).ok());
-
-            if let Some(meta) = meta {
-                // TODO: emit a .err event on any of these unwraps
-                let hash = frame.hash.unwrap();
-                let reader = store.cas_reader(hash).await.unwrap();
-                let mut expression = String::new();
-                reader
-                    .compat()
-                    .read_to_string(&mut expression)
-                    .await
-                    .unwrap();
-
-                handlers.insert(
-                    meta.topic.clone(),
-                    HandlerTask::new(frame.id, meta.clone(), engine.clone(), expression),
-                );
-            }
-            continue;
-        }
-
-        // TODO: need to establish the different points at which a handler will pick its starting
-        // point in the stream
-        if threshold_crossed {
-            // TODO: I think we want to run all handlers in parallel (up to the pool limit) for
-            // each frame, and then wait for all of them to finish before moving on to the next
-            for (_, handler) in handlers.iter_mut() {
+    {
+        let mut store = store.clone();
+        let mut handler = handler.clone();
+        tokio::spawn(async move {
+            while let Some(frame) = recver.recv().await {
                 let (tx, rx) = tokio::sync::oneshot::channel();
-
                 {
-                    let frame = frame.clone();
                     let handler = handler.clone();
+                    let frame = frame.clone();
                     pool.execute(move || {
                         let result = (|| -> Result<Value, Error> {
                             let input = nu::frame_to_pipeline(&frame);
@@ -158,10 +125,8 @@ pub async fn serve(
                     });
                 }
 
-                // TODO: so we shouldn't block here, but rather collect all the rx.await() futures
-                // for this frame and then wait for all of them to finish before moving on to the
                 let value = rx.await;
-
+                // TODO: channel recv error?
                 let value = value.unwrap();
                 let value = match value {
                     Ok(value) => value,
@@ -222,6 +187,60 @@ pub async fn serve(
                     }
                 }
             }
+        });
+    }
+
+    let _ = store
+        .append(
+            &format!("{}.registered", &handler.meta.topic),
+            None,
+            Some(serde_json::json!({
+                "handler_id": handler.id.to_string(),
+            })),
+        )
+        .await;
+    Ok(tx_command)
+}
+
+pub async fn serve(
+    store: Store,
+    engine: nu::Engine,
+    pool: ThreadPool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let options = ReadOptions {
+        follow: FollowOption::On,
+        tail: false,
+        last_id: None,
+        compaction_strategy: None,
+    };
+    let mut recver = store.read(options).await;
+
+    let mut handlers: HashMap<String, HandlerTask> = HashMap::new();
+
+    while let Some(frame) = recver.recv().await {
+        if frame.topic == "xs.handler.register" {
+            let meta = frame
+                .meta
+                .clone()
+                .and_then(|meta| serde_json::from_value::<HandlerMeta>(meta).ok());
+
+            if let Some(meta) = meta {
+                // TODO: emit a .err event on any of these unwraps
+                let hash = frame.hash.unwrap();
+                let reader = store.cas_reader(hash).await.unwrap();
+                let mut expression = String::new();
+                reader
+                    .compat()
+                    .read_to_string(&mut expression)
+                    .await
+                    .unwrap();
+
+                let handler = HandlerTask::new(frame.id, meta.clone(), engine.clone(), expression);
+                handlers.insert(meta.topic.clone(), handler.clone());
+                // TODO: this tx is to send commands to the spawned handler, e.g. update / stop it
+                let _tx = spawn(store.clone(), handler, pool.clone()).await;
+            }
+            continue;
         }
     }
 
@@ -265,29 +284,31 @@ mod tests {
             )
             .await;
 
-        let _ = store.append("topic1", None, None).await;
-        let frame_topic2 = store.append("topic2", None, None).await;
-
         let options = ReadOptions {
             follow: FollowOption::On,
             tail: false,
             last_id: None,
             compaction_strategy: None,
         };
-
         let mut recver = store.read(options).await;
 
         assert_eq!(
             recver.recv().await.unwrap().topic,
             "xs.handler.register".to_string()
         );
-
-        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
-        assert_eq!(recver.recv().await.unwrap().topic, "topic2".to_string());
         assert_eq!(
             recver.recv().await.unwrap().topic,
             "xs.threshold".to_string()
         );
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "action.registered".to_string()
+        );
+
+        let _ = store.append("topic1", None, None).await;
+        let frame_topic2 = store.append("topic2", None, None).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
+        assert_eq!(recver.recv().await.unwrap().topic, "topic2".to_string());
 
         let frame = recver.recv().await.unwrap();
         assert_eq!(frame.topic, "action".to_string());
@@ -347,7 +368,6 @@ mod tests {
             last_id: None,
             compaction_strategy: None,
         };
-
         let mut recver = store.read(options).await;
 
         assert_eq!(
@@ -358,10 +378,13 @@ mod tests {
             recver.recv().await.unwrap().topic,
             "xs.threshold".to_string()
         );
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "counter.registered".to_string()
+        );
 
         let _ = store.append("topic1", None, None).await;
         let frame_count1 = store.append("count.me", None, None).await;
-
         assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
         assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
