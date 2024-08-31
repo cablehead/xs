@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use scru128::Scru128Id;
@@ -74,6 +76,8 @@ pub struct ReadOptions {
     pub tail: bool,
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
+    #[serde(skip)]
+    pub compaction_strategy: Option<fn(&Frame) -> Option<String>>,
 }
 
 impl ReadOptions {
@@ -104,7 +108,7 @@ impl Store {
             .open_partition("kv", PartitionCreateOptions::default())
             .unwrap();
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Command>(32);
+        let (tx, rx) = tokio::sync::mpsc::channel::<Command>(32);
 
         let store = Store {
             path,
@@ -114,77 +118,10 @@ impl Store {
             commands_tx: tx,
         };
 
-        {
-            let store = store.clone();
-            std::thread::spawn(move || {
-                let mut subscribers: Vec<tokio::sync::mpsc::Sender<Frame>> = Vec::new();
-                'outer: while let Some(command) = rx.blocking_recv() {
-                    match command {
-                        Command::Read(tx, options) => {
-                            if !options.tail {
-                                let range = match &options.last_id {
-                                    Some(last_id) => (
-                                        Bound::Excluded(last_id.to_bytes()),
-                                        Bound::<[u8; 16]>::Unbounded,
-                                    ),
-                                    None => (Bound::Unbounded, Bound::Unbounded),
-                                };
-                                for record in store.partition.range(range) {
-                                    let record = record.unwrap();
-
-                                    let frame: Frame = match serde_json::from_slice(&record.1) {
-                                        Ok(frame) => frame,
-                                        Err(e) => {
-                                            let key = std::str::from_utf8(&record.0).unwrap();
-                                            let value = std::str::from_utf8(&record.1).unwrap();
-                                            panic!(
-                                                "Failed to deserialize frame: {} {} {}",
-                                                e, key, value
-                                            );
-                                        }
-                                    };
-
-                                    if tx.blocking_send(frame).is_err() {
-                                        continue 'outer;
-                                    }
-                                }
-                            }
-
-                            match options.follow {
-                                FollowOption::On | FollowOption::WithHeartbeat(_) => {
-                                    if !options.tail {
-                                        let frame = Frame {
-                                            id: scru128::new(),
-                                            topic: "xs.threshold".into(),
-                                            hash: None,
-                                            meta: None,
-                                        };
-                                        if tx.blocking_send(frame).is_err() {
-                                            continue 'outer;
-                                        }
-                                    }
-                                    subscribers.push(tx);
-                                }
-                                FollowOption::Off => {
-                                    // Do nothing
-                                }
-                            }
-                        }
-                        Command::Append(frame) => {
-                            // subscribers.retain(|tx| tx.blocking_send(frame.clone()).is_ok());
-                            subscribers.retain(|tx| {
-                                if tx.blocking_send(frame.clone()).is_ok() {
-                                    true
-                                } else {
-                                    tracing::error!("Subscriber not retained");
-                                    false
-                                }
-                            });
-                        }
-                    }
-                }
-            });
-        }
+        let store_clone = store.clone();
+        std::thread::spawn(move || {
+            handle_commands(store_clone, rx);
+        });
 
         store
     }
@@ -264,6 +201,105 @@ impl Store {
     }
 }
 
+fn handle_commands(store: Store, mut rx: tokio::sync::mpsc::Receiver<Command>) {
+    let mut subscribers: Vec<tokio::sync::mpsc::Sender<Frame>> = Vec::new();
+    while let Some(command) = rx.blocking_recv() {
+        match command {
+            Command::Read(tx, options) => {
+                handle_read_command(&store, &tx, &options, &mut subscribers);
+            }
+            Command::Append(frame) => {
+                handle_append_command(&mut subscribers, frame);
+            }
+        }
+    }
+}
+
+fn handle_read_command(
+    store: &Store,
+    tx: &tokio::sync::mpsc::Sender<Frame>,
+    options: &ReadOptions,
+    subscribers: &mut Vec<tokio::sync::mpsc::Sender<Frame>>,
+) {
+    if !options.tail {
+        let range = get_range(options.last_id.as_ref());
+        let mut compacted_frames = HashMap::new();
+
+        for record in store.partition.range(range) {
+            let frame = deserialize_frame(record.unwrap());
+
+            if let Some(compaction_strategy) = &options.compaction_strategy {
+                if let Some(key) = compaction_strategy(&frame) {
+                    compacted_frames.insert(key, frame);
+                }
+            } else {
+                send_frame(tx, frame);
+            }
+        }
+
+        // Send compacted frames if a compaction strategy was used
+        if !compacted_frames.is_empty() {
+            for frame in compacted_frames.values() {
+                send_frame(tx, frame.clone());
+            }
+        }
+    }
+
+    match options.follow {
+        FollowOption::On | FollowOption::WithHeartbeat(_) => {
+            if !options.tail && options.compaction_strategy.is_none() {
+                send_frame(
+                    tx,
+                    Frame {
+                        id: scru128::new(),
+                        topic: "xs.threshold".into(),
+                        hash: None,
+                        meta: None,
+                    },
+                );
+            }
+            subscribers.push(tx.clone());
+        }
+        FollowOption::Off => {}
+    }
+}
+
+fn send_frame(tx: &tokio::sync::mpsc::Sender<Frame>, frame: Frame) {
+    if tx.blocking_send(frame).is_err() {
+        // Handle error or log it
+        tracing::error!("Failed to send frame");
+    }
+}
+
+fn get_range(last_id: Option<&Scru128Id>) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
+    match last_id {
+        Some(last_id) => (
+            Bound::Excluded(last_id.as_bytes().to_vec()),
+            Bound::Unbounded,
+        ),
+        None => (Bound::Unbounded, Bound::Unbounded),
+    }
+}
+
+fn deserialize_frame(record: (Arc<[u8]>, Arc<[u8]>)) -> Frame {
+    serde_json::from_slice(&record.1).unwrap_or_else(|e| {
+        let key = std::str::from_utf8(&record.0).unwrap();
+        let value = std::str::from_utf8(&record.1).unwrap();
+        panic!("Failed to deserialize frame: {} {} {}", e, key, value)
+    })
+}
+
+fn handle_append_command(subscribers: &mut Vec<tokio::sync::mpsc::Sender<Frame>>, frame: Frame) {
+    subscribers.retain(|tx| {
+        if tx.blocking_send(frame.clone()).is_ok() {
+            true
+        } else {
+            tracing::error!("Subscriber not retained");
+            false
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +330,7 @@ mod tests_read_options {
                     follow: FollowOption::Off,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -302,6 +339,7 @@ mod tests_read_options {
                     follow: FollowOption::Off,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -310,6 +348,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -318,6 +357,7 @@ mod tests_read_options {
                     follow: FollowOption::WithHeartbeat(Duration::from_millis(1)),
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -326,6 +366,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -334,6 +375,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: None,
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -342,6 +384,7 @@ mod tests_read_options {
                     follow: FollowOption::Off,
                     tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
+                    compaction_strategy: None,
                 },
             },
             TestCase {
@@ -350,6 +393,7 @@ mod tests_read_options {
                     follow: FollowOption::On,
                     tail: false,
                     last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
+                    compaction_strategy: None,
                 },
             },
         ];
@@ -393,6 +437,7 @@ mod tests_store {
             follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
             tail: false,
             last_id: None,
+            compaction_strategy: None,
         };
         let mut recver = store.read(follow_options).await;
 
@@ -410,8 +455,24 @@ mod tests_store {
         let f4 = store.append("stream", None, None).await;
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
+        let head = f4;
 
         // Assert we see some heartbeats
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+
+        // start a new subscriber to exercise compaction_strategy
+        let follow_options = ReadOptions {
+            follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
+            tail: false,
+            last_id: None,
+            compaction_strategy: Some(|frame| Some(frame.topic.clone())),
+        };
+        let mut recver = store.read(follow_options).await;
+
+        assert_eq!(head, recver.recv().await.unwrap());
+
+        // Assert we see some heartbeats - note we don't see xs.threshold
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
@@ -437,6 +498,7 @@ mod tests_store {
                 follow: FollowOption::Off,
                 tail: false,
                 last_id: Some(f1.id),
+                compaction_strategy: None,
             })
             .await;
         assert_eq!(
