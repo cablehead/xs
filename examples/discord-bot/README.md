@@ -21,16 +21,17 @@ use xs2.nu *
 open examples/discord-bot/beat.nu | .append "discord.heartbeat.register" --meta {
     stateful: true
     initial_state: {
-           s: null,               # sequence number
-           heartbeat_interval: 0, # 0 means we are offline
-           last_sent: null,
-           last_ack: null,
+       s: null,               # sequence number
+       heartbeat_interval: 0, # 0 means we are offline
+       last_sent: null,
+       last_ack: null,
 
-           authing: null,
-           session_id: null,
-           resume_gateway_url: null,
-       }
+       authing: null,
+       session_id: null,
+       resume_gateway_url: null,
    }
+   pulse: 1000
+}
 ```
 
 
