@@ -72,9 +72,13 @@ def .send [] {
     let frame = $in
 
     if $frame.topic == "xs.pulse" {
-        # if we're online, but not authed, attempt to auth
+        # we're not online
+        if $state.heartbeat_interval == 0 {
+            return
+        }
+
+        # online, but not authed, attempt to auth
         if (($state.heartbeat_interval != 0) and ($state.authing | is-empty)) {
-            print "sending identify!"
             op identify $env.BOT_TOKEN 33281 | .send
             return
         }

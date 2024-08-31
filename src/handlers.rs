@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use scru128::Scru128Id;
 
@@ -22,6 +23,7 @@ pub struct HandlerMeta {
     topic: String,
     stateful: Option<bool>,
     initial_state: Option<serde_json::Value>,
+    pulse: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -75,7 +77,11 @@ async fn spawn(
     let (tx_command, _rx_command) = tokio::sync::mpsc::channel(1);
 
     let options = ReadOptions {
-        follow: FollowOption::On,
+        follow: handler
+            .meta
+            .pulse
+            .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
+            .unwrap_or(FollowOption::On),
         tail: true,
         last_id: None,
         compaction_strategy: None,
