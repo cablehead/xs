@@ -1,6 +1,6 @@
 ## starter for a discord bot
 
-Requred to run:
+Required to run:
 
 - https://github.com/vi/websocat
 - [scru128-cli](https://github.com/cablehead/scru128-cli)- needed for `scru128-since`
