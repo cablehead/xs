@@ -2,7 +2,7 @@
 
 Requires:
 
-- https://www.nushell.sh
+- https://www.nushell.sh  # only required by the follow instructions to register the tasks
 - https://github.com/vi/websocat
 - [scru128-cli](https://github.com/cablehead/scru128-cli)- needed for `scru128-since`
 
@@ -17,9 +17,21 @@ In another session:
 use xs2.nu *
 
 "websocat "wss://gateway.discord.gg/?v=8&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines" |
-    .append xs.generator.spawn --meta {topic: "discord" duplex: true}
+    .append discord.spawn --meta {discord" duplex: true}
 
-source ./examples/discord-bot/beat.nu ; .cat | last | do $the_thing (do $the_init) | table -e
+open examples/discord-bot/beat.nu | .append "discord.heartbeat.register" --meta {
+    stateful: true
+    initial_state: {
+           s: null,               # sequence number
+           heartbeat_interval: 0, # 0 means we are offline
+           last_sent: null,
+           last_ack: null,
+
+           authing: null,
+           session_id: null,
+           resume_gateway_url: null,
+       }
+   }
 ```
 
 
