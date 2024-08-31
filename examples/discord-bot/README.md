@@ -1,8 +1,7 @@
 ## starter for a discord bot
 
-Requires:
+Requred to run:
 
-- https://www.nushell.sh  # only required by the follow instructions to register the tasks
 - https://github.com/vi/websocat
 - [scru128-cli](https://github.com/cablehead/scru128-cli)- needed for `scru128-since`
 
