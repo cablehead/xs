@@ -28,8 +28,8 @@ Built with:
 
 ## Built-in Topics
 
-- `xs.start`: emitted when the server mounts the stream to expose an
-  API
+- `xs.start`: emitted when the server mounts the stream to expose an API
+- `xs.stop`: emitted when the server stops :: TODO
 
 - `xs.pulse`: (synthetic) a heartbeat event you can configure to be emitted every
   N seconds when in follow mode
@@ -38,13 +38,13 @@ Built with:
   replaying events and events that are newly arriving in real-time via a live
   subscription
 
-- `xs.generator.spawn`
+- `<topic>.spawn` :: spawn a generator
     - meta:: topic: string, duplex: bool
-    - `xs.generator.terminate`
+    - `<topic>.terminate`
 
-- `xs.handler.register`
+- `<topic>.register` :: register an event handler
     - meta:: run-from: start, tail, id?
-    - `xs.handler.unregister`
+    - `<topic>.unregister`
 
 ## Local socket HTTP API
 
@@ -52,50 +52,40 @@ WIP, thoughts:
 
 - `/:topic` should probably be `/stream/:topic`
 
-### POST
-
-- `/:topic` - append a new event to the stream for `topic` The body of the POST
-  will be stored in the `CAS`. You can also pass arbitrary JSON meta data using
-  the `xs-meta` HTTP header
-- `/kv/:key` - store the body of the HTTP POST as the value of `key`
+## API Endpoints
 
 ### GET
 
-- `/` - pull the event stream
-- `/:id` - pull a specific event by id
-- `/cas/:hash` - pull the content addressed by `hash`
-- `/kv/:key` - pull the value of `key`
+- `/` - Pull the event stream
+- `/:id` - Pull a specific event by ID (where ID is a valid Scru128Id)
+- `/cas/:hash` - Pull the content addressed by `hash` (where hash is a valid ssri::Integrity)
 
-## Desired features
+### POST
+
+- `/:topic` - Append a new event to the stream for `topic`. The body of the POST
+  will be stored in the CAS. You can also pass arbitrary JSON meta data using
+  the `xs-meta` HTTP header.
+- `/pipe/:id` - Execute a script on a specific event. The ID should be a valid Scru128Id,
+  and the body should contain the script to be executed.
+
+## Features
 
 - event stream:
   - [x] append
-  - [x] cat
-    - [x] last-id
-    - [x] follow
-    - [x] tail
-    - [x] threshold / heartbeat synthetic events
-  - [ ] tac
-    - [ ] last-id
+  - [x] cat: last-id, follow, tail, threshold / heartbeat synthetic events
   - [x] get
   - [ ] last
   - [ ] first
   - [ ] next?
   - [ ] previous?
 - [x] cas, get
-- ephemeral events / content
+- [ ] ephemeral events / content
 - [ ] content can be chunked, to accomodate slow streams, e.g server sent events
-- as well as the event stream: a k/v store fo cursors and materialized views
-- ability to subscribe to updates
-  - [x] to both events (`cat --follow`)
-  - [ ] and materialized views
-- should be able to manage processes ala
-  [daemontools](http://cr.yp.to/daemontools.html),
-  [runit](https://smarden.org/runit/), [Pueue](https://github.com/Nukesor/pueue)
-  - or: simply runs snippets of
-    [nushell](https://github.com/nushell/nushell.git) on new event
-  - the snippets are registered via the event stream
-  - server facilitates watching for updates + managing processes
+- [ ] secondary indexes for topics: the head of a topic can be used as a materialized view
+- process management: you can register snippets of Nushell on the event stream.
+  server facilitates watching for updates + managing processes
+    - [x] generators
+    - [x] handlers
 - [x] builtin http server:
   - [x] You can optionally serve HTTP requests from your store. Requests are
         written to the event stream as `http.request` and then the connection
