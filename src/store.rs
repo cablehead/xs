@@ -25,7 +25,6 @@ pub struct Store {
     // https://github.com/fjall-rs/fjall/discussions/44
     _keyspace: Keyspace,
     pub partition: PartitionHandle,
-    pub kv: PartitionHandle,
     commands_tx: tokio::sync::mpsc::Sender<Command>,
 }
 
@@ -104,17 +103,12 @@ impl Store {
             .open_partition("stream", PartitionCreateOptions::default())
             .unwrap();
 
-        let kv = keyspace
-            .open_partition("kv", PartitionCreateOptions::default())
-            .unwrap();
-
         let (tx, rx) = tokio::sync::mpsc::channel::<Command>(32);
 
         let store = Store {
             path,
             _keyspace: keyspace,
             partition,
-            kv,
             commands_tx: tx,
         };
 

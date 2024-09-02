@@ -32,8 +32,6 @@ enum Routes {
     StreamCat,
     StreamAppend(String),
     StreamItemGet(Scru128Id),
-    KvGet(String),
-    KvPut(String),
     CasGet(ssri::Integrity),
     PipePost(Scru128Id),
     NotFound,
@@ -47,24 +45,6 @@ fn match_route(method: &Method, path: &str) -> Routes {
             if let Some(id_str) = p.strip_prefix("/pipe/") {
                 if let Ok(id) = Scru128Id::from_str(id_str) {
                     return Routes::PipePost(id);
-                }
-            }
-            Routes::NotFound
-        }
-
-        (&Method::GET, p) if p.starts_with("/kv/") => {
-            if let Some(key) = p.strip_prefix("/kv/") {
-                if !key.is_empty() {
-                    return Routes::KvGet(key.to_string());
-                }
-            }
-            Routes::NotFound
-        }
-
-        (&Method::PUT, p) if p.starts_with("/kv/") => {
-            if let Some(key) = p.strip_prefix("/kv/") {
-                if !key.is_empty() {
-                    return Routes::KvPut(key.to_string());
                 }
             }
             Routes::NotFound
@@ -125,17 +105,6 @@ async fn handle(
 
         Routes::StreamAppend(topic) => handle_stream_append(&mut store, req, topic).await,
 
-        Routes::KvGet(key) => {
-            let value = store.kv.get(key.as_bytes()).unwrap();
-            if let Some(value) = value {
-                Ok(Response::new(full(value.to_vec())))
-            } else {
-                response_404()
-            }
-        }
-
-        Routes::KvPut(key) => handle_kv_put(store, &key, req.into_body()).await,
-
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
             let reader = reader.compat();
@@ -167,12 +136,6 @@ async fn handle(
 
         Routes::NotFound => response_404(),
     }
-}
-
-async fn handle_kv_put(store: Store, key: &str, body: hyper::body::Incoming) -> HTTPResult {
-    let value = body.collect().await?.to_bytes();
-    store.kv.insert(key.as_bytes(), value.clone()).unwrap();
-    Ok(Response::new(full(value)))
 }
 
 async fn handle_stream_append(
