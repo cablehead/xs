@@ -32,7 +32,7 @@ open examples/discord-bot/beat.nu | .append "discord.heartbeat.register" --meta 
    }
    pulse: 1000
 }
+
+# to enable a `./roll <n>d<m>` command
+open examples/discord-bot/roller.nu | .append "discord.roller.register"
 ```
-
-
-
