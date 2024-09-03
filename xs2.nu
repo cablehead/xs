@@ -69,6 +69,11 @@ export def .pipe [id: string] {
     $content | h. post $"./store/sock//pipe/($id)"
 }
 
+# show the status of running tasks TBD
+export def .tasks [] {
+    .cat
+}
+
 
 export def .test [] {
     use std assert;
