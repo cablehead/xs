@@ -79,7 +79,7 @@ def .send [] {
 
         # online, but not authed, attempt to auth
         if (($state.heartbeat_interval != 0) and ($state.authing | is-empty)) {
-            op identify $env.BOT_TOKEN 33281 | .send
+            op identify $env.BOT_TOKEN 34306 | .send
             return
         }
 
