@@ -33,13 +33,13 @@ a new one: so all events generated are now linked to the new id.
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct GeneratorMeta {
-    topic: String,
     duplex: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
 struct GeneratorTask {
     id: Scru128Id,
+    topic: String,
     meta: GeneratorMeta,
     expression: String,
 }
@@ -65,23 +65,15 @@ pub async fn serve(
     let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
 
     while let Some(frame) = recver.recv().await {
-        if frame.topic.ends_with(".stop") {
-            let prefix = frame.topic.trim_end_matches(".stop");
-            if let Some(task) = generators.get(prefix) {
+        if let Some(topic) = frame.topic.strip_suffix(".stop") {
+            if let Some(task) = generators.get(topic) {
                 // respawn the task in a second
                 let engine = engine.clone();
                 let store = store.clone();
                 let task = task.clone();
                 tokio::task::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    spawn(
-                        engine.clone(),
-                        store.clone(),
-                        task.id,
-                        task.meta.clone(),
-                        task.expression.clone(),
-                    )
-                    .await;
+                    spawn(engine.clone(), store.clone(), task.clone()).await;
                 });
             }
             continue;
@@ -94,9 +86,8 @@ pub async fn serve(
                 .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
                 .unwrap_or_else(GeneratorMeta::default);
 
-            if generators.contains_key(&meta.topic) {
-                tracing::warn!("TODO: handle updating existing generator");
-                continue;
+            if generators.contains_key(topic) {
+                panic!("TODO: handle updating existing generator");
             }
 
             // TODO: emit a .err event on any of these unwraps
@@ -109,16 +100,16 @@ pub async fn serve(
                 .await
                 .unwrap();
 
-            generators.insert(
-                meta.topic.clone(),
-                GeneratorTask {
-                    id: frame.id,
-                    meta: meta.clone(),
-                    expression: expression.clone(),
-                },
-            );
+            let task = GeneratorTask {
+                id: frame.id,
+                topic: topic.to_string(),
+                meta: meta.clone(),
+                expression: expression.clone(),
+            };
 
-            spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
+            generators.insert(topic.to_string(), task.clone());
+
+            spawn(engine.clone(), store.clone(), task).await;
         }
     }
     Ok(())
@@ -147,23 +138,17 @@ async fn append(
     Ok(frame)
 }
 
-async fn spawn(
-    engine: nu::Engine,
-    store: Store,
-    source_id: Scru128Id,
-    meta: GeneratorMeta,
-    expression: String,
-) {
-    let start = append(store.clone(), source_id, &meta.topic, "start", None)
+async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
+    let start = append(store.clone(), task.id, &task.topic, "start", None)
         .await
         .unwrap();
 
     use futures::StreamExt;
     use tokio_stream::wrappers::ReceiverStream;
 
-    let input_pipeline = if meta.duplex.unwrap_or(false) {
+    let input_pipeline = if task.meta.duplex.unwrap_or(false) {
         let store = store.clone();
-        let meta = meta.clone();
+        let topic = task.topic.clone();
         let options = ReadOptions {
             follow: FollowOption::On,
             tail: false,
@@ -176,9 +161,9 @@ async fn spawn(
         let stream = stream
             .filter_map(move |frame: Frame| {
                 let store = store.clone();
-                let meta = meta.clone();
+                let topic = topic.clone();
                 async move {
-                    if frame.topic == format!("{}.send", meta.topic) {
+                    if frame.topic == format!("{}.send", topic) {
                         if let Some(hash) = frame.hash {
                             if let Ok(content) = store.cas_read(&hash).await {
                                 return Some(content);
@@ -215,7 +200,9 @@ async fn spawn(
     let handle = tokio::runtime::Handle::current().clone();
 
     std::thread::spawn(move || {
-        let pipeline = engine.eval(input_pipeline, expression.clone()).unwrap();
+        let pipeline = engine
+            .eval(input_pipeline, task.expression.clone())
+            .unwrap();
 
         match pipeline {
             PipelineData::Empty => {
@@ -225,7 +212,7 @@ async fn spawn(
                 if let Value::String { val, .. } = value {
                     handle
                         .block_on(async {
-                            append(store.clone(), source_id, &meta.topic, "recv", Some(val)).await
+                            append(store.clone(), task.id, &task.topic, "recv", Some(val)).await
                         })
                         .unwrap();
                 } else {
@@ -237,8 +224,7 @@ async fn spawn(
                     if let Value::String { val, .. } = value {
                         handle
                             .block_on(async {
-                                append(store.clone(), source_id, &meta.topic, "recv", Some(val))
-                                    .await
+                                append(store.clone(), task.id, &task.topic, "recv", Some(val)).await
                             })
                             .unwrap();
                     } else {
@@ -252,7 +238,7 @@ async fn spawn(
         }
 
         handle
-            .block_on(async { append(store.clone(), source_id, &meta.topic, "stop", None).await })
+            .block_on(async { append(store.clone(), task.id, &task.topic, "stop", None).await })
             .unwrap();
     });
 }
@@ -277,14 +263,14 @@ mod tests {
 
         let frame_generator = store
             .append(
-                "xs.generator.spawn",
+                "toml.spawn",
                 Some(
                     store
                         .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
                         .await
                         .unwrap(),
                 ),
-                Some(serde_json::json!({"topic": "toml"})),
+                None,
             )
             .await;
 
@@ -330,14 +316,14 @@ mod tests {
 
         let frame_generator = store
             .append(
-                "xs.generator.spawn",
+                "greeter.spawn",
                 Some(
                     store
                         .cas_insert(r#"each { |x| $"hi: ($x)" }"#)
                         .await
                         .unwrap(),
                 ),
-                Some(serde_json::json!({"topic": "greeter", "duplex": true})),
+                Some(serde_json::json!({"duplex": true})),
             )
             .await;
 
@@ -382,28 +368,28 @@ mod tests {
 
         let _ = store
             .append(
-                "xs.generator.spawn",
+                "toml.spawn",
                 Some(
                     store
                         .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
                         .await
                         .unwrap(),
                 ),
-                Some(serde_json::json!({"topic": "toml"})),
+                None,
             )
             .await;
 
         // replaces the previous generator
         let frame_generator = store
             .append(
-                "xs.generator.spawn",
+                "toml.spawn",
                 Some(
                     store
                         .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
                         .await
                         .unwrap(),
                 ),
-                Some(serde_json::json!({"topic": "toml"})),
+                None,
             )
             .await;
 
