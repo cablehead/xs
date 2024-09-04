@@ -114,7 +114,7 @@ async fn spawn(
         let mut handler = handler.clone();
         tokio::spawn(async move {
             while let Some(frame) = recver.recv().await {
-                if frame.topic == format!("{}.register", &handler.topic) {
+                if frame.topic == format!("{}.register", &handler.topic) && frame.id != handler.id {
                     let _ = store
                         .append(
                             &format!("{}.unregistered", &handler.topic),
