@@ -12,8 +12,7 @@ use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 /*
-A thread that watches the event stream for xs.generator.spawn and
-xs.generator.terminate
+A thread that watches the event stream for <topic>.spawn and <topic>.terminate
 
 On start up reads the stream until threshold: what's it building up there: basicly a filter with a
 dedupe on a given key. When it hits thre threshold: it plays the events its saved up: and then
@@ -21,7 +20,7 @@ responds to events in realtime.
 
 When it sees one it spawns a generator:
 - store engine, closure, runs in its own thread, so no thread pool
-- emits an xs.generator.spawn.err event if bad meta data
+- emits an <topic>.spawn.err event if bad meta data
 - emits a topic.start event {generator_id: id}
 - on stop emits a stop event: meta reason
 - restarts until terminated or replaced
@@ -32,7 +31,7 @@ If it sees an a spawn for an existing generator: it stops the current running ge
 a new one: so all events generated are now linked to the new id.
 */
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct GeneratorMeta {
     topic: String,
     duplex: Option<bool>,
@@ -54,14 +53,10 @@ pub async fn serve(
         tail: false,
         last_id: None,
         compaction_strategy: Some(|frame| {
-            if frame.topic == "xs.generator.spawn" {
-                frame
-                    .meta
-                    .clone()
-                    .and_then(|meta| meta.get("topic").map(|value| value.to_string()))
-            } else {
-                None
-            }
+            frame
+                .topic
+                .strip_suffix(".spawn")
+                .map(|prefix| prefix.to_string())
         }),
     };
 
@@ -92,45 +87,38 @@ pub async fn serve(
             continue;
         }
 
-        if frame.topic == "xs.generator.spawn" {
+        if let Some(topic) = frame.topic.strip_suffix(".spawn") {
             let meta = frame
                 .meta
                 .clone()
-                .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok());
+                .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
+                .unwrap_or_else(GeneratorMeta::default);
 
-            if let Some(meta) = meta {
-                if generators.contains_key(&meta.topic) {
-                    tracing::warn!("TODO: handle updating existing generator");
-                    continue;
-                }
-
-                // TODO: emit a .err event on any of these unwraps
-                let hash = frame.hash.clone().unwrap();
-                let reader = store.cas_reader(hash).await.unwrap();
-                let mut expression = String::new();
-                reader
-                    .compat()
-                    .read_to_string(&mut expression)
-                    .await
-                    .unwrap();
-
-                generators.insert(
-                    meta.topic.clone(),
-                    GeneratorTask {
-                        id: frame.id,
-                        meta: meta.clone(),
-                        expression: expression.clone(),
-                    },
-                );
-
-                spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
-            } else {
-                tracing::error!(
-                    "bad meta data: {:?} -- TODO: emit a .err event if bad meta data",
-                    frame.meta
-                );
+            if generators.contains_key(&meta.topic) {
+                tracing::warn!("TODO: handle updating existing generator");
                 continue;
-            };
+            }
+
+            // TODO: emit a .err event on any of these unwraps
+            let hash = frame.hash.clone().unwrap();
+            let reader = store.cas_reader(hash).await.unwrap();
+            let mut expression = String::new();
+            reader
+                .compat()
+                .read_to_string(&mut expression)
+                .await
+                .unwrap();
+
+            generators.insert(
+                meta.topic.clone(),
+                GeneratorTask {
+                    id: frame.id,
+                    meta: meta.clone(),
+                    expression: expression.clone(),
+                },
+            );
+
+            spawn(engine.clone(), store.clone(), frame.id, meta, expression).await;
         }
     }
     Ok(())

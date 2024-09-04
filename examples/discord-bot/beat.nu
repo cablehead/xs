@@ -64,7 +64,7 @@ let the_init = {||
 }
 
 def .send [] {
-    to json -r | $"($in)\n" | .append "discord.send"
+    to json -r | $"($in)\n" | .append "discord.ws.send"
 }
 
 {|state|
