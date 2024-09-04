@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::Duration;
 
 use scru128::Scru128Id;
@@ -100,6 +99,20 @@ async fn spawn(
         let mut handler = handler.clone();
         tokio::spawn(async move {
             while let Some(frame) = recver.recv().await {
+                if frame.topic == format!("{}.register", &handler.topic) {
+                    let _ = store
+                        .append(
+                            &format!("{}.unregistered", &handler.topic),
+                            None,
+                            Some(serde_json::json!({
+                                "handler_id": handler.id.to_string(),
+                                "frame_id": frame.id.to_string(),
+                            })),
+                        )
+                        .await;
+                    break;
+                }
+
                 let value = execute_and_get_result(&pool, handler.clone(), frame.clone()).await;
                 if handler.meta.stateful.unwrap_or(false) {
                     handle_result_stateful(&mut store, &mut handler, &frame, value).await;
@@ -229,8 +242,6 @@ pub async fn serve(
     };
     let mut recver = store.read(options).await;
 
-    let mut handlers: HashMap<String, HandlerTask> = HashMap::new();
-
     while let Some(frame) = recver.recv().await {
         if let Some(topic) = frame.topic.strip_suffix(".register") {
             let meta = frame
@@ -256,10 +267,8 @@ pub async fn serve(
                 engine.clone(),
                 expression,
             );
-            handlers.insert(topic.to_string(), handler.clone());
-            // TODO: this tx is to send commands to the spawned handler, e.g. update / stop it
-            let _tx = spawn(store.clone(), handler, pool.clone()).await;
-            continue;
+
+            let _ = spawn(store.clone(), handler, pool.clone()).await?;
         }
     }
 
@@ -412,5 +421,108 @@ mod tests {
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
         let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
         assert_eq!(value, serde_json::json!({ "state": { "count": 2 } }));
+    }
+
+    #[tokio::test]
+    async fn test_handler_update() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = Store::spawn(temp_dir.into_path());
+        let pool = ThreadPool::new(4);
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine, pool).await.unwrap();
+            });
+        }
+
+        let options = ReadOptions {
+            follow: FollowOption::On,
+            tail: false,
+            last_id: None,
+            compaction_strategy: None,
+        };
+        let mut recver = store.read(options).await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.threshold".to_string()
+        );
+
+        let frame_handler_1 = store
+            .append_with_content(
+                "action.register",
+                r#"
+                 {||
+                     if $in.topic != "pew" { return }
+                     "0.1"
+                 }"#,
+                None,
+            )
+            .await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "action.register".to_string()
+        );
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "action.registered".to_string()
+        );
+
+        let _ = store.append("pew", None, None).await;
+        let frame_pew = recver.recv().await.unwrap();
+        assert_eq!(frame_pew.topic, "pew".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action".to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert_eq!(content, r#""0.1""#.as_bytes());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler_1.id.to_string());
+        assert_eq!(meta["frame_id"], frame_pew.id.to_string());
+
+        let frame_handler_2 = store
+            .append_with_content(
+                "action.register",
+                r#"
+                 {||
+                     if $in.topic != "pew" { return }
+                     "0.2"
+                 }"#,
+                None,
+            )
+            .await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "action.register".to_string()
+        );
+        let frame_handler_1_unregister = recver.recv().await.unwrap();
+        assert_eq!(
+            frame_handler_1_unregister.topic,
+            "action.unregistered".to_string()
+        );
+        let meta = frame_handler_1_unregister.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler_1.id.to_string());
+        assert_eq!(meta["frame_id"], frame_handler_2.id.to_string());
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "action.registered".to_string()
+        );
+
+        let _ = store.append("pew", None, None).await;
+        let frame_pew = recver.recv().await.unwrap();
+        assert_eq!(frame_pew.topic, "pew".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action".to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert_eq!(content, r#""0.2""#.as_bytes());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
+        assert_eq!(meta["frame_id"], frame_pew.id.to_string());
     }
 }
