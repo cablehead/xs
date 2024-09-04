@@ -91,7 +91,7 @@ def .send [] {
         return
     }
 
-    if $frame.topic not-in ["discord.recv" "discord.send"] {
+    if $frame.topic not-in ["discord.ws.recv" "discord.ws.send"] {
         return
     }
 
