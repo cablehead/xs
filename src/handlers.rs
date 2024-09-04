@@ -253,7 +253,12 @@ pub async fn serve(
         follow: FollowOption::On,
         tail: false,
         last_id: None,
-        compaction_strategy: None,
+        compaction_strategy: Some(|frame| {
+            frame
+                .topic
+                .strip_suffix(".register")
+                .map(|prefix| prefix.to_string())
+        }),
     };
     let mut recver = store.read(options).await;
 
