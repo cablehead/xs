@@ -17,11 +17,18 @@ use crate::nu::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub enum StartDefinition {
+    Head { head: String },
+}
+
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct HandlerMeta {
     stateful: Option<bool>,
     initial_state: Option<serde_json::Value>,
     pulse: Option<u64>,
+    start: Option<StartDefinition>,
 }
 
 #[derive(Clone)]
@@ -82,14 +89,22 @@ async fn spawn(
 ) -> Result<tokio::sync::mpsc::Sender<bool>, Error> {
     let (tx_command, _rx_command) = tokio::sync::mpsc::channel(1);
 
+    let last_id: Option<Scru128Id> = if let Some(start) = handler.meta.start.as_ref() {
+        match start {
+            StartDefinition::Head { head } => store.head(head.to_string()),
+        }
+    } else {
+        None
+    };
+
     let options = ReadOptions {
         follow: handler
             .meta
             .pulse
             .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
             .unwrap_or(FollowOption::On),
-        tail: true,
-        last_id: None,
+        tail: last_id.is_none(),
+        last_id,
         compaction_strategy: None,
     };
     let mut recver = store.read(options).await;
