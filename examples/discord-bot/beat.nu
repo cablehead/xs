@@ -64,7 +64,7 @@ let the_init = {||
 }
 
 def .send [] {
-    to json -r | $"($in)\n" | .append "discord.send"
+    to json -r | $"($in)\n" | .append "discord.ws.send"
 }
 
 {|state|
@@ -91,7 +91,7 @@ def .send [] {
         return
     }
 
-    if $frame.topic not-in ["discord.recv" "discord.send"] {
+    if $frame.topic not-in ["discord.ws.recv" "discord.ws.send"] {
         return
     }
 
