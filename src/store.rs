@@ -152,6 +152,24 @@ impl Store {
         res.map(|value| serde_json::from_slice(&value).unwrap())
     }
 
+    pub fn head(&self, topic: String) -> Option<Scru128Id> {
+        let mut last_frame_id = None;
+
+        // Iterate over the partition in reverse order
+        let range: (Bound<Vec<u8>>, Bound<Vec<u8>>) = (Bound::Unbounded, Bound::Unbounded);
+        for record in self.partition.range(range).rev() {
+            let (_, value) = record.unwrap();
+            let frame: Frame = serde_json::from_slice(&value).unwrap();
+
+            if frame.topic == topic {
+                last_frame_id = Some(frame.id);
+                break;
+            }
+        }
+
+        last_frame_id
+    }
+
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
         cacache::Reader::open_hash(&self.path.join("cacache"), hash).await
     }
@@ -489,6 +507,8 @@ mod tests_store {
 
         let f1 = store.append("/stream", None, None).await;
         let f2 = store.append("/stream", None, None).await;
+
+        assert_eq!(store.head("/stream".to_string()), Some(f2.id));
 
         let recver = store.read(ReadOptions::default()).await;
         assert_eq!(
