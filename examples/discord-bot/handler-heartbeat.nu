@@ -1,3 +1,5 @@
+# op.nu
+# we need a mechanism to be able to reuse snippets of code
 const opcode = {
     dispatch: 0,
     heartbeat: 1,
@@ -43,6 +45,7 @@ def "op resume" [token: string, session_id: string, seq: int] {
         },
     }
 }
+### end op.nu
 
 def "scru128-since" [$id1, $id2] {
     let t1 = ($id1 | scru128 parse | into int)
