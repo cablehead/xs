@@ -160,14 +160,9 @@ async fn spawn(
                                 handler.state = Some(state.clone());
                             }
                             let _ = store
-                                .append(
+                                .append_with_content(
                                     &format!("{}.state", &handler.topic),
-                                    Some(
-                                        store
-                                            .cas_insert(&value_to_json(&value).to_string())
-                                            .await
-                                            .unwrap(),
-                                    ),
+                                    &value_to_json(&value).to_string(),
                                     Some(serde_json::json!({
                                         "handler_id": handler.id.to_string(),
                                         "frame_id": frame.id.to_string(),
@@ -182,14 +177,9 @@ async fn spawn(
                         Value::Nothing { .. } => (),
                         _ => {
                             let _ = store
-                                .append(
+                                .append_with_content(
                                     &handler.topic,
-                                    Some(
-                                        store
-                                            .cas_insert(&value_to_json(&value).to_string())
-                                            .await
-                                            .unwrap(),
-                                    ),
+                                    &value_to_json(&value).to_string(),
                                     Some(serde_json::json!({
                                         "handler_id": handler.id.to_string(),
                                         "frame_id": frame.id.to_string(),
@@ -285,19 +275,12 @@ mod tests {
         }
 
         let frame_handler = store
-            .append(
+            .append_with_content(
                 "action.register",
-                Some(
-                    store
-                        .cas_insert(
-                            r#"{||
-                                if $in.topic != "topic2" { return }
-                                "ran action"
-                               }"#,
-                        )
-                        .await
-                        .unwrap(),
-                ),
+                r#"{||
+                    if $in.topic != "topic2" { return }
+                    "ran action"
+                   }"#,
                 None,
             )
             .await;
@@ -357,21 +340,14 @@ mod tests {
         }
 
         let frame_handler = store
-            .append(
+            .append_with_content(
                 "counter.register",
-                Some(
-                    store
-                        .cas_insert(
-                            r#"{|state|
-                                if $in.topic != "count.me" { return }
-                                mut state = $state
-                                $state.count += 1
-                                { state: $state }
-                               }"#,
-                        )
-                        .await
-                        .unwrap(),
-                ),
+                r#"{|state|
+                    if $in.topic != "count.me" { return }
+                    mut state = $state
+                    $state.count += 1
+                    { state: $state }
+                   }"#,
                 Some(serde_json::json!({
                     "stateful": true,
                     "initial_state": { "count": 0 }
