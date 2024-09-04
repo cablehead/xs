@@ -40,7 +40,7 @@ def run-roll [] {
 
 {||
     let frame = $in
-    if $frame.topic != "discord.recv" { return }
+    if $frame.topic != "discord.ws.recv" { return }
     # TODO: .cas should also be able to take a record, to match xs2.nu's usage
     let message = $frame | .cas $in.hash | from json
     if $message.op != 0 { return }
