@@ -91,7 +91,7 @@ async fn spawn(
 
     let last_id: Option<Scru128Id> = if let Some(start) = handler.meta.start.as_ref() {
         match start {
-            StartDefinition::Head { head } => store.head(head.to_string()),
+            StartDefinition::Head { head } => store.head(head.to_string()).map(|frame| frame.id),
         }
     } else {
         None
