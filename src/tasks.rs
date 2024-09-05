@@ -48,18 +48,15 @@ pub async fn serve(
     store: Store,
     engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let options = ReadOptions {
-        follow: FollowOption::On,
-        tail: false,
-        last_id: None,
-        compaction_strategy: Some(|frame| {
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .compaction_strategy(|frame| {
             frame
                 .topic
                 .strip_suffix(".spawn")
                 .map(|prefix| prefix.to_string())
-        }),
-    };
-
+        })
+        .build();
     let mut recver = store.read(options).await;
 
     let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
@@ -149,12 +146,10 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
     let input_pipeline = if task.meta.duplex.unwrap_or(false) {
         let store = store.clone();
         let topic = task.topic.clone();
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: false,
-            last_id: Some(start.id),
-            compaction_strategy: None,
-        };
+        let options = ReadOptions::builder()
+            .follow(FollowOption::On)
+            .last_id(start.id)
+            .build();
         let rx = store.read(options).await;
 
         let stream = ReceiverStream::new(rx);
@@ -274,13 +269,10 @@ mod tests {
             )
             .await;
 
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: true,
-            last_id: None,
-            compaction_strategy: None,
-        };
-
+        let options = ReadOptions::builder()
+            .follow(FollowOption::On)
+            .tail(true)
+            .build();
         let mut recver = store.read(options).await;
 
         let frame = recver.recv().await.unwrap();
@@ -327,13 +319,10 @@ mod tests {
             )
             .await;
 
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: true,
-            last_id: None,
-            compaction_strategy: None,
-        };
-
+        let options = ReadOptions::builder()
+            .follow(FollowOption::On)
+            .tail(true)
+            .build();
         let mut recver = store.read(options).await;
 
         let frame = recver.recv().await.unwrap();
@@ -393,12 +382,10 @@ mod tests {
             )
             .await;
 
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: true,
-            last_id: None,
-            compaction_strategy: None,
-        };
+        let options = ReadOptions::builder()
+            .follow(FollowOption::On)
+            .tail(true)
+            .build();
         let mut recver = store.read(options).await;
 
         {
