@@ -15,6 +15,8 @@ def _cat [options: record] {
         (if ($options | get tail? | default false) { "tail" })
 
         (if ($options.last_id? | is-not-empty) { $"last-id=($options.last_id)" })
+
+        (if ($options.limit? | is-not-empty) { $"limit=($options.limit)" })
     ] | compact
 
     let postfix = if ($params | is-not-empty) {
@@ -29,8 +31,9 @@ export def .cat [
     --pulse (-p): int   # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
     --tail (-t)         # begin long after the end of the stream
     --last-id (-l): string
+    --limit: int
 ] {
-    _cat {follow: $follow pulse: $pulse tail: $tail last_id: $last_id}
+    _cat {follow: $follow pulse: $pulse tail: $tail last_id: $last_id limit: $limit}
 }
 
 def read_hash [hash?: any] {
