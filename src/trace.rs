@@ -8,12 +8,10 @@ use tracing::field::Visit;
 use crate::store::{FollowOption, ReadOptions, Store};
 
 pub async fn log_stream(store: Store) {
-    let options = ReadOptions {
-        follow: FollowOption::On,
-        tail: true,
-        last_id: None,
-        compaction_strategy: None,
-    };
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
     let mut recver = store.read(options).await;
     while let Some(frame) = recver.recv().await {
         let now = Utc::now().with_timezone(&Local);
