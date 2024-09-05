@@ -68,10 +68,13 @@ where
 }
 
 #[derive(PartialEq, Deserialize, Clone, Debug, Default)]
+#[bon::builder]
 pub struct ReadOptions {
     #[serde(default)]
+    #[builder(default)]
     pub follow: FollowOption,
     #[serde(default, deserialize_with = "deserialize_bool")]
+    #[builder(default)]
     pub tail: bool,
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
@@ -350,75 +353,42 @@ mod tests_read_options {
         let test_cases = [
             TestCase {
                 input: None,
-                expected: ReadOptions {
-                    follow: FollowOption::Off,
-                    tail: false,
-                    last_id: None,
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::default(),
             },
             TestCase {
                 input: Some("foo=bar"),
-                expected: ReadOptions {
-                    follow: FollowOption::Off,
-                    tail: false,
-                    last_id: None,
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::default(),
             },
             TestCase {
                 input: Some("follow"),
-                expected: ReadOptions {
-                    follow: FollowOption::On,
-                    tail: false,
-                    last_id: None,
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::builder().follow(FollowOption::On).build(),
             },
             TestCase {
                 input: Some("follow=1"),
-                expected: ReadOptions {
-                    follow: FollowOption::WithHeartbeat(Duration::from_millis(1)),
-                    tail: false,
-                    last_id: None,
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::builder()
+                    .follow(FollowOption::WithHeartbeat(Duration::from_millis(1)))
+                    .build(),
             },
             TestCase {
                 input: Some("follow=yes"),
-                expected: ReadOptions {
-                    follow: FollowOption::On,
-                    tail: false,
-                    last_id: None,
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::builder().follow(FollowOption::On).build(),
             },
             TestCase {
                 input: Some("follow=true"),
-                expected: ReadOptions {
-                    follow: FollowOption::On,
-                    tail: false,
-                    last_id: None,
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::builder().follow(FollowOption::On).build(),
             },
             TestCase {
                 input: Some("last-id=03BIDZVKNOTGJPVUEW3K23G45"),
-                expected: ReadOptions {
-                    follow: FollowOption::Off,
-                    tail: false,
-                    last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::builder()
+                    .last_id("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap())
+                    .build(),
             },
             TestCase {
                 input: Some("follow&last-id=03BIDZVKNOTGJPVUEW3K23G45"),
-                expected: ReadOptions {
-                    follow: FollowOption::On,
-                    tail: false,
-                    last_id: Some("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap()),
-                    compaction_strategy: None,
-                },
+                expected: ReadOptions::builder()
+                    .follow(FollowOption::On)
+                    .last_id("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap())
+                    .build(),
             },
         ];
 
@@ -457,12 +427,9 @@ mod tests_store {
         let f2 = store.append("stream", None, None).await;
 
         // cat the full stream and follow new items with a heartbeat every 5ms
-        let follow_options = ReadOptions {
-            follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
-            tail: false,
-            last_id: None,
-            compaction_strategy: None,
-        };
+        let follow_options = ReadOptions::builder()
+            .follow(FollowOption::WithHeartbeat(Duration::from_millis(5)))
+            .build();
         let mut recver = store.read(follow_options).await;
 
         assert_eq!(f1, recver.recv().await.unwrap());
@@ -486,12 +453,10 @@ mod tests_store {
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
 
         // start a new subscriber to exercise compaction_strategy
-        let follow_options = ReadOptions {
-            follow: FollowOption::WithHeartbeat(Duration::from_millis(5)),
-            tail: false,
-            last_id: None,
-            compaction_strategy: Some(|frame| Some(frame.topic.clone())),
-        };
+        let follow_options = ReadOptions::builder()
+            .follow(FollowOption::WithHeartbeat(Duration::from_millis(5)))
+            .compaction_strategy(|frame| Some(frame.topic.clone()))
+            .build();
         let mut recver = store.read(follow_options).await;
 
         assert_eq!(head, recver.recv().await.unwrap());
@@ -520,12 +485,7 @@ mod tests_store {
         );
 
         let recver = store
-            .read(ReadOptions {
-                follow: FollowOption::Off,
-                tail: false,
-                last_id: Some(f1.id),
-                compaction_strategy: None,
-            })
+            .read(ReadOptions::builder().last_id(f1.id).build())
             .await;
         assert_eq!(
             tokio_stream::wrappers::ReceiverStream::new(recver)
