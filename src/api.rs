@@ -22,7 +22,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
 use crate::nu;
-use crate::store::{ReadOptions, Store};
+use crate::store::{self, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -34,6 +34,7 @@ enum Routes {
     StreamItemGet(Scru128Id),
     CasGet(ssri::Integrity),
     PipePost(Scru128Id),
+    HeadGet(String),
     NotFound,
 }
 
@@ -46,6 +47,13 @@ fn match_route(method: &Method, path: &str) -> Routes {
                 if let Ok(id) = Scru128Id::from_str(id_str) {
                     return Routes::PipePost(id);
                 }
+            }
+            Routes::NotFound
+        }
+
+        (&Method::GET, p) if p.starts_with("/head/") => {
+            if let Some(topic) = p.strip_prefix("/head/") {
+                return Routes::HeadGet(topic.to_string());
             }
             Routes::NotFound
         }
@@ -119,20 +127,13 @@ async fn handle(
             Ok(Response::new(body))
         }
 
-        Routes::StreamItemGet(id) => {
-            if let Some(frame) = store.get(&id) {
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .header("Content-Type", "application/json")
-                    .body(full(serde_json::to_string(&frame).unwrap()))?)
-            } else {
-                response_404()
-            }
-        }
+        Routes::StreamItemGet(id) => response_frame_or_404(store.get(&id)),
 
         Routes::PipePost(id) => {
             handle_pipe_post(&mut store, engine, pool.clone(), id, req.into_body()).await
         }
+
+        Routes::HeadGet(topic) => response_frame_or_404(store.head(topic)),
 
         Routes::NotFound => response_404(),
     }
@@ -266,6 +267,17 @@ pub async fn serve(
                 }
             }
         });
+    }
+}
+
+fn response_frame_or_404(frame: Option<store::Frame>) -> HTTPResult {
+    if let Some(frame) = frame {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/json")
+            .body(full(serde_json::to_string(&frame).unwrap()))?)
+    } else {
+        response_404()
     }
 }
 

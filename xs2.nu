@@ -45,7 +45,14 @@ export def .cas [hash?: any] {
 }
 
 export def .get [id: string] {
-    h. get $"./store/sock//($id)" | from json
+    # TODO: this `null | `is an issue with the plugin h.'s api:: to resolve
+    # submit a PR to add unix socket support to Nushell's built-in HTTP
+    # commands
+    null | h. get $"./store/sock//($id)" | from json
+}
+
+export def .head [topic: string] {
+    null | h. get $"./store/sock//head/($topic)" | from json
 }
 
 export def .append [topic: string --meta: record] {
