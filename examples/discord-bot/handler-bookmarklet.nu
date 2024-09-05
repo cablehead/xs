@@ -1,4 +1,5 @@
-{|state frame|
+{||
+    let frame = $in
     if $frame.topic != "discord.ws.recv" { return }
 
     let message = ($frame | .cas $in.hash | from json)
@@ -39,6 +40,8 @@
                 to json -r | .append "bookmarks" --meta {id: $frame.id}
             return
         }
+
+        "GUILD_MEMBER_ADD" => return
     }
 
     return $message
