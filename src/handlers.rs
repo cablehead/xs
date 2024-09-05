@@ -97,16 +97,16 @@ async fn spawn(
         None
     };
 
-    let options = ReadOptions {
-        follow: handler
-            .meta
-            .pulse
-            .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
-            .unwrap_or(FollowOption::On),
-        tail: last_id.is_none(),
-        last_id,
-        compaction_strategy: None,
-    };
+    let follow_option = handler
+        .meta
+        .pulse
+        .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
+        .unwrap_or(FollowOption::On);
+    let options = ReadOptions::builder()
+        .follow(follow_option)
+        .tail(last_id.is_none())
+        .maybe_last_id(last_id)
+        .build();
     let mut recver = store.read(options).await;
 
     {
@@ -249,17 +249,15 @@ pub async fn serve(
     engine: nu::Engine,
     pool: ThreadPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let options = ReadOptions {
-        follow: FollowOption::On,
-        tail: false,
-        last_id: None,
-        compaction_strategy: Some(|frame| {
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .compaction_strategy(|frame| {
             frame
                 .topic
                 .strip_suffix(".register")
                 .map(|prefix| prefix.to_string())
-        }),
-    };
+        })
+        .build();
     let mut recver = store.read(options).await;
 
     while let Some(frame) = recver.recv().await {
@@ -325,12 +323,7 @@ mod tests {
             )
             .await;
 
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: false,
-            last_id: None,
-            compaction_strategy: None,
-        };
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
         let mut recver = store.read(options).await;
 
         assert_eq!(
@@ -395,12 +388,7 @@ mod tests {
             )
             .await;
 
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: false,
-            last_id: None,
-            compaction_strategy: None,
-        };
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
         let mut recver = store.read(options).await;
 
         assert_eq!(
@@ -457,12 +445,7 @@ mod tests {
             });
         }
 
-        let options = ReadOptions {
-            follow: FollowOption::On,
-            tail: false,
-            last_id: None,
-            compaction_strategy: None,
-        };
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
         let mut recver = store.read(options).await;
 
         assert_eq!(

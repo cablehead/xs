@@ -187,12 +187,12 @@ async fn wait_for_response(
     frame_id: Scru128Id,
 ) -> Result<(ResponseMeta, impl Stream<Item = ssri::Integrity>), &'static str> {
     let recver = store
-        .read(ReadOptions {
-            follow: FollowOption::On,
-            tail: false,
-            last_id: Some(frame_id),
-            compaction_strategy: None,
-        })
+        .read(
+            ReadOptions::builder()
+                .follow(FollowOption::On)
+                .last_id(frame_id)
+                .build(),
+        )
         .await;
 
     let mut stream = ReceiverStream::new(recver)
