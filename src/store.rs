@@ -229,7 +229,7 @@ fn handle_commands(store: Store, mut rx: tokio::sync::mpsc::Receiver<Command>) {
     while let Some(command) = rx.blocking_recv() {
         match command {
             Command::Read(tx, options) => {
-                handle_read_command(&store, &tx, &options, &mut subscribers);
+                let _ = handle_read_command(&store, &tx, &options, &mut subscribers);
             }
             Command::Append(frame) => {
                 handle_append_command(&mut subscribers, frame);
@@ -243,7 +243,7 @@ fn handle_read_command(
     tx: &tokio::sync::mpsc::Sender<Frame>,
     options: &ReadOptions,
     subscribers: &mut Vec<tokio::sync::mpsc::Sender<Frame>>,
-) {
+) -> Result<(), tokio::sync::mpsc::error::SendError<Frame>> {
     if !options.tail {
         let range = get_range(options.last_id.as_ref());
         let mut compacted_frames = HashMap::new();
@@ -256,14 +256,14 @@ fn handle_read_command(
                     compacted_frames.insert(key, frame);
                 }
             } else {
-                send_frame(tx, frame);
+                send_frame(tx, frame)?;
             }
         }
 
         // Send compacted frames if a compaction strategy was used
         if !compacted_frames.is_empty() {
             for frame in compacted_frames.values() {
-                send_frame(tx, frame.clone());
+                send_frame(tx, frame.clone())?;
             }
         }
     }
@@ -279,19 +279,24 @@ fn handle_read_command(
                         hash: None,
                         meta: None,
                     },
-                );
+                )?;
             }
             subscribers.push(tx.clone());
         }
         FollowOption::Off => {}
-    }
+    };
+    Ok(())
 }
 
-fn send_frame(tx: &tokio::sync::mpsc::Sender<Frame>, frame: Frame) {
-    if tx.blocking_send(frame).is_err() {
-        // Handle error or log it
-        tracing::error!("Failed to send frame");
+fn send_frame(
+    tx: &tokio::sync::mpsc::Sender<Frame>,
+    frame: Frame,
+) -> Result<(), tokio::sync::mpsc::error::SendError<Frame>> {
+    if let Err(e) = tx.blocking_send(frame) {
+        tracing::error!("Failed to send frame: {:?}", e);
+        return Err(e);
     }
+    Ok(())
 }
 
 fn get_range(last_id: Option<&Scru128Id>) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
