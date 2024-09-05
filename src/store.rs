@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use scru128::Scru128Id;
@@ -9,6 +9,70 @@ use scru128::Scru128Id;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
+
+#[derive(Debug)]
+struct LimitedSender {
+    tx: Option<tokio::sync::mpsc::Sender<Frame>>,
+    remaining: Option<usize>,
+}
+
+impl LimitedSender {
+    fn new(tx: tokio::sync::mpsc::Sender<Frame>, limit: Option<usize>) -> Self {
+        LimitedSender {
+            tx: Some(tx),
+            remaining: limit,
+        }
+    }
+
+    fn send(&mut self, frame: Frame) -> Result<(), SendError> {
+        if let Some(tx) = &self.tx {
+            match tx.blocking_send(frame) {
+                Ok(()) => {
+                    if let Some(remaining) = &mut self.remaining {
+                        *remaining -= 1;
+                        if *remaining == 0 {
+                            self.close();
+                            return Err(SendError::LimitReached);
+                        }
+                    }
+                    Ok(())
+                }
+                Err(e) => {
+                    self.close();
+                    Err(SendError::ChannelClosed(e))
+                }
+            }
+        } else {
+            Err(SendError::ChannelClosed(
+                tokio::sync::mpsc::error::SendError(frame),
+            ))
+        }
+    }
+
+    fn close(&mut self) {
+        self.tx = None;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SharedLimitedSender(Arc<Mutex<LimitedSender>>);
+
+impl SharedLimitedSender {
+    fn new(sender: LimitedSender) -> Self {
+        SharedLimitedSender(Arc::new(Mutex::new(sender)))
+    }
+
+    fn send(&self, frame: Frame) -> Result<(), SendError> {
+        self.0.lock().map_err(|_| SendError::LockError)?.send(frame)
+    }
+}
+
+#[derive(Debug)]
+pub enum SendError {
+    ChannelClosed(tokio::sync::mpsc::error::SendError<Frame>),
+    LimitReached,
+    LockError,
+}
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Frame {
@@ -78,6 +142,7 @@ pub struct ReadOptions {
     pub tail: bool,
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
+    pub limit: Option<usize>,
     #[serde(skip)]
     pub compaction_strategy: Option<fn(&Frame) -> Option<String>>,
 }
@@ -93,7 +158,7 @@ impl ReadOptions {
 
 #[derive(Debug)]
 enum Command {
-    Read(tokio::sync::mpsc::Sender<Frame>, ReadOptions),
+    Read(SharedLimitedSender, ReadOptions),
     Append(Frame),
 }
 
@@ -125,6 +190,9 @@ impl Store {
 
     pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
         let (tx, rx) = tokio::sync::mpsc::channel::<Frame>(100);
+
+        let tx = SharedLimitedSender::new(LimitedSender::new(tx, options.limit));
+
         self.commands_tx
             .send(Command::Read(tx.clone(), options.clone()))
             .await
@@ -140,8 +208,19 @@ impl Store {
                         hash: None,
                         meta: None,
                     };
-                    if tx.send(frame).await.is_err() {
-                        break;
+
+                    let result =
+                        tx.0.lock()
+                            .map_err(|_| "Failed to acquire lock")
+                            .and_then(|guard| guard.tx.as_ref().ok_or("Sender is closed").cloned());
+
+                    match result {
+                        Ok(sender) => {
+                            if sender.send(frame).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
                     }
                 }
             });
@@ -224,14 +303,14 @@ impl Store {
 }
 
 fn handle_commands(store: Store, mut rx: tokio::sync::mpsc::Receiver<Command>) {
-    let mut subscribers: Vec<tokio::sync::mpsc::Sender<Frame>> = Vec::new();
+    let mut subscribers = Vec::new();
     while let Some(command) = rx.blocking_recv() {
         match command {
             Command::Read(tx, options) => {
                 let _ = handle_read_command(&store, &tx, &options, &mut subscribers);
             }
             Command::Append(frame) => {
-                handle_append_command(&mut subscribers, frame);
+                subscribers.retain(|tx| tx.send(frame.clone()).is_ok());
             }
         }
     }
@@ -239,10 +318,10 @@ fn handle_commands(store: Store, mut rx: tokio::sync::mpsc::Receiver<Command>) {
 
 fn handle_read_command(
     store: &Store,
-    tx: &tokio::sync::mpsc::Sender<Frame>,
+    tx: &SharedLimitedSender,
     options: &ReadOptions,
-    subscribers: &mut Vec<tokio::sync::mpsc::Sender<Frame>>,
-) -> Result<(), tokio::sync::mpsc::error::SendError<Frame>> {
+    subscribers: &mut Vec<SharedLimitedSender>,
+) -> Result<(), SendError> {
     if !options.tail {
         let range = get_range(options.last_id.as_ref());
         let mut compacted_frames = HashMap::new();
@@ -255,46 +334,30 @@ fn handle_read_command(
                     compacted_frames.insert(key, frame);
                 }
             } else {
-                send_frame(tx, frame)?;
+                tx.send(frame)?;
             }
         }
 
         // Send compacted frames if a compaction strategy was used
-        if !compacted_frames.is_empty() {
-            for frame in compacted_frames.values() {
-                send_frame(tx, frame.clone())?;
-            }
+        for (_, frame) in compacted_frames.drain() {
+            tx.send(frame)?;
         }
     }
 
     match options.follow {
         FollowOption::On | FollowOption::WithHeartbeat(_) => {
-            if !options.tail && options.compaction_strategy.is_none() {
-                send_frame(
-                    tx,
-                    Frame {
-                        id: scru128::new(),
-                        topic: "xs.threshold".into(),
-                        hash: None,
-                        meta: None,
-                    },
-                )?;
+            if !options.tail && options.compaction_strategy.is_none() && options.limit.is_none() {
+                tx.send(Frame {
+                    id: scru128::new(),
+                    topic: "xs.threshold".into(),
+                    hash: None,
+                    meta: None,
+                })?;
             }
             subscribers.push(tx.clone());
         }
         FollowOption::Off => {}
     };
-    Ok(())
-}
-
-fn send_frame(
-    tx: &tokio::sync::mpsc::Sender<Frame>,
-    frame: Frame,
-) -> Result<(), tokio::sync::mpsc::error::SendError<Frame>> {
-    if let Err(e) = tx.blocking_send(frame) {
-        tracing::error!("Failed to send frame: {:?}", e);
-        return Err(e);
-    }
     Ok(())
 }
 
@@ -314,17 +377,6 @@ fn deserialize_frame(record: (Arc<[u8]>, Arc<[u8]>)) -> Frame {
         let value = std::str::from_utf8(&record.1).unwrap();
         panic!("Failed to deserialize frame: {} {} {}", e, key, value)
     })
-}
-
-fn handle_append_command(subscribers: &mut Vec<tokio::sync::mpsc::Sender<Frame>>, frame: Frame) {
-    subscribers.retain(|tx| {
-        if tx.blocking_send(frame.clone()).is_ok() {
-            true
-        } else {
-            tracing::error!("Subscriber not retained");
-            false
-        }
-    });
 }
 
 #[cfg(test)]
@@ -404,7 +456,10 @@ mod tests_read_options {
 #[cfg(test)]
 mod tests_store {
     use super::*;
+
     use tempfile::TempDir;
+
+    use tokio::time::timeout;
     use tokio_stream::StreamExt;
 
     #[tokio::test]
@@ -493,5 +548,61 @@ mod tests_store {
                 .await,
             vec![f2]
         );
+    }
+
+    #[tokio::test]
+    async fn test_read_limit_nofollow() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut store = Store::spawn(temp_dir.path().to_path_buf());
+
+        // Add 3 items
+        let frame1 = store.append("test", None, None).await;
+        let frame2 = store.append("test", None, None).await;
+        let _ = store.append("test", None, None).await;
+
+        // Read with limit 2
+        let options = ReadOptions::builder().limit(2).build();
+        let mut rx = store.read(options).await;
+
+        // Assert we get the first 2 items
+        assert_eq!(Some(frame1), rx.recv().await);
+        assert_eq!(Some(frame2), rx.recv().await);
+
+        // Assert the channel is closed
+        assert_eq!(None, rx.recv().await);
+    }
+
+    #[tokio::test]
+    async fn test_read_limit_follow() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut store = Store::spawn(temp_dir.path().to_path_buf());
+
+        // Add 1 item
+        let frame1 = store.append("test", None, None).await;
+
+        // Start read with limit 2 and follow
+        let options = ReadOptions::builder()
+            .limit(2)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        // Assert we get one item
+        assert_eq!(Some(frame1), rx.recv().await);
+
+        // Assert nothing is immediately available
+        assert!(timeout(Duration::from_millis(100), rx.recv())
+            .await
+            .is_err());
+
+        // Add 2 more items
+        let frame2 = store.append("test", None, None).await;
+        let _frame3 = store.append("test", None, None).await;
+
+        // Assert we get one more item
+        assert_eq!(Some(frame2), rx.recv().await);
+
+        // Assert the rx is closed
+        assert_eq!(None, rx.recv().await);
     }
 }

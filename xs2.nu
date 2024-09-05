@@ -5,20 +5,18 @@ alias and-then = if ($in | is-not-empty)
 alias ? = if ($in | is-not-empty) { $in }
 alias ?? = ? else { return }
 
-export def .cat [
-    --follow (-f)       # long poll for new events
-    --pulse (-p): int   # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
-    --tail (-t)         # begin long after the end of the stream
-    --last-id (-l): string
-] {
+
+def _cat [options: record] {
     let params = [
-        (if $follow {
-            "follow" + (if $pulse != null { $"=($pulse)" } else { "" })
+        (if ($options | get follow? | default false) {
+            "follow" + (if $options.pulse? != null { $"=($options.pulse)" } else { "" })
         })
 
-        (if $tail { "tail" })
+        (if ($options | get tail? | default false) { "tail" })
 
-        (if ($last_id | is-not-empty) { $"last-id=($last_id)" })
+        (if ($options.last_id? | is-not-empty) { $"last-id=($options.last_id)" })
+
+        (if ($options.limit? | is-not-empty) { $"limit=($options.limit)" })
     ] | compact
 
     let postfix = if ($params | is-not-empty) {
@@ -28,12 +26,41 @@ export def .cat [
     h. get $"./store/sock($postfix)" | lines | each { |x| $x | from json }
 }
 
+export def .cat [
+    --follow (-f)       # long poll for new events
+    --pulse (-p): int   # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
+    --tail (-t)         # begin long after the end of the stream
+    --last-id (-l): string
+    --limit: int
+] {
+    _cat {follow: $follow pulse: $pulse tail: $tail last_id: $last_id limit: $limit}
+}
+
 def read_hash [hash?: any] {
     match ($hash | describe -d | get type) {
         "string" => $hash
         "record" => ($hash | get hash?)
         _ => null
     }
+}
+
+export def .step [
+    handler: closure
+    meta_path: string
+    --follow (-f)       # long poll for new events
+] {
+    loop {
+        let meta = try { open -r $meta_path } catch { "{}" } | from json
+        let frame = _cat ($meta | insert follow $follow)  | try { first } catch { return }
+        let res = do $handler {} $frame
+        if $res == null {
+            {last_id: $frame.id} | to json -r | save -rf $meta_path
+            continue
+        }
+
+        return $res
+    }
+
 }
 
 export def .cas [hash?: any] {
