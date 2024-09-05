@@ -16,36 +16,30 @@
 
         "MESSAGE_REACTION_ADD" => {
             if $message.d.emoji.name != "🔖" { return }
-            return $message
+
+            let bookmarks = (
+                .head "bookmarks" | if ($in | is-not-empty)  {
+                    $in | .cas | from json
+                } else { {} })
+
+            $bookmarks | upsert $message.d.message_id true |
+                to json -r | .append "bookmarks" --meta {id: $frame.id}
+            return
+        }
+
+        "MESSAGE_REACTION_REMOVE" => {
+            if $message.d.emoji.name != "🔖" { return }
+
+            let bookmarks = (
+                .head "bookmarks" | if ($in | is-not-empty)  {
+                    $in | .cas | from json
+                } else { {} })
+
+            $bookmarks | reject -i $message.d.message_id |
+                to json -r | .append "bookmarks" --meta {id: $frame.id}
+            return
         }
     }
 
     return $message
-
-    mut state = $state
-
-    match $message.t {
-        "MESSAGE_CREATE" => (
-            $state.messages = ($state.messages | insert $message.d.id $message.d.content))
-
-        "MESSAGE_UPDATE" => (
-            $state.messages = ($state.messages | upsert $message.d.id $message.d.content))
-
-        "MESSAGE_DELETE" => (
-            $state.marked = ($state.marked | reject -i $message.d.id))
-
-        "MESSAGE_REACTION_ADD" => (
-            if $message.d.emoji.name == "🔖" {
-                $state.marked = ($state.marked | insert $message.d.message_id true) }
-        )
-
-        "MESSAGE_REACTION_REMOVE" => (
-            if $message.d.emoji.name == "🔖" {
-                $state.marked = ($state.marked | reject -i $message.d.message_id) }
-        )
-    }
-
-    let messages = $state.messages
-
-  {state: $state}
 }
