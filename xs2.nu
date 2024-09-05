@@ -51,8 +51,8 @@ export def .step [
 ] {
     loop {
         let meta = try { open -r $meta_path } catch { "{}" } | from json
-        let frame = _cat ($meta | insert follow $follow)  | try { first } catch { return }
-        let res = do $handler {} $frame
+        let frame = _cat ($meta | insert follow $follow | insert limit 1)  | try { first } catch { return }
+        let res = $frame | do $handler
         if $res == null {
             {last_id: $frame.id} | to json -r | save -rf $meta_path
             continue
