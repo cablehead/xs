@@ -78,6 +78,7 @@ pub struct ReadOptions {
     pub tail: bool,
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
+    pub limit: Option<usize>,
     #[serde(skip)]
     pub compaction_strategy: Option<fn(&Frame) -> Option<String>>,
 }
@@ -404,7 +405,10 @@ mod tests_read_options {
 #[cfg(test)]
 mod tests_store {
     use super::*;
+
     use tempfile::TempDir;
+
+    use tokio::time::timeout;
     use tokio_stream::StreamExt;
 
     #[tokio::test]
@@ -493,5 +497,61 @@ mod tests_store {
                 .await,
             vec![f2]
         );
+    }
+
+    #[tokio::test]
+    async fn test_read_limit_nofollow() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut store = Store::spawn(temp_dir.path().to_path_buf());
+
+        // Add 3 items
+        let frame1 = store.append("test", None, None).await;
+        let frame2 = store.append("test", None, None).await;
+        let _ = store.append("test", None, None).await;
+
+        // Read with limit 2
+        let options = ReadOptions::builder().limit(2).build();
+        let mut rx = store.read(options).await;
+
+        // Assert we get the first 2 items
+        assert_eq!(Some(frame1), rx.recv().await);
+        assert_eq!(Some(frame2), rx.recv().await);
+
+        // Assert the channel is closed
+        assert_eq!(None, rx.recv().await);
+    }
+
+    #[tokio::test]
+    async fn test_read_limit_follow() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut store = Store::spawn(temp_dir.path().to_path_buf());
+
+        // Add 1 item
+        let frame1 = store.append("test", None, None).await;
+
+        // Start read with limit 2 and follow
+        let options = ReadOptions::builder()
+            .limit(2)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        // Assert we get one item
+        assert_eq!(Some(frame1), rx.recv().await);
+
+        // Assert nothing is immediately available
+        assert!(timeout(Duration::from_millis(100), rx.recv())
+            .await
+            .is_err());
+
+        // Add 2 more items
+        let frame2 = store.append("test", None, None).await;
+        let _frame3 = store.append("test", None, None).await;
+
+        // Assert we get one more item
+        assert_eq!(Some(frame2), rx.recv().await);
+
+        // Assert the rx is closed
+        assert_eq!(None, rx.recv().await);
     }
 }
