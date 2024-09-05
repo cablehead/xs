@@ -6,10 +6,8 @@
     if $message.op != 0 { return }
 
     match $message.t {
-        "READY" => return
-    }
+        "READY" | "GUILD_MEMBER_ADD" => return
 
-    match $message.t {
         "MESSAGE_CREATE" | "MESSAGE_DELETE" | "MESSAGE_UPDATE" => {
             .append $"message.($message.d.id)" --meta {id: $frame.id}
             return
@@ -40,8 +38,6 @@
                 to json -r | .append "bookmarks" --meta {id: $frame.id}
             return
         }
-
-        "GUILD_MEMBER_ADD" => return
     }
 
     return $message
