@@ -296,6 +296,7 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -502,19 +503,34 @@ mod tests {
             recver.recv().await.unwrap().topic,
             "action.register".to_string()
         );
-        let frame_handler_1_unregister = recver.recv().await.unwrap();
+
+        // the order of the next two frames is not guaranteed
+        // so we read them into a map and then make the assertions
+        let mut frame_map: HashMap<String, Frame> = HashMap::new();
+
+        // Read the first frame
+        let frame = recver.recv().await.unwrap();
+        frame_map.insert(frame.topic.clone(), frame);
+        // Read the second frame
+        let frame = recver.recv().await.unwrap();
+        frame_map.insert(frame.topic.clone(), frame);
+
+        // Now make the assertions using the frames from the map
+        let frame_handler_1_unregister = frame_map.get("action.unregistered").unwrap();
         assert_eq!(
             frame_handler_1_unregister.topic,
             "action.unregistered".to_string()
         );
-        let meta = frame_handler_1_unregister.meta.unwrap();
+        let meta = frame_handler_1_unregister.meta.as_ref().unwrap();
         assert_eq!(meta["handler_id"], frame_handler_1.id.to_string());
         assert_eq!(meta["frame_id"], frame_handler_2.id.to_string());
 
+        let frame_handler_2_register = frame_map.get("action.registered").unwrap();
         assert_eq!(
-            recver.recv().await.unwrap().topic,
+            frame_handler_2_register.topic,
             "action.registered".to_string()
         );
+        // fin assertions on these two frames
 
         let _ = store.append("pew", None, None).await;
         let frame_pew = recver.recv().await.unwrap();
