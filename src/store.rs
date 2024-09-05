@@ -310,7 +310,7 @@ fn handle_commands(store: Store, mut rx: tokio::sync::mpsc::Receiver<Command>) {
                 let _ = handle_read_command(&store, &tx, &options, &mut subscribers);
             }
             Command::Append(frame) => {
-                handle_append_command(&mut subscribers, frame);
+                subscribers.retain(|tx| tx.send(frame.clone()).is_ok());
             }
         }
     }
@@ -377,10 +377,6 @@ fn deserialize_frame(record: (Arc<[u8]>, Arc<[u8]>)) -> Frame {
         let value = std::str::from_utf8(&record.1).unwrap();
         panic!("Failed to deserialize frame: {} {} {}", e, key, value)
     })
-}
-
-fn handle_append_command(subscribers: &mut Vec<SharedLimitedSender>, frame: Frame) {
-    subscribers.retain(|tx| tx.send(frame.clone()).is_ok());
 }
 
 #[cfg(test)]
