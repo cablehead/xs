@@ -131,8 +131,7 @@ where
     }
 }
 
-#[derive(PartialEq, Deserialize, Clone, Debug, Default)]
-#[bon::builder]
+#[derive(PartialEq, Deserialize, Clone, Debug, Default, bon::Builder)]
 pub struct ReadOptions {
     #[serde(default)]
     #[builder(default)]
