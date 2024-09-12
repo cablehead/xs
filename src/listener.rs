@@ -32,6 +32,8 @@ impl Listener {
 
     pub async fn bind(addr: &str) -> io::Result<Self> {
         if addr.starts_with('/') || addr.starts_with('.') {
+            // attempt to remove the socket unconditionally
+            let _ = std::fs::remove_file(addr);
             let listener = UnixListener::bind(addr)?;
             Ok(Listener::Unix(listener))
         } else {
