@@ -4,7 +4,6 @@ use std::str::FromStr;
 use scru128::Scru128Id;
 
 use tokio::io::AsyncWriteExt;
-use tokio::net::UnixListener;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
@@ -21,6 +20,7 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
+use crate::listener::Listener;
 use crate::nu;
 use crate::store::{self, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
@@ -237,9 +237,14 @@ pub async fn serve(
     mut store: Store,
     engine: nu::Engine,
     pool: ThreadPool,
+    addr: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _ = store.append("xs.start", None, None).await;
-    let listener = UnixListener::bind(store.path.join("sock")).unwrap();
+    let _ = store
+        .append("xs.start", None, serde_json::json!({"addr": addr}).into())
+        .await;
+
+    let mut listener = Listener::bind(addr).await?;
+
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);

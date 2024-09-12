@@ -12,6 +12,11 @@ struct Args {
     #[clap(value_parser)]
     path: PathBuf,
 
+    /// Overrides the default address the API listens on. Default is a Unix domain socket 'sock' in
+    /// the store path
+    #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
+    api: Option<String>,
+
     /// Enables a HTTP endpoint. Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     http: Option<String>,
@@ -58,7 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // TODO: graceful shutdown
-    xs::api::serve(store, engine.clone(), pool.clone()).await?;
+    let addr = args
+        .api
+        .unwrap_or_else(|| store.path.join("sock").to_string_lossy().to_string());
+    xs::api::serve(store, engine.clone(), pool.clone(), &addr).await?;
     pool.wait_for_completion();
 
     Ok(())
