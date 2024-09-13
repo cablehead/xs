@@ -246,7 +246,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_basic() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path());
+        let mut store = Store::spawn(temp_dir.into_path()).await;
         let engine = nu::Engine::new(store.clone()).unwrap();
 
         {
@@ -296,7 +296,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_duplex() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path());
+        let mut store = Store::spawn(temp_dir.into_path()).await;
         let engine = nu::Engine::new(store.clone()).unwrap();
 
         {
@@ -352,7 +352,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_compact() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path());
+        let mut store = Store::spawn(temp_dir.into_path()).await;
         let engine = nu::Engine::new(store.clone()).unwrap();
 
         let _ = store

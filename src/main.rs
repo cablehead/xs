@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     xs::trace::init();
 
     let args = Args::parse();
-    let store = Store::spawn(args.path);
+    let store = Store::spawn(args.path).await;
     let pool = ThreadPool::new(10);
     let engine = nu::Engine::new(store.clone())?;
 
