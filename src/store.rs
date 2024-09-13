@@ -162,7 +162,7 @@ enum Command {
 }
 
 impl Store {
-    pub fn spawn(path: PathBuf) -> Store {
+    pub async fn spawn(path: PathBuf) -> Store {
         let config = Config::new(path.join("fjall"));
         let keyspace = config.open().unwrap();
 
@@ -464,7 +464,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_get() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path());
+        let mut store = Store::spawn(temp_dir.into_path()).await;
         let meta = serde_json::json!({"key": "value"});
         let frame = store.append("stream", None, Some(meta)).await;
         let got = store.get(&frame.id);
@@ -474,7 +474,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_follow() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path());
+        let mut store = Store::spawn(temp_dir.into_path()).await;
 
         // Append two initial clips
         let f1 = store.append("stream", None, None).await;
@@ -523,7 +523,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_stream_basics() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path());
+        let mut store = Store::spawn(temp_dir.into_path()).await;
 
         let f1 = store.append("/stream", None, None).await;
         let f2 = store.append("/stream", None, None).await;
@@ -552,7 +552,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::spawn(temp_dir.path().to_path_buf());
+        let mut store = Store::spawn(temp_dir.path().to_path_buf()).await;
 
         // Add 3 items
         let frame1 = store.append("test", None, None).await;
@@ -574,7 +574,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_limit_follow() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::spawn(temp_dir.path().to_path_buf());
+        let mut store = Store::spawn(temp_dir.path().to_path_buf()).await;
 
         // Add 1 item
         let frame1 = store.append("test", None, None).await;
