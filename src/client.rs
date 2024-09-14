@@ -70,39 +70,24 @@ pub async fn cat(addr: &str, follow: bool) -> Result<Receiver<Bytes>, BoxError> 
 
     let (_parts, mut body) = res.into_parts();
 
-    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
 
     tokio::spawn(async move {
-        let mut buffer = Vec::new();
-
         while let Some(frame_result) = body.frame().await {
             match frame_result {
                 Ok(frame) => {
-                    // `frame` is of type `http_body::Frame<Bytes>`
-                    let bytes = match frame.into_data() {
-                        Ok(bytes) => bytes,
-                        Err(_trailers) => continue, // Ignore non-data frames
-                    };
-
-                    buffer.extend_from_slice(&bytes);
-
-                    while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-                        let line = buffer.drain(..=pos).collect::<Vec<_>>();
-                        if tx.send(Bytes::from(line)).await.is_err() {
+                    if let Ok(bytes) = frame.into_data() {
+                        if tx.send(bytes).await.is_err() {
                             break;
                         }
                     }
+                    // Ignore non-data frames
                 }
                 Err(e) => {
                     eprintln!("Error reading body: {}", e);
                     break;
                 }
             }
-        }
-
-        if !buffer.is_empty() {
-            let line = std::mem::take(&mut buffer);
-            let _ = tx.send(Bytes::from(line)).await;
         }
     });
 
