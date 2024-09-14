@@ -95,7 +95,7 @@ pub async fn cat(addr: &str, follow: bool) -> Result<Receiver<Bytes>, BoxError> 
         }
 
         if !buffer.is_empty() {
-            let line = buffer.drain(..).collect::<Vec<_>>();
+            let line = std::mem::take(&mut buffer);
             let _ = tx.send(Bytes::from(line)).await;
         }
     });
