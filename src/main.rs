@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use tokio::io::AsyncWriteExt;
+
 use xs::nu;
 use xs::store::Store;
 use xs::thread_pool::ThreadPool;
@@ -15,10 +17,10 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Starts the server
+    /// Provides an API to interact with a local store
     Serve(CommandServe),
 
-    /// Retrieves data from the server
+    /// `cat` the event stream
     Cat(CommandCat),
 }
 
@@ -29,14 +31,12 @@ struct CommandServe {
     path: PathBuf,
 
     /// Overrides the default address the API listens on.
-    ///
     /// Default is a Unix domain socket 'sock' in the store path.
     /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     api: Option<String>,
 
     /// Enables a HTTP endpoint.
-    ///
     /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     http: Option<String>,
@@ -111,6 +111,11 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    eprintln!("Not implemented yet: {:?}", args);
+    let mut receiver = xs::client::cat(&args.addr, args.follow).await?;
+    let mut stdout = tokio::io::stdout();
+    while let Some(bytes) = receiver.recv().await {
+        stdout.write_all(&bytes).await?;
+        stdout.flush().await?;
+    }
     Ok(())
 }
