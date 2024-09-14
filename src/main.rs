@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 use xs::nu;
 use xs::store::Store;
@@ -9,24 +9,62 @@ use xs::thread_pool::ThreadPool;
 #[derive(Parser, Debug)]
 #[clap(version)]
 struct Args {
+    #[clap(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Starts the server
+    Serve(CommandServe),
+
+    /// Retrieves data from the server
+    Cat(CommandCat),
+}
+
+#[derive(Parser, Debug)]
+struct CommandServe {
+    /// Path to the store
     #[clap(value_parser)]
     path: PathBuf,
 
-    /// Overrides the default address the API listens on. Default is a Unix domain socket 'sock' in
-    /// the store path
+    /// Overrides the default address the API listens on.
+    ///
+    /// Default is a Unix domain socket 'sock' in the store path.
+    /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     api: Option<String>,
 
-    /// Enables a HTTP endpoint. Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
+    /// Enables a HTTP endpoint.
+    ///
+    /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     http: Option<String>,
 }
 
+#[derive(Parser, Debug)]
+struct CommandCat {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+
+    /// Follow the stream for new data
+    #[clap(long)]
+    follow: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let args = Args::parse();
+    match args.command {
+        Command::Serve(args) => serve(args).await,
+        Command::Cat(args) => cat(args).await,
+    }
+}
+
+async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     xs::trace::init();
 
-    let args = Args::parse();
     let store = Store::spawn(args.path).await;
     let pool = ThreadPool::new(10);
     let engine = nu::Engine::new(store.clone())?;
@@ -69,5 +107,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     xs::api::serve(store, engine.clone(), pool.clone(), &addr).await?;
     pool.wait_for_completion();
 
+    Ok(())
+}
+
+async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    eprintln!("Not implemented yet: {:?}", args);
     Ok(())
 }
