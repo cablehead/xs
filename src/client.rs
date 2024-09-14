@@ -14,6 +14,12 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 async fn connect(addr: &str) -> Result<AsyncReadWriteBox, BoxError> {
     if addr.starts_with('/') || addr.starts_with('.') {
+        let path = std::path::Path::new(addr);
+        let addr = if path.is_dir() {
+            path.join("sock")
+        } else {
+            path.to_path_buf()
+        };
         let stream = UnixStream::connect(addr).await?;
         Ok(Box::new(stream))
     } else {
