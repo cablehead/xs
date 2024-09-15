@@ -43,7 +43,14 @@ fn empty() -> BoxBody<Bytes, BoxError> {
         .boxed()
 }
 
-pub async fn cat(addr: &str, follow: bool) -> Result<Receiver<Bytes>, BoxError> {
+pub async fn cat(
+    addr: &str,
+    follow: bool,
+    pulse: Option<u64>,
+    tail: bool,
+    last_id: Option<String>,
+    limit: Option<u64>,
+) -> Result<Receiver<Bytes>, BoxError> {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);
 
@@ -55,10 +62,32 @@ pub async fn cat(addr: &str, follow: bool) -> Result<Receiver<Bytes>, BoxError> 
         }
     });
 
-    let uri = if follow {
-        "http://localhost/?follow=true"
+    let mut params = Vec::new();
+
+    if follow {
+        if let Some(pulse_value) = pulse {
+            params.push(format!("follow={}", pulse_value));
+        } else {
+            params.push("follow=true".to_string());
+        }
+    }
+
+    if tail {
+        params.push("tail".to_string());
+    }
+
+    if let Some(ref last_id_value) = last_id {
+        params.push(format!("last-id={}", last_id_value));
+    }
+
+    if let Some(limit_value) = limit {
+        params.push(format!("limit={}", limit_value));
+    }
+
+    let uri = if !params.is_empty() {
+        format!("http://localhost/?{}", params.join("&"))
     } else {
-        "http://localhost/"
+        "http://localhost/".to_string()
     };
 
     let req = Request::builder()
