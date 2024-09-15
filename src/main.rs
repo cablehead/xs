@@ -50,8 +50,24 @@ struct CommandCat {
     addr: String,
 
     /// Follow the stream for new data
-    #[clap(long)]
+    #[clap(long, short = 'f')]
     follow: bool,
+
+    /// Specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
+    #[clap(long, short = 'p')]
+    pulse: Option<u64>,
+
+    /// Begin long after the end of the stream
+    #[clap(long, short = 't')]
+    tail: bool,
+
+    /// Last event ID to start from
+    #[clap(long, short = 'l')]
+    last_id: Option<String>,
+
+    /// Limit the number of events
+    #[clap(long)]
+    limit: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
@@ -128,7 +144,15 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut receiver = xs::client::cat(&args.addr, args.follow).await?;
+    let mut receiver = xs::client::cat(
+        &args.addr,
+        args.follow,
+        args.pulse,
+        args.tail,
+        args.last_id.clone(),
+        args.limit,
+    )
+    .await?;
     let mut stdout = tokio::io::stdout();
     while let Some(bytes) = receiver.recv().await {
         stdout.write_all(&bytes).await?;
