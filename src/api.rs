@@ -13,7 +13,6 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 use http_body_util::StreamBody;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper::body::Body;
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -146,17 +145,23 @@ async fn handle_stream_append(
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
-    let hash = if body.is_end_stream() {
-        None
-    } else {
+    let hash = {
         let writer = store.cas_writer().await?;
         let mut writer = writer.compat_write();
+        let mut bytes_written = 0;
+
         while let Some(frame) = body.frame().await {
-            let data = frame?.into_data().unwrap();
-            writer.write_all(&data).await?;
+            if let Ok(data) = frame?.into_data() {
+                writer.write_all(&data).await?;
+                bytes_written += data.len();
+            }
         }
-        let writer = writer.into_inner();
-        Some(writer.commit().await?)
+
+        if bytes_written > 0 {
+            Some(writer.into_inner().commit().await?)
+        } else {
+            None
+        }
     };
 
     let meta = match parts
