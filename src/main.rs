@@ -19,9 +19,10 @@ struct Args {
 enum Command {
     /// Provides an API to interact with a local store
     Serve(CommandServe),
-
     /// `cat` the event stream
     Cat(CommandCat),
+    /// Append an event to the stream
+    Append(CommandAppend),
 }
 
 #[derive(Parser, Debug)]
@@ -53,12 +54,28 @@ struct CommandCat {
     follow: bool,
 }
 
+#[derive(Parser, Debug)]
+struct CommandAppend {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+
+    /// Topic to append to
+    #[clap(value_parser)]
+    topic: String,
+
+    /// JSON metadata to include with the append
+    #[clap(long, value_parser)]
+    meta: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     match args.command {
         Command::Serve(args) => serve(args).await,
         Command::Cat(args) => cat(args).await,
+        Command::Append(args) => append(args).await,
     }
 }
 
@@ -117,5 +134,29 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         stdout.write_all(&bytes).await?;
         stdout.flush().await?;
     }
+    Ok(())
+}
+
+use std::io::IsTerminal;
+use tokio::io::stdin;
+use tokio::io::AsyncRead;
+
+async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let meta = args
+        .meta
+        .map(|meta_str| serde_json::from_str(&meta_str))
+        .transpose()?;
+
+    let input = if !std::io::stdin().is_terminal() {
+        // Stdin is a pipe, use it as input
+        Box::new(stdin()) as Box<dyn AsyncRead + Unpin + Send>
+    } else {
+        // Stdin is not a pipe, use an empty reader
+        Box::new(tokio::io::empty()) as Box<dyn AsyncRead + Unpin + Send>
+    };
+
+    let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref()).await?;
+
+    tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }

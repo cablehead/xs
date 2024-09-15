@@ -1,12 +1,16 @@
+use serde_json::Value;
+
+use futures::StreamExt;
+
+use tokio::io::AsyncRead;
 use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::mpsc::Receiver;
 
+use http_body_util::{combinators::BoxBody, BodyExt, Empty};
 use hyper::body::Bytes;
 use hyper::client::conn::http1;
 use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
-
-use http_body_util::{combinators::BoxBody, BodyExt, Empty};
 
 use crate::listener::AsyncReadWriteBox;
 
@@ -92,4 +96,56 @@ pub async fn cat(addr: &str, follow: bool) -> Result<Receiver<Bytes>, BoxError> 
     });
 
     Ok(rx)
+}
+
+use http_body_util::StreamBody;
+use tokio_util::io::ReaderStream;
+
+pub async fn append<R>(
+    addr: &str,
+    topic: &str,
+    data: R,
+    meta: Option<&Value>,
+) -> Result<Bytes, BoxError>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    let stream = connect(addr).await?;
+    let io = TokioIo::new(stream);
+    let (mut sender, conn) = http1::handshake(io).await?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let uri = format!("http://localhost/{}", topic);
+    let mut req = Request::builder().method(Method::POST).uri(uri);
+
+    if let Some(meta_value) = meta {
+        req = req.header("xs-meta", serde_json::to_string(meta_value)?);
+    }
+
+    // Create a stream from the AsyncRead
+    let reader_stream = ReaderStream::new(data);
+
+    // Map the stream to convert io::Error to BoxError
+    let mapped_stream = reader_stream.map(|result| {
+        result
+            .map(|bytes| hyper::body::Frame::data(bytes))
+            .map_err(|e| Box::new(e) as BoxError)
+    });
+
+    // Create a StreamBody
+    let body = StreamBody::new(mapped_stream);
+
+    let req = req.body(body)?;
+    let res = sender.send_request(req).await?;
+
+    if res.status() != StatusCode::OK {
+        return Err(format!("HTTP error: {}", res.status()).into());
+    }
+
+    let body = res.collect().await?.to_bytes();
+    Ok(body)
 }
