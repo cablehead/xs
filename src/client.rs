@@ -132,7 +132,7 @@ where
     // Map the stream to convert io::Error to BoxError
     let mapped_stream = reader_stream.map(|result| {
         result
-            .map(|bytes| hyper::body::Frame::data(bytes))
+            .map(hyper::body::Frame::data)
             .map_err(|e| Box::new(e) as BoxError)
     });
 
