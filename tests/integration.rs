@@ -12,6 +12,7 @@ async fn test_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
     let mut cli_process = Command::new(cargo_bin("xs"))
+        .arg("serve")
         .arg(temp_dir.path())
         .spawn()
         .expect("Failed to start CLI binary");
