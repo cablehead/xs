@@ -92,6 +92,9 @@ WIP, thoughts:
         watches the event stream for a `http.response`.
   - [x] You can register event handlers that subscribe to `http.request` events
         and emit `http.response` events.
+- Ability for a single xs process to serve many stores
+    - so you generally run just one locally, using the systems local process
+      manager, and then add and remove stores to serve via the event stream
 
 ## Path Traveled
 
