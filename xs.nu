@@ -5,25 +5,23 @@ alias and-then = if ($in | is-not-empty)
 alias ? = if ($in | is-not-empty) { $in }
 alias ?? = ? else { return }
 
+export def store-addr [] {
+    $env | default "./store" XSPWD | get XSPWD
+}
 
+# update to use (store-addr) and the xs cli
 def _cat [options: record] {
     let params = [
-        (if ($options | get follow? | default false) {
-            "follow" + (if $options.pulse? != null { $"=($options.pulse)" } else { "" })
-        })
+        (if ($options | get follow? | default false) { "--follow" })
+        (if ($options | get tail? | default false) { "--tail" })
 
-        (if ($options | get tail? | default false) { "tail" })
+        (if $options.last_id? != null { ["--last-id" $options.last_id] })
 
-        (if ($options.last_id? | is-not-empty) { $"last-id=($options.last_id)" })
+        (if $options.limit? != null { ["--limit" $options.limit] })
+        (if $options.pulse? != null { ["--pulse" $options.pulse] })
+    ] | compact | flatten
 
-        (if ($options.limit? | is-not-empty) { $"limit=($options.limit)" })
-    ] | compact
-
-    let postfix = if ($params | is-not-empty) {
-        "//?" + ($params | str join "&")
-    } else { "" }
-
-    h. get $"./store/sock($postfix)" | lines | each { |x| $x | from json }
+    xs cat (store-addr) ...$params | lines | each { |x| $x | from json }
 }
 
 export def .cat [
@@ -83,7 +81,11 @@ export def .head [topic: string] {
 }
 
 export def .append [topic: string --meta: record] {
-    h. post $"./store/sock//($topic)" --headers {"xs-meta": ($meta | to json -r)}
+    let params = [
+        (if $meta != null { ["--meta" ($meta | to json -r)] })
+    ] | compact | flatten
+
+    xs append (store-addr) $topic ...$params | from json
 }
 
 export def .pipe [id: string] {
