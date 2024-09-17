@@ -81,11 +81,9 @@ export def .head [topic: string] {
 }
 
 export def .append [topic: string --meta: record] {
-    let params = [
+    xs append (store-addr) $topic ...([
         (if $meta != null { ["--meta" ($meta | to json -r)] })
-    ] | compact | flatten
-
-    xs append (store-addr) $topic ...$params | from json
+        ] | compact | flatten)| from json
 }
 
 export def .pipe [id: string] {
