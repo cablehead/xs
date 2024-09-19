@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
 
@@ -23,6 +24,8 @@ enum Command {
     Cat(CommandCat),
     /// Append an event to the stream
     Append(CommandAppend),
+    /// Retrieve content from Content-Addressable Storage
+    Cas(CommandCas),
 }
 
 #[derive(Parser, Debug)]
@@ -85,6 +88,17 @@ struct CommandAppend {
     meta: Option<String>,
 }
 
+#[derive(Parser, Debug)]
+struct CommandCas {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+
+    /// Hash of the content to retrieve
+    #[clap(value_parser)]
+    hash: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
@@ -92,6 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Serve(args) => serve(args).await,
         Command::Cat(args) => cat(args).await,
         Command::Append(args) => append(args).await,
+        Command::Cas(args) => cas(args).await,
     }
 }
 
@@ -182,5 +197,13 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
     let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref()).await?;
 
     tokio::io::stdout().write_all(&response).await?;
+    Ok(())
+}
+
+async fn cas(args: CommandCas) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let integrity = ssri::Integrity::from_str(&args.hash)?;
+    let mut stdout = tokio::io::stdout();
+    xs::client::cas_get(&args.addr, integrity, &mut stdout).await?;
+    stdout.flush().await?;
     Ok(())
 }
