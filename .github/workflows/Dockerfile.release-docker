@@ -14,4 +14,4 @@ COPY target/release/xs /usr/local/bin/xs
 EXPOSE 8080
 
 # Run the CLI tool in serve mode
-CMD ["xs", "serve", "~/store"]
+CMD ["xs", "serve", "/app/store"]
