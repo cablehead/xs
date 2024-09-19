@@ -1,0 +1,24 @@
+FROM ubuntu:latest
+
+ARG NU_VERSION=0.98.0
+
+RUN apt-get update && apt-get install -y libssl-dev curl
+
+# Install Nushell
+RUN curl -L https://github.com/nushell/nushell/releases/download/${NU_VERSION}/nu-${NU_VERSION}-x86_64-unknown-linux-gnu.tar.gz | \
+    tar -xz -C /usr/bin --strip-components=1 nu-${NU_VERSION}-x86_64-unknown-linux-gnu/nu && \
+    mkdir -p /root/.config/nushell && nu -c "config nu --default" > /root/.config/nushell/config.nu && nu -c "config env --default" > /root/.config/nushell/env.nu
+
+# Install websocat
+RUN curl -L -o /usr/bin/websocat  https://github.com/vi/websocat/releases/download/v1.13.0/websocat_max.x86_64-unknown-linux-musl && \
+    chmod +x /usr/bin/websocat
+
+WORKDIR /app
+
+COPY target/release/xs /usr/local/bin/xs
+COPY xs.nu /app/xs.nu
+
+EXPOSE 8080
+
+CMD ["xs", "serve", "/app/store"]
+
