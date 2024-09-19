@@ -65,8 +65,7 @@ export def .cas [hash?: any] {
     let alt = $in
     let hash = read_hash (if $hash != null { $hash } else { $alt })
     if $hash == null { return }
-    let uri = $"./store/sock//cas/($hash)"
-    h. get $uri
+    xs cas (store-addr) $hash
 }
 
 export def .get [id: string] {

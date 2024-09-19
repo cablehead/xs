@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use futures::StreamExt;
 
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::mpsc::Receiver;
 
@@ -177,4 +177,49 @@ where
 
     let body = res.collect().await?.to_bytes();
     Ok(body)
+}
+
+pub async fn cas_get<W>(
+    addr: &str,
+    integrity: ssri::Integrity,
+    writer: &mut W,
+) -> Result<(), BoxError>
+where
+    W: AsyncWrite + Unpin,
+{
+    let stream = connect(addr).await?;
+    let io = TokioIo::new(stream);
+
+    let (mut sender, conn) = http1::handshake(io).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let uri = format!("http://localhost/cas/{}", integrity);
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .body(empty())?;
+
+    let res = sender.send_request(req).await?;
+
+    if res.status() != StatusCode::OK {
+        return Err(format!("HTTP error: {}", res.status()).into());
+    }
+
+    let mut body = res.into_body();
+
+    while let Some(frame) = body.frame().await {
+        let frame = frame?;
+        if let Ok(chunk) = frame.into_data() {
+            writer.write_all(&chunk).await?;
+        }
+    }
+
+    writer.flush().await?;
+
+    Ok(())
 }
