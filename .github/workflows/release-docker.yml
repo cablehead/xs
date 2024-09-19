@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat-ghcr
   workflow_dispatch:
 
 env:
