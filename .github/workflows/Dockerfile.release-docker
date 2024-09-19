@@ -16,6 +16,7 @@ RUN curl -L -o /usr/bin/websocat  https://github.com/vi/websocat/releases/downlo
 WORKDIR /app
 
 COPY target/release/xs /usr/local/bin/xs
+COPY xs.nu /app/xs.nu
 
 EXPOSE 8080
 
