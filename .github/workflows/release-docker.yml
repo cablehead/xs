@@ -1,0 +1,41 @@
+name: Release Docker
+
+on:
+  push:
+    branches:
+      - main
+      - feat-ghcr
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/xs
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    # Install Rust and cross-compile the binary in release mode
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+
+    - name: Build in release mode
+      run: cargo build --release --verbose
+
+    # Create a Docker image, using the Dockerfile from the .github/workflows directory
+    - name: Build Docker image
+      run: |
+        docker build -t $IMAGE_NAME:latest -f .github/workflows/Dockerfile.release-docker .
+
+    # Log in to the GitHub Container Registry (GHCR)
+    - name: Log in to GitHub Container Registry
+      run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+    # Push the Docker image to GHCR
+    - name: Push Docker image
+      run: docker push $IMAGE_NAME:latest
