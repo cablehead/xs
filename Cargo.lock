@@ -1330,9 +1330,9 @@ dependencies = [
 
 [[package]]
 name = "fjall"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea69a2e49016d84a004bd4cea304b768b56da5b0f29ad89f34f51804d3bdeb48"
+checksum = "e2fd11be247941253b9861c7ca94526d092d8311ac0a1740415242e3d9efd7a5"
 dependencies = [
  "byteorder",
  "crc32fast",
@@ -2120,9 +2120,9 @@ dependencies = [
 
 [[package]]
 name = "lsm-tree"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2ae6747186038d86c6dcb4646081b3816124ee81df374a2ee66034377338547"
+checksum = "e6b7522d314955643781c4050b48477985e61f892434e14e9e6148d27c60435d"
 dependencies = [
  "byteorder",
  "crc32fast",
