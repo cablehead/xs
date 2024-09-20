@@ -26,6 +26,11 @@ jobs:
     - name: Build in release mode
       run: cargo build --release --verbose
 
+    - name: Install scru128-cli from GitHub
+      run: |
+        cargo install --git https://github.com/cablehead/scru128-cli --branch main
+        mv ~/.cargo/bin/scru128 target/release/scru128
+
     # Create a Docker image, using the Dockerfile from the .github/workflows directory
     - name: Build Docker image
       run: |
