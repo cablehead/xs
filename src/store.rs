@@ -247,6 +247,10 @@ impl Store {
         })
     }
 
+    pub fn remove(&self, id: &Scru128Id) -> Result<(), fjall::Error> {
+        self.partition.remove(id.to_bytes())
+    }
+
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
         cacache::Reader::open_hash(&self.path.join("cacache"), hash).await
     }

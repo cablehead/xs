@@ -26,6 +26,8 @@ enum Command {
     Append(CommandAppend),
     /// Retrieve content from Content-Addressable Storage
     Cas(CommandCas),
+    /// Remove an item from the stream
+    Remove(CommandRemove),
 }
 
 #[derive(Parser, Debug)]
@@ -99,6 +101,17 @@ struct CommandCas {
     hash: String,
 }
 
+#[derive(Parser, Debug)]
+struct CommandRemove {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+
+    /// ID of the item to remove
+    #[clap(value_parser)]
+    id: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
@@ -107,6 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Cat(args) => cat(args).await,
         Command::Append(args) => append(args).await,
         Command::Cas(args) => cas(args).await,
+        Command::Remove(args) => remove(args).await,
     }
 }
 
@@ -205,5 +219,10 @@ async fn cas(args: CommandCas) -> Result<(), Box<dyn std::error::Error + Send + 
     let mut stdout = tokio::io::stdout();
     xs::client::cas_get(&args.addr, integrity, &mut stdout).await?;
     stdout.flush().await?;
+    Ok(())
+}
+
+async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    xs::client::remove(&args.addr, &args.id).await?;
     Ok(())
 }
