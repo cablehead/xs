@@ -1,18 +1,24 @@
 ## starter for a discord bot
 
 ```
-           ┌────────────────────────────────────────┐
-           │            Discord Gateway             │
-           └────────────▲────────────┳──────────────┘
-                        ┃            ┃
-                        s            r
-                        e            e    op: 10 Hello
-    op: 02 Identify     n            c    op: 00 Ready
-    op: 01 Heartbeat    d            v    op: 11 Heartbeat ACK
-                        ┃            ┃
-               ┌────────┻────────────▼────────┐
-     ━━ stdin ━▶ $ websocat wss://gatewa...   ┣━ stdout ━▶
-               └──────────────────────────────┘
+       ┌────────────────────────────────────────┐
+       │            Discord Gateway             │
+       └────────────▲────────────┳──────────────┘
+                    ┃            ┃
+                    s            r
+                    e            e    op: 10 Hello
+op: 02 Identify     n            c    op: 00 Ready
+op: 01 Heartbeat    d            v    op: 11 Heartbeat ACK
+                    ┃            ┃
+           ┌────────┻────────────▼────────┐
+ ━━ stdin ━▶  $ websocat wss://gatewa...  ┣━ stdout ━▶
+          ▲└──────────────────────────────┘  │
+          │                                  │
+discord.ws.send                      discord.ws.recv
+          │                                  │
+         ┌┴──────────────────────────────────▼─┐
+         │         $ xs serve ./store          │
+         └─────────────────────────────────────┘
 ```
 
 Required to run:
