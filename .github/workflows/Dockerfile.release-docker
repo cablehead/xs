@@ -10,12 +10,13 @@ RUN curl -L https://github.com/nushell/nushell/releases/download/${NU_VERSION}/n
     mkdir -p /root/.config/nushell && nu -c "config nu --default" > /root/.config/nushell/config.nu && nu -c "config env --default" > /root/.config/nushell/env.nu
 
 # Install websocat
-RUN curl -L -o /usr/bin/websocat  https://github.com/vi/websocat/releases/download/v1.13.0/websocat_max.x86_64-unknown-linux-musl && \
+RUN curl --fail -L -o /usr/bin/websocat https://github.com/vi/websocat/releases/download/v1.13.0/websocat_max.x86_64-unknown-linux-musl && \
     chmod +x /usr/bin/websocat
 
 WORKDIR /app
 
 COPY target/release/xs /usr/local/bin/xs
+COPY target/release/scru128 /usr/bin/scru128
 COPY xs.nu /app/xs.nu
 
 EXPOSE 8080
