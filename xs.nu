@@ -85,6 +85,12 @@ export def .append [topic: string --meta: record] {
         ] | compact | flatten)| from json
 }
 
+export def .remove [id: string] {
+    xs remove (store-addr) $id
+}
+
+export alias .rm = .remove
+
 export def .pipe [id: string] {
     let sp = (metadata $in).span
     let script = $in

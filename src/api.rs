@@ -31,6 +31,7 @@ enum Routes {
     StreamCat,
     StreamAppend(String),
     StreamItemGet(Scru128Id),
+    StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     PipePost(Scru128Id),
     HeadGet(String),
@@ -69,6 +70,14 @@ fn match_route(method: &Method, path: &str) -> Routes {
         (&Method::GET, p) => {
             if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
                 Routes::StreamItemGet(id)
+            } else {
+                Routes::NotFound
+            }
+        }
+
+        (&Method::DELETE, p) => {
+            if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
+                Routes::StreamItemRemove(id)
             } else {
                 Routes::NotFound
             }
@@ -127,6 +136,8 @@ async fn handle(
         }
 
         Routes::StreamItemGet(id) => response_frame_or_404(store.get(&id)),
+
+        Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
         Routes::PipePost(id) => {
             handle_pipe_post(&mut store, engine, pool.clone(), id, req.into_body()).await
@@ -288,6 +299,21 @@ fn response_frame_or_404(frame: Option<store::Frame>) -> HTTPResult {
             .body(full(serde_json::to_string(&frame).unwrap()))?)
     } else {
         response_404()
+    }
+}
+
+async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResult {
+    match store.remove(&id) {
+        Ok(()) => Ok(Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(empty())?),
+        Err(e) => {
+            tracing::error!("Failed to remove item {}: {:?}", id, e);
+
+            Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(full("internal-error"))?)
+        }
     }
 }
 

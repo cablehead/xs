@@ -223,3 +223,30 @@ where
 
     Ok(())
 }
+
+pub async fn remove(addr: &str, id: &str) -> Result<(), BoxError> {
+    let stream = connect(addr).await?;
+    let io = TokioIo::new(stream);
+
+    let (mut sender, conn) = http1::handshake(io).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let uri = format!("http://localhost/{}", id);
+    let req = Request::builder()
+        .method(Method::DELETE)
+        .uri(uri)
+        .body(empty())?;
+
+    let res = sender.send_request(req).await?;
+
+    match res.status() {
+        StatusCode::NO_CONTENT => Ok(()),
+        StatusCode::NOT_FOUND => Err(format!("not found: {}", id).into()),
+        _ => Err(format!("HTTP error: {}", res.status()).into()),
+    }
+}
