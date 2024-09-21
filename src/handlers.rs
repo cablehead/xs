@@ -14,7 +14,7 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::util::json_to_value;
 use crate::nu::value_to_json;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 use crate::thread_pool::ThreadPool;
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -122,6 +122,7 @@ async fn spawn(
                                     "handler_id": handler.id.to_string(),
                                     "frame_id": frame.id.to_string(),
                                 }))
+                                .ttl(TTL::Ephemeral)
                                 .build(),
                         )
                         .await;
@@ -144,6 +145,7 @@ async fn spawn(
                 .meta(serde_json::json!({
                     "handler_id": handler.id.to_string(),
                 }))
+                .ttl(TTL::Ephemeral)
                 .build(),
         )
         .await;
@@ -208,13 +210,20 @@ async fn handle_result_stateful(
                 handler.state = Some(state.clone());
             }
             let _ = store
-                .append_with_content(
-                    &format!("{}.state", &handler.topic),
-                    &value_to_json(&value).to_string(),
-                    Some(serde_json::json!({
-                        "handler_id": handler.id.to_string(),
-                        "frame_id": frame.id.to_string(),
-                    })),
+                .append(
+                    Frame::with_topic(format!("{}.state", &handler.topic))
+                        .hash(
+                            store
+                                .cas_insert(&value_to_json(&value).to_string())
+                                .await
+                                .unwrap(),
+                        )
+                        .meta(serde_json::json!({
+                            "handler_id": handler.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .ttl(TTL::Ephemeral)
+                        .build(),
                 )
                 .await;
         }
@@ -232,13 +241,20 @@ async fn handle_result_stateless(
         Value::Nothing { .. } => (),
         _ => {
             let _ = store
-                .append_with_content(
-                    &handler.topic,
-                    &value_to_json(&value).to_string(),
-                    Some(serde_json::json!({
-                        "handler_id": handler.id.to_string(),
-                        "frame_id": frame.id.to_string(),
-                    })),
+                .append(
+                    Frame::with_topic(&handler.topic)
+                        .hash(
+                            store
+                                .cas_insert(&value_to_json(&value).to_string())
+                                .await
+                                .unwrap(),
+                        )
+                        .meta(serde_json::json!({
+                            "handler_id": handler.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .ttl(TTL::Ephemeral)
+                        .build(),
                 )
                 .await;
         }
@@ -315,13 +331,20 @@ mod tests {
         }
 
         let frame_handler = store
-            .append_with_content(
-                "action.register",
-                r#"{||
-                    if $in.topic != "topic2" { return }
-                    "ran action"
-                   }"#,
-                None,
+            .append(
+                Frame::with_topic("action.register")
+                    .hash(
+                        store
+                            .cas_insert(
+                                r#"{||
+                                    if $in.topic != "topic2" { return }
+                                    "ran action"
+                                   }"#,
+                            )
+                            .await
+                            .unwrap(),
+                    )
+                    .build(),
             )
             .await;
 
@@ -375,18 +398,26 @@ mod tests {
         }
 
         let frame_handler = store
-            .append_with_content(
-                "counter.register",
-                r#"{|state|
+            .append(
+                Frame::with_topic("counter.register")
+                    .hash(
+                        store
+                            .cas_insert(
+                                r#"{|state|
                     if $in.topic != "count.me" { return }
                     mut state = $state
                     $state.count += 1
                     { state: $state }
                    }"#,
-                Some(serde_json::json!({
-                    "stateful": true,
-                    "initial_state": { "count": 0 }
-                })),
+                            )
+                            .await
+                            .unwrap(),
+                    )
+                    .meta(serde_json::json!({
+                        "stateful": true,
+                        "initial_state": { "count": 0 }
+                    }))
+                    .build(),
             )
             .await;
 
@@ -456,14 +487,20 @@ mod tests {
         );
 
         let frame_handler_1 = store
-            .append_with_content(
-                "action.register",
-                r#"
-                 {||
-                     if $in.topic != "pew" { return }
-                     "0.1"
-                 }"#,
-                None,
+            .append(
+                Frame::with_topic("action.register")
+                    .hash(
+                        store
+                            .cas_insert(
+                                r#"{||
+                                    if $in.topic != "pew" { return }
+                                    "0.1"
+                                }"#,
+                            )
+                            .await
+                            .unwrap(),
+                    )
+                    .build(),
             )
             .await;
 
@@ -489,14 +526,20 @@ mod tests {
         assert_eq!(meta["frame_id"], frame_pew.id.to_string());
 
         let frame_handler_2 = store
-            .append_with_content(
-                "action.register",
-                r#"
-                 {||
-                     if $in.topic != "pew" { return }
-                     "0.2"
-                 }"#,
-                None,
+            .append(
+                Frame::with_topic("action.register")
+                    .hash(
+                        store
+                            .cas_insert(
+                                r#"{||
+                                    if $in.topic != "pew" { return }
+                                    "0.2"
+                                }"#,
+                            )
+                            .await
+                            .unwrap(),
+                    )
+                    .build(),
             )
             .await;
 
