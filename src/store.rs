@@ -94,12 +94,6 @@ pub enum TTL {
     Time(Duration), // (TBD) The event is kept for a custom duration.
 }
 
-#[derive(Deserialize)]
-struct TTLQuery {
-    ttl: String,
-    duration: Option<u64>,
-}
-
 impl TTL {
     pub fn to_query(&self) -> String {
         match self {
@@ -111,24 +105,19 @@ impl TTL {
     }
 
     pub fn from_query(query: Option<&str>) -> Result<Self, String> {
-        let ttl_query: TTLQuery = match query.and_then(|q| serde_urlencoded::from_str(q).ok()) {
-            Some(ttl_query) => ttl_query,
-            None => return Ok(TTL::default()),
-        };
-
-        match ttl_query.ttl.as_str() {
-            "forever" => Ok(TTL::Forever),
-            "temporary" => Ok(TTL::Temporary),
-            "ephemeral" => Ok(TTL::Ephemeral),
-            "time" => {
-                if let Some(duration) = ttl_query.duration {
-                    Ok(TTL::Time(Duration::from_millis(duration)))
-                } else {
-                    Err("Duration must be provided for 'time' TTL".into())
-                }
-            }
-            _ => Err(format!("Invalid TTL type: {}", ttl_query.ttl)),
-        }
+        query
+            .and_then(|q| serde_urlencoded::from_str::<HashMap<String, String>>(q).ok())
+            .and_then(|params| params.get("ttl").cloned())
+            .map(|value| match value.as_str() {
+                "forever" => Ok(TTL::Forever),
+                "temporary" => Ok(TTL::Temporary),
+                "ephemeral" => Ok(TTL::Ephemeral),
+                duration_str => duration_str
+                    .parse::<u64>()
+                    .map(|millis| TTL::Time(Duration::from_millis(millis)))
+                    .map_err(|_| format!("Invalid TTL value: {}", duration_str)),
+            })
+            .unwrap_or(Ok(TTL::default()))
     }
 }
 
@@ -715,6 +704,9 @@ mod test_ttl {
         let ttl = TTL::from_query(Some(""));
         assert_eq!(ttl, Ok(TTL::default()));
 
+        let ttl = TTL::from_query(Some("foo=bar"));
+        assert_eq!(ttl, Ok(TTL::default()));
+
         let ttl = TTL::from_query(Some("ttl=forever"));
         assert_eq!(ttl, Ok(TTL::Forever));
 
@@ -724,7 +716,7 @@ mod test_ttl {
         let ttl = TTL::from_query(Some("ttl=ephemeral"));
         assert_eq!(ttl, Ok(TTL::Ephemeral));
 
-        let ttl = TTL::from_query(Some("ttl=time&duration=1000"));
+        let ttl = TTL::from_query(Some("ttl=1000"));
         assert_eq!(ttl, Ok(TTL::Time(Duration::from_millis(1000))));
 
         let ttl = TTL::from_query(Some("ttl=time"));
