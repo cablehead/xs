@@ -343,8 +343,12 @@ mod tests {
             "action.registered".to_string()
         );
 
-        let _ = store.append("topic1", None, None).await;
-        let frame_topic2 = store.append("topic2", None, None).await;
+        let _ = store
+            .append(Frame::builder().topic("topic1".to_string()).build())
+            .await;
+        let frame_topic2 = store
+            .append(Frame::builder().topic("topic2".to_string()).build())
+            .await;
         assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
         assert_eq!(recver.recv().await.unwrap().topic, "topic2".to_string());
 
@@ -358,7 +362,9 @@ mod tests {
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
         assert_eq!(content, r#""ran action""#.as_bytes());
 
-        let _ = store.append("topic3", None, None).await;
+        let _ = store
+            .append(Frame::builder().topic("topic3".to_string()).build())
+            .await;
         assert_eq!(recver.recv().await.unwrap().topic, "topic3".to_string());
     }
 
@@ -408,8 +414,12 @@ mod tests {
             "counter.registered".to_string()
         );
 
-        let _ = store.append("topic1", None, None).await;
-        let frame_count1 = store.append("count.me", None, None).await;
+        let _ = store
+            .append(Frame::builder().topic("topic1".to_string()).build())
+            .await;
+        let frame_count1 = store
+            .append(Frame::builder().topic("count.me".to_string()).build())
+            .await;
         assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
         assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
@@ -422,7 +432,9 @@ mod tests {
         let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
         assert_eq!(value, serde_json::json!({ "state": { "count": 1 } }));
 
-        let frame_count2 = store.append("count.me", None, None).await;
+        let frame_count2 = store
+            .append(Frame::builder().topic("count.me".to_string()).build())
+            .await;
         assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
         let frame = recver.recv().await.unwrap();
@@ -478,7 +490,9 @@ mod tests {
             "action.registered".to_string()
         );
 
-        let _ = store.append("pew", None, None).await;
+        let _ = store
+            .append(Frame::builder().topic("pew".to_string()).build())
+            .await;
         let frame_pew = recver.recv().await.unwrap();
         assert_eq!(frame_pew.topic, "pew".to_string());
 
@@ -535,7 +549,9 @@ mod tests {
         );
         // fin assertions on these two frames
 
-        let _ = store.append("pew", None, None).await;
+        let _ = store
+            .append(Frame::builder().topic("pew".to_string()).build())
+            .await;
         let frame_pew = recver.recv().await.unwrap();
         assert_eq!(frame_pew.topic, "pew".to_string());
 

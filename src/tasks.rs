@@ -295,14 +295,15 @@ mod tests {
 
         let frame_generator = store
             .append(
-                "toml.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .unwrap(),
-                ),
-                None,
+                Frame::builder()
+                    .topic("toml.spawn".to_string())
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
             )
             .await;
 
@@ -345,14 +346,11 @@ mod tests {
 
         let frame_generator = store
             .append(
-                "greeter.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"each { |x| $"hi: ($x)" }"#)
-                        .await
-                        .unwrap(),
-                ),
-                Some(serde_json::json!({"duplex": true})),
+                Frame::builder()
+                    .topic("greeter.spawn".to_string())
+                    .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
+                    .meta(serde_json::json!({"duplex": true}))
+                    .build(),
             )
             .await;
 
@@ -367,9 +365,10 @@ mod tests {
 
         let _ = store
             .append(
-                "greeter.send",
-                Some(store.cas_insert(r#"henry"#).await.unwrap()),
-                None,
+                Frame::builder()
+                    .topic("greeter.send".to_string())
+                    .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
+                    .build(),
             )
             .await;
         assert_eq!(
@@ -394,28 +393,30 @@ mod tests {
 
         let _ = store
             .append(
-                "toml.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .unwrap(),
-                ),
-                None,
+                Frame::builder()
+                    .topic("toml.spawn".to_string())
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
             )
             .await;
 
         // replaces the previous generator
         let frame_generator = store
             .append(
-                "toml.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
-                        .await
-                        .unwrap(),
-                ),
-                None,
+                Frame::builder()
+                    .topic("toml.spawn".to_string())
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
             )
             .await;
 
