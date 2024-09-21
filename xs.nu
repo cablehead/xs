@@ -79,10 +79,16 @@ export def .head [topic: string] {
     null | h. get $"./store/sock//head/($topic)" | from json
 }
 
-export def .append [topic: string --meta: record] {
+# Append an event to the stream
+export def .append [
+    topic: string  # The topic to append the event to
+    --meta: record  # Optional metadata to include with the event
+    --ttl: string  # Optional Time-To-Live for the event. Can be a duration in milliseconds, "forever", "temporary", or "ephemeral"
+] {
     xs append (store-addr) $topic ...([
         (if $meta != null { ["--meta" ($meta | to json -r)] })
-        ] | compact | flatten)| from json
+        (if $ttl != null { ["--ttl" $ttl] })
+    ] | compact | flatten) | from json
 }
 
 export def .remove [id: string] {
