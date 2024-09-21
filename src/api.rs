@@ -196,11 +196,10 @@ async fn handle_stream_append(
 
     let frame = store
         .append(
-            Frame::builder()
-                .topic(topic)
+            Frame::with_topic(topic)
                 .maybe_hash(hash)
                 .maybe_meta(meta)
-                .ttl(ttl) // Add the TTL to the Frame
+                .ttl(ttl)
                 .build(),
         )
         .await;
@@ -272,8 +271,7 @@ pub async fn serve(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = store
         .append(
-            Frame::builder()
-                .topic("xs.start".to_string())
+            Frame::with_topic("xs.start")
                 .meta(serde_json::json!({"addr": addr}))
                 .build(),
         )

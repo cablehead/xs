@@ -115,8 +115,7 @@ async fn handle(
 
     let frame = store
         .append(
-            Frame::builder()
-                .topic("http.request".to_string())
+            Frame::with_topic("http.request")
                 .maybe_hash(hash)
                 .maybe_meta(serde_json::to_value(&req_meta).ok())
                 .build(),

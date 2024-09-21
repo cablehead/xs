@@ -75,10 +75,12 @@ pub enum SendError {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Default, bon::Builder)]
+#[builder(start_fn = with_topic)]
 pub struct Frame {
+    #[builder(start_fn, into)]
+    pub topic: String,
     #[builder(default)]
     pub id: Scru128Id,
-    pub topic: String,
     pub hash: Option<ssri::Integrity>,
     pub meta: Option<serde_json::Value>,
     pub ttl: Option<TTL>,
@@ -240,10 +242,7 @@ impl Store {
             tokio::task::spawn(async move {
                 loop {
                     tokio::time::sleep(duration).await;
-                    let frame = Frame::builder()
-                        .id(scru128::new())
-                        .topic("xs.pulse".to_string())
-                        .build();
+                    let frame = Frame::with_topic("xs.pulse").id(scru128::new()).build();
 
                     let result =
                         tx.0.lock()
@@ -334,8 +333,7 @@ impl Store {
         meta: Option<serde_json::Value>,
     ) -> Frame {
         self.append(
-            Frame::builder()
-                .topic(topic.to_string())
+            Frame::with_topic(topic)
                 .maybe_hash(self.cas_insert(content).await.ok())
                 .maybe_meta(meta)
                 .build(),
@@ -389,12 +387,7 @@ fn handle_read_command(
     match options.follow {
         FollowOption::On | FollowOption::WithHeartbeat(_) => {
             if !options.tail && options.compaction_strategy.is_none() && options.limit.is_none() {
-                tx.send(
-                    Frame::builder()
-                        .id(scru128::new())
-                        .topic("xs.threshold".into())
-                        .build(),
-                )?;
+                tx.send(Frame::with_topic("xs.threshold").id(scru128::new()).build())?;
             }
             subscribers.push(tx.clone());
         }
@@ -510,12 +503,7 @@ mod tests_store {
         let mut store = Store::spawn(temp_dir.into_path()).await;
         let meta = serde_json::json!({"key": "value"});
         let frame = store
-            .append(
-                Frame::builder()
-                    .topic("stream".to_string())
-                    .meta(meta)
-                    .build(),
-            )
+            .append(Frame::with_topic("stream").meta(meta).build())
             .await;
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);
@@ -527,12 +515,8 @@ mod tests_store {
         let mut store = Store::spawn(temp_dir.into_path()).await;
 
         // Append two initial clips
-        let f1 = store
-            .append(Frame::builder().topic("stream".to_string()).build())
-            .await;
-        let f2 = store
-            .append(Frame::builder().topic("stream".to_string()).build())
-            .await;
+        let f1 = store.append(Frame::with_topic("stream").build()).await;
+        let f2 = store.append(Frame::with_topic("stream").build()).await;
 
         // cat the full stream and follow new items with a heartbeat every 5ms
         let follow_options = ReadOptions::builder()
@@ -550,12 +534,8 @@ mod tests_store {
         );
 
         // Append two more clips
-        let f3 = store
-            .append(Frame::builder().topic("stream".to_string()).build())
-            .await;
-        let f4 = store
-            .append(Frame::builder().topic("stream".to_string()).build())
-            .await;
+        let f3 = store.append(Frame::with_topic("stream").build()).await;
+        let f4 = store.append(Frame::with_topic("stream").build()).await;
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
         let head = f4;
@@ -583,12 +563,8 @@ mod tests_store {
         let temp_dir = TempDir::new().unwrap();
         let mut store = Store::spawn(temp_dir.into_path()).await;
 
-        let f1 = store
-            .append(Frame::builder().topic("/stream".to_string()).build())
-            .await;
-        let f2 = store
-            .append(Frame::builder().topic("/stream".to_string()).build())
-            .await;
+        let f1 = store.append(Frame::with_topic("/stream").build()).await;
+        let f2 = store.append(Frame::with_topic("/stream").build()).await;
 
         assert_eq!(store.head("/stream".to_string()), Some(f2.clone()));
 
@@ -617,15 +593,9 @@ mod tests_store {
         let mut store = Store::spawn(temp_dir.path().to_path_buf()).await;
 
         // Add 3 items
-        let frame1 = store
-            .append(Frame::builder().topic("test".to_string()).build())
-            .await;
-        let frame2 = store
-            .append(Frame::builder().topic("test".to_string()).build())
-            .await;
-        let _ = store
-            .append(Frame::builder().topic("test".to_string()).build())
-            .await;
+        let frame1 = store.append(Frame::with_topic("test").build()).await;
+        let frame2 = store.append(Frame::with_topic("test").build()).await;
+        let _ = store.append(Frame::with_topic("test").build()).await;
 
         // Read with limit 2
         let options = ReadOptions::builder().limit(2).build();
@@ -645,9 +615,7 @@ mod tests_store {
         let mut store = Store::spawn(temp_dir.path().to_path_buf()).await;
 
         // Add 1 item
-        let frame1 = store
-            .append(Frame::builder().topic("test".to_string()).build())
-            .await;
+        let frame1 = store.append(Frame::with_topic("test").build()).await;
 
         // Start read with limit 2 and follow
         let options = ReadOptions::builder()
@@ -665,12 +633,8 @@ mod tests_store {
             .is_err());
 
         // Add 2 more items
-        let frame2 = store
-            .append(Frame::builder().topic("test".to_string()).build())
-            .await;
-        let _frame3 = store
-            .append(Frame::builder().topic("test".to_string()).build())
-            .await;
+        let frame2 = store.append(Frame::with_topic("test").build()).await;
+        let _frame3 = store.append(Frame::with_topic("test").build()).await;
 
         // Assert we get one more item
         assert_eq!(Some(frame2), rx.recv().await);

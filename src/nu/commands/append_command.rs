@@ -99,8 +99,7 @@ impl Command for AppendCommand {
 
             let frame = store
                 .append(
-                    Frame::builder()
-                        .topic(topic)
+                    Frame::with_topic(topic)
                         .maybe_hash(hash)
                         .maybe_meta(meta)
                         .build(),

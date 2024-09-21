@@ -130,8 +130,7 @@ pub async fn serve(
 
                 let _ = store
                     .append(
-                        Frame::builder()
-                            .topic(format!("{}.spawn.error", topic))
+                        Frame::with_topic(format!("{}.spawn.error", topic))
                             .meta(meta)
                             .build(),
                     )
@@ -162,8 +161,7 @@ async fn append(
 
     let frame = store
         .append(
-            Frame::builder()
-                .topic(format!("{}.{}", topic, postfix))
+            Frame::with_topic(format!("{}.{}", topic, postfix))
                 .maybe_hash(hash)
                 .meta(meta)
                 .build(),
@@ -295,8 +293,7 @@ mod tests {
 
         let frame_generator = store
             .append(
-                Frame::builder()
-                    .topic("toml.spawn".to_string())
+                Frame::with_topic("toml.spawn")
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
@@ -346,8 +343,7 @@ mod tests {
 
         let frame_generator = store
             .append(
-                Frame::builder()
-                    .topic("greeter.spawn".to_string())
+                Frame::with_topic("greeter.spawn".to_string())
                     .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
                     .meta(serde_json::json!({"duplex": true}))
                     .build(),
@@ -365,8 +361,7 @@ mod tests {
 
         let _ = store
             .append(
-                Frame::builder()
-                    .topic("greeter.send".to_string())
+                Frame::with_topic("greeter.send")
                     .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
                     .build(),
             )
@@ -393,8 +388,7 @@ mod tests {
 
         let _ = store
             .append(
-                Frame::builder()
-                    .topic("toml.spawn".to_string())
+                Frame::with_topic("toml.spawn")
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
@@ -408,8 +402,7 @@ mod tests {
         // replaces the previous generator
         let frame_generator = store
             .append(
-                Frame::builder()
-                    .topic("toml.spawn".to_string())
+                Frame::with_topic("toml.spawn")
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
