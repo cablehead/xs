@@ -79,7 +79,7 @@ WIP, thoughts:
   - [ ] next?
   - [ ] previous?
 - [x] cas, get
-- [ ] ephemeral events / content
+- [x] ephemeral events / content
 - [ ] content can be chunked, to accomodate slow streams, e.g server sent events
 - [ ] secondary indexes for topics: the head of a topic can be used as a materialized view
 - process management: you can register snippets of Nushell on the event stream.
