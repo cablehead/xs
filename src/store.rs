@@ -101,6 +101,15 @@ struct TTLQuery {
 }
 
 impl TTL {
+    pub fn to_query(&self) -> String {
+        match self {
+            TTL::Forever => "ttl=forever".to_string(),
+            TTL::Temporary => "ttl=temporary".to_string(),
+            TTL::Ephemeral => "ttl=ephemeral".to_string(),
+            TTL::Time(duration) => format!("ttl={}", duration.as_millis()),
+        }
+    }
+
     pub fn from_query(query: Option<&str>) -> Result<Self, String> {
         let ttl_query: TTLQuery = match query.and_then(|q| serde_urlencoded::from_str(q).ok()) {
             Some(ttl_query) => ttl_query,

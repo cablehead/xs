@@ -13,6 +13,7 @@ use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
 
 use crate::listener::AsyncReadWriteBox;
+use crate::store::TTL;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -135,6 +136,7 @@ pub async fn append<R>(
     topic: &str,
     data: R,
     meta: Option<&Value>,
+    ttl: Option<TTL>,
 ) -> Result<Bytes, BoxError>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -148,7 +150,11 @@ where
         }
     });
 
-    let uri = format!("http://localhost/{}", topic);
+    let mut uri = format!("http://localhost/{}", topic);
+    if let Some(ttl) = ttl {
+        uri = format!("{}?{}", uri, ttl.to_query());
+    }
+
     let mut req = Request::builder().method(Method::POST).uri(uri);
 
     if let Some(meta_value) = meta {
