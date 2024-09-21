@@ -117,12 +117,12 @@ async fn spawn(
                 if frame.topic == format!("{}.register", &handler.topic) && frame.id != handler.id {
                     let _ = store
                         .append(
-                            &format!("{}.unregistered", &handler.topic),
-                            None,
-                            Some(serde_json::json!({
-                                "handler_id": handler.id.to_string(),
-                                "frame_id": frame.id.to_string(),
-                            })),
+                            Frame::with_topic(format!("{}.unregistered", &handler.topic))
+                                .meta(serde_json::json!({
+                                    "handler_id": handler.id.to_string(),
+                                    "frame_id": frame.id.to_string(),
+                                }))
+                                .build(),
                         )
                         .await;
                     break;
@@ -140,13 +140,14 @@ async fn spawn(
 
     let _ = store
         .append(
-            &format!("{}.registered", &handler.topic),
-            None,
-            Some(serde_json::json!({
-                "handler_id": handler.id.to_string(),
-            })),
+            Frame::with_topic(format!("{}.registered", &handler.topic))
+                .meta(serde_json::json!({
+                    "handler_id": handler.id.to_string(),
+                }))
+                .build(),
         )
         .await;
+
     Ok(tx_command)
 }
 
@@ -340,8 +341,8 @@ mod tests {
             "action.registered".to_string()
         );
 
-        let _ = store.append("topic1", None, None).await;
-        let frame_topic2 = store.append("topic2", None, None).await;
+        let _ = store.append(Frame::with_topic("topic1").build()).await;
+        let frame_topic2 = store.append(Frame::with_topic("topic2").build()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
         assert_eq!(recver.recv().await.unwrap().topic, "topic2".to_string());
 
@@ -355,7 +356,7 @@ mod tests {
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
         assert_eq!(content, r#""ran action""#.as_bytes());
 
-        let _ = store.append("topic3", None, None).await;
+        let _ = store.append(Frame::with_topic("topic3").build()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "topic3".to_string());
     }
 
@@ -405,8 +406,8 @@ mod tests {
             "counter.registered".to_string()
         );
 
-        let _ = store.append("topic1", None, None).await;
-        let frame_count1 = store.append("count.me", None, None).await;
+        let _ = store.append(Frame::with_topic("topic1").build()).await;
+        let frame_count1 = store.append(Frame::with_topic("count.me").build()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
         assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
@@ -419,7 +420,7 @@ mod tests {
         let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
         assert_eq!(value, serde_json::json!({ "state": { "count": 1 } }));
 
-        let frame_count2 = store.append("count.me", None, None).await;
+        let frame_count2 = store.append(Frame::with_topic("count.me").build()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
         let frame = recver.recv().await.unwrap();
@@ -475,7 +476,7 @@ mod tests {
             "action.registered".to_string()
         );
 
-        let _ = store.append("pew", None, None).await;
+        let _ = store.append(Frame::with_topic("pew").build()).await;
         let frame_pew = recver.recv().await.unwrap();
         assert_eq!(frame_pew.topic, "pew".to_string());
 
@@ -532,7 +533,7 @@ mod tests {
         );
         // fin assertions on these two frames
 
-        let _ = store.append("pew", None, None).await;
+        let _ = store.append(Frame::with_topic("pew").build()).await;
         let frame_pew = recver.recv().await.unwrap();
         assert_eq!(frame_pew.topic, "pew".to_string());
 

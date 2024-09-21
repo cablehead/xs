@@ -41,7 +41,7 @@ crossbeam-channel = "0.5.13"
 tracing = "0.1.40"
 console = "0.15.8"
 chrono = "0.4.38"
-bon = "2.2"
+bon = "2.3"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"

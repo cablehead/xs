@@ -129,7 +129,11 @@ pub async fn serve(
                 });
 
                 let _ = store
-                    .append(&format!("{}.spawn.error", topic), None, Some(meta))
+                    .append(
+                        Frame::with_topic(format!("{}.spawn.error", topic))
+                            .meta(meta)
+                            .build(),
+                    )
                     .await;
             }
         }
@@ -156,7 +160,12 @@ async fn append(
     });
 
     let frame = store
-        .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
+        .append(
+            Frame::with_topic(format!("{}.{}", topic, postfix))
+                .maybe_hash(hash)
+                .meta(meta)
+                .build(),
+        )
         .await;
     Ok(frame)
 }
@@ -284,14 +293,14 @@ mod tests {
 
         let frame_generator = store
             .append(
-                "toml.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .unwrap(),
-                ),
-                None,
+                Frame::with_topic("toml.spawn")
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
             )
             .await;
 
@@ -334,14 +343,10 @@ mod tests {
 
         let frame_generator = store
             .append(
-                "greeter.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"each { |x| $"hi: ($x)" }"#)
-                        .await
-                        .unwrap(),
-                ),
-                Some(serde_json::json!({"duplex": true})),
+                Frame::with_topic("greeter.spawn".to_string())
+                    .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
+                    .meta(serde_json::json!({"duplex": true}))
+                    .build(),
             )
             .await;
 
@@ -356,9 +361,9 @@ mod tests {
 
         let _ = store
             .append(
-                "greeter.send",
-                Some(store.cas_insert(r#"henry"#).await.unwrap()),
-                None,
+                Frame::with_topic("greeter.send")
+                    .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
+                    .build(),
             )
             .await;
         assert_eq!(
@@ -383,28 +388,28 @@ mod tests {
 
         let _ = store
             .append(
-                "toml.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .unwrap(),
-                ),
-                None,
+                Frame::with_topic("toml.spawn")
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
             )
             .await;
 
         // replaces the previous generator
         let frame_generator = store
             .append(
-                "toml.spawn",
-                Some(
-                    store
-                        .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
-                        .await
-                        .unwrap(),
-                ),
-                None,
+                Frame::with_topic("toml.spawn")
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
             )
             .await;
 
