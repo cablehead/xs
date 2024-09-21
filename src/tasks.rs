@@ -129,7 +129,12 @@ pub async fn serve(
                 });
 
                 let _ = store
-                    .append(&format!("{}.spawn.error", topic), None, Some(meta))
+                    .append(
+                        Frame::builder()
+                            .topic(format!("{}.spawn.error", topic))
+                            .meta(meta)
+                            .build(),
+                    )
                     .await;
             }
         }
@@ -156,7 +161,13 @@ async fn append(
     });
 
     let frame = store
-        .append(&format!("{}.{}", topic, postfix), hash, Some(meta))
+        .append(
+            Frame::builder()
+                .topic(format!("{}.{}", topic, postfix))
+                .maybe_hash(hash)
+                .meta(meta)
+                .build(),
+        )
         .await;
     Ok(frame)
 }

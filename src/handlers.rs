@@ -117,12 +117,13 @@ async fn spawn(
                 if frame.topic == format!("{}.register", &handler.topic) && frame.id != handler.id {
                     let _ = store
                         .append(
-                            &format!("{}.unregistered", &handler.topic),
-                            None,
-                            Some(serde_json::json!({
-                                "handler_id": handler.id.to_string(),
-                                "frame_id": frame.id.to_string(),
-                            })),
+                            Frame::builder()
+                                .topic(format!("{}.unregistered", &handler.topic))
+                                .meta(serde_json::json!({
+                                    "handler_id": handler.id.to_string(),
+                                    "frame_id": frame.id.to_string(),
+                                }))
+                                .build(),
                         )
                         .await;
                     break;
@@ -140,13 +141,15 @@ async fn spawn(
 
     let _ = store
         .append(
-            &format!("{}.registered", &handler.topic),
-            None,
-            Some(serde_json::json!({
-                "handler_id": handler.id.to_string(),
-            })),
+            Frame::builder()
+                .topic(format!("{}.registered", &handler.topic))
+                .meta(serde_json::json!({
+                    "handler_id": handler.id.to_string(),
+                }))
+                .build(),
         )
         .await;
+
     Ok(tx_command)
 }
 

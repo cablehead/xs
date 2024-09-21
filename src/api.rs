@@ -21,7 +21,7 @@ use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
 use crate::nu;
-use crate::store::{self, ReadOptions, Store};
+use crate::store::{self, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -188,7 +188,15 @@ async fn handle_stream_append(
         Err(e) => return response_400(e.to_string()),
     };
 
-    let frame = store.append(&topic, hash, meta).await;
+    let frame = store
+        .append(
+            Frame::builder()
+                .topic(topic)
+                .maybe_hash(hash)
+                .maybe_meta(meta)
+                .build(),
+        )
+        .await;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -256,7 +264,12 @@ pub async fn serve(
     addr: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = store
-        .append("xs.start", None, serde_json::json!({"addr": addr}).into())
+        .append(
+            Frame::builder()
+                .topic("xs.start".to_string())
+                .meta(serde_json::json!({"addr": addr}))
+                .build(),
+        )
         .await;
 
     let mut listener = Listener::bind(addr).await?;
