@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_std::io::WriteExt;
 
 use nu_engine::CallExt;
@@ -5,7 +7,7 @@ use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 use crate::nu::util;
-use crate::store::{Frame, Store};
+use crate::store::{Frame, Store, TTL};
 
 #[derive(Clone)]
 pub struct AppendCommand {
@@ -33,6 +35,12 @@ impl Command for AppendCommand {
                 "arbitrary metadata",
                 None,
             )
+            .named(
+                "ttl",
+                SyntaxShape::Any,
+                r#"forever, ephemeral, temporary, or a duration in milliseconds"#,
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -54,6 +62,28 @@ impl Command for AppendCommand {
         let topic: String = call.req(engine_state, stack, 0)?;
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         let meta = meta.map(|meta| util::value_to_json(&meta));
+
+        // Parse the ttl argument
+        let ttl: Option<Value> = call.get_flag(engine_state, stack, "ttl")?;
+        let ttl = match ttl {
+            Some(Value::String { val, .. }) => match val.as_str() {
+                "forever" => Some(TTL::Forever),
+                "ephemeral" => Some(TTL::Ephemeral),
+                "temporary" => Some(TTL::Temporary),
+                duration_str => duration_str.parse::<u64>()
+                    .map(|millis| Some(TTL::Time(Duration::from_millis(millis))))
+                    .map_err(|_| ShellError::TypeMismatch {
+                        err_message: format!("Invalid TTL value: {}. Expected 'forever', 'ephemeral', 'temporary', or a duration in milliseconds", duration_str),
+                        span: call.span(),
+                    })?,
+            },
+            Some(Value::Int { val, .. }) => Some(TTL::Time(Duration::from_millis(val as u64))),
+            Some(value) => return Err(ShellError::TypeMismatch {
+                err_message: format!("Invalid TTL value: {:?}. Expected 'forever', 'ephemeral', 'temporary', or a duration in milliseconds", value),
+                span: call.span(),
+            }),
+            None => None,
+        };
 
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
@@ -102,6 +132,7 @@ impl Command for AppendCommand {
                     Frame::with_topic(topic)
                         .maybe_hash(hash)
                         .maybe_meta(meta)
+                        .maybe_ttl(ttl)
                         .build(),
                 )
                 .await;

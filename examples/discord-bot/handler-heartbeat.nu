@@ -54,7 +54,7 @@ def "scru128-since" [$id1, $id2] {
 }
 
 def .send [] {
-    to json -r | $"($in)\n" | .append "discord.ws.send"
+    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl ephemeral
 }
 
 {|state|
@@ -148,10 +148,6 @@ def .send [] {
         # dispatch:: GUILD_CREATE
         {op: 0, t: "GUILD_CREATE"} => {
             # ignore
-        }
-
-        _ => {
-            $frame | to json -r | $"($in)\n" | .append "discord.todo"
         }
     }
 
