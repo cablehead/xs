@@ -89,7 +89,7 @@ pub enum TTL {
     Forever, // The event is kept indefinitely.
     Temporary, // (TBD) The event is kept in memory and will be lost when the current process ends.
     Ephemeral, // The event is not stored at all; only active subscribers can see it.
-    Time(Duration), // The event is kept for a custom duration.
+    Time(Duration), // (TBD) The event is kept for a custom duration.
 }
 
 impl<'de> Deserialize<'de> for FollowOption {
@@ -291,8 +291,11 @@ impl Store {
             .maybe_meta(meta.clone())
             .build();
 
-        let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
-        self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
+        // only store the frame if it's not ephemeral
+        if frame.ttl != Some(TTL::Ephemeral) {
+            let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
+            self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
+        }
 
         self.commands_tx
             .send(Command::Append(frame.clone()))
