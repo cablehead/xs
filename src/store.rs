@@ -85,6 +85,7 @@ pub struct Frame {
 }
 
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TTL {
     #[default]
     Forever, // The event is kept indefinitely.
@@ -690,11 +691,11 @@ mod test_ttl {
     fn test_serialize() {
         let ttl: TTL = Default::default();
         let serialized = serde_json::to_string(&ttl).unwrap();
-        assert_eq!(serialized, r#""Forever""#);
+        assert_eq!(serialized, r#""forever""#);
 
         let ttl = TTL::Time(Duration::from_secs(1));
         let serialized = serde_json::to_string(&ttl).unwrap();
-        assert_eq!(serialized, r#"{"Time":{"secs":1,"nanos":0}}"#);
+        assert_eq!(serialized, r#"{"time":{"secs":1,"nanos":0}}"#);
     }
 
     #[test]
