@@ -88,6 +88,10 @@ struct CommandAppend {
     /// JSON metadata to include with the append
     #[clap(long, value_parser)]
     meta: Option<String>,
+
+    /// Time-to-live for the event (forever, temporary, ephemeral, or duration in milliseconds)
+    #[clap(long, value_parser)]
+    ttl: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -200,6 +204,18 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
         .map(|meta_str| serde_json::from_str(&meta_str))
         .transpose()?;
 
+    let ttl = match args.ttl {
+        Some(ttl_str) => {
+            let query = if let Ok(duration) = u64::from_str(&ttl_str) {
+                format!("ttl=time&duration={}", duration)
+            } else {
+                format!("ttl={}", ttl_str)
+            };
+            Some(xs::store::TTL::from_query(Some(&query))?)
+        }
+        None => None,
+    };
+
     let input = if !std::io::stdin().is_terminal() {
         // Stdin is a pipe, use it as input
         Box::new(stdin()) as Box<dyn AsyncRead + Unpin + Send>
@@ -208,7 +224,7 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
         Box::new(tokio::io::empty()) as Box<dyn AsyncRead + Unpin + Send>
     };
 
-    let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref()).await?;
+    let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref(), ttl).await?;
 
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
