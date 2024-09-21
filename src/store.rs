@@ -324,21 +324,6 @@ impl Store {
 
         frame
     }
-
-    pub async fn append_with_content(
-        &mut self,
-        topic: &str,
-        content: &str,
-        meta: Option<serde_json::Value>,
-    ) -> Frame {
-        self.append(
-            Frame::with_topic(topic)
-                .maybe_hash(self.cas_insert(content).await.ok())
-                .maybe_meta(meta)
-                .build(),
-        )
-        .await
-    }
 }
 
 fn handle_commands(store: Store, mut rx: tokio::sync::mpsc::Receiver<Command>) {
