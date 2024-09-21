@@ -1,9 +1,11 @@
-use crate::nu::util;
-use crate::store::Store;
 use async_std::io::WriteExt;
+
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
+
+use crate::nu::util;
+use crate::store::{Frame, Store};
 
 #[derive(Clone)]
 pub struct AppendCommand {
@@ -95,7 +97,14 @@ impl Command for AppendCommand {
                 PipelineData::Empty => Ok(None),
             }?;
 
-            let frame = store.append(topic.as_str(), hash, meta).await;
+            let frame = store
+                .append(
+                    Frame::with_topic(topic)
+                        .maybe_hash(hash)
+                        .maybe_meta(meta)
+                        .build(),
+                )
+                .await;
             Ok::<_, ShellError>(frame)
         })?;
 

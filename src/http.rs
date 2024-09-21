@@ -22,7 +22,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
-use crate::store::{FollowOption, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
@@ -115,9 +115,10 @@ async fn handle(
 
     let frame = store
         .append(
-            "http.request",
-            hash,
-            Some(serde_json::to_value(&req_meta).unwrap()),
+            Frame::with_topic("http.request")
+                .maybe_hash(hash)
+                .maybe_meta(serde_json::to_value(&req_meta).ok())
+                .build(),
         )
         .await;
 
