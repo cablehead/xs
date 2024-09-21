@@ -101,26 +101,23 @@ struct TTLQuery {
 
 impl TTL {
     pub fn from_query(query: Option<&str>) -> Result<Self, String> {
-        match query {
-            Some(q) => {
-                let ttl_query: TTLQuery = serde_urlencoded::from_str(q)
-                    .map_err(|e| format!("Failed to parse query: {}", e))?;
+        let ttl_query: TTLQuery = match query.and_then(|q| serde_urlencoded::from_str(q).ok()) {
+            Some(ttl_query) => ttl_query,
+            None => return Ok(TTL::default()),
+        };
 
-                match ttl_query.ttl.as_str() {
-                    "forever" => Ok(TTL::Forever),
-                    "temporary" => Ok(TTL::Temporary),
-                    "ephemeral" => Ok(TTL::Ephemeral),
-                    "time" => {
-                        if let Some(duration) = ttl_query.duration {
-                            Ok(TTL::Time(Duration::from_millis(duration)))
-                        } else {
-                            Err("Duration must be provided for 'time' TTL".into())
-                        }
-                    }
-                    _ => Err(format!("Invalid TTL type: {}", ttl_query.ttl)),
+        match ttl_query.ttl.as_str() {
+            "forever" => Ok(TTL::Forever),
+            "temporary" => Ok(TTL::Temporary),
+            "ephemeral" => Ok(TTL::Ephemeral),
+            "time" => {
+                if let Some(duration) = ttl_query.duration {
+                    Ok(TTL::Time(Duration::from_millis(duration)))
+                } else {
+                    Err("Duration must be provided for 'time' TTL".into())
                 }
             }
-            None => Ok(TTL::default()),
+            _ => Err(format!("Invalid TTL type: {}", ttl_query.ttl)),
         }
     }
 }
@@ -703,6 +700,9 @@ mod test_ttl {
     #[test]
     fn test_from_query() {
         let ttl = TTL::from_query(None);
+        assert_eq!(ttl, Ok(TTL::default()));
+
+        let ttl = TTL::from_query(Some(""));
         assert_eq!(ttl, Ok(TTL::default()));
 
         let ttl = TTL::from_query(Some("ttl=forever"));

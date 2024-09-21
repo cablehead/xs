@@ -21,7 +21,7 @@ use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
 use crate::nu;
-use crate::store::{self, Frame, ReadOptions, Store};
+use crate::store::{self, Frame, ReadOptions, Store, TTL};
 use crate::thread_pool::ThreadPool;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -156,6 +156,12 @@ async fn handle_stream_append(
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
+    // Parse TTL from query parameters
+    let ttl = match TTL::from_query(parts.uri.query()) {
+        Ok(ttl) => ttl,
+        Err(e) => return response_400(e),
+    };
+
     let hash = {
         let writer = store.cas_writer().await?;
         let mut writer = writer.compat_write();
@@ -194,6 +200,7 @@ async fn handle_stream_append(
                 .topic(topic)
                 .maybe_hash(hash)
                 .maybe_meta(meta)
+                .ttl(ttl) // Add the TTL to the Frame
                 .build(),
         )
         .await;
