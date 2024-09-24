@@ -11,6 +11,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
 #[derive(Debug)]
+pub enum SendError {
+    ChannelClosed(tokio::sync::mpsc::error::TrySendError<Frame>),
+    LimitReached,
+    LockError,
+}
+
+#[derive(Debug)]
 struct LimitedSender {
     tx: Option<tokio::sync::mpsc::Sender<Frame>>,
     remaining: Option<usize>,
@@ -26,7 +33,7 @@ impl LimitedSender {
 
     fn send(&mut self, frame: Frame) -> Result<(), SendError> {
         if let Some(tx) = &self.tx {
-            match tx.blocking_send(frame) {
+            match tx.try_send(frame) {
                 Ok(()) => {
                     if let Some(remaining) = &mut self.remaining {
                         *remaining -= 1;
@@ -44,7 +51,7 @@ impl LimitedSender {
             }
         } else {
             Err(SendError::ChannelClosed(
-                tokio::sync::mpsc::error::SendError(frame),
+                tokio::sync::mpsc::error::SendError(frame).into(),
             ))
         }
     }
@@ -65,13 +72,6 @@ impl SharedLimitedSender {
     fn send(&self, frame: Frame) -> Result<(), SendError> {
         self.0.lock().map_err(|_| SendError::LockError)?.send(frame)
     }
-}
-
-#[derive(Debug)]
-pub enum SendError {
-    ChannelClosed(tokio::sync::mpsc::error::SendError<Frame>),
-    LimitReached,
-    LockError,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Default, bon::Builder)]
