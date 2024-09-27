@@ -51,6 +51,7 @@ pub async fn cat(
     tail: bool,
     last_id: Option<String>,
     limit: Option<u64>,
+    sse: bool,
 ) -> Result<Receiver<Bytes>, BoxError> {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);
@@ -91,10 +92,13 @@ pub async fn cat(
         "http://localhost/".to_string()
     };
 
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(empty())?;
+    let mut req = Request::builder().method(Method::GET).uri(uri);
+
+    if sse {
+        req = req.header("Accept", "text/event-stream");
+    }
+
+    let req = req.body(empty())?;
 
     let res = sender.send_request(req).await?;
 

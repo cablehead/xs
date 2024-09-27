@@ -73,6 +73,10 @@ struct CommandCat {
     /// Limit the number of events
     #[clap(long)]
     limit: Option<u64>,
+
+    /// Use Server-Sent Events format
+    #[clap(long)]
+    sse: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -184,6 +188,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         args.tail,
         args.last_id.clone(),
         args.limit,
+        args.sse,
     )
     .await?;
     let mut stdout = tokio::io::stdout();
