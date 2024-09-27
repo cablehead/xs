@@ -163,7 +163,7 @@ async fn handle_stream_cat(
     let rx = store.read(options).await;
     let stream = ReceiverStream::new(rx);
 
-    let accept_type_clone = accept_type.clone(); // Clone here to use in the closure
+    let accept_type_clone = accept_type.clone();
     let stream = stream.map(move |frame| {
         let bytes = match accept_type_clone {
             AcceptType::Ndjson => {
@@ -175,7 +175,7 @@ async fn handle_stream_cat(
                 "event: {}\nid: {}\ndata: {}\n\n",
                 frame.topic,
                 frame.id,
-                serde_json::to_string(&frame.meta).unwrap_or_default()
+                serde_json::to_string(&frame).unwrap_or_default()
             )
             .into_bytes(),
         };
