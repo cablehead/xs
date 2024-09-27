@@ -324,8 +324,17 @@ pub async fn serve(
         .await;
 
     let path = store.path.join("sock").to_string_lossy().to_string();
-    let mut listener = Listener::bind(&path).await?;
+    let listener = Listener::bind(&path).await?;
 
+    listener_loop(listener, store, engine, pool).await
+}
+
+async fn listener_loop(
+    mut listener: Listener,
+    store: Store,
+    engine: nu::Engine,
+    pool: ThreadPool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
