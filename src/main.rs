@@ -36,11 +36,10 @@ struct CommandServe {
     #[clap(value_parser)]
     path: PathBuf,
 
-    /// Overrides the default address the API listens on.
-    /// Default is a Unix domain socket 'sock' in the store path.
-    /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
+    /// Exposes the API on an additional address.
+    /// Can be [HOST]:PORT for TCP or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
-    api: Option<String>,
+    expose: Option<String>,
 
     /// Enables a HTTP endpoint.
     /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
@@ -171,10 +170,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     }
 
     // TODO: graceful shutdown
-    let addr = args
-        .api
-        .unwrap_or_else(|| store.path.join("sock").to_string_lossy().to_string());
-    xs::api::serve(store, engine.clone(), pool.clone(), &addr).await?;
+    xs::api::serve(store, engine.clone(), pool.clone(), args.expose).await?;
     pool.wait_for_completion();
 
     Ok(())
