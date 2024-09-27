@@ -313,17 +313,18 @@ pub async fn serve(
     mut store: Store,
     engine: nu::Engine,
     pool: ThreadPool,
-    addr: &str,
+    expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = store
         .append(
             Frame::with_topic("xs.start")
-                .meta(serde_json::json!({"addr": addr}))
+                .meta(serde_json::json!({"expose": expose}))
                 .build(),
         )
         .await;
 
-    let mut listener = Listener::bind(addr).await?;
+    let path = store.path.join("sock").to_string_lossy().to_string();
+    let mut listener = Listener::bind(&path).await?;
 
     loop {
         let (stream, _) = listener.accept().await?;
