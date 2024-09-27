@@ -326,7 +326,28 @@ pub async fn serve(
     let path = store.path.join("sock").to_string_lossy().to_string();
     let listener = Listener::bind(&path).await?;
 
-    listener_loop(listener, store, engine, pool).await
+    let mut listeners = vec![listener];
+
+    if let Some(expose) = expose {
+        listeners.push(Listener::bind(&expose).await?);
+    }
+
+    let mut tasks = Vec::new();
+    for listener in listeners {
+        let store = store.clone();
+        let engine = engine.clone();
+        let pool = pool.clone();
+        let task = tokio::spawn(async move { listener_loop(listener, store, engine, pool).await });
+        tasks.push(task);
+    }
+
+    // TODO: graceful shutdown and error handling
+    // Wait for all listener tasks to complete (or until the first error)
+    for task in tasks {
+        task.await??;
+    }
+
+    Ok(())
 }
 
 async fn listener_loop(
