@@ -313,18 +313,49 @@ pub async fn serve(
     mut store: Store,
     engine: nu::Engine,
     pool: ThreadPool,
-    addr: &str,
+    expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = store
         .append(
             Frame::with_topic("xs.start")
-                .meta(serde_json::json!({"addr": addr}))
+                .meta(serde_json::json!({"expose": expose}))
                 .build(),
         )
         .await;
 
-    let mut listener = Listener::bind(addr).await?;
+    let path = store.path.join("sock").to_string_lossy().to_string();
+    let listener = Listener::bind(&path).await?;
 
+    let mut listeners = vec![listener];
+
+    if let Some(expose) = expose {
+        listeners.push(Listener::bind(&expose).await?);
+    }
+
+    let mut tasks = Vec::new();
+    for listener in listeners {
+        let store = store.clone();
+        let engine = engine.clone();
+        let pool = pool.clone();
+        let task = tokio::spawn(async move { listener_loop(listener, store, engine, pool).await });
+        tasks.push(task);
+    }
+
+    // TODO: graceful shutdown and error handling
+    // Wait for all listener tasks to complete (or until the first error)
+    for task in tasks {
+        task.await??;
+    }
+
+    Ok(())
+}
+
+async fn listener_loop(
+    mut listener: Listener,
+    store: Store,
+    engine: nu::Engine,
+    pool: ThreadPool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
