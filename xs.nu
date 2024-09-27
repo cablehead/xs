@@ -1,9 +1,14 @@
 export alias "h. get" = h. request get
 export alias "h. post" = h. request post
 
-alias and-then = if ($in | is-not-empty)
 alias ? = if ($in | is-not-empty) { $in }
 alias ?? = ? else { return }
+
+def and-then [ next: closure --else: closure ] {
+    if ($in | is-not-empty) { do $next } else {
+        do $else
+    }
+}
 
 export def store-addr [] {
     $env | default "./store" XSPWD | get XSPWD
@@ -42,23 +47,53 @@ def read_hash [hash?: any] {
     }
 }
 
+# .step: Process events from a topic, using a subtopic as a cursor for the last processed event.
+#
+# Parameters:
+#   handler: closure     - Processes each event. Return null to continue, non-null to stop.
+#   proto_topic: string  - Main topic to process events from. Cursor stored in "{proto_topic}.last-id".
+#   --follow (-f)        - Optional. Long poll for new events.
+#
+# Behavior:
+# - Processes events from proto_topic, using "{proto_topic}.last-id" as a cursor.
+# - Calls handler for each event, skips events matching the cursor subtopic.
+# - Updates cursor after processing each event.
+# - Continues until handler returns non-null or no more events (unless --follow is set).
+#
+# Returns:
+# - {in: $frame, out: $res} if handler returns non-null, where $frame is the input event
+#   and $res is the handler's output. Returns null if all events processed or none available.
+#
+# Note: something doesn't feel right about using the stream to track last
+# processed id, which requires us to skip our own emissions
 export def .step [
     handler: closure
-    meta_path: string
+    proto_topic: string
     --follow (-f)       # long poll for new events
 ] {
+    let topic = $"($proto_topic).last-id"
+
+
+    mut prev = .head $topic | and-then { {
+        last_id: ($in.meta.last_id)
+    } } --else { {} }
+
     loop {
-        let meta = try { open -r $meta_path } catch { "{}" } | from json
-        let frame = _cat ($meta | insert follow $follow | insert limit 1)  | try { first } catch { return }
-        let res = $frame | do $handler
-        if $res == null {
-            {last_id: $frame.id} | to json -r | save -rf $meta_path
+        let frame = _cat ($prev | insert follow $follow | insert limit 1) | try { first }
+        if $frame == null { return }
+
+        $prev.last_id = $frame.id
+        if $frame.topic == $topic {
             continue
         }
 
-        return $res
-    }
+        let res = $frame | do $handler
+        if $res != null {
+            return {in: $frame out: $res}
+        }
 
+        .append $topic --meta {last_id: $prev.last_id}
+    }
 }
 
 export def .cas [hash?: any] {
