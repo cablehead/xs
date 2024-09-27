@@ -14,6 +14,7 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 use http_body_util::StreamBody;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Bytes;
+use hyper::header::ACCEPT;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
@@ -27,8 +28,14 @@ use crate::thread_pool::ThreadPool;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
+#[derive(Debug, PartialEq)]
+enum AcceptType {
+    Ndjson,
+    EventStream,
+}
+
 enum Routes {
-    StreamCat,
+    StreamCat(AcceptType),
     StreamAppend(String),
     StreamItemGet(Scru128Id),
     StreamItemRemove(Scru128Id),
@@ -38,9 +45,15 @@ enum Routes {
     NotFound,
 }
 
-fn match_route(method: &Method, path: &str) -> Routes {
+fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Routes {
     match (method, path) {
-        (&Method::GET, "/") => Routes::StreamCat,
+        (&Method::GET, "/") => {
+            let accept_type = match headers.get(ACCEPT) {
+                Some(accept) if accept == "text/event-stream" => AcceptType::EventStream,
+                _ => AcceptType::Ndjson,
+            };
+            Routes::StreamCat(accept_type)
+        }
 
         (&Method::POST, p) if p.starts_with("/pipe/") => {
             if let Some(id_str) = p.strip_prefix("/pipe/") {
@@ -100,23 +113,16 @@ async fn handle(
 ) -> HTTPResult {
     let method = req.method();
     let path = req.uri().path();
+    let headers = req.headers().clone();
 
-    match match_route(method, path) {
-        Routes::StreamCat => {
+    match match_route(method, path, &headers) {
+        Routes::StreamCat(accept_type) => {
             let options = match ReadOptions::from_query(req.uri().query()) {
                 Ok(opts) => opts,
                 Err(err) => return response_400(err.to_string()),
             };
 
-            let rx = store.read(options).await;
-            let stream = ReceiverStream::new(rx);
-            let stream = stream.map(|frame| {
-                let mut encoded = serde_json::to_vec(&frame).unwrap();
-                encoded.push(b'\n');
-                Ok(hyper::body::Frame::data(bytes::Bytes::from(encoded)))
-            });
-            let body = StreamBody::new(stream).boxed();
-            Ok(Response::new(body))
+            handle_stream_cat(&mut store, options, accept_type).await
         }
 
         Routes::StreamAppend(topic) => handle_stream_append(&mut store, req, topic).await,
@@ -147,6 +153,48 @@ async fn handle(
 
         Routes::NotFound => response_404(),
     }
+}
+
+async fn handle_stream_cat(
+    store: &mut Store,
+    options: ReadOptions,
+    accept_type: AcceptType,
+) -> HTTPResult {
+    let rx = store.read(options).await;
+    let stream = ReceiverStream::new(rx);
+
+    let stream = stream.map(move |frame| {
+        let bytes = match accept_type {
+            AcceptType::Ndjson => {
+                let mut encoded = serde_json::to_vec(&frame).unwrap();
+                encoded.push(b'\n');
+                encoded
+            }
+            AcceptType::EventStream => {
+                let mut encoded = format!(
+                    "event: {}\nid: {}\ndata: {}\n\n",
+                    frame.topic,
+                    frame.id,
+                    serde_json::to_string(&frame.meta).unwrap_or_default()
+                )
+                .into_bytes();
+                encoded
+            }
+        };
+        Ok(hyper::body::Frame::data(Bytes::from(bytes)))
+    });
+
+    let body = StreamBody::new(stream).boxed();
+
+    let content_type = match accept_type {
+        AcceptType::Ndjson => "application/x-ndjson",
+        AcceptType::EventStream => "text/event-stream",
+    };
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", content_type)
+        .body(body)?)
 }
 
 async fn handle_stream_append(
