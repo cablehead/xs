@@ -28,7 +28,7 @@ use crate::thread_pool::ThreadPool;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum AcceptType {
     Ndjson,
     EventStream,
@@ -163,23 +163,21 @@ async fn handle_stream_cat(
     let rx = store.read(options).await;
     let stream = ReceiverStream::new(rx);
 
+    let accept_type_clone = accept_type.clone(); // Clone here to use in the closure
     let stream = stream.map(move |frame| {
-        let bytes = match accept_type {
+        let bytes = match accept_type_clone {
             AcceptType::Ndjson => {
                 let mut encoded = serde_json::to_vec(&frame).unwrap();
                 encoded.push(b'\n');
                 encoded
             }
-            AcceptType::EventStream => {
-                let mut encoded = format!(
-                    "event: {}\nid: {}\ndata: {}\n\n",
-                    frame.topic,
-                    frame.id,
-                    serde_json::to_string(&frame.meta).unwrap_or_default()
-                )
-                .into_bytes();
-                encoded
-            }
+            AcceptType::EventStream => format!(
+                "event: {}\nid: {}\ndata: {}\n\n",
+                frame.topic,
+                frame.id,
+                serde_json::to_string(&frame.meta).unwrap_or_default()
+            )
+            .into_bytes(),
         };
         Ok(hyper::body::Frame::data(Bytes::from(bytes)))
     });
