@@ -41,8 +41,9 @@ To append items to the stream, use:
 % xs append ./store <topic>
 ```
 
-The content for the event is read from stdin and stored in a Content-Addressable
-Storage (CAS). You can also attach arbitrary metadata to an event using the
+The content for the event can be provided via stdin and, if present, will be
+stored in Content-Addressable Storage (CAS). You can also append events without
+content. Additionally, you can attach arbitrary metadata to an event using the
 `--meta` flag, which accepts metadata in JSON format.
 
 For example:
