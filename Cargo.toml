@@ -16,7 +16,7 @@ bytes = "1.6.0"
 cacache = "13"
 clap = { version = "4", features = ["derive"] }
 fjall = "1.5"
-futures = "0.3.30"
+futures = "0.3.31"
 http = "1.1.0"
 http-body-util = "0.1"
 http-serde = "2.1.1"
