@@ -325,7 +325,10 @@ mod tests {
         let meta = frame.meta.unwrap();
         assert_eq!(meta["source_id"], frame_generator.id.to_string());
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        assert_eq!(std::str::from_utf8(&content).unwrap(), r#"name = "xs""#);
+        assert_eq!(
+            std::str::from_utf8(&content).unwrap(),
+            r#"name = "cross-stream""#
+        );
     }
 
     #[tokio::test]
@@ -436,7 +439,10 @@ mod tests {
         let meta = frame.meta.unwrap();
         assert_eq!(meta["source_id"], frame_generator.id.to_string());
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        assert_eq!(std::str::from_utf8(&content).unwrap(), r#"name = "xs""#);
+        assert_eq!(
+            std::str::from_utf8(&content).unwrap(),
+            r#"name = "cross-stream""#
+        );
 
         let frame = recver.recv().await.unwrap();
         assert_eq!(frame.topic, "toml.recv".to_string());
