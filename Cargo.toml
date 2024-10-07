@@ -1,7 +1,7 @@
 [package]
-name = "xs"
+name = "cross-stream"
 edition = "2021"
-version = "0.1.0"
+version = "0.0.8"
 
 [lib]
 name = "xs"
