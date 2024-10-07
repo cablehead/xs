@@ -48,8 +48,8 @@ subscribing to real-time updates from the event stream.
 
 To append items to the stream, use:
 
-```
-xs append ./store <topic>
+```bash
+% xs append ./store <topic>
 ```
 
 The content for the event is read from stdin and stored in a Content-Addressable
@@ -59,14 +59,14 @@ Storage (CAS). You can also attach arbitrary metadata to an event using the
 For example:
 
 ```bash
-echo "content" | xs append ./store my-topic --meta '{"type": "text/plain"}'
+% echo "content" | xs append ./store my-topic --meta '{"type": "text/plain"}'
 {"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0copBCnj1b8G1iZw1k0NuYasMcx6QctleltspAgXlM=","meta":{"type":"text/plain"},"ttl":"forever"}
 ```
 
 To fetch the contents of the stream, use the `cat` command:
 
 ```bash
-$ xs cat ./store/
+% xs cat ./store/
 {"topic":"xs.start","id":"03clswlaih9x17izyzqy5jg7n","hash":null,"meta":{"expose":null},"ttl":null}
 {"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0copBCnj1b8G1iZw1k0NuYasMcx6QctleltspAgXlM=","meta":{"type":"text/plain"},"ttl":"forever"}
 ```
@@ -79,7 +79,7 @@ which represents the hash of the stored content. You can retrieve this content
 from the Content-Addressable Storage (CAS) using:
 
 ```bash
-xs cas ./store/ sha256-Q0copBCnj1b8G1iZw1k0NuYasMcx6QctleltspAgXlM=
+% xs cas ./store/ sha256-Q0copBCnj1b8G1iZw1k0NuYasMcx6QctleltspAgXlM=
 content
 ```
 
