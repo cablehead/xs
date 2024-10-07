@@ -2,6 +2,14 @@
 name = "cross-stream"
 edition = "2021"
 version = "0.0.8"
+description = "An event stream store for personal, local-first use, specializing in event sourcing."
+license = "MIT"
+repository = "https://github.com/cablehead/xs"
+homepage = "https://github.com/cablehead/xs"
+documentation = "https://docs.rs/cross-stream"
+readme = "README.md"
+keywords = ["event-sourcing", "local-first", "stream", "personal", "event-stream"]
+categories = ["asynchronous", "data-structures", "system"]
 
 [lib]
 name = "xs"
