@@ -2,7 +2,6 @@
 
 > "You don't so much run it, as poke _at_ it."
 
-
 An event stream store for personal, local-first use. Kinda like the
 [`sqlite3` cli](https://sqlite.org/cli.html), but specializing in the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
