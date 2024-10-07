@@ -27,8 +27,7 @@ Required to run:
 - [scru128-cli](https://github.com/cablehead/scru128-cli)- needed for `scru128-since`
 
 ```
-git clone https://github.com/cablehead/xs.git
-cargo r -- ./store
+% xs serve ./store
 ```
 
 In another session:
