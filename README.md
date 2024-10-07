@@ -18,10 +18,6 @@ Commands:
   cas     Retrieve content from Content-Addressable Storage
   remove  Remove an item from the stream
   help    Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help     Print help
-  -V, --version  Print version
 ```
 
 Unlike `sqlite`, which operates directly on the file system, xs requires a
