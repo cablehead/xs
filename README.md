@@ -8,6 +8,20 @@ An event stream store for personal, local-first use. Kinda like the
 
 ![overview](./docs/overview.png)
 
+## Installation
+
+You can install the tool with:
+
+```sh
+cargo install cross-stream
+```
+
+or
+
+```sh
+brew install cablehead/tap/cross-stream
+```
+
 ## Usage
 
 ```sh
