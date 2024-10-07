@@ -8,6 +8,7 @@ name = "xs"
 
 [[bin]]
 name = "xs"
+path = "src/main.rs"
 
 [dependencies]
 async-std = "1.12.0"

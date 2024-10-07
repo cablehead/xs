@@ -923,6 +923,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "cross-stream"
+version = "0.0.8"
+dependencies = [
+ "assert_cmd",
+ "async-std",
+ "bon",
+ "bytes",
+ "cacache",
+ "chrono",
+ "clap",
+ "console",
+ "crossbeam-channel",
+ "duct",
+ "fjall",
+ "futures",
+ "http",
+ "http-body-util",
+ "http-serde",
+ "hyper",
+ "hyper-util",
+ "nu-cli",
+ "nu-cmd-lang",
+ "nu-command",
+ "nu-engine",
+ "nu-parser",
+ "nu-protocol",
+ "scru128",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "ssri",
+ "static_assertions",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5258,48 +5300,6 @@ dependencies = [
  "libc",
  "linux-raw-sys 0.4.14",
  "rustix 0.38.34",
-]
-
-[[package]]
-name = "xs"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "async-std",
- "bon",
- "bytes",
- "cacache",
- "chrono",
- "clap",
- "console",
- "crossbeam-channel",
- "duct",
- "fjall",
- "futures",
- "http",
- "http-body-util",
- "http-serde",
- "hyper",
- "hyper-util",
- "nu-cli",
- "nu-cmd-lang",
- "nu-command",
- "nu-engine",
- "nu-parser",
- "nu-protocol",
- "scru128",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "ssri",
- "static_assertions",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]
