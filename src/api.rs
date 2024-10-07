@@ -172,8 +172,7 @@ async fn handle_stream_cat(
                 encoded
             }
             AcceptType::EventStream => format!(
-                "event: {}\nid: {}\ndata: {}\n\n",
-                frame.topic,
+                "id: {}\ndata: {}\n\n",
                 frame.id,
                 serde_json::to_string(&frame).unwrap_or_default()
             )
