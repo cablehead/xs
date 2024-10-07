@@ -36,8 +36,8 @@ subscribing to real-time updates from the event stream.
 ### Basics
 
 **Note:** `xs` is designed to be orchestrated with
-[Nushell](https://www.nushell.sh), but since many are more familiar with
-`bash`, here are the very basics that work just fine from `bash`.
+[Nushell](https://www.nushell.sh), but since many are more familiar with `bash`,
+here are the very basics that work just fine from `bash`.
 
 To append items to the stream, use:
 
@@ -80,7 +80,7 @@ content
 
 - [fjall](https://github.com/fjall-rs/fjall): for indexing and metadata
 - [cacache](https://github.com/zkat/cacache-rs): for content (CAS)
-- [hyper](https://hyper.rs/guides/1/server/echo/): provides an HTTP/1.1 API
-  over a local Unix domain socket for subscriptions, etc.
+- [hyper](https://hyper.rs/guides/1/server/echo/): provides an HTTP/1.1 API over
+  a local Unix domain socket for subscriptions, etc.
 - [Nushell](https://www.nushell.sh): for scripting and
   [interop](https://utopia.rosano.ca/interoperable-visions/)
