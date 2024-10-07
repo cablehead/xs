@@ -3,10 +3,6 @@
 [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml)
 [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
 
-```
-Status: WIP  [████████████████ 80%] ... (until a v0.1.0 release)
-```
-
 An event stream store for personal, local-first use. Kinda like the
 [`sqlite3` cli](https://sqlite.org/cli.html), but specializing in the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
