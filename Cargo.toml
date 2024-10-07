@@ -8,8 +8,8 @@ repository = "https://github.com/cablehead/xs"
 homepage = "https://github.com/cablehead/xs"
 documentation = "https://docs.rs/cross-stream"
 readme = "README.md"
-keywords = ["event-sourcing", "local-first", "stream", "personal", "event-stream"]
-categories = ["asynchronous", "data-structures", "system"]
+keywords = ["cli", "queue", "embedded", "eventstore"]
+categories = ["command-line-utilities", "embedded", "database"]
 
 [lib]
 name = "xs"
