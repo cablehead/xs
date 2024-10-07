@@ -1,13 +1,11 @@
-# xs (cross-stream)
+# xs (cross-stream) [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml) [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
 
-[![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml)
-[![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
+> "You don't so much run it, as poke _at_ it."
+
 
 An event stream store for personal, local-first use. Kinda like the
 [`sqlite3` cli](https://sqlite.org/cli.html), but specializing in the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
-
-> "You don't so much run it, as poke _at_ it."
 
 ## Usage
 
