@@ -1,12 +1,16 @@
-# xs (cross-stream) [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml) [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
+# xs (cross-stream) [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml)
+
+Come hang out and play
+
+[![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
+
+![overview](./docs/overview.png)
 
 > "You don't so much run it, as poke _at_ it."
 
 An event stream store for personal, local-first use. Kinda like the
 [`sqlite3` cli](https://sqlite.org/cli.html), but specializing in the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
-
-![overview](./docs/overview.png)
 
 ## Installation
 
