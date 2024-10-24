@@ -4,14 +4,15 @@
 -- Come hang out and play
 
 `xs` is an event stream store designed for personal, local-first use. Think of
-it like the [`sqlite3` cli](https://sqlite.org/cli.html), but built specifically
-for [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html).
+it like the [`sqlite3` cli](https://sqlite.org/cli.html), but crafted
+specifically for
+[event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html).
 
-At its core, `xs` is all about fun and playfulness. Event sourcing gives you an
+The focus is on fun and playfulness. Event sourcing provides an
 [immediate connection to what you're creating](https://youtu.be/a-OyoVcbwWE?si=kfuJ0KkSGlN21GBL&t=121),
-making the process of building and experimenting feel alive. `xs` encourages you
-to dive in, make a mess, and explore the possibilities—then equips you with the
-tools to make sense of it all.
+making the process feel alive. `xs` encourages experimentation, allowing you to
+make messes and explore freely—then gives you the means to organize and make
+sense of it all.
 
 > "You don't so much run it, as poke _at_ it."
 
