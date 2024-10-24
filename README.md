@@ -7,8 +7,8 @@
 The focus is on fun and playfulness. Event sourcing provides an
 [immediate connection to what you're creating](https://youtu.be/a-OyoVcbwWE?si=kfuJ0KkSGlN21GBL&t=121),
 making the process feel alive. `xs` encourages experimentation, allowing you to
-make messes and explore freely—then gives you the means to organize and make
-sense of it all.
+make messes and explore freely—then gives you tools to organize and make sense
+of it all.
 
 ![overview](./docs/overview.png)
 
