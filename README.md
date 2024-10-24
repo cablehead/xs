@@ -1,12 +1,8 @@
 # xs (cross-stream) [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml)
 
-[![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
--- Come hang out and play
-
-`xs` is an event stream store designed for personal, local-first use. Think of
-it like the [`sqlite3` cli](https://sqlite.org/cli.html), but crafted
-specifically for
-[event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html).
+`xs` is an event stream store for personal, local-first use. Think of it like
+the [`sqlite3` cli](https://sqlite.org/cli.html), specializing in the
+[event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
 The focus is on fun and playfulness. Event sourcing provides an
 [immediate connection to what you're creating](https://youtu.be/a-OyoVcbwWE?si=kfuJ0KkSGlN21GBL&t=121),
@@ -14,9 +10,12 @@ making the process feel alive. `xs` encourages experimentation, allowing you to
 make messes and explore freely—then gives you the means to organize and make
 sense of it all.
 
+![overview](./docs/overview.png)
+
 > "You don't so much run it, as poke _at_ it."
 
-![overview](./docs/overview.png)
+[![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
+Come hang out and play
 
 ## Installation
 
