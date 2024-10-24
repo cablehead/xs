@@ -1,7 +1,7 @@
 # xs (cross-stream) [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml)
 
 `xs` is an event stream store for personal, local-first use. Think of it like
-the [`sqlite3` cli](https://sqlite.org/cli.html), specializing in the
+[`sqlite`](https://sqlite.org/cli.html), but specializing in the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
 The focus is on fun and playfulness. Event sourcing provides an
