@@ -22,7 +22,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
@@ -61,6 +61,8 @@ async fn handle(
     mut store: Store,
     req: hyper::Request<hyper::body::Incoming>,
     addr: Option<SocketAddr>,
+    connection_id: Scru128Id,
+    active_streams: std::sync::Arc<tokio::sync::Mutex<ActiveStreams>>,
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
@@ -122,6 +124,9 @@ async fn handle(
         )
         .await;
 
+    // Track request after creating its frame
+    active_streams.lock().await.track(&connection_id, frame.id);
+
     let (meta, hashes) = wait_for_response(&store, frame.id).await.unwrap();
 
     let res = hyper::Response::builder();
@@ -142,9 +147,49 @@ async fn handle(
         }
     }
 
-    let stream = transform_hash_stream(store.clone(), hashes).await;
+    let stream = transform_hash_stream(
+        store.clone(),
+        hashes,
+        connection_id,
+        frame.id,
+        active_streams,
+    )
+    .await;
+
     let body = StreamBody::new(stream).boxed();
     Ok(res.body(body)?)
+}
+
+#[derive(Default)]
+struct ActiveStreams {
+    connections: std::collections::HashMap<Scru128Id, std::collections::HashSet<Scru128Id>>,
+}
+
+impl ActiveStreams {
+    fn track(&mut self, connection_id: &Scru128Id, request_id: Scru128Id) {
+        self.connections
+            .entry(*connection_id)
+            .or_default()
+            .insert(request_id);
+    }
+
+    fn untrack_request(&mut self, connection_id: &Scru128Id, request_id: &Scru128Id) -> bool {
+        if let Some(requests) = self.connections.get_mut(connection_id) {
+            let removed = requests.remove(request_id);
+            if requests.is_empty() {
+                self.connections.remove(connection_id);
+            }
+            removed
+        } else {
+            false
+        }
+    }
+
+    fn untrack_connection(&mut self, connection_id: &Scru128Id) -> Option<Vec<Scru128Id>> {
+        self.connections
+            .remove(connection_id)
+            .map(|requests| requests.into_iter().collect())
+    }
 }
 
 pub async fn serve(
@@ -153,28 +198,53 @@ pub async fn serve(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::info!("starting http interface: {:?}", addr);
     let mut listener = Listener::bind(addr).await?;
+    let active_streams = std::sync::Arc::new(tokio::sync::Mutex::new(ActiveStreams::default()));
+
     loop {
         let (stream, remote_addr) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let store = store.clone();
+        let active_streams = active_streams.clone();
+        let connection_id = scru128::new();
+
         tokio::task::spawn(async move {
-            if let Err(err) = http1::Builder::new()
+            let store_inner = store.clone();
+            let active_streams_inner = active_streams.clone();
+
+            let connection_result = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_fn(move |req| handle(store.clone(), req, remote_addr)),
+                    service_fn(move |req| {
+                        handle(
+                            store_inner.clone(),
+                            req,
+                            remote_addr,
+                            connection_id,
+                            active_streams_inner.clone(),
+                        )
+                    }),
                 )
-                .await
-            {
-                // Match against the error kind to selectively ignore `NotConnected` errors
-                if let Some(std::io::ErrorKind::NotConnected) = err.source().and_then(|source| {
-                    source
-                        .downcast_ref::<std::io::Error>()
-                        .map(|io_err| io_err.kind())
-                }) {
-                    // Silently ignore the NotConnected error
-                } else {
-                    // Handle or log other errors
-                    tracing::error!("Error serving connection: {:?}", err);
+                .await;
+
+            if let Err(err) = connection_result {
+                tracing::error!("Error serving connection: {:?}", err);
+            }
+
+            // Clean up any remaining tracked requests for this connection
+            let mut streams = active_streams.lock().await;
+            if let Some(requests) = streams.untrack_connection(&connection_id) {
+                for request_id in requests {
+                    let mut store = store.clone();
+                    let _ = store
+                        .append(
+                            Frame::with_topic("http.disconnect")
+                                .meta(serde_json::json!({
+                                    "request_id": request_id.to_string(),
+                                }))
+                                .ttl(TTL::Ephemeral)
+                                .build(),
+                        )
+                        .await;
                 }
             }
         });
@@ -227,7 +297,10 @@ type ResultFrame = Result<hyper::body::Frame<bytes::Bytes>, Box<dyn Error + Send
 
 async fn transform_hash_stream(
     store: Store,
-    hash_stream: impl futures::Stream<Item = ssri::Integrity>,
+    hash_stream: impl futures::Stream<Item = ssri::Integrity> + Unpin,
+    connection_id: Scru128Id,
+    request_id: Scru128Id,
+    active_streams: std::sync::Arc<tokio::sync::Mutex<ActiveStreams>>,
 ) -> impl futures::Stream<Item = ResultFrame> {
     let mapped_stream = hash_stream.then(move |hash| {
         let store = store.clone();
@@ -236,20 +309,35 @@ async fn transform_hash_stream(
                 Ok(reader) => {
                     let reader = reader.compat();
                     let stream = ReaderStream::new(reader);
-                    Ok::<_, Box<dyn Error + Send + Sync>>(futures::StreamExt::map(
-                        stream,
-                        |frame| {
-                            let frame = frame.unwrap();
-                            Ok(hyper::body::Frame::data(frame))
-                        },
-                    ))
+                    Ok::<_, Box<dyn Error + Send + Sync>>(stream.map(|frame| {
+                        let frame = frame.unwrap();
+                        Ok(hyper::body::Frame::data(frame))
+                    }))
                 }
                 Err(e) => Err(Box::new(e) as Box<dyn Error + Send + Sync>),
             }
         }
     });
 
-    futures::stream::TryStreamExt::try_flatten(mapped_stream)
+    let stream = futures::stream::TryStreamExt::try_flatten(mapped_stream);
+    Box::pin(
+        stream.chain(
+            tokio_stream::once(Ok::<
+                hyper::body::Frame<bytes::Bytes>,
+                Box<dyn Error + Send + Sync>,
+            >(hyper::body::Frame::data(bytes::Bytes::new())))
+            .then(move |res| {
+                let active_streams = active_streams.clone();
+                async move {
+                    active_streams
+                        .lock()
+                        .await
+                        .untrack_request(&connection_id, &request_id);
+                    res
+                }
+            }),
+        ),
+    )
 }
 
 use std::pin::Pin;
