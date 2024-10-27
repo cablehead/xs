@@ -28,6 +28,8 @@ enum Command {
     Cas(CommandCas),
     /// Remove an item from the stream
     Remove(CommandRemove),
+    /// Get the head frame for a topic
+    Head(CommandHead),
 }
 
 #[derive(Parser, Debug)]
@@ -119,6 +121,17 @@ struct CommandRemove {
     id: String,
 }
 
+#[derive(Parser, Debug)]
+struct CommandHead {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+
+    /// Topic to get the head frame for
+    #[clap(value_parser)]
+    topic: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
@@ -128,6 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Append(args) => append(args).await,
         Command::Cas(args) => cas(args).await,
         Command::Remove(args) => remove(args).await,
+        Command::Head(args) => head(args).await,
     }
 }
 
@@ -241,5 +255,11 @@ async fn cas(args: CommandCas) -> Result<(), Box<dyn std::error::Error + Send + 
 
 async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     xs::client::remove(&args.addr, &args.id).await?;
+    Ok(())
+}
+
+async fn head(args: CommandHead) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let response = xs::client::head(&args.addr, &args.topic).await?;
+    tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }

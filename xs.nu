@@ -111,7 +111,7 @@ export def .get [id: string] {
 }
 
 export def .head [topic: string] {
-    null | h. get $"./store/sock//head/($topic)" | from json
+    xs head (store-addr) $topic | from json
 }
 
 # Append an event to the stream
