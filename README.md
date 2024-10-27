@@ -59,8 +59,8 @@ subscribing to real-time updates from the event stream.
 ### Basics
 
 **Note:** `xs` is designed to be orchestrated with
-[Nushell](https://www.nushell.sh), but since many are more familiar with `bash`,
-here are the very basics that work just fine from `bash`.
+[`Nushell`](https://www.nushell.sh), but since many are more familiar with
+`bash`, here are the very basics that work just fine from `bash`.
 
 To append items to the stream, use:
 
@@ -127,6 +127,122 @@ For example, to get the event with ID `03clswrgmmkkoqnotna38ldvl`:
 ```bash
 % xs get ./store/ 03clswrgmmkkoqnotna38ldvl
 {"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0c...","meta":{"type":"text/plain"},"ttl":"forever"}
+```
+
+### The basics with [`Nushell`](https://www.nushell.sh)
+
+Here's how the previous basics example looks using Nushell. To get started, run
+the following module import:
+
+```nushell
+$ use xs.nu *
+```
+
+This will add some `.command` conveniences to your session. The commands default
+to working with a `./store` in your current directory. You can customize this by
+setting `$env.XSPWD`.
+
+Appending looks like this:
+
+```nushell
+$ "content" | .append my-topic --meta {type: "text/plain"}
+───────┬─────────────────────────────────────────────────────
+ topic │ my-topic
+ id    │ 03cq29mdmmkfze8p1plry4maj
+ hash  │ sha256-7XACtDnprIRfIjV9giusFERzD722AW0+yUMil7nsn3M=
+       │ ──────┬────────────
+ meta  │  type │ text/plain
+       │ ──────┴────────────
+ ttl   │ forever
+───────┴─────────────────────────────────────────────────────
+```
+
+To `.cat` the stream:
+
+```nushell
+$ .cat
+─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬────────meta─────────┬───ttl───
+ 0 │ xs.start │ 03cq29gqsg8ijbkob4krv93k3 │                                                     │ ────────┬──         │
+   │          │                           │                                                     │  expose │           │
+   │          │                           │                                                     │ ────────┴──         │
+ 1 │ my-topic │ 03cq29mdmmkfze8p1plry4maj │ sha256-7XACtDnprIRfIjV9giusFERzD722AW0+yUMil7nsn3M= │ ──────┬──────────── │ forever
+   │          │                           │                                                     │  type │ text/plain  │
+   │          │                           │                                                     │ ──────┴──────────── │
+───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴─────────────────────┴─────────
+```
+
+We have the full expressiveness of Nushell—for example, we can get the content
+hash of the last frame on the stream using:
+
+```nushell
+$ .cat | last | $in.hash
+sha256-7XACtDnprIRfIjV9giusFERzD722AW0+yUMil7nsn3M=
+```
+
+And then use the `.cas` command to retrieve the content:
+
+```nushell
+$ .cat | last | .cas $in.hash
+content
+```
+
+We can also retrieve the content from a frame by piping it directly to `.cas`:
+
+```nushell
+$ .cat | last | .cas
+content
+```
+
+Continuing the basic example, we append an additional `my-topic` frame:
+
+```nushell
+$ "more content" | .append my-topic --meta {type: "text/plain"}
+───────┬─────────────────────────────────────────────────────
+ topic │ my-topic
+ id    │ 03cq29ul7bhxrcaeh2ssrvcw1
+ hash  │ sha256-LCMWc3yTE5Vt/ACD2joqYs4ln2ZITz4mRA8NGwLdQSg=
+       │ ──────┬────────────
+ meta  │  type │ text/plain
+       │ ──────┴────────────
+ ttl   │ forever
+───────┴─────────────────────────────────────────────────────
+```
+
+And use `.head` to retrieve the latest version:
+
+```nushell
+$ .head my-topic
+───────┬─────────────────────────────────────────────────────
+ topic │ my-topic
+ id    │ 03cq29ul7bhxrcaeh2ssrvcw1
+ hash  │ sha256-LCMWc3yTE5Vt/ACD2joqYs4ln2ZITz4mRA8NGwLdQSg=
+       │ ──────┬────────────
+ meta  │  type │ text/plain
+       │ ──────┴────────────
+ ttl   │ forever
+───────┴─────────────────────────────────────────────────────
+```
+
+To get the content of the latest version:
+
+```nushell
+$ .head my-topic | .cas
+more content
+```
+
+Finally, we have the `.get` command:
+
+```nushell
+$ .get 03cq29ul7bhxrcaeh2ssrvcw1
+───────┬─────────────────────────────────────────────────────
+ topic │ my-topic
+ id    │ 03cq29ul7bhxrcaeh2ssrvcw1
+ hash  │ sha256-LCMWc3yTE5Vt/ACD2joqYs4ln2ZITz4mRA8NGwLdQSg=
+       │ ──────┬────────────
+ meta  │  type │ text/plain
+       │ ──────┴────────────
+ ttl   │ forever
+───────┴─────────────────────────────────────────────────────
 ```
 
 ## Built with 🙏💚
