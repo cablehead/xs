@@ -104,10 +104,7 @@ export def .cas [hash?: any] {
 }
 
 export def .get [id: string] {
-    # TODO: this `null | `is an issue with the plugin h.'s api:: to resolve
-    # submit a PR to add unix socket support to Nushell's built-in HTTP
-    # commands
-    null | h. get $"./store/sock//($id)" | from json
+    xs get (store-addr) $id | from json
 }
 
 export def .head [topic: string] {
