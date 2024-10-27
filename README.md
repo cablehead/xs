@@ -120,6 +120,13 @@ The `head` command retrieves the latest event (or "head") for a specific topic.
 If you have multiple events under the same topic, `head` will always return the
 latest one.
 
+To get the content of the latest version:
+
+```bash
+% xs head ./store/ my-topic | jq -r .hash | xargs xs cas ./store/
+more content
+```
+
 To retrieve a specific event by its ID, use the `get` command.
 
 For example, to get the event with ID `03clswrgmmkkoqnotna38ldvl`:
