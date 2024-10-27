@@ -42,6 +42,8 @@ Commands:
   append  Append an event to the stream
   cas     Retrieve content from Content-Addressable Storage
   remove  Remove an item from the stream
+  head    Get the head frame for a topic
+  get     Get a frame by ID
   help    Print this message or the help of the given subcommand(s)
 ```
 
@@ -75,7 +77,7 @@ For example:
 
 ```bash
 % echo "content" | xs append ./store my-topic --meta '{"type": "text/plain"}'
-{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0copBCnj1b8G1iZw1k0NuYasMcx6QctleltspAgXlM=","meta":{"type":"text/plain"},"ttl":"forever"}
+{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0c...","meta":{"type":"text/plain"},"ttl":"forever"}
 ```
 
 To fetch the contents of the stream, use the `cat` command:
@@ -83,19 +85,48 @@ To fetch the contents of the stream, use the `cat` command:
 ```bash
 % xs cat ./store/
 {"topic":"xs.start","id":"03clswlaih9x17izyzqy5jg7n","hash":null,"meta":{"expose":null},"ttl":null}
-{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0copBCnj1b8G1iZw1k0NuYasMcx6QctleltspAgXlM=","meta":{"type":"text/plain"},"ttl":"forever"}
+{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0c...","meta":{"type":"text/plain"},"ttl":"forever"}
 ```
 
 `xs` generates a few meta events, such as `xs.start`, which is emitted whenever
 the process managing the store starts.
 
 You can also see the `my-topic` event we just appended, along with a `hash`,
-which represents the hash of the stored content. You can retrieve this content
-from the Content-Addressable Storage (CAS) using:
+which represents the hash of the stored content.
+
+You can retrieve this content from the Content-Addressable Storage (CAS) using:
 
 ```bash
-% xs cas ./store/ sha256-Q0copBCnj1b8G1iZw1k0NuYasMcx6QctleltspAgXlM=
+% xs cas ./store/ sha256-Q0c...
 content
+```
+
+To append another event to `my-topic`, you can run:
+
+```bash
+% echo "more content" | xs append ./store my-topic --meta '{"type": "text/plain"}'
+{"topic":"my-topic","id":"03clswrh...","hash":"sha256-abc...","meta":{"type":"text/plain"},"ttl":"forever"}
+```
+
+Now, to quickly access the most recent event associated with `my-topic`, you can
+use the `head` command:
+
+```bash
+% xs head ./store/ my-topic
+{"topic":"my-topic","id":"03clswrh...","hash":"sha256-abc...","meta":{"type":"text/plain"},"ttl":"forever"}
+```
+
+The `head` command retrieves the latest event (or "head") for a specific topic.
+If you have multiple events under the same topic, `head` will always return the
+latest one.
+
+To retrieve a specific event by its ID, use the `get` command.
+
+For example, to get the event with ID `03clswrgmmkkoqnotna38ldvl`:
+
+```bash
+% xs get ./store/ 03clswrgmmkkoqnotna38ldvl
+{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0c...","meta":{"type":"text/plain"},"ttl":"forever"}
 ```
 
 ## Built with 🙏💚
