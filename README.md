@@ -76,16 +76,40 @@ content. Additionally, you can attach arbitrary metadata to an event using the
 For example:
 
 ```bash
-% echo "content" | xs append ./store my-topic --meta '{"type": "text/plain"}'
-{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0c...","meta":{"type":"text/plain"},"ttl":"forever"}
+% echo "content" | xs append ./store my-topic --meta '{"type": "text/plain"}' | jq
+{
+  "topic": "my-topic",
+  "id": "03cq29mdmmkfze8p1plry4maj",
+  "hash": "sha256-7XACtDnprIRfIjV9giusFERzD722AW0+yUMil7nsn3M=",
+  "meta": {
+    "type": "text/plain"
+  },
+  "ttl": "forever"
+}
 ```
 
 To fetch the contents of the stream, use the `cat` command:
 
 ```bash
-% xs cat ./store/
-{"topic":"xs.start","id":"03clswlaih9x17izyzqy5jg7n","hash":null,"meta":{"expose":null},"ttl":null}
-{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0c...","meta":{"type":"text/plain"},"ttl":"forever"}
+% xs cat ./store/ | jq
+{
+  "topic": "xs.start",
+  "id": "03cq29gqsg8ijbkob4krv93k3",
+  "hash": null,
+  "meta": {
+    "expose": null
+  },
+  "ttl": null
+}
+{
+  "topic": "my-topic",
+  "id": "03cq29mdmmkfze8p1plry4maj",
+  "hash": "sha256-7XACtDnprIRfIjV9giusFERzD722AW0+yUMil7nsn3M=",
+  "meta": {
+    "type": "text/plain"
+  },
+  "ttl": "forever"
+}
 ```
 
 `xs` generates a few meta events, such as `xs.start`, which is emitted whenever
@@ -97,23 +121,39 @@ which represents the hash of the stored content.
 You can retrieve this content from the Content-Addressable Storage (CAS) using:
 
 ```bash
-% xs cas ./store/ sha256-Q0c...
+% xs cas ./store/ sha256-7XACtDnprIRfIjV9giusFERzD722AW0+yUMil7nsn3M=
 content
 ```
 
 To append another event to `my-topic`, you can run:
 
 ```bash
-% echo "more content" | xs append ./store my-topic --meta '{"type": "text/plain"}'
-{"topic":"my-topic","id":"03clswrh...","hash":"sha256-abc...","meta":{"type":"text/plain"},"ttl":"forever"}
+% echo "more content" | xs append ./store my-topic --meta '{"type": "text/plain"}' | jq
+{
+  "topic": "my-topic",
+  "id": "03cq29ul7bhxrcaeh2ssrvcw1",
+  "hash": "sha256-LCMWc3yTE5Vt/ACD2joqYs4ln2ZITz4mRA8NGwLdQSg=",
+  "meta": {
+    "type": "text/plain"
+  },
+  "ttl": "forever"
+}
 ```
 
 Now, to quickly access the most recent event associated with `my-topic`, you can
 use the `head` command:
 
 ```bash
-% xs head ./store/ my-topic
-{"topic":"my-topic","id":"03clswrh...","hash":"sha256-abc...","meta":{"type":"text/plain"},"ttl":"forever"}
+% xs head ./store/ my-topic | jq
+{
+  "topic": "my-topic",
+  "id": "03cq29ul7bhxrcaeh2ssrvcw1",
+  "hash": "sha256-LCMWc3yTE5Vt/ACD2joqYs4ln2ZITz4mRA8NGwLdQSg=",
+  "meta": {
+    "type": "text/plain"
+  },
+  "ttl": "forever"
+}
 ```
 
 The `head` command retrieves the latest event (or "head") for a specific topic.
@@ -132,8 +172,16 @@ To retrieve a specific event by its ID, use the `get` command.
 For example, to get the event with ID `03clswrgmmkkoqnotna38ldvl`:
 
 ```bash
-% xs get ./store/ 03clswrgmmkkoqnotna38ldvl
-{"topic":"my-topic","id":"03clswrgmmkkoqnotna38ldvl","hash":"sha256-Q0c...","meta":{"type":"text/plain"},"ttl":"forever"}
+% xs get ./store/ 03clswrgmmkkoqnotna38ldvl | jq
+{
+  "topic": "my-topic",
+  "id": "03cq29ul7bhxrcaeh2ssrvcw1",
+  "hash": "sha256-LCMWc3yTE5Vt/ACD2joqYs4ln2ZITz4mRA8NGwLdQSg=",
+  "meta": {
+    "type": "text/plain"
+  },
+  "ttl": "forever"
+}
 ```
 
 ### The basics with [`Nushell`](https://www.nushell.sh)
