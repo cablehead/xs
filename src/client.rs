@@ -234,6 +234,34 @@ where
     Ok(())
 }
 
+pub async fn get(addr: &str, id: &str) -> Result<Bytes, BoxError> {
+    let stream = connect(addr).await?;
+    let io = TokioIo::new(stream);
+
+    let (mut sender, conn) = http1::handshake(io).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let uri = format!("http://localhost/{}", id);
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .body(empty())?;
+
+    let res = sender.send_request(req).await?;
+
+    if res.status() != StatusCode::OK {
+        return Err(format!("HTTP error: {}", res.status()).into());
+    }
+
+    let body = res.collect().await?.to_bytes();
+    Ok(body)
+}
+
 pub async fn head(addr: &str, topic: &str) -> Result<Bytes, BoxError> {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);
