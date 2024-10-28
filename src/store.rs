@@ -211,7 +211,6 @@ impl Store {
                     } else {
                         if let Some(limit) = options_clone.limit {
                             if count >= limit {
-                                let _ = done_tx.send((last_id, count));
                                 return; // Exit early if limit reached
                             }
                         }
@@ -228,7 +227,6 @@ impl Store {
                 for frame in ordered_frames {
                     if let Some(limit) = options_clone.limit {
                         if count >= limit {
-                            let _ = done_tx.send((last_id, count));
                             return; // Exit early if limit reached
                         }
                     }
@@ -586,7 +584,7 @@ mod tests_store {
     }
 
     #[tokio::test]
-    async fn test_read_limit_follow() {
+    async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
         let mut store = Store::new(temp_dir.path().to_path_buf()).await;
 
@@ -617,6 +615,41 @@ mod tests_store {
 
         // Assert the rx is closed
         assert_eq!(None, rx.recv().await);
+    }
+
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_read_follow_limit_processing_history() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
+
+        // Create 5 records upfront
+        let frame1 = store.append(Frame::with_topic("test").build()).await;
+        let frame2 = store.append(Frame::with_topic("test").build()).await;
+        let frame3 = store.append(Frame::with_topic("test").build()).await;
+        let _frame4 = store.append(Frame::with_topic("test").build()).await;
+        let _frame5 = store.append(Frame::with_topic("test").build()).await;
+
+        // Start read with limit 3 and follow enabled
+        let options = ReadOptions::builder()
+            .limit(3)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        // We should only get exactly 3 frames, even though follow is enabled
+        // and there are 5 frames available
+        assert_eq!(Some(frame1), rx.recv().await);
+        assert_eq!(Some(frame2), rx.recv().await);
+        assert_eq!(Some(frame3), rx.recv().await);
+
+        // This should complete quickly if the channel is actually closed
+        assert_eq!(
+            Ok(None),
+            timeout(Duration::from_millis(100), rx.recv()).await,
+            "Channel should be closed after limit"
+        );
     }
 }
 
