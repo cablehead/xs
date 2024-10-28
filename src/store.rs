@@ -198,7 +198,7 @@ impl Store {
 
             // Clone these for the background thread
             let tx_clone = tx.clone();
-            let partition = self.partition.clone();
+            let partition = self.frame_partition.clone();
             let options_clone = options.clone();
             let should_follow_clone = should_follow;
 
@@ -451,7 +451,7 @@ mod tests_read_options {
     async fn test_topic_index() -> Result<(), crate::error::Error> {
         let folder = tempfile::tempdir()?;
 
-        let store = Store::spawn(folder.path().to_path_buf()).await;
+        let store = Store::new(folder.path().to_path_buf()).await;
 
         let frame1 = Frame {
             id: scru128::new(),
@@ -686,7 +686,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_processing_history() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
+        let store = Store::new(temp_dir.path().to_path_buf()).await;
 
         // Create 5 records upfront
         let frame1 = store.append(Frame::with_topic("test").build()).await;
