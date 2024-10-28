@@ -332,7 +332,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_stateless() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -399,7 +399,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_stateful() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -480,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_handler_update() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -606,7 +606,7 @@ mod tests {
     // This test is to ensure that a handler does not process its own output
     async fn test_handler_stateless_no_self_loop() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
