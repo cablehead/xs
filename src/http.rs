@@ -58,7 +58,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 async fn handle(
-    mut store: Store,
+    store: Store,
     req: hyper::Request<hyper::body::Incoming>,
     addr: Option<SocketAddr>,
     connection_id: Scru128Id,
@@ -234,7 +234,7 @@ pub async fn serve(
             let mut streams = active_streams.lock().await;
             if let Some(requests) = streams.untrack_connection(&connection_id) {
                 for request_id in requests {
-                    let mut store = store.clone();
+                    let store = store.clone();
                     let _ = store
                         .append(
                             Frame::with_topic("http.disconnect")
