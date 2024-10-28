@@ -171,11 +171,14 @@ impl Store {
     pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
-        // Only take broadcast subscription if following - do this FIRST
         let should_follow = matches!(
             options.follow,
             FollowOption::On | FollowOption::WithHeartbeat(_)
         );
+
+        // Only take broadcast subscription if following. We initate the subscription here to
+        // ensure we don't miss any messages between historical processing and starting the
+        // broadcast subscription.
         let broadcast_rx = if should_follow {
             Some(self.broadcast_tx.subscribe())
         } else {
