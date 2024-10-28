@@ -140,12 +140,10 @@ async fn spawn(
                 let value = execute_and_get_result(&pool, handler.clone(), frame.clone()).await;
                 if handler.meta.stateful.unwrap_or(false) {
                     handle_result_stateful(&mut store, &mut handler, &frame, value).await;
-                } else {
-                    if let Some(frame_id) =
-                        handle_result_stateless(&mut store, &handler, &frame, value).await
-                    {
-                        generated_frames.insert(frame_id);
-                    }
+                } else if let Some(frame_id) =
+                    handle_result_stateless(&mut store, &handler, &frame, value).await
+                {
+                    generated_frames.insert(frame_id);
                 }
             }
         });
