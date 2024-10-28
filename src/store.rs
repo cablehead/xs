@@ -280,7 +280,7 @@ impl Store {
         prefix.extend(topic.as_bytes());
         prefix.push(0xFF);
 
-        for kv in self.topic_index.prefix(prefix) {
+        for kv in self.topic_index.prefix(prefix).rev() {
             let (k, _) = kv.unwrap();
             let frame_id = k.split(|&c| c == 0xFF).nth(1).unwrap();
 
