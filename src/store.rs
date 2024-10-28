@@ -155,16 +155,14 @@ impl Store {
             .open_partition("stream", PartitionCreateOptions::default())
             .unwrap();
 
-        let (broadcast_tx, _) = broadcast::channel(1024); // Buffer size can be adjusted
+        let (broadcast_tx, _) = broadcast::channel(1024);
 
-        let store = Store {
+        Store {
             path,
             keyspace,
             partition,
             broadcast_tx,
-        };
-
-        store
+        }
     }
 
     pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
