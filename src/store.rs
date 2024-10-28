@@ -38,7 +38,7 @@ impl fmt::Debug for Frame {
     }
 }
 
-#[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize)]
+#[derive(Default, PartialEq, Eq, Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TTL {
     #[default]
