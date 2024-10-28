@@ -106,7 +106,7 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 }
 
 async fn handle(
-    mut store: Store,
+    store: Store,
     engine: nu::Engine,
     pool: ThreadPool,
     req: Request<hyper::body::Incoming>,
@@ -122,10 +122,10 @@ async fn handle(
                 Err(err) => return response_400(err.to_string()),
             };
 
-            handle_stream_cat(&mut store, options, accept_type).await
+            handle_stream_cat(&store, options, accept_type).await
         }
 
-        Routes::StreamAppend(topic) => handle_stream_append(&mut store, req, topic).await,
+        Routes::StreamAppend(topic) => handle_stream_append(&store, req, topic).await,
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
@@ -143,20 +143,20 @@ async fn handle(
 
         Routes::StreamItemGet(id) => response_frame_or_404(store.get(&id)),
 
-        Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
+        Routes::StreamItemRemove(id) => handle_stream_item_remove(&store, id).await,
 
         Routes::PipePost(id) => {
-            handle_pipe_post(&mut store, engine, pool.clone(), id, req.into_body()).await
+            handle_pipe_post(&store, engine, pool.clone(), id, req.into_body()).await
         }
 
-        Routes::HeadGet(topic) => response_frame_or_404(store.head(topic)),
+        Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
 
         Routes::NotFound => response_404(),
     }
 }
 
 async fn handle_stream_cat(
-    store: &mut Store,
+    store: &Store,
     options: ReadOptions,
     accept_type: AcceptType,
 ) -> HTTPResult {
@@ -195,7 +195,7 @@ async fn handle_stream_cat(
 }
 
 async fn handle_stream_append(
-    store: &mut Store,
+    store: &Store,
     req: Request<hyper::body::Incoming>,
     topic: String,
 ) -> HTTPResult {
@@ -256,7 +256,7 @@ async fn handle_stream_append(
 }
 
 async fn handle_pipe_post(
-    store: &mut Store,
+    store: &Store,
     engine: nu::Engine,
     pool: ThreadPool,
     id: Scru128Id,
@@ -309,7 +309,7 @@ async fn handle_pipe_post(
 }
 
 pub async fn serve(
-    mut store: Store,
+    store: Store,
     engine: nu::Engine,
     pool: ThreadPool,
     expose: Option<String>,
@@ -396,7 +396,7 @@ fn response_frame_or_404(frame: Option<store::Frame>) -> HTTPResult {
     }
 }
 
-async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResult {
+async fn handle_stream_item_remove(store: &Store, id: Scru128Id) -> HTTPResult {
     match store.remove(&id) {
         Ok(()) => Ok(Response::builder()
             .status(StatusCode::NO_CONTENT)

@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
-#[derive(PartialEq, Serialize, Deserialize, Clone, Default, bon::Builder)]
+#[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 #[builder(start_fn = with_topic)]
 pub struct Frame {
     #[builder(start_fn, into)]
@@ -38,7 +38,7 @@ impl fmt::Debug for Frame {
     }
 }
 
-#[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize)]
+#[derive(Default, PartialEq, Eq, Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TTL {
     #[default]
@@ -142,7 +142,8 @@ pub enum FollowOption {
 pub struct Store {
     pub path: PathBuf,
     keyspace: Keyspace,
-    pub partition: PartitionHandle,
+    frame_partition: PartitionHandle,
+    topic_index: PartitionHandle,
     broadcast_tx: broadcast::Sender<Frame>,
 }
 
@@ -151,8 +152,12 @@ impl Store {
         let config = Config::new(path.join("fjall"));
         let keyspace = config.open().unwrap();
 
-        let partition = keyspace
+        let frame_partition = keyspace
             .open_partition("stream", PartitionCreateOptions::default())
+            .unwrap();
+
+        let topic_index = keyspace
+            .open_partition("idx_topic", PartitionCreateOptions::default())
             .unwrap();
 
         let (broadcast_tx, _) = broadcast::channel(1024);
@@ -160,7 +165,8 @@ impl Store {
         Store {
             path,
             keyspace,
-            partition,
+            frame_partition,
+            topic_index,
             broadcast_tx,
         }
     }
@@ -188,7 +194,7 @@ impl Store {
 
             // Clone these for the background thread
             let tx_clone = tx.clone();
-            let partition = self.partition.clone();
+            let partition = self.frame_partition.clone();
             let options_clone = options.clone();
             let should_follow_clone = should_follow;
 
@@ -314,26 +320,43 @@ impl Store {
     }
 
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
-        let res = self.partition.get(id.to_bytes()).unwrap();
+        let res = self.frame_partition.get(id.to_bytes()).unwrap();
         res.map(|value| serde_json::from_slice(&value).unwrap())
     }
 
-    pub fn head(&self, topic: String) -> Option<Frame> {
-        // Iterate over the partition in reverse order
-        let range: (Bound<Vec<u8>>, Bound<Vec<u8>>) = (Bound::Unbounded, Bound::Unbounded);
-        self.partition.range(range).rev().find_map(|record| {
-            let (_, value) = record.ok()?;
-            let frame: Frame = serde_json::from_slice(&value).ok()?;
-            if frame.topic == topic {
-                Some(frame)
-            } else {
-                None
-            }
-        })
+    pub fn head(&self, topic: &str) -> Option<Frame> {
+        let mut prefix = Vec::with_capacity(topic.len() + 1);
+        prefix.extend(topic.as_bytes());
+        prefix.push(0xFF);
+
+        for kv in self.topic_index.prefix(prefix).rev() {
+            let (k, _) = kv.unwrap();
+            let frame_id = k.split(|&c| c == 0xFF).nth(1).unwrap();
+
+            // Join back to "primary index"
+            if let Some(value) = self.frame_partition.get(frame_id).unwrap() {
+                let frame: Frame = serde_json::from_slice(&value).unwrap();
+                return Some(frame);
+            };
+        }
+
+        None
     }
 
-    pub fn remove(&self, id: &Scru128Id) -> Result<(), fjall::Error> {
-        self.partition.remove(id.to_bytes())
+    /// Formats a key for the topic secondary index
+    fn topic_index_key(frame: &Frame) -> Vec<u8> {
+        // We use a 0xFF as delimiter, because
+        // 0xFF cannot appear in a valid UTF-8 sequence
+        let mut v = Vec::with_capacity(frame.id.as_bytes().len() + 1 + frame.topic.len());
+        v.extend(frame.topic.as_bytes());
+        v.push(0xFF);
+        v.extend(frame.id.as_bytes());
+        v
+    }
+
+    pub fn remove(&self, _id: &Scru128Id) -> Result<(), fjall::Error> {
+        // no-op for the moment, needs more thought
+        Ok(())
     }
 
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
@@ -354,14 +377,17 @@ impl Store {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }
 
-    pub async fn append(&mut self, frame: Frame) -> Frame {
+    pub async fn append(&self, frame: Frame) -> Frame {
         let mut frame = frame;
         frame.id = scru128::new();
 
         // only store the frame if it's not ephemeral
         if frame.ttl != Some(TTL::Ephemeral) {
             let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
-            self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
+            let mut batch = self.keyspace.batch();
+            batch.insert(&self.frame_partition, frame.id.to_bytes(), encoded);
+            batch.insert(&self.topic_index, Self::topic_index_key(&frame), b"");
+            batch.commit().unwrap();
             self.keyspace.persist(fjall::PersistMode::SyncAll).unwrap();
         }
 
@@ -474,7 +500,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_get() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path()).await;
         let meta = serde_json::json!({"key": "value"});
         let frame = store
             .append(Frame::with_topic("stream").meta(meta).build())
@@ -486,7 +512,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_follow() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path()).await;
 
         // Append two initial clips
         let f1 = store.append(Frame::with_topic("stream").build()).await;
@@ -535,12 +561,12 @@ mod tests_store {
     #[tokio::test]
     async fn test_stream_basics() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path()).await;
 
         let f1 = store.append(Frame::with_topic("/stream").build()).await;
         let f2 = store.append(Frame::with_topic("/stream").build()).await;
 
-        assert_eq!(store.head("/stream".to_string()), Some(f2.clone()));
+        assert_eq!(store.head("/stream"), Some(f2.clone()));
 
         let recver = store.read(ReadOptions::default()).await;
         assert_eq!(
@@ -564,7 +590,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
+        let store = Store::new(temp_dir.path().to_path_buf()).await;
 
         // Add 3 items
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -586,7 +612,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
+        let store = Store::new(temp_dir.path().to_path_buf()).await;
 
         // Add 1 item
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -622,7 +648,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_processing_history() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
+        let store = Store::new(temp_dir.path().to_path_buf()).await;
 
         // Create 5 records upfront
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -694,5 +720,31 @@ mod test_ttl {
 
         let ttl = TTL::from_query(Some("ttl=time"));
         assert!(ttl.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_topic_index() -> Result<(), crate::error::Error> {
+        let folder = tempfile::tempdir()?;
+
+        let store = Store::new(folder.path().to_path_buf()).await;
+
+        let frame1 = Frame {
+            id: scru128::new(),
+            topic: "hello".to_owned(),
+            ..Default::default()
+        };
+        let frame1 = store.append(frame1).await;
+
+        let frame2 = Frame {
+            id: scru128::new(),
+            topic: "hallo".to_owned(),
+            ..Default::default()
+        };
+        let frame2 = store.append(frame2).await;
+
+        assert_eq!(Some(frame1), store.head("hello"));
+        assert_eq!(Some(frame2), store.head("hallo"));
+
+        Ok(())
     }
 }
