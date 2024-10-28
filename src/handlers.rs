@@ -140,12 +140,10 @@ async fn spawn(
                 let value = execute_and_get_result(&pool, handler.clone(), frame.clone()).await;
                 if handler.meta.stateful.unwrap_or(false) {
                     handle_result_stateful(&mut store, &mut handler, &frame, value).await;
-                } else {
-                    if let Some(frame_id) =
-                        handle_result_stateless(&mut store, &handler, &frame, value).await
-                    {
-                        generated_frames.insert(frame_id);
-                    }
+                } else if let Some(frame_id) =
+                    handle_result_stateless(&mut store, &handler, &frame, value).await
+                {
+                    generated_frames.insert(frame_id);
                 }
             }
         });
@@ -332,7 +330,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_stateless() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -399,7 +397,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_stateful() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -480,7 +478,7 @@ mod tests {
     #[tokio::test]
     async fn test_handler_update() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -606,7 +604,7 @@ mod tests {
     // This test is to ensure that a handler does not process its own output
     async fn test_handler_stateless_no_self_loop() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 

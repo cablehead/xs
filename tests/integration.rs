@@ -41,7 +41,7 @@ async fn test_integration() {
     );
     let output = cmd!("sh", "-c", command).read().unwrap();
     let frame: Frame = serde_json::from_str(&output)
-        .expect(&format!("Failed to parse JSON into Frame: {}", output));
+        .unwrap_or_else(|_| panic!("Failed to parse JSON into Frame: {}", output));
 
     let output = cmd!(
         "sh",
