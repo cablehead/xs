@@ -83,7 +83,7 @@ impl HandlerTask {
 }
 
 async fn spawn(
-    mut store: Store,
+    store: Store,
     handler: HandlerTask,
     pool: ThreadPool,
 ) -> Result<tokio::sync::mpsc::Sender<bool>, Error> {
@@ -91,7 +91,7 @@ async fn spawn(
 
     let last_id: Option<Scru128Id> = if let Some(start) = handler.meta.start.as_ref() {
         match start {
-            StartDefinition::Head { head } => store.head(head.to_string()).map(|frame| frame.id),
+            StartDefinition::Head { head } => store.head(head).map(|frame| frame.id),
         }
     } else {
         None
@@ -110,7 +110,7 @@ async fn spawn(
     let mut recver = store.read(options).await;
 
     {
-        let mut store = store.clone();
+        let store = store.clone();
         let mut handler = handler.clone();
         let mut generated_frames = std::collections::HashSet::new();
 
@@ -139,10 +139,10 @@ async fn spawn(
 
                 let value = execute_and_get_result(&pool, handler.clone(), frame.clone()).await;
                 if handler.meta.stateful.unwrap_or(false) {
-                    handle_result_stateful(&mut store, &mut handler, &frame, value).await;
+                    handle_result_stateful(&store, &mut handler, &frame, value).await;
                 } else {
                     if let Some(frame_id) =
-                        handle_result_stateless(&mut store, &handler, &frame, value).await
+                        handle_result_stateless(&store, &handler, &frame, value).await
                     {
                         generated_frames.insert(frame_id);
                     }
@@ -210,7 +210,7 @@ fn execute_handler(handler: HandlerTask, frame: &Frame) -> Result<Value, Error> 
 }
 
 async fn handle_result_stateful(
-    store: &mut Store,
+    store: &Store,
     handler: &mut HandlerTask,
     frame: &Frame,
     value: Value,
@@ -244,7 +244,7 @@ async fn handle_result_stateful(
 }
 
 async fn handle_result_stateless(
-    store: &mut Store,
+    store: &Store,
     handler: &HandlerTask,
     frame: &Frame,
     value: Value,
@@ -332,7 +332,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_stateless() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let store = Store::spawn(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -399,7 +399,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_stateful() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let store = Store::spawn(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -480,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_handler_update() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let store = Store::spawn(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
@@ -606,7 +606,7 @@ mod tests {
     // This test is to ensure that a handler does not process its own output
     async fn test_handler_stateless_no_self_loop() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let store = Store::spawn(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
         let engine = nu::Engine::new(store.clone()).unwrap();
 
