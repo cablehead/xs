@@ -57,7 +57,7 @@ impl Command for AppendCommand {
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
 
-        let mut store = self.store.clone();
+        let  store = self.store.clone();
 
         let topic: String = call.req(engine_state, stack, 0)?;
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;

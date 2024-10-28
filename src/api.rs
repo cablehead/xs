@@ -149,7 +149,7 @@ async fn handle(
             handle_pipe_post(&mut store, engine, pool.clone(), id, req.into_body()).await
         }
 
-        Routes::HeadGet(topic) => response_frame_or_404(store.head(topic)),
+        Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
 
         Routes::NotFound => response_404(),
     }
@@ -309,7 +309,7 @@ async fn handle_pipe_post(
 }
 
 pub async fn serve(
-    mut store: Store,
+    store: Store,
     engine: nu::Engine,
     pool: ThreadPool,
     expose: Option<String>,
