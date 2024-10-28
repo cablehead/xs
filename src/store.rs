@@ -185,20 +185,21 @@ impl Store {
             None
         };
 
-        // Channel to signal when historical processing is complete
-        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        // Only create done channel if we're doing historical processing
+        let done_rx = if !options.tail {
+            let (done_tx, done_rx) = tokio::sync::oneshot::channel();
 
-        // Clone these for the background thread
-        let tx_clone = tx.clone();
-        let partition = self.partition.clone();
-        let options_clone = options.clone();
-        let should_follow_clone = should_follow;
+            // Clone these for the background thread
+            let tx_clone = tx.clone();
+            let partition = self.partition.clone();
+            let options_clone = options.clone();
+            let should_follow_clone = should_follow;
 
-        // Spawn OS thread to handle historical events
-        std::thread::spawn(move || {
-            let mut last_id = None;
+            // Spawn OS thread to handle historical events
+            std::thread::spawn(move || {
+                let mut last_id = None;
+                let mut count = 0;
 
-            if !options_clone.tail {
                 let range = get_range(options_clone.last_id.as_ref());
                 let mut compacted_frames = HashMap::new();
 
@@ -211,17 +212,33 @@ impl Store {
                             compacted_frames.insert(key, frame);
                         }
                     } else {
+                        if let Some(limit) = options_clone.limit {
+                            if count >= limit {
+                                let _ = done_tx.send((last_id, count));
+                                return; // Exit early if limit reached
+                            }
+                        }
                         if tx_clone.blocking_send(frame).is_err() {
                             return; // Receiver dropped, exit thread
                         }
+                        count += 1;
                     }
                 }
 
-                // Send compacted frames if any
-                for (_, frame) in compacted_frames {
+                // Send compacted frames if any, ordered by ID
+                let mut ordered_frames: Vec<_> = compacted_frames.into_values().collect();
+                ordered_frames.sort_by_key(|frame| frame.id);
+                for frame in ordered_frames {
+                    if let Some(limit) = options_clone.limit {
+                        if count >= limit {
+                            let _ = done_tx.send((last_id, count));
+                            return; // Exit early if limit reached
+                        }
+                    }
                     if tx_clone.blocking_send(frame).is_err() {
                         return;
                     }
+                    count += 1;
                 }
 
                 // Send threshold message if following and no compaction/limit
@@ -234,25 +251,31 @@ impl Store {
                         return;
                     }
                 }
-            }
 
-            // Signal completion with the last seen ID
-            let _ = done_tx.send(last_id);
-        });
+                // Signal completion with the last seen ID and count
+                let _ = done_tx.send((last_id, count));
+            });
 
-        // If we're following, spawn task to handle broadcast after historical processing
+            Some(done_rx)
+        } else {
+            None
+        };
+
+        // For tail mode or if we're following, spawn task to handle broadcast
         if let Some(broadcast_rx) = broadcast_rx {
             let broadcast_tx = tx.clone();
             let limit = options.limit;
 
             tokio::spawn(async move {
-                // Wait for historical processing to complete and get last_id
-                let last_id = match done_rx.await {
-                    Ok(id) => id,
-                    Err(_) => return, // Historical processing failed/cancelled
+                // If we have a done_rx, wait for historical processing
+                let (last_id, mut count) = match done_rx {
+                    Some(done_rx) => match done_rx.await {
+                        Ok((id, count)) => (id, count),
+                        Err(_) => return, // Historical processing failed/cancelled
+                    },
+                    None => (None, 0),
                 };
 
-                let mut count = 0;
                 let mut broadcast_rx = broadcast_rx;
                 while let Ok(frame) = broadcast_rx.recv().await {
                     // Skip if we've already seen this frame during historical scan
