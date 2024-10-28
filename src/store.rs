@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Default, bon::Builder)]
+#[derive(PartialEq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 #[builder(start_fn = with_topic)]
 pub struct Frame {
     #[builder(start_fn, into)]
@@ -22,6 +22,20 @@ pub struct Frame {
     pub hash: Option<ssri::Integrity>,
     pub meta: Option<serde_json::Value>,
     pub ttl: Option<TTL>,
+}
+
+use std::fmt;
+
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Frame")
+            .field("id", &format!("{}", self.id))
+            .field("topic", &self.topic)
+            .field("hash", &self.hash.as_ref().map(|x| format!("{}", x)))
+            .field("meta", &self.meta)
+            .field("ttl", &self.ttl)
+            .finish()
+    }
 }
 
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize)]
@@ -132,9 +146,7 @@ enum Command {
 #[derive(Clone)]
 pub struct Store {
     pub path: PathBuf,
-    // keep a reference to the keyspace, so we get a fsync when the store is dropped:
-    // https://github.com/fjall-rs/fjall/discussions/44
-    _keyspace: Keyspace,
+    keyspace: Keyspace,
     pub partition: PartitionHandle,
     commands_tx: tokio::sync::mpsc::Sender<Command>,
     broadcast_tx: broadcast::Sender<Frame>,
@@ -154,7 +166,7 @@ impl Store {
 
         let store = Store {
             path,
-            _keyspace: keyspace,
+            keyspace,
             partition,
             commands_tx,
             broadcast_tx,
@@ -367,6 +379,7 @@ impl Store {
         if frame.ttl != Some(TTL::Ephemeral) {
             let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
             self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
+            self.keyspace.persist(fjall::PersistMode::SyncAll).unwrap();
         }
 
         self.commands_tx
