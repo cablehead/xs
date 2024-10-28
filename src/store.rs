@@ -196,8 +196,6 @@ enum Command {
 pub struct Store {
     pub path: PathBuf,
 
-    // keep a reference to the keyspace, so we get a fsync when the store is dropped:
-    // https://github.com/fjall-rs/fjall/discussions/44
     keyspace: Keyspace,
     frame_partition: PartitionHandle,
     topic_index: PartitionHandle,
