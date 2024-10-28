@@ -281,7 +281,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_basic() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let engine = nu::Engine::new(store.clone()).unwrap();
 
         {
@@ -303,6 +303,8 @@ mod tests {
                     .build(),
             )
             .await;
+
+        eprintln!("frame_generator: {:?}", frame_generator);
 
         let options = ReadOptions::builder()
             .follow(FollowOption::On)
@@ -334,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_duplex() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let engine = nu::Engine::new(store.clone()).unwrap();
 
         {
@@ -386,7 +388,7 @@ mod tests {
     #[tokio::test]
     async fn test_serve_compact() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let engine = nu::Engine::new(store.clone()).unwrap();
 
         let _ = store

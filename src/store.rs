@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
+
+use tokio::sync::broadcast;
 
 use scru128::Scru128Id;
 
@@ -10,71 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
-#[derive(Debug)]
-pub enum SendError {
-    ChannelClosed(tokio::sync::mpsc::error::TrySendError<Frame>),
-    LimitReached,
-    LockError,
-}
-
-#[derive(Debug)]
-struct LimitedSender {
-    tx: Option<tokio::sync::mpsc::Sender<Frame>>,
-    remaining: Option<usize>,
-}
-
-impl LimitedSender {
-    fn new(tx: tokio::sync::mpsc::Sender<Frame>, limit: Option<usize>) -> Self {
-        LimitedSender {
-            tx: Some(tx),
-            remaining: limit,
-        }
-    }
-
-    fn send(&mut self, frame: Frame) -> Result<(), SendError> {
-        if let Some(tx) = &self.tx {
-            match tx.try_send(frame) {
-                Ok(()) => {
-                    if let Some(remaining) = &mut self.remaining {
-                        *remaining -= 1;
-                        if *remaining == 0 {
-                            self.close();
-                            return Err(SendError::LimitReached);
-                        }
-                    }
-                    Ok(())
-                }
-                Err(e) => {
-                    self.close();
-                    Err(SendError::ChannelClosed(e))
-                }
-            }
-        } else {
-            Err(SendError::ChannelClosed(
-                tokio::sync::mpsc::error::SendError(frame).into(),
-            ))
-        }
-    }
-
-    fn close(&mut self) {
-        self.tx = None;
-    }
-}
-
-#[derive(Debug, Clone)]
-struct SharedLimitedSender(Arc<Mutex<LimitedSender>>);
-
-impl SharedLimitedSender {
-    fn new(sender: LimitedSender) -> Self {
-        SharedLimitedSender(Arc::new(Mutex::new(sender)))
-    }
-
-    fn send(&self, frame: Frame) -> Result<(), SendError> {
-        self.0.lock().map_err(|_| SendError::LockError)?.send(frame)
-    }
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Default, bon::Builder)]
+#[derive(PartialEq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 #[builder(start_fn = with_topic)]
 pub struct Frame {
     #[builder(start_fn, into)]
@@ -84,6 +22,20 @@ pub struct Frame {
     pub hash: Option<ssri::Integrity>,
     pub meta: Option<serde_json::Value>,
     pub ttl: Option<TTL>,
+}
+
+use std::fmt;
+
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Frame")
+            .field("id", &format!("{}", self.id))
+            .field("topic", &self.topic)
+            .field("hash", &self.hash.as_ref().map(|x| format!("{}", x)))
+            .field("meta", &self.meta)
+            .field("ttl", &self.ttl)
+            .finish()
+    }
 }
 
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize)]
@@ -186,24 +138,16 @@ pub enum FollowOption {
     WithHeartbeat(Duration),
 }
 
-#[derive(Debug)]
-enum Command {
-    Read(SharedLimitedSender, ReadOptions),
-    Append(Frame),
-}
-
 #[derive(Clone)]
 pub struct Store {
     pub path: PathBuf,
-    // keep a reference to the keyspace, so we get a fsync when the store is dropped:
-    // https://github.com/fjall-rs/fjall/discussions/44
-    _keyspace: Keyspace,
+    keyspace: Keyspace,
     pub partition: PartitionHandle,
-    commands_tx: tokio::sync::mpsc::Sender<Command>,
+    broadcast_tx: broadcast::Sender<Frame>,
 }
 
 impl Store {
-    pub async fn spawn(path: PathBuf) -> Store {
+    pub async fn new(path: PathBuf) -> Store {
         let config = Config::new(path.join("fjall"));
         let keyspace = config.open().unwrap();
 
@@ -211,54 +155,159 @@ impl Store {
             .open_partition("stream", PartitionCreateOptions::default())
             .unwrap();
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<Command>(32);
+        let (broadcast_tx, _) = broadcast::channel(1024);
 
-        let store = Store {
+        Store {
             path,
-            _keyspace: keyspace,
+            keyspace,
             partition,
-            commands_tx: tx,
-        };
-
-        let store_clone = store.clone();
-        std::thread::spawn(move || {
-            handle_commands(store_clone, rx);
-        });
-
-        store
+            broadcast_tx,
+        }
     }
 
     pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
-        let (tx, rx) = tokio::sync::mpsc::channel::<Frame>(100);
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
 
-        let tx = SharedLimitedSender::new(LimitedSender::new(tx, options.limit));
+        let should_follow = matches!(
+            options.follow,
+            FollowOption::On | FollowOption::WithHeartbeat(_)
+        );
 
-        self.commands_tx
-            .send(Command::Read(tx.clone(), options.clone()))
-            .await
-            .unwrap(); // our thread went away?
+        // Only take broadcast subscription if following. We initate the subscription here to
+        // ensure we don't miss any messages between historical processing and starting the
+        // broadcast subscription.
+        let broadcast_rx = if should_follow {
+            Some(self.broadcast_tx.subscribe())
+        } else {
+            None
+        };
 
-        if let FollowOption::WithHeartbeat(duration) = options.follow {
-            tokio::task::spawn(async move {
-                loop {
-                    tokio::time::sleep(duration).await;
-                    let frame = Frame::with_topic("xs.pulse").id(scru128::new()).build();
+        // Only create done channel if we're doing historical processing
+        let done_rx = if !options.tail {
+            let (done_tx, done_rx) = tokio::sync::oneshot::channel();
 
-                    let result =
-                        tx.0.lock()
-                            .map_err(|_| "Failed to acquire lock")
-                            .and_then(|guard| guard.tx.as_ref().ok_or("Sender is closed").cloned());
+            // Clone these for the background thread
+            let tx_clone = tx.clone();
+            let partition = self.partition.clone();
+            let options_clone = options.clone();
+            let should_follow_clone = should_follow;
 
-                    match result {
-                        Ok(sender) => {
-                            if sender.send(frame).await.is_err() {
+            // Spawn OS thread to handle historical events
+            std::thread::spawn(move || {
+                let mut last_id = None;
+                let mut count = 0;
+
+                let range = get_range(options_clone.last_id.as_ref());
+                let mut compacted_frames = HashMap::new();
+
+                for record in partition.range(range) {
+                    let frame = deserialize_frame(record.unwrap());
+                    last_id = Some(frame.id);
+
+                    if let Some(compaction_strategy) = &options_clone.compaction_strategy {
+                        if let Some(key) = compaction_strategy(&frame) {
+                            compacted_frames.insert(key, frame);
+                        }
+                    } else {
+                        if let Some(limit) = options_clone.limit {
+                            if count >= limit {
+                                return; // Exit early if limit reached
+                            }
+                        }
+                        if tx_clone.blocking_send(frame).is_err() {
+                            return; // Receiver dropped, exit thread
+                        }
+                        count += 1;
+                    }
+                }
+
+                // Send compacted frames if any, ordered by ID
+                let mut ordered_frames: Vec<_> = compacted_frames.into_values().collect();
+                ordered_frames.sort_by_key(|frame| frame.id);
+                for frame in ordered_frames {
+                    if let Some(limit) = options_clone.limit {
+                        if count >= limit {
+                            return; // Exit early if limit reached
+                        }
+                    }
+                    if tx_clone.blocking_send(frame).is_err() {
+                        return;
+                    }
+                    count += 1;
+                }
+
+                // Send threshold message if following and no compaction/limit
+                if should_follow_clone
+                    && options_clone.compaction_strategy.is_none()
+                    && options_clone.limit.is_none()
+                {
+                    let threshold = Frame::with_topic("xs.threshold").id(scru128::new()).build();
+                    if tx_clone.blocking_send(threshold).is_err() {
+                        return;
+                    }
+                }
+
+                // Signal completion with the last seen ID and count
+                let _ = done_tx.send((last_id, count));
+            });
+
+            Some(done_rx)
+        } else {
+            None
+        };
+
+        // For tail mode or if we're following, spawn task to handle broadcast
+        if let Some(broadcast_rx) = broadcast_rx {
+            {
+                let tx = tx.clone();
+                let limit = options.limit;
+
+                tokio::spawn(async move {
+                    // If we have a done_rx, wait for historical processing
+                    let (last_id, mut count) = match done_rx {
+                        Some(done_rx) => match done_rx.await {
+                            Ok((id, count)) => (id, count),
+                            Err(_) => return, // Historical processing failed/cancelled
+                        },
+                        None => (None, 0),
+                    };
+
+                    let mut broadcast_rx = broadcast_rx;
+                    while let Ok(frame) = broadcast_rx.recv().await {
+                        // Skip if we've already seen this frame during historical scan
+                        if let Some(last_scanned_id) = last_id {
+                            if frame.id <= last_scanned_id {
+                                continue;
+                            }
+                        }
+
+                        if tx.send(frame).await.is_err() {
+                            break;
+                        }
+
+                        if let Some(limit) = limit {
+                            count += 1;
+                            if count >= limit {
                                 break;
                             }
                         }
-                        Err(_) => break,
                     }
-                }
-            });
+                });
+            }
+
+            // Handle heartbeat if requested
+            if let FollowOption::WithHeartbeat(duration) = options.follow {
+                let heartbeat_tx = tx;
+                tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(duration).await;
+                        let frame = Frame::with_topic("xs.pulse").id(scru128::new()).build();
+                        if heartbeat_tx.send(frame).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
         }
 
         rx
@@ -306,8 +355,6 @@ impl Store {
     }
 
     pub async fn append(&mut self, frame: Frame) -> Frame {
-        // TODO: we shouldn't generate the id here, it should be generated by the command loop to
-        // ensure the ids order is preserved
         let mut frame = frame;
         frame.id = scru128::new();
 
@@ -315,69 +362,12 @@ impl Store {
         if frame.ttl != Some(TTL::Ephemeral) {
             let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
             self.partition.insert(frame.id.to_bytes(), encoded).unwrap();
+            self.keyspace.persist(fjall::PersistMode::SyncAll).unwrap();
         }
 
-        self.commands_tx
-            .send(Command::Append(frame.clone()))
-            .await
-            .unwrap(); // our thread went away?
-
+        let _ = self.broadcast_tx.send(frame.clone());
         frame
     }
-}
-
-fn handle_commands(store: Store, mut rx: tokio::sync::mpsc::Receiver<Command>) {
-    let mut subscribers = Vec::new();
-    while let Some(command) = rx.blocking_recv() {
-        match command {
-            Command::Read(tx, options) => {
-                let _ = handle_read_command(&store, &tx, &options, &mut subscribers);
-            }
-            Command::Append(frame) => {
-                subscribers.retain(|tx| tx.send(frame.clone()).is_ok());
-            }
-        }
-    }
-}
-
-fn handle_read_command(
-    store: &Store,
-    tx: &SharedLimitedSender,
-    options: &ReadOptions,
-    subscribers: &mut Vec<SharedLimitedSender>,
-) -> Result<(), SendError> {
-    if !options.tail {
-        let range = get_range(options.last_id.as_ref());
-        let mut compacted_frames = HashMap::new();
-
-        for record in store.partition.range(range) {
-            let frame = deserialize_frame(record.unwrap());
-
-            if let Some(compaction_strategy) = &options.compaction_strategy {
-                if let Some(key) = compaction_strategy(&frame) {
-                    compacted_frames.insert(key, frame);
-                }
-            } else {
-                tx.send(frame)?;
-            }
-        }
-
-        // Send compacted frames if a compaction strategy was used
-        for (_, frame) in compacted_frames.drain() {
-            tx.send(frame)?;
-        }
-    }
-
-    match options.follow {
-        FollowOption::On | FollowOption::WithHeartbeat(_) => {
-            if !options.tail && options.compaction_strategy.is_none() && options.limit.is_none() {
-                tx.send(Frame::with_topic("xs.threshold").id(scru128::new()).build())?;
-            }
-            subscribers.push(tx.clone());
-        }
-        FollowOption::Off => {}
-    };
-    Ok(())
 }
 
 fn get_range(last_id: Option<&Scru128Id>) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
@@ -484,7 +474,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_get() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
         let meta = serde_json::json!({"key": "value"});
         let frame = store
             .append(Frame::with_topic("stream").meta(meta).build())
@@ -496,7 +486,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_follow() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
 
         // Append two initial clips
         let f1 = store.append(Frame::with_topic("stream").build()).await;
@@ -545,7 +535,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_stream_basics() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = Store::spawn(temp_dir.into_path()).await;
+        let mut store = Store::new(temp_dir.into_path()).await;
 
         let f1 = store.append(Frame::with_topic("/stream").build()).await;
         let f2 = store.append(Frame::with_topic("/stream").build()).await;
@@ -574,7 +564,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::spawn(temp_dir.path().to_path_buf()).await;
+        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
 
         // Add 3 items
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -594,9 +584,9 @@ mod tests_store {
     }
 
     #[tokio::test]
-    async fn test_read_limit_follow() {
+    async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let mut store = Store::spawn(temp_dir.path().to_path_buf()).await;
+        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
 
         // Add 1 item
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -625,6 +615,41 @@ mod tests_store {
 
         // Assert the rx is closed
         assert_eq!(None, rx.recv().await);
+    }
+
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_read_follow_limit_processing_history() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut store = Store::new(temp_dir.path().to_path_buf()).await;
+
+        // Create 5 records upfront
+        let frame1 = store.append(Frame::with_topic("test").build()).await;
+        let frame2 = store.append(Frame::with_topic("test").build()).await;
+        let frame3 = store.append(Frame::with_topic("test").build()).await;
+        let _frame4 = store.append(Frame::with_topic("test").build()).await;
+        let _frame5 = store.append(Frame::with_topic("test").build()).await;
+
+        // Start read with limit 3 and follow enabled
+        let options = ReadOptions::builder()
+            .limit(3)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        // We should only get exactly 3 frames, even though follow is enabled
+        // and there are 5 frames available
+        assert_eq!(Some(frame1), rx.recv().await);
+        assert_eq!(Some(frame2), rx.recv().await);
+        assert_eq!(Some(frame3), rx.recv().await);
+
+        // This should complete quickly if the channel is actually closed
+        assert_eq!(
+            Ok(None),
+            timeout(Duration::from_millis(100), rx.recv()).await,
+            "Channel should be closed after limit"
+        );
     }
 }
 
