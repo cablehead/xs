@@ -234,6 +234,51 @@ where
     Ok(())
 }
 
+pub async fn pipe<R>(addr: &str, id: &str, data: R) -> Result<Bytes, BoxError>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    let stream = connect(addr).await?;
+    let io = TokioIo::new(stream);
+
+    let (mut sender, conn) = http1::handshake(io).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let uri = format!("http://localhost/pipe/{}", id);
+
+    // Create a stream from the AsyncRead
+    let reader_stream = ReaderStream::new(data);
+
+    // Map the stream to convert io::Error to BoxError
+    let mapped_stream = reader_stream.map(|result| {
+        result
+            .map(hyper::body::Frame::data)
+            .map_err(|e| Box::new(e) as BoxError)
+    });
+
+    // Create a StreamBody
+    let body = StreamBody::new(mapped_stream);
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .body(body)?;
+
+    let res = sender.send_request(req).await?;
+
+    if res.status() != StatusCode::OK {
+        return Err(format!("HTTP error: {}", res.status()).into());
+    }
+
+    let body = res.collect().await?.to_bytes();
+    Ok(body)
+}
+
 pub async fn get(addr: &str, id: &str) -> Result<Bytes, BoxError> {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);

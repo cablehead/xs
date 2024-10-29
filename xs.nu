@@ -143,7 +143,7 @@ export def .pipe [id: string] {
             }
         })}
     }
-    $content | h. post $"./store/sock//pipe/($id)"
+    $content | xs pipe (store-addr) $id
 }
 
 # show the status of running tasks TBD
