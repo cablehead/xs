@@ -2,6 +2,7 @@ mod append_command;
 mod cas_command;
 mod head_command;
 mod remove_command;
+mod cat_command;
 
 use crate::store::Store;
 use nu_protocol::engine::EngineState;
@@ -12,7 +13,8 @@ pub fn add_custom_commands(store: Store, mut engine_state: EngineState) -> Engin
         working_set.add_decl(Box::new(cas_command::CasCommand::new(store.clone())));
         working_set.add_decl(Box::new(append_command::AppendCommand::new(store.clone())));
         working_set.add_decl(Box::new(head_command::HeadCommand::new(store.clone())));
-        working_set.add_decl(Box::new(remove_command::RemoveCommand::new(store)));
+        working_set.add_decl(Box::new(remove_command::RemoveCommand::new(store.clone())));
+        working_set.add_decl(Box::new(cat_command::CatCommand::new(store.clone())));
 
         // Add the .rm alias
         let alias_expression = "alias .rm = .remove";
