@@ -20,7 +20,7 @@ export function useStore({ dataSignal, fetchContent }: StreamProps) {
       const content = await fetchContent(hash);
       setCAS(hash, content);
     } catch (error) {
-      console.error("Error fetching content:", error);
+      console.error("Error fetching content:", error, hash);
     }
   };
 
