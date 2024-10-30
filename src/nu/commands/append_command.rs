@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::time::Duration;
 
 use async_std::io::WriteExt;
@@ -57,7 +58,7 @@ impl Command for AppendCommand {
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
 
-        let  store = self.store.clone();
+        let store = self.store.clone();
 
         let topic: String = call.req(engine_state, stack, 0)?;
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
@@ -120,10 +121,38 @@ impl Command for AppendCommand {
                     // Handle the ListStream case (for now, we'll just panic)
                     panic!("ListStream handling is not yet implemented");
                 }
-                PipelineData::ByteStream(_stream, ..) => {
-                    // Handle the ByteStream case (for now, we'll just panic)
-                    panic!("ByteStream handling is not yet implemented");
+
+                PipelineData::ByteStream(stream, ..) => {
+                    // Convert ByteStream into a synchronous reader
+                    if let Some(mut reader) = stream.reader() {
+                        let mut buffer = [0; 8192]; // Adjust buffer size as needed
+                        loop {
+                            // Read a chunk from the stream
+                            let bytes_read = reader
+                                .read(&mut buffer)
+                                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                            // If no more data, break out of the loop
+                            if bytes_read == 0 {
+                                break;
+                            }
+
+                            // Write this chunk to the writer
+                            writer
+                                .write_all(&buffer[..bytes_read])
+                                .await
+                                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                        }
+                    }
+
+                    let hash = writer
+                        .commit()
+                        .await
+                        .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                    Ok(Some(hash))
                 }
+
                 PipelineData::Empty => Ok(None),
             }?;
 
