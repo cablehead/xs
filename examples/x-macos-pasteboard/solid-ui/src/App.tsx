@@ -1,25 +1,28 @@
 import { Component, For } from "solid-js";
-import { useFrames } from "./stream.ts";
+import { useFrameProcessor } from "./frameProcessor";
 
 const App: Component = () => {
-  const frames = useFrames();
+  const frameMap = useFrameProcessor();
+
   return (
     <div>
-      <main>
-        <article>
-          <For each={frames()}>
-            {(item) => (
-              <section>
-                <ul>
+      <h1>Processed Frames</h1>
+      <For each={Object.entries(frameMap())}>
+        {([key, frames]) => (
+          <div>
+            <h2>Frames for ID: {key}</h2>
+            <ul>
+              <For each={frames}>
+                {(frame) => (
                   <li>
-                    {item.id}: {item.topic}
+                    {frame.id}: {frame.topic}
                   </li>
-                </ul>
-              </section>
-            )}
-          </For>
-        </article>
-      </main>
+                )}
+              </For>
+            </ul>
+          </div>
+        )}
+      </For>
     </div>
   );
 };

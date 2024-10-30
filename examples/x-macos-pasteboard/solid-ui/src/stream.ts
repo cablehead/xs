@@ -4,11 +4,11 @@ export type Frame = {
   id: string;
   topic: string;
   hash?: string;
-  meta?: Record<string, string>;
+  meta?: Record<string, any>;
 };
 
-export function useFrames() {
-  const [frames, setFrames] = createSignal<Frame[]>([]);
+export function useFrameStream() {
+  const [frame, setFrame] = createSignal<Frame | null>(null);
 
   onMount(() => {
     const controller = new AbortController();
@@ -27,7 +27,7 @@ export function useFrames() {
         if (done) break;
         if (value.trim()) {
           const json = JSON.parse(value);
-          setFrames((frames) => [json, ...frames]); // Add new frames to the beginning
+          setFrame(json); // Update the signal with each new frame
         }
       }
 
@@ -41,7 +41,7 @@ export function useFrames() {
     });
   });
 
-  return frames;
+  return frame;
 }
 
 // Utility function to split a stream by a delimiter
