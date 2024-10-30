@@ -2,20 +2,21 @@
 
 Vite + Deno + Solid + TypeScript
 
-## Running
+Requirements:
 
-You need to have Deno v2.0.0 or later installed to run this repo.
+- [Deno2](https://deno.com)
 
-Start a dev server:
+## To run
+
+Start `xs`:
+
+```
+xs serve ./store --expose :3021
+```
+
+Start UI:
 
 ```
 $ deno task dev
-```
-
-## Deploy
-
-Build production assets:
-
-```
-$ deno task build
+$ open http://localhost:5173
 ```
