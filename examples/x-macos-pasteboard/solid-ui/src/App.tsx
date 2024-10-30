@@ -1,5 +1,5 @@
 import { Component, For, Show } from "solid-js";
-import { StreamedItem, useStreamedItems } from "./useStreamedItems.tsx";
+import { StreamedItem, useStreamedItems } from "./useStreamedItems.ts";
 
 const Nav: Component<{ items: StreamedItem[] }> = (props) => (
   <nav>
