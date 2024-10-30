@@ -1,25 +1,31 @@
 import { Component, For } from "solid-js";
-import { useFrameProcessor } from "./frameProcessor";
+import { useFrameStream } from "./stream";
+import { useStore } from "./store";
 
 const App: Component = () => {
-  const frameMap = useFrameProcessor();
+  const frameSignal = useFrameStream();
+
+  const fetchContent = async (hash: string) => {
+    const response = await fetch(`/api/cas/${hash}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch content for hash ${hash}`);
+    }
+    return await response.text();
+  };
+
+  const { CAS, index } = useStore({
+    dataSignal: frameSignal,
+    fetchContent,
+  });
 
   return (
     <div>
-      <h1>Processed Frames</h1>
-      <For each={Object.entries(frameMap())}>
-        {([key, frames]) => (
+      <h1>Latest Frames Content</h1>
+      <For each={index()}>
+        {(frame) => (
           <div>
-            <h2>Frames for ID: {key}</h2>
-            <ul>
-              <For each={frames}>
-                {(frame) => (
-                  <li>
-                    {frame.id}: {frame.topic}
-                  </li>
-                )}
-              </For>
-            </ul>
+            <h2>Frame ID: {frame.id}</h2>
+            <p>Content: {CAS[frame.hash || ""]}</p>
           </div>
         )}
       </For>
