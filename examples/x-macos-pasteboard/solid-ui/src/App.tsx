@@ -1,46 +1,19 @@
-import { Component, For, Show } from "solid-js";
-import { StreamedItem, useStreamedItems } from "./useStreamedItems.ts";
-
-const Nav: Component<{ items: StreamedItem[] }> = (props) => (
-  <nav>
-    <ul>
-      <For each={props.items}>
-        {(item, index) => (
-          <li class={index() === 0 ? "active" : ""}>
-            {item.topic}
-          </li>
-        )}
-      </For>
-    </ul>
-  </nav>
-);
+import { Component, For } from "solid-js";
+import { useFrames } from "./stream.ts";
 
 const App: Component = () => {
-  const { state } = useStreamedItems();
+  const frames = useFrames();
   return (
     <div>
-      <Show when={state.error}>
-        <p style={{ color: "red" }}>Error: {state.error}</p>
-      </Show>
-      <Show when={state.loading}>
-        <p>Loading...</p>
-      </Show>
       <main>
-        <Nav items={state.items} />
         <article>
-          <For each={state.items}>
+          <For each={frames()}>
             {(item) => (
               <section>
                 <ul>
-                  <Show when={item.meta} fallback={<li>No meta</li>}>
-                    <For each={Object.keys(item.meta)}>
-                      {(key) => (
-                        <li>
-                          {key}: {item.meta[key]}
-                        </li>
-                      )}
-                    </For>
-                  </Show>
+                  <li>
+                    {item.id}: {item.topic}
+                  </li>
                 </ul>
               </section>
             )}
