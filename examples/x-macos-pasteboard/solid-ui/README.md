@@ -1,10 +1,10 @@
 # a Web UI starter to experiment with viewing clipboard history
 
-Vite + Deno + Solid + TypeScript
-
 Requirements:
 
 - [Deno2](https://deno.com)
+- [x-macos-pasteboard](https://github.com/cablehead/x-macos-pasteboard)
+- [xs](https://github.com/cablehead/xs) (obvi)
 
 ## To run
 
@@ -16,17 +16,42 @@ xs serve ./store --expose :3021
 
 Bootstrap the store:
 
-```nushell
-use xs.nu *
-
-"x-macos-pasteboard | lines" | .append pb.spawn
-open handler-content.nu | .append content.register
+```bash
+echo "x-macos-pasteboard | lines" | xs append ./store pb.spawn
+cat handler-content.nu | xs append ./store pb.map.register
 ```
-
 
 Start UI:
 
 ```
-$ deno task dev
-$ open http://localhost:5173
+deno task dev
+open http://localhost:5173
 ```
+
+## a base to explore the clipboard for Linux
+
+A motivation for this example is for people to use it as a base to explore the
+[clipboard on Linux](https://github.com/cablehead/stacks/issues/50).
+
+Here's how you'd do that. Create a cli similar to `x-macos-pasteboard` that
+writes new clipboard entries as jsonl to stdout.
+
+Replace the bootstrap step with:
+
+echo "<your-cli> | lines" | xs append ./store pb.spawn
+
+That's it! As you copy stuff to the clipboard, you'll see your raw data in the
+UI.
+
+You can then start experimenting with mapping the raw data to the `content`
+topic. Pick an id of a raw frame and:
+
+```bash
+xs get ./store <id> | map | xs append ./store content --meta '{"updates":<id>}'
+```
+
+If the target content is an image, include `"content_type":"image"` in the
+`--meta` object.
+
+If this is interesting to you, swing by this
+[Github issue](https://github.com/cablehead/stacks/issues/50).
