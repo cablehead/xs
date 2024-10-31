@@ -31,7 +31,7 @@ export function useStore({ dataSignal, fetchContent }: StreamProps) {
     // Only process frames with relevant topics
     if (frame.topic !== "pb.recv" && frame.topic !== "content") return;
 
-    const frameId = frame.meta?.updates?.id ?? frame.id;
+    const frameId = frame.meta?.updates ?? frame.id;
 
     setFrames(frameId, (existingFrames = []) => [frame, ...existingFrames]);
 
