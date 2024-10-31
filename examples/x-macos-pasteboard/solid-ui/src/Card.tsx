@@ -27,7 +27,7 @@ const Footer = styled("footer")`
 
   display: flex;
   align-items: center;
-  justify-content: start;
+  justify-content: space-between;
 `;
 
 type CardProps = {
@@ -43,7 +43,6 @@ const Card: Component<CardProps> = (props) => {
     const content = CAS[frame.hash || ""];
     if (!content) return null;
 
-    // Conditional rendering based on topic and meta.content_type
     if (frame.topic === "pb.recv") {
       try {
         const jsonContent = JSON.parse(content);
@@ -59,10 +58,28 @@ const Card: Component<CardProps> = (props) => {
     }
   };
 
+  // Find the first `pb.recv` frame, then extract the `source` from its content in CAS
+  const sourceFrame = frames.find((f) => f.topic === "pb.recv");
+  let source = null;
+  if (sourceFrame) {
+    const sourceContent = CAS[sourceFrame.hash || ""];
+    if (sourceContent) {
+      try {
+        const parsedContent = JSON.parse(sourceContent);
+        source = parsedContent.source;
+      } catch (error) {
+        console.error("Failed to parse JSON content for source:", error);
+      }
+    }
+  }
+
   return (
     <CardWrapper>
       <Content>{renderContent()}</Content>
-      <Footer>{frame.id}</Footer>
+      <Footer>
+        <span>{frame.id}</span>
+        {source && <span>{source}</span>}
+      </Footer>
     </CardWrapper>
   );
 };
