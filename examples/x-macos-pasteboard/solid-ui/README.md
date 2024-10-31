@@ -1,6 +1,7 @@
 # a Web UI starter to experiment with viewing clipboard history
 
-This is a SolidJS UI for `xs` + `x-macos-pasteboard`.
+This is a [`SolidJS`](https://www.solidjs.com) UI for `xs` +
+`x-macos-pasteboard`.
 
 Requirements:
 
