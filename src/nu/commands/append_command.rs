@@ -45,7 +45,7 @@ impl Command for AppendCommand {
             .category(Category::Experimental)
     }
 
-    fn usage(&self) -> &str {
+    fn description(&self) -> &str {
         "writes its input to the CAS and then appends a clip with a hash of this content to the given topic on the stream"
     }
 

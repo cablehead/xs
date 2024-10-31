@@ -39,18 +39,18 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1.15"
 tokio-util = { version = "0.7.11", features = ["compat"] }
 url = "2.5.0"
-
-nu-cli = "0.96.1"
-nu-command = "0.96.1"
-nu-protocol = "0.96.1"
-nu-cmd-lang = "0.96.1"
-nu-engine = "0.96.1"
-nu-parser = "0.96.1"
 crossbeam-channel = "0.5.13"
 tracing = "0.1.40"
 console = "0.15.8"
 chrono = "0.4.38"
 bon = "2.3"
+
+nu-cli = "0.99.1"
+nu-command = "0.99.1"
+nu-protocol = "0.99.1"
+nu-cmd-lang = "0.99.1"
+nu-engine = "0.99.1"
+nu-parser = "0.99.1"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"

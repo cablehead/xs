@@ -31,7 +31,7 @@ impl Command for RemoveCommand {
             .category(Category::Experimental)
     }
 
-    fn usage(&self) -> &str {
+    fn description(&self) -> &str {
         "Removes a frame from the store by its ID"
     }
 
