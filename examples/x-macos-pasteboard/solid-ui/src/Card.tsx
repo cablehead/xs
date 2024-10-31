@@ -51,7 +51,7 @@ const Card: Component<CardProps> = (props) => {
     } else if (frame.meta?.content_type === "image") {
       return <img src={`/api/cas/${frame.hash}`} alt="Frame content" />;
     } else {
-      return <p>{content}</p>;
+      return <pre>{content}</pre>;
     }
   };
 

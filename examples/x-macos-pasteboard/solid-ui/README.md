@@ -14,6 +14,16 @@ Start `xs`:
 xs serve ./store --expose :3021
 ```
 
+Bootstrap the store:
+
+```nushell
+use xs.nu *
+
+"x-macos-pasteboard | lines" | .append pb.spawn
+open handler-content.nu | .append content.register
+```
+
+
 Start UI:
 
 ```

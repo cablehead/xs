@@ -11,13 +11,14 @@
   --color-bg: #fff;
 
   --color-sub-fg: #7d889f;
-  --color-sub-bg: #ECEFF4;
+  --color-sub-bg: #eceff4;
 
   --color-accent: #94bfce;
 }
 
 body {
   margin: 0 auto;
+  padding: 1em;
   max-width: 620px;
   display: flex;
 
@@ -32,4 +33,18 @@ main {
 pre {
   margin: 0;
   padding: 0;
+}
+
+iframe,
+img,
+input,
+select,
+textarea {
+  height: auto;
+  max-width: 100%;
+}
+
+img {
+  border-radius: 5px;
+  display: block;
 }
