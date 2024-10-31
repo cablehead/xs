@@ -3,6 +3,8 @@
 This is a [`SolidJS`](https://www.solidjs.com) UI for `xs` +
 `x-macos-pasteboard`.
 
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/6deac539-8feb-4953-bd2b-ef38a799d8e5">
+
 Requirements:
 
 - [Deno2](https://deno.com)
