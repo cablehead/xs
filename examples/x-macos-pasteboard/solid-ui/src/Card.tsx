@@ -19,7 +19,7 @@ const Content = styled("div")`
 `;
 
 const Footer = styled("footer")`
-  font-size: 0.80em;
+  font-size: 0.7em;
   color: var(--color-sub-fg);
   background-color: var(--color-sub-bg);
 
