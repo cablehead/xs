@@ -34,11 +34,14 @@ A motivation for this example is for people to use it as a base to explore the
 [clipboard on Linux](https://github.com/cablehead/stacks/issues/50).
 
 Here's how you'd do that. Create a cli similar to `x-macos-pasteboard` that
-writes new clipboard entries as jsonl to stdout.
+writes new clipboard entries as jsonl to stdout. The format doesn't matter. Try
+and dump as much data as the system will give you.
 
 Replace the bootstrap step with:
 
+```bash
 echo "<your-cli> | lines" | xs append ./store pb.spawn
+```
 
 That's it! As you copy stuff to the clipboard, you'll see your raw data in the
 UI.
