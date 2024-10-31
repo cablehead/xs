@@ -111,12 +111,29 @@ impl Command for AppendCommand {
 
                         Ok(Some(hash))
                     }
+                    Value::Binary { val, .. } => {
+                        writer
+                            .write_all(&val)
+                            .await
+                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                        let hash = writer
+                            .commit()
+                            .await
+                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                        Ok(Some(hash))
+                    }
                     _ => Err(ShellError::PipelineMismatch {
-                        exp_input_type: "string or nothing".into(),
+                        exp_input_type: format!(
+                            "expected: string, binary, or nothing :: received: {:?}",
+                            value.get_type()
+                        ),
                         dst_span: span,
                         src_span: value.span(),
                     }),
                 },
+
                 PipelineData::ListStream(_stream, ..) => {
                     // Handle the ListStream case (for now, we'll just panic)
                     panic!("ListStream handling is not yet implemented");
