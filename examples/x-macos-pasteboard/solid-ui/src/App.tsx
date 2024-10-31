@@ -39,15 +39,17 @@ const App: Component = () => {
   };
 
   return (
-    <div>
+    <>
       <For each={index()}>
         {(frame) => (
           <Show when={frame.hash}>
-            {renderContent(frame)}
+            <div class="frame">
+              {renderContent(frame)}
+            </div>
           </Show>
         )}
       </For>
-    </div>
+    </>
   );
 };
 
