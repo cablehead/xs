@@ -1,4 +1,4 @@
-import { Component, Show } from "solid-js";
+import { Component, Show, createSignal, For } from "solid-js";
 import { styled } from "solid-styled-components";
 import { Frame } from "./stream";
 import { CASStore } from "./store";
@@ -19,12 +19,11 @@ const Content = styled("div")`
 `;
 
 const Footer = styled("footer")`
-  font-size: 0.7em;
+  font-size: 0.80em;
   color: var(--color-sub-fg);
   background-color: var(--color-sub-bg);
 
   padding: 0.5em 1em;
-
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -37,13 +36,14 @@ type CardProps = {
 
 const Card: Component<CardProps> = (props) => {
   const { frames, CAS } = props;
-  const frame = frames[0];
+  const [currentIndex, setCurrentIndex] = createSignal(0); // Signal for the currently displayed frame
+  const frame = () => frames[currentIndex()]; // Dynamic frame based on currentIndex signal
 
   const renderContent = () => {
-    const content = CAS[frame.hash || ""];
+    const content = CAS[frame().hash || ""];
     if (!content) return null;
 
-    if (frame.topic === "pb.recv") {
+    if (frame().topic === "pb.recv") {
       try {
         const jsonContent = JSON.parse(content);
         return <pre>{JSON.stringify(jsonContent, null, 2)}</pre>;
@@ -51,8 +51,8 @@ const Card: Component<CardProps> = (props) => {
         console.error("Failed to parse JSON content:", error);
         return <p>{content}</p>; // Fallback if JSON parsing fails
       }
-    } else if (frame.meta?.content_type === "image") {
-      return <img src={`/api/cas/${frame.hash}`} alt="Frame content" />;
+    } else if (frame().meta?.content_type === "image") {
+      return <img src={`/api/cas/${frame().hash}`} alt="Frame content" />;
     } else {
       return <pre>{content}</pre>;
     }
@@ -77,7 +77,20 @@ const Card: Component<CardProps> = (props) => {
     <CardWrapper>
       <Content>{renderContent()}</Content>
       <Footer>
-        <span>{frame.id}</span>
+        <span>{frame().id}</span>
+        <nav>
+          <For each={frames}>
+            {(_, idx) => (
+              <button
+                onClick={() => setCurrentIndex(idx())}
+                style={{ margin: "0 0.25em" }}
+                disabled={currentIndex() === idx()}
+              >
+                {idx()}
+              </button>
+            )}
+          </For>
+        </nav>
         {source && <span>{source}</span>}
       </Footer>
     </CardWrapper>
