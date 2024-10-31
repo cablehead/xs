@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, Show, For } from "solid-js";
+import { Component, createMemo, createSignal, For, Show } from "solid-js";
 import { styled } from "solid-styled-components";
 import { Frame } from "./store/stream";
 import { CASStore } from "./store/cas";
@@ -59,9 +59,9 @@ const Card: Component<CardProps> = (props) => {
     }
   };
 
-  // Find the first `pb.recv` frame and create a reactive derived signal for `source`
-  const sourceFrame = frames.find((f) => f.topic === "pb.recv");
+  // Create a reactive derived signal for `source`
   const source = createMemo(() => {
+    const sourceFrame = frames.find((f) => f.topic === "pb.recv");
     if (!sourceFrame) return null;
 
     const sourceContent = CAS.get(sourceFrame.hash)();
