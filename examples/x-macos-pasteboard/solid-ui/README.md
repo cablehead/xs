@@ -4,7 +4,7 @@ Requirements:
 
 - [Deno2](https://deno.com)
 - [x-macos-pasteboard](https://github.com/cablehead/x-macos-pasteboard)
-- [xs](https://github.com/cablehead/xs) (obvi)
+- [xs](https://github.com/cablehead/xs)
 
 ## To run
 
