@@ -1,6 +1,7 @@
-import { Component, For, Show } from "solid-js";
-import { useFrameStream } from "./stream";
+import { Component, For } from "solid-js";
+import { useFrameStream } from "./store/stream";
 import { useStore } from "./store";
+import { createCAS } from "./store/cas";
 import Card from "./Card";
 
 const App: Component = () => {
@@ -14,10 +15,8 @@ const App: Component = () => {
     return await response.text();
   };
 
-  const { CAS, index } = useStore({
-    dataSignal: frameSignal,
-    fetchContent,
-  });
+  const { index } = useStore({ dataSignal: frameSignal });
+  const CAS = createCAS(fetchContent);
 
   return (
     <div>

@@ -1,7 +1,7 @@
-import { Component, Show, createSignal, For } from "solid-js";
+import { Component, createSignal, createMemo, Show, For } from "solid-js";
 import { styled } from "solid-styled-components";
-import { Frame } from "./stream";
-import { CASStore } from "./store";
+import { Frame } from "./store/stream";
+import { CASStore } from "./store/cas";
 
 const CardWrapper = styled("div")`
   display: flex;
@@ -36,11 +36,12 @@ type CardProps = {
 
 const Card: Component<CardProps> = (props) => {
   const { frames, CAS } = props;
-  const [currentIndex, setCurrentIndex] = createSignal(0); // Signal for the currently displayed frame
-  const frame = () => frames[currentIndex()]; // Dynamic frame based on currentIndex signal
+  const [currentIndex, setCurrentIndex] = createSignal(0);
+  const frame = () => frames[currentIndex()];
+  const contentSignal = () => CAS.get(frame().hash);
 
   const renderContent = () => {
-    const content = CAS[frame().hash || ""];
+    const content = contentSignal()();
     if (!content) return null;
 
     if (frame().topic === "pb.recv") {
@@ -49,7 +50,7 @@ const Card: Component<CardProps> = (props) => {
         return <pre>{JSON.stringify(jsonContent, null, 2)}</pre>;
       } catch (error) {
         console.error("Failed to parse JSON content:", error);
-        return <p>{content}</p>; // Fallback if JSON parsing fails
+        return <p>{content}</p>;
       }
     } else if (frame().meta?.content_type === "image") {
       return <img src={`/api/cas/${frame().hash}`} alt="Frame content" />;
@@ -58,20 +59,22 @@ const Card: Component<CardProps> = (props) => {
     }
   };
 
-  // Find the first `pb.recv` frame, then extract the `source` from its content in CAS
+  // Find the first `pb.recv` frame and create a reactive derived signal for `source`
   const sourceFrame = frames.find((f) => f.topic === "pb.recv");
-  let source = null;
-  if (sourceFrame) {
-    const sourceContent = CAS[sourceFrame.hash || ""];
-    if (sourceContent) {
-      try {
-        const parsedContent = JSON.parse(sourceContent);
-        source = parsedContent.source;
-      } catch (error) {
-        console.error("Failed to parse JSON content for source:", error);
-      }
+  const source = createMemo(() => {
+    if (!sourceFrame) return null;
+
+    const sourceContent = CAS.get(sourceFrame.hash)();
+    if (!sourceContent) return null;
+
+    try {
+      const parsedContent = JSON.parse(sourceContent);
+      return parsedContent.source;
+    } catch (error) {
+      console.error("Failed to parse JSON content for source:", error);
+      return null;
     }
-  }
+  });
 
   return (
     <CardWrapper>
@@ -91,7 +94,9 @@ const Card: Component<CardProps> = (props) => {
             )}
           </For>
         </nav>
-        {source && <span>{source}</span>}
+        <Show when={source()}>
+          <span>{source()}</span>
+        </Show>
       </Footer>
     </CardWrapper>
   );

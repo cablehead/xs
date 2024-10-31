@@ -3,7 +3,7 @@ import { createSignal, onCleanup, onMount } from "solid-js";
 export type Frame = {
   id: string;
   topic: string;
-  hash?: string;
+  hash: string;
   meta?: Record<string, any>;
 };
 
