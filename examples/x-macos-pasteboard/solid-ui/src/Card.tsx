@@ -1,6 +1,7 @@
 import { Component, Show } from "solid-js";
 import { styled } from "solid-styled-components";
 import { Frame } from "./stream";
+import { CASStore } from "./store";
 
 const CardWrapper = styled("div")`
   display: flex;
@@ -30,13 +31,16 @@ const Footer = styled("footer")`
 `;
 
 type CardProps = {
-  frame: Frame;
-  content: string | null;
+  frames: Frame[];
+  CAS: CASStore;
 };
 
 const Card: Component<CardProps> = (props) => {
+  const { frames, CAS } = props;
+  const frame = frames[0];
+
   const renderContent = () => {
-    const { frame, content } = props;
+    const content = CAS[frame.hash || ""];
     if (!content) return null;
 
     // Conditional rendering based on topic and meta.content_type
@@ -58,7 +62,7 @@ const Card: Component<CardProps> = (props) => {
   return (
     <CardWrapper>
       <Content>{renderContent()}</Content>
-      <Footer>{props.frame.id}</Footer>
+      <Footer>{frame.id}</Footer>
     </CardWrapper>
   );
 };

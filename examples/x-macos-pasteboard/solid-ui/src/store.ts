@@ -44,7 +44,7 @@ export function useStore({ dataSignal, fetchContent }: StreamProps) {
   const index = createMemo(() => {
     return Object.keys(frames)
       .sort((a, b) => b.localeCompare(a)) // Sort in descending order by frame ID
-      .map((id) => frames[id][0]); // Map to the latest frame for each id
+      .map((id) => frames[id]);
   });
 
   return {

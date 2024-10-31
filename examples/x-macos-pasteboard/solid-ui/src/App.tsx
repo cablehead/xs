@@ -21,13 +21,9 @@ const App: Component = () => {
 
   return (
     <div>
-      <h1 style="text-align: right;">clipboard</h1>
+      <h1>a solid clipboard</h1>
       <For each={index()}>
-        {(frame) => (
-          <Show when={frame.hash}>
-            <Card frame={frame} content={CAS[frame.hash || ""]} />
-          </Show>
-        )}
+        {(frames) => <Card frames={frames} CAS={CAS} />}
       </For>
     </div>
   );
