@@ -5,9 +5,9 @@ import { Frame } from "./stream";
 const CardWrapper = styled("div")`
   display: flex;
   flex-direction: column;
-	margin-bottom: 1em;
+	margin-bottom: 2em;
 	overflow: hidden;
-	border-radius: 0.25em;
+	border-radius: 0.5em;
 `;
 
 const Content = styled("div")`
@@ -18,12 +18,11 @@ const Content = styled("div")`
 `;
 
 const Footer = styled("footer")`
-  font-size: 0.85em;
+  font-size: 0.80em;
   color: var(--color-sub-fg);
   background-color: var(--color-sub-bg);
 
-	padding: 0.5em;
-	height: 1.5em;
+	padding: 0.5em 1em;
 
 	display: flex;
 	align-items: center;
