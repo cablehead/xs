@@ -5,16 +5,16 @@ import { Frame } from "./stream";
 const CardWrapper = styled("div")`
   display: flex;
   flex-direction: column;
-	margin-bottom: 2em;
-	overflow: hidden;
-	border-radius: 0.25em;
+  margin-bottom: 2em;
+  overflow: hidden;
+  border-radius: 0.25em;
 `;
 
 const Content = styled("div")`
   flex: 1;
   overflow-x: auto;
   overflow-y: hidden;
-	padding: 0.5em;
+  padding: 0.25em 0.5em;
 `;
 
 const Footer = styled("footer")`
@@ -22,11 +22,11 @@ const Footer = styled("footer")`
   color: var(--color-sub-fg);
   background-color: var(--color-sub-bg);
 
-	padding: 0.5em 1em;
+  padding: 0.5em 1em;
 
-	display: flex;
-	align-items: center;
-	justify-content: end;
+  display: flex;
+  align-items: center;
+  justify-content: start;
 `;
 
 type CardProps = {

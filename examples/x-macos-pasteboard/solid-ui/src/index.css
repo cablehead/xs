@@ -45,6 +45,6 @@ textarea {
 }
 
 img {
-  border-radius: 5px;
+  border-radius: 0.25em;
   display: block;
 }
