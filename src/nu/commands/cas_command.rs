@@ -31,7 +31,7 @@ impl Command for CasCommand {
             .category(Category::Experimental)
     }
 
-    fn usage(&self) -> &str {
+    fn description(&self) -> &str {
         "Retrieve content from the CAS for the given hash"
     }
 

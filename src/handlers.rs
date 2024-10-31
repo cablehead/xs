@@ -202,7 +202,7 @@ fn execute_handler(handler: HandlerTask, frame: &Frame) -> Result<Value, Error> 
     Ok(output
         .map_err(|err| {
             let working_set = StateWorkingSet::new(&handler.engine.state);
-            nu_protocol::format_error(&working_set, &err)
+            nu_protocol::format_shell_error(&working_set, &err)
         })?
         .into_value(Span::unknown())?)
 }
