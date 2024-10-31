@@ -6,7 +6,7 @@ import { CASStore } from "./store/cas";
 const CardWrapper = styled("div")`
   display: flex;
   flex-direction: column;
-  margin-bottom: 2em;
+  margin-bottom: 1em;
   overflow: hidden;
   border-radius: 0.25em;
 `;
@@ -18,11 +18,10 @@ const Content = styled("div")`
   padding: 0.25em 0.5em;
 `;
 
-const Footer = styled("footer")`
+const Meta = styled("div")`
   font-size: 0.80em;
   color: var(--color-sub-fg);
   background-color: var(--color-sub-bg);
-
   padding: 0.5em 1em;
   display: flex;
   align-items: center;
@@ -78,8 +77,7 @@ const Card: Component<CardProps> = (props) => {
 
   return (
     <CardWrapper>
-      <Content>{renderContent()}</Content>
-      <Footer>
+      <Meta>
         <span>{frame().id}</span>
         <nav>
           <For each={frames}>
@@ -97,7 +95,8 @@ const Card: Component<CardProps> = (props) => {
         <Show when={source()}>
           <span>{source()}</span>
         </Show>
-      </Footer>
+      </Meta>
+      <Content>{renderContent()}</Content>
     </CardWrapper>
   );
 };
