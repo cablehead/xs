@@ -37,7 +37,7 @@ impl Command for CatCommand {
             .category(Category::Experimental)
     }
 
-    fn usage(&self) -> &str {
+    fn description(&self) -> &str {
         "Reads the event stream and returns frames"
     }
 

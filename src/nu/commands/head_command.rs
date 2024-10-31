@@ -28,7 +28,7 @@ impl Command for HeadCommand {
             .category(Category::Experimental)
     }
 
-    fn usage(&self) -> &str {
+    fn description(&self) -> &str {
         "get the most recent frame for a topic"
     }
 
