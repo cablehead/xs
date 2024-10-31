@@ -3,28 +3,33 @@
     "Roboto Mono", "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro",
     "Fira Mono", "Droid Sans Mono", "Courier New", monospace;
 
+  font-size: 1.2em;
   line-height: 1.5;
-  font-weight: 400;
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+  /* Colors */
+  --color-fg: #4e5668;
+  --color-bg: #fff;
+
+  --color-sub-fg: #7d889f;
+  --color-sub-bg: #fbfbff;
+
+  --color-accent: #94bfce;
 }
 
 body {
   margin: 0 auto;
-	max-width: 600px;
+  max-width: 620px;
   display: flex;
+
+  color: var(--color-fg);
+  background-color: var(--color-bg);
 }
 
 main {
-	width: 100%;
-	overflow-x: auto;
+  width: 100%;
 }
 
-.frame {
-	overflow: auto;
-	width: 100%;
+pre {
+  margin: 0;
+  padding: 0;
 }

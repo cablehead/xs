@@ -3,6 +3,7 @@
   "specifiers": {
     "npm:@deno/vite-plugin@1": "1.0.0_vite@5.4.10",
     "npm:solid-js@^1.9.2": "1.9.3_seroval@1.1.1",
+    "npm:solid-styled-components@~0.28.5": "0.28.5_solid-js@1.9.3__seroval@1.1.1_csstype@3.1.3",
     "npm:vite-plugin-solid@^2.10.2": "2.10.2_solid-js@1.9.3__seroval@1.1.1_vite@5.4.10_@babel+core@7.26.0",
     "npm:vite@*": "5.4.10",
     "npm:vite@^5.4.9": "5.4.10"
@@ -421,6 +422,12 @@
     "globals@11.12.0": {
       "integrity": "sha512-WOBp/EEGUiIsJSp7wcv/y6MO+lV9UoncWqxuFfm8eBwzWNgyfBd6Gz+IeKQ9jCmyhoH99g15M3T+QaVHFjizVA=="
     },
+    "goober@2.1.16_csstype@3.1.3": {
+      "integrity": "sha512-erjk19y1U33+XAMe1VTvIONHYoSqE4iS7BYUZfHaqeohLmnC0FdxEh7rQU+6MZ4OajItzjZFSRtVANrQwNq6/g==",
+      "dependencies": [
+        "csstype"
+      ]
+    },
     "html-entities@2.3.3": {
       "integrity": "sha512-DV5Ln36z34NNTDgnz0EWGBLZENelNAtkiFA4kyNOG2tDI6Mz1uSWiq1wAKdyjnJwyDiDO7Fa2SO1CTxPXL8VxA=="
     },
@@ -528,6 +535,14 @@
         "solid-js"
       ]
     },
+    "solid-styled-components@0.28.5_solid-js@1.9.3__seroval@1.1.1_csstype@3.1.3": {
+      "integrity": "sha512-vwTcdp76wZNnESIzB6rRZ3U55NgcSAQXCiiRIiEFhxTFqT0bEh/warNT1qaRZu4OkAzrBkViOngF35ktI8sc4A==",
+      "dependencies": [
+        "csstype",
+        "goober",
+        "solid-js"
+      ]
+    },
     "source-map-js@1.2.1": {
       "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="
     },
@@ -578,6 +593,7 @@
     "dependencies": [
       "npm:@deno/vite-plugin@1",
       "npm:solid-js@^1.9.2",
+      "npm:solid-styled-components@~0.28.5",
       "npm:vite-plugin-solid@^2.10.2",
       "npm:vite@^5.4.9"
     ]
