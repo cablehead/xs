@@ -304,6 +304,8 @@ pub async fn remove(addr: &str, id: &str) -> Result<(), BoxError> {
 //
 // HTTP request related functions
 
+use base64::prelude::*;
+
 async fn request(
     addr: &str,
     method: Method,
@@ -322,9 +324,38 @@ async fn request(
         }
     });
 
-    let uri = get_uri(addr, path, query)?;
+    let url = url::Url::parse(addr)?;
 
-    let mut builder = Request::builder().method(method).uri(uri);
+    let auth_header = if let Some(password) = url.password() {
+        let credentials = format!("{}:{}", url.username(), password);
+        Some(format!("Basic {}", BASE64_STANDARD.encode(credentials)))
+    } else if !url.username().is_empty() {
+        let credentials = format!("{}:", url.username());
+        Some(format!("Basic {}", BASE64_STANDARD.encode(credentials)))
+    } else {
+        None
+    };
+
+    let uri = get_uri(addr, path, query)?;
+    eprintln!("Request URI: {}", uri);
+
+    let host = url.host_str().ok_or("Missing host")?;
+    let host_value = if let Some(port) = url.port() {
+        format!("{}:{}", host, port)
+    } else {
+        host.to_string()
+    };
+
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(hyper::header::HOST, host_value)
+        .header(hyper::header::USER_AGENT, "xs/0.1")
+        .header(hyper::header::ACCEPT, "*/*");
+
+    if let Some(auth) = auth_header {
+        builder = builder.header(hyper::header::AUTHORIZATION, auth);
+    }
 
     if let Some(headers) = headers {
         for (name, value) in headers {
@@ -333,6 +364,8 @@ async fn request(
     }
 
     let req = builder.body(body)?;
+    eprintln!("Request headers: {:#?}", req.headers());
+
     sender.send_request(req).await.map_err(Into::into)
 }
 
@@ -350,6 +383,7 @@ fn get_uri(addr: &str, path: &str, query: Option<&str>) -> Result<String, BoxErr
 
         let base_url = url::Url::parse(&base)?;
         let scheme = base_url.scheme();
+        // Just use host, strip auth
         let host = base_url.host_str().ok_or("Missing host")?;
         let port = base_url
             .port()

@@ -962,6 +962,7 @@ version = "0.0.9"
 dependencies = [
  "assert_cmd",
  "async-std",
+ "base64 0.22.1",
  "bon",
  "bytes",
  "cacache",
