@@ -1,18 +1,23 @@
-use serde_json::Value;
+mod request;
+mod connect;
 
+pub use self::connect::connect;
+
+use crate::store::TTL;
 use futures::StreamExt;
-
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::sync::mpsc::Receiver;
-
-use http_body_util::{combinators::BoxBody, BodyExt, Empty};
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, StreamBody};
 use hyper::body::Bytes;
 use hyper::client::conn::http1;
-use hyper::{Method, Request, StatusCode};
+use hyper::{Method, Request};
 use hyper_util::rt::TokioIo;
+use serde_json::Value;
+use ssri::Integrity;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::sync::mpsc::Receiver;
+use tokio_util::io::ReaderStream;
 
-use crate::connect::connect;
-use crate::store::TTL;
+pub use self::request::RequestParts;
+use self::connect::connect;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -50,17 +55,14 @@ pub async fn cat(
     };
 
     let headers = if sse {
-        Some(vec![(
-            "Accept".to_string(),
-            "text/event-stream".to_string(),
-        )])
+        Some(vec![("Accept".to_string(), "text/event-stream".to_string())])
     } else {
         None
     };
 
     let res = request(addr, Method::GET, "", query.as_deref(), empty(), headers).await?;
 
-    if res.status() != StatusCode::OK {
+    if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
     }
 
@@ -87,9 +89,6 @@ pub async fn cat(
 
     Ok(rx)
 }
-
-use http_body_util::StreamBody;
-use tokio_util::io::ReaderStream;
 
 pub async fn append<R>(
     addr: &str,
@@ -121,23 +120,18 @@ where
         req = req.header("xs-meta", serde_json::to_string(meta_value)?);
     }
 
-    // Create a stream from the AsyncRead
     let reader_stream = ReaderStream::new(data);
-
-    // Map the stream to convert io::Error to BoxError
     let mapped_stream = reader_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
             .map_err(|e| Box::new(e) as BoxError)
     });
 
-    // Create a StreamBody
     let body = StreamBody::new(mapped_stream);
-
     let req = req.body(body)?;
     let res = sender.send_request(req).await?;
 
-    if res.status() != StatusCode::OK {
+    if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
     }
 
@@ -147,7 +141,7 @@ where
 
 pub async fn cas_get<W>(
     addr: &str,
-    integrity: ssri::Integrity,
+    integrity: Integrity,
     writer: &mut W,
 ) -> Result<(), BoxError>
 where
@@ -155,7 +149,6 @@ where
 {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);
-
     let (mut sender, conn) = http1::handshake(io).await?;
 
     tokio::spawn(async move {
@@ -172,7 +165,7 @@ where
 
     let res = sender.send_request(req).await?;
 
-    if res.status() != StatusCode::OK {
+    if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
     }
 
@@ -190,13 +183,16 @@ where
     Ok(())
 }
 
-pub async fn pipe<R>(addr: &str, id: &str, data: R) -> Result<Bytes, BoxError>
+pub async fn pipe<R>(
+    addr: &str,
+    id: &str,
+    data: R,
+) -> Result<Bytes, BoxError>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);
-
     let (mut sender, conn) = http1::handshake(io).await?;
 
     tokio::spawn(async move {
@@ -206,20 +202,14 @@ where
     });
 
     let uri = format!("http://localhost/pipe/{}", id);
-
-    // Create a stream from the AsyncRead
     let reader_stream = ReaderStream::new(data);
-
-    // Map the stream to convert io::Error to BoxError
     let mapped_stream = reader_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
             .map_err(|e| Box::new(e) as BoxError)
     });
 
-    // Create a StreamBody
     let body = StreamBody::new(mapped_stream);
-
     let req = Request::builder()
         .method(Method::POST)
         .uri(uri)
@@ -227,7 +217,7 @@ where
 
     let res = sender.send_request(req).await?;
 
-    if res.status() != StatusCode::OK {
+    if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
     }
 
@@ -238,7 +228,7 @@ where
 pub async fn get(addr: &str, id: &str) -> Result<Bytes, BoxError> {
     let res = request(addr, Method::GET, id, None, empty(), None).await?;
 
-    if res.status() != StatusCode::OK {
+    if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
     }
 
@@ -249,7 +239,6 @@ pub async fn get(addr: &str, id: &str) -> Result<Bytes, BoxError> {
 pub async fn head(addr: &str, topic: &str) -> Result<Bytes, BoxError> {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);
-
     let (mut sender, conn) = http1::handshake(io).await?;
 
     tokio::spawn(async move {
@@ -266,7 +255,7 @@ pub async fn head(addr: &str, topic: &str) -> Result<Bytes, BoxError> {
 
     let res = sender.send_request(req).await?;
 
-    if res.status() != StatusCode::OK {
+    if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
     }
 
@@ -277,7 +266,6 @@ pub async fn head(addr: &str, topic: &str) -> Result<Bytes, BoxError> {
 pub async fn remove(addr: &str, id: &str) -> Result<(), BoxError> {
     let stream = connect(addr).await?;
     let io = TokioIo::new(stream);
-
     let (mut sender, conn) = http1::handshake(io).await?;
 
     tokio::spawn(async move {
@@ -295,76 +283,10 @@ pub async fn remove(addr: &str, id: &str) -> Result<(), BoxError> {
     let res = sender.send_request(req).await?;
 
     match res.status() {
-        StatusCode::NO_CONTENT => Ok(()),
-        StatusCode::NOT_FOUND => Err(format!("not found: {}", id).into()),
+        hyper::StatusCode::NO_CONTENT => Ok(()),
+        hyper::StatusCode::NOT_FOUND => Err(format!("not found: {}", id).into()),
         _ => Err(format!("HTTP error: {}", res.status()).into()),
     }
-}
-
-//
-// HTTP request related functions
-
-use base64::prelude::*;
-
-#[derive(Default, Debug, PartialEq)]
-struct RequestParts {
-    uri: String,
-    host: Option<String>,
-    authorization: Option<String>,
-}
-
-fn parse_request_parts(
-    addr: &str,
-    path: &str,
-    query: Option<&str>,
-) -> Result<RequestParts, BoxError> {
-    let mut parts = RequestParts::default();
-
-    // Unix socket case
-    if addr.starts_with('/') || addr.starts_with('.') {
-        parts.uri = if let Some(q) = query {
-            format!("http://localhost/{}?{}", path, q)
-        } else {
-            format!("http://localhost/{}", path)
-        };
-        return Ok(parts);
-    }
-
-    // Convert port-only or bare host to URL
-    let addr = if addr.starts_with(':') {
-        format!("http://127.0.0.1{}", addr)
-    } else if !addr.contains("://") {
-        format!("http://{}", addr)
-    } else {
-        addr.to_string()
-    };
-
-    let url = url::Url::parse(&addr)?;
-
-    // Build the clean request URI (no auth)
-    let scheme = url.scheme();
-    let host = url.host_str().ok_or("Missing host")?;
-    let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
-
-    parts.uri = if let Some(q) = query {
-        format!("{}://{}{}/{}?{}", scheme, host, port, path, q)
-    } else {
-        format!("{}://{}{}/{}", scheme, host, port, path)
-    };
-
-    // Set host header
-    parts.host = Some(format!("{}{}", host, port));
-
-    // Set auth if present
-    if let Some(password) = url.password() {
-        let credentials = format!("{}:{}", url.username(), password);
-        parts.authorization = Some(format!("Basic {}", BASE64_STANDARD.encode(credentials)));
-    } else if !url.username().is_empty() {
-        let credentials = format!("{}:", url.username());
-        parts.authorization = Some(format!("Basic {}", BASE64_STANDARD.encode(credentials)));
-    }
-
-    Ok(parts)
 }
 
 async fn request(
@@ -385,7 +307,7 @@ async fn request(
         }
     });
 
-    let parts = parse_request_parts(addr, path, query)?;
+    let parts = request::parse_request_parts(addr, path, query)?;
 
     let mut builder = Request::builder()
         .method(method)
@@ -400,7 +322,6 @@ async fn request(
         builder = builder.header(hyper::header::AUTHORIZATION, auth);
     }
 
-    // Add any additional headers
     if let Some(extra_headers) = headers {
         for (name, value) in extra_headers {
             builder = builder.header(name, value);
@@ -415,33 +336,4 @@ fn empty() -> BoxBody<Bytes, BoxError> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_unix_socket() {
-        let parts = parse_request_parts("./store", "foo", None).unwrap();
-        assert_eq!(parts.uri, "http://localhost/foo");
-        assert_eq!(parts.host, None);
-        assert_eq!(parts.authorization, None);
-    }
-
-    #[test]
-    fn test_port_only() {
-        let parts = parse_request_parts(":8080", "bar", Some("q=1")).unwrap();
-        assert_eq!(parts.uri, "http://127.0.0.1:8080/bar?q=1");
-        assert_eq!(parts.host, Some("127.0.0.1:8080".to_string()));
-        assert_eq!(parts.authorization, None);
-    }
-
-    #[test]
-    fn test_https_url_with_auth() {
-        let parts = parse_request_parts("https://user:pass@example.com:400", "", None).unwrap();
-        assert_eq!(parts.uri, "https://example.com:400/");
-        assert_eq!(parts.host, Some("example.com:400".to_string()));
-        assert_eq!(parts.authorization, Some("Basic dXNlcjpwYXNz".to_string()));
-    }
 }
