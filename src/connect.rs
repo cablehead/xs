@@ -4,18 +4,16 @@ use std::sync::Arc;
 use tokio::net::{TcpStream, UnixStream};
 use tokio_rustls::TlsConnector;
 
+use crate::listener::AsyncReadWriteBox;
+
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 async fn create_tls_connector() -> Result<TlsConnector, BoxError> {
-    // Create a certificate store and use native roots
+    // Create a certificate store and use root certificates
     let mut root_store = RootCertStore::empty();
-    root_store.add_trust_anchors(
-        webpki_roots::TLS_SERVER_ROOTS
-            .iter()
-            .map(|ta| ta.to_owned()),
-    );
 
-    // Build the configuration using the new builder pattern
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
     let config = ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth();
@@ -66,9 +64,3 @@ async fn connect(addr: &str) -> Result<AsyncReadWriteBox, BoxError> {
         Ok(Box::new(stream))
     }
 }
-
-// Update the trait bounds for AsyncReadWriteBox to include TLS streams
-pub type AsyncReadWriteBox =
-    Box<dyn tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static>;
-
-// Rest of the client.rs implementation remains the same...
