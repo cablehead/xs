@@ -25,19 +25,7 @@ pub async fn cat(
     limit: Option<u64>,
     sse: bool,
 ) -> Result<Receiver<Bytes>, BoxError> {
-    let stream = connect(addr).await?;
-    let io = TokioIo::new(stream);
-
-    let (mut sender, conn) = http1::handshake(io).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
-
     let mut params = Vec::new();
-
     if follow {
         if let Some(pulse_value) = pulse {
             params.push(format!("follow={}", pulse_value));
@@ -45,41 +33,38 @@ pub async fn cat(
             params.push("follow=true".to_string());
         }
     }
-
     if tail {
         params.push("tail".to_string());
     }
-
     if let Some(ref last_id_value) = last_id {
         params.push(format!("last-id={}", last_id_value));
     }
-
     if let Some(limit_value) = limit {
         params.push(format!("limit={}", limit_value));
     }
 
-    let uri = if !params.is_empty() {
-        format!("http://localhost/?{}", params.join("&"))
+    let query = if !params.is_empty() {
+        Some(params.join("&"))
     } else {
-        "http://localhost/".to_string()
+        None
     };
 
-    let mut req = Request::builder().method(Method::GET).uri(uri);
+    let headers = if sse {
+        Some(vec![(
+            "Accept".to_string(),
+            "text/event-stream".to_string(),
+        )])
+    } else {
+        None
+    };
 
-    if sse {
-        req = req.header("Accept", "text/event-stream");
-    }
-
-    let req = req.body(empty())?;
-
-    let res = sender.send_request(req).await?;
+    let res = request(addr, Method::GET, "", query.as_deref(), empty(), headers).await?;
 
     if res.status() != StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
     }
 
     let (_parts, mut body) = res.into_parts();
-
     let (tx, rx) = tokio::sync::mpsc::channel(100);
 
     tokio::spawn(async move {
@@ -91,7 +76,6 @@ pub async fn cat(
                             break;
                         }
                     }
-                    // Ignore non-data frames
                 }
                 Err(e) => {
                     eprintln!("Error reading body: {}", e);
