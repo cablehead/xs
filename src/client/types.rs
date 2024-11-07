@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_unix_socket() {
-        let parts = parse_request_parts("./store", "foo", None).unwrap();
+        let parts = RequestParts::parse("./store", "foo", None).unwrap();
         assert_eq!(parts.uri, "http://localhost/foo");
         assert_eq!(parts.host, None);
         assert_eq!(parts.authorization, None);
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_port_only() {
-        let parts = parse_request_parts(":8080", "bar", Some("q=1")).unwrap();
+        let parts = RequestParts::parse(":8080", "bar", Some("q=1")).unwrap();
         assert_eq!(parts.uri, "http://127.0.0.1:8080/bar?q=1");
         assert_eq!(parts.host, Some("127.0.0.1:8080".to_string()));
         assert_eq!(parts.authorization, None);
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_https_url_with_auth() {
-        let parts = parse_request_parts("https://user:pass@example.com:400", "", None).unwrap();
+        let parts = RequestParts::parse("https://user:pass@example.com:400", "", None).unwrap();
         assert_eq!(parts.uri, "https://example.com:400/");
         assert_eq!(parts.host, Some("example.com:400".to_string()));
         assert_eq!(parts.authorization, Some("Basic dXNlcjpwYXNz".to_string()));
