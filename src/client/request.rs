@@ -1,19 +1,21 @@
-use http_body_util::combinators::BoxBody;
-use hyper::body::Bytes;
 use hyper::{Method, Request};
 use hyper_util::rt::TokioIo;
 
 use super::connect::connect;
 use super::types::{BoxError, RequestParts};
 
-pub async fn request(
+pub async fn request<B>(
     addr: &str,
     method: Method,
     path: &str,
     query: Option<&str>,
-    body: BoxBody<Bytes, BoxError>,
+    body: B,
     headers: Option<Vec<(String, String)>>,
-) -> Result<hyper::Response<hyper::body::Incoming>, BoxError> {
+) -> Result<hyper::Response<hyper::body::Incoming>, BoxError>
+where
+    B: hyper::body::Body<Data = hyper::body::Bytes> + Send + 'static,
+    B::Error: Into<BoxError> + Send,
+{
     let parts = RequestParts::parse(addr, path, query)?;
     let stream = connect(&parts).await?;
     let io = TokioIo::new(stream);
