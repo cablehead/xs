@@ -1,5 +1,6 @@
 pub mod api;
 pub mod client;
+pub mod connect;
 pub mod error;
 pub mod handlers;
 pub mod http;

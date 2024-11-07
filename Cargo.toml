@@ -25,20 +25,11 @@ cacache = "13"
 clap = { version = "4", features = ["derive"] }
 fjall = "1.5"
 futures = "0.3.31"
-http = "1.1.0"
-http-body-util = "0.1"
-http-serde = "2.1.1"
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
 scru128 = { version = "3", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_urlencoded = "0.7.1"
 ssri = "9.2.0"
-tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1.15"
-tokio-util = { version = "0.7.11", features = ["compat"] }
-url = "2.5.0"
 crossbeam-channel = "0.5.13"
 tracing = "0.1.40"
 console = "0.15.8"
@@ -51,6 +42,18 @@ nu-protocol = "0.99.1"
 nu-cmd-lang = "0.99.1"
 nu-engine = "0.99.1"
 nu-parser = "0.99.1"
+
+http = "1.1.0"
+http-body-util = "0.1"
+http-serde = "2.1.1"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1.15"
+tokio-util = { version = "0.7.11", features = ["compat"] }
+url = "2.5.0"
+rustls = "0.23.16"
+tokio-rustls = "0.26.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
