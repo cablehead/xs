@@ -19,7 +19,5 @@ COPY target/release/xs /usr/local/bin/xs
 COPY target/release/scru128 /usr/bin/scru128
 COPY xs.nu /app/xs.nu
 
-EXPOSE 8080
-
-CMD ["xs", "serve", "/app/store"]
-
+# Conditional CMD to append --expose based on XS_EXPOSE environment variable
+ENTRYPOINT ["/bin/sh", "-c", 'if [ -n "$XS_EXPOSE" ]; then exec xs serve /app/store --expose "$XS_EXPOSE"; else exec xs serve /app/store; fi']
