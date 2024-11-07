@@ -1,5 +1,5 @@
-mod request;
 mod connect;
+mod request;
 
 pub use self::connect::connect;
 
@@ -54,7 +54,10 @@ pub async fn cat(
     };
 
     let headers = if sse {
-        Some(vec![("Accept".to_string(), "text/event-stream".to_string())])
+        Some(vec![(
+            "Accept".to_string(),
+            "text/event-stream".to_string(),
+        )])
     } else {
         None
     };
@@ -138,11 +141,7 @@ where
     Ok(body)
 }
 
-pub async fn cas_get<W>(
-    addr: &str,
-    integrity: Integrity,
-    writer: &mut W,
-) -> Result<(), BoxError>
+pub async fn cas_get<W>(addr: &str, integrity: Integrity, writer: &mut W) -> Result<(), BoxError>
 where
     W: AsyncWrite + Unpin,
 {
@@ -182,11 +181,7 @@ where
     Ok(())
 }
 
-pub async fn pipe<R>(
-    addr: &str,
-    id: &str,
-    data: R,
-) -> Result<Bytes, BoxError>
+pub async fn pipe<R>(addr: &str, id: &str, data: R) -> Result<Bytes, BoxError>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
