@@ -3,7 +3,6 @@ use serde_json::Value;
 use futures::StreamExt;
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::mpsc::Receiver;
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty};
@@ -12,37 +11,10 @@ use hyper::client::conn::http1;
 use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use crate::listener::AsyncReadWriteBox;
+use crate::connect::connect;
 use crate::store::TTL;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
-
-async fn connect(addr: &str) -> Result<AsyncReadWriteBox, BoxError> {
-    if addr.starts_with('/') || addr.starts_with('.') {
-        let path = std::path::Path::new(addr);
-        let addr = if path.is_dir() {
-            path.join("sock")
-        } else {
-            path.to_path_buf()
-        };
-        let stream = UnixStream::connect(addr).await?;
-        Ok(Box::new(stream))
-    } else {
-        let addr = if addr.starts_with(':') {
-            format!("127.0.0.1{}", addr)
-        } else {
-            addr.to_string()
-        };
-        let stream = TcpStream::connect(addr).await?;
-        Ok(Box::new(stream))
-    }
-}
-
-fn empty() -> BoxBody<Bytes, BoxError> {
-    Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed()
-}
 
 pub async fn cat(
     addr: &str,
@@ -280,24 +252,7 @@ where
 }
 
 pub async fn get(addr: &str, id: &str) -> Result<Bytes, BoxError> {
-    let stream = connect(addr).await?;
-    let io = TokioIo::new(stream);
-
-    let (mut sender, conn) = http1::handshake(io).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
-
-    let uri = format!("http://localhost/{}", id);
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(empty())?;
-
-    let res = sender.send_request(req).await?;
+    let res = request(addr, Method::GET, id, None, empty(), None).await?;
 
     if res.status() != StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
@@ -360,4 +315,74 @@ pub async fn remove(addr: &str, id: &str) -> Result<(), BoxError> {
         StatusCode::NOT_FOUND => Err(format!("not found: {}", id).into()),
         _ => Err(format!("HTTP error: {}", res.status()).into()),
     }
+}
+
+//
+// HTTP request related functions
+
+async fn request(
+    addr: &str,
+    method: Method,
+    path: &str,
+    query: Option<&str>,
+    body: BoxBody<Bytes, BoxError>,
+    headers: Option<Vec<(String, String)>>,
+) -> Result<hyper::Response<hyper::body::Incoming>, BoxError> {
+    let stream = connect(addr).await?;
+    let io = TokioIo::new(stream);
+    let (mut sender, conn) = http1::handshake(io).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let uri = get_uri(addr, path, query)?;
+
+    let mut builder = Request::builder().method(method).uri(uri);
+
+    if let Some(headers) = headers {
+        for (name, value) in headers {
+            builder = builder.header(name, value);
+        }
+    }
+
+    let req = builder.body(body)?;
+    sender.send_request(req).await.map_err(Into::into)
+}
+
+fn get_uri(addr: &str, path: &str, query: Option<&str>) -> Result<String, BoxError> {
+    let url = if addr.starts_with('/') || addr.starts_with('.') {
+        format!("http://localhost/{}", path)
+    } else {
+        let base = if addr.starts_with(':') {
+            format!("http://127.0.0.1{}", addr)
+        } else if !addr.contains("://") {
+            format!("http://{}", addr)
+        } else {
+            addr.to_string()
+        };
+
+        let base_url = url::Url::parse(&base)?;
+        let scheme = base_url.scheme();
+        let host = base_url.host_str().ok_or("Missing host")?;
+        let port = base_url
+            .port()
+            .map(|p| format!(":{}", p))
+            .unwrap_or_default();
+        format!("{}://{}{}/{}", scheme, host, port, path)
+    };
+
+    if let Some(q) = query {
+        Ok(format!("{}?{}", url, q))
+    } else {
+        Ok(url)
+    }
+}
+
+fn empty() -> BoxBody<Bytes, BoxError> {
+    Empty::<Bytes>::new()
+        .map_err(|never| match never {})
+        .boxed()
 }
