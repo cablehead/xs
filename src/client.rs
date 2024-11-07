@@ -325,7 +325,17 @@ async fn request(
     });
 
     let url = url::Url::parse(addr)?;
+    let uri = get_uri(addr, path, query)?;
 
+    // Set up host header
+    let host = url.host_str().ok_or("Missing host")?;
+    let host_value = if let Some(port) = url.port() {
+        format!("{}:{}", host, port)
+    } else {
+        host.to_string()
+    };
+
+    // Set up auth if present
     let auth_header = if let Some(password) = url.password() {
         let credentials = format!("{}:{}", url.username(), password);
         Some(format!("Basic {}", BASE64_STANDARD.encode(credentials)))
@@ -336,16 +346,7 @@ async fn request(
         None
     };
 
-    let uri = get_uri(addr, path, query)?;
-    eprintln!("Request URI: {}", uri);
-
-    let host = url.host_str().ok_or("Missing host")?;
-    let host_value = if let Some(port) = url.port() {
-        format!("{}:{}", host, port)
-    } else {
-        host.to_string()
-    };
-
+    // Build request with standard headers
     let mut builder = Request::builder()
         .method(method)
         .uri(uri)
@@ -353,10 +354,12 @@ async fn request(
         .header(hyper::header::USER_AGENT, "xs/0.1")
         .header(hyper::header::ACCEPT, "*/*");
 
+    // Add auth header if present
     if let Some(auth) = auth_header {
         builder = builder.header(hyper::header::AUTHORIZATION, auth);
     }
 
+    // Add any additional headers
     if let Some(headers) = headers {
         for (name, value) in headers {
             builder = builder.header(name, value);
@@ -364,8 +367,6 @@ async fn request(
     }
 
     let req = builder.body(body)?;
-    eprintln!("Request headers: {:#?}", req.headers());
-
     sender.send_request(req).await.map_err(Into::into)
 }
 
