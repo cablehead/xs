@@ -92,36 +92,27 @@ pub async fn append<R>(
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    let stream = super::connect(addr).await?;
-    let io = hyper_util::rt::TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
+    // Build query string if TTL is present
+    let query = ttl.map(|t| t.to_query());
 
-    let mut uri = format!("http://localhost/{}", topic);
-    if let Some(ttl) = ttl {
-        uri = format!("{}?{}", uri, ttl.to_query());
-    }
-
-    let mut req = Request::builder().method(Method::POST).uri(uri);
-
-    if let Some(meta_value) = meta {
-        req = req.header("xs-meta", serde_json::to_string(meta_value)?);
-    }
-
+    // Setup stream from data
     let reader_stream = ReaderStream::new(data);
     let mapped_stream = reader_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     });
-
     let body = StreamBody::new(mapped_stream);
-    let req = req.body(body)?;
-    let res = sender.send_request(req).await?;
+
+    // Add meta header if present
+    let headers = meta.map(|meta_value| {
+        vec![(
+            "xs-meta".to_string(),
+            serde_json::to_string(meta_value).unwrap(),
+        )]
+    });
+
+    let res = request::request(addr, Method::POST, topic, query.as_deref(), body, headers).await?;
 
     if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
@@ -139,23 +130,15 @@ pub async fn cas_get<W>(
 where
     W: AsyncWrite + Unpin,
 {
-    let stream = super::connect(addr).await?;
-    let io = hyper_util::rt::TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
-
-    let uri = format!("http://localhost/cas/{}", integrity);
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(empty())?;
-
-    let res = sender.send_request(req).await?;
+    let res = request::request(
+        addr,
+        Method::GET,
+        &format!("cas/{}", integrity),
+        None,
+        empty(),
+        None,
+    )
+    .await?;
 
     if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
@@ -171,7 +154,6 @@ where
     }
 
     writer.flush().await?;
-
     Ok(())
 }
 
