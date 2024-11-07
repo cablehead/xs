@@ -2,8 +2,8 @@ use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type};
 
-use crate::store::Store;
 use crate::nu::util;
+use crate::store::Store;
 
 #[derive(Clone)]
 pub struct HeadCommand {
@@ -43,7 +43,10 @@ impl Command for HeadCommand {
         let span = call.head;
 
         if let Some(frame) = self.store.head(&topic) {
-            Ok(PipelineData::Value(util::frame_to_value(&frame, span), None))
+            Ok(PipelineData::Value(
+                util::frame_to_value(&frame, span),
+                None,
+            ))
         } else {
             Ok(PipelineData::Empty)
         }

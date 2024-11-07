@@ -1,8 +1,8 @@
 mod append_command;
 mod cas_command;
+mod cat_command;
 mod head_command;
 mod remove_command;
-mod cat_command;
 
 use crate::store::Store;
 use nu_protocol::engine::EngineState;
