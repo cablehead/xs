@@ -17,7 +17,6 @@ use tokio::sync::mpsc::Receiver;
 use tokio_util::io::ReaderStream;
 
 pub use self::request::RequestParts;
-use self::connect::connect;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
