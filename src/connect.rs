@@ -1,4 +1,5 @@
 use rustls::ClientConfig;
+use rustls::RootCertStore;
 use std::sync::Arc;
 use tokio::net::{TcpStream, UnixStream};
 use tokio_rustls::TlsConnector;
@@ -6,9 +7,17 @@ use tokio_rustls::TlsConnector;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 async fn create_tls_connector() -> Result<TlsConnector, BoxError> {
-    let mut config = ClientConfig::builder()
-        .with_safe_defaults()
-        .with_native_roots()? // Use native root certificates
+    // Create a certificate store and use native roots
+    let mut root_store = RootCertStore::empty();
+    root_store.add_trust_anchors(
+        webpki_roots::TLS_SERVER_ROOTS
+            .iter()
+            .map(|ta| ta.to_owned()),
+    );
+
+    // Build the configuration using the new builder pattern
+    let config = ClientConfig::builder()
+        .with_root_certificates(root_store)
         .with_no_client_auth();
 
     Ok(TlsConnector::from(Arc::new(config)))
