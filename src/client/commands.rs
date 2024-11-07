@@ -2,7 +2,7 @@ use crate::store::TTL;
 use futures::StreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, StreamBody};
 use hyper::body::Bytes;
-use hyper::{Method, Request};
+use hyper::Method;
 use ssri::Integrity;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::Receiver;
@@ -165,31 +165,24 @@ pub async fn pipe<R>(
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    let stream = super::connect(addr).await?;
-    let io = hyper_util::rt::TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
-
-    let uri = format!("http://localhost/pipe/{}", id);
+    // Setup stream from data
     let reader_stream = ReaderStream::new(data);
     let mapped_stream = reader_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     });
-
     let body = StreamBody::new(mapped_stream);
-    let req = Request::builder()
-        .method(Method::POST)
-        .uri(uri)
-        .body(body)?;
 
-    let res = sender.send_request(req).await?;
+    let res = request::request(
+        addr,
+        Method::POST,
+        &format!("pipe/{}", id),
+        None,
+        body,
+        None,
+    )
+    .await?;
 
     if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
@@ -211,23 +204,7 @@ pub async fn get(addr: &str, id: &str) -> Result<Bytes, Box<dyn std::error::Erro
 }
 
 pub async fn remove(addr: &str, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let stream = super::connect(addr).await?;
-    let io = hyper_util::rt::TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
-
-    let uri = format!("http://localhost/{}", id);
-    let req = Request::builder()
-        .method(Method::DELETE)
-        .uri(uri)
-        .body(empty())?;
-
-    let res = sender.send_request(req).await?;
+    let res = request::request(addr, Method::DELETE, id, None, empty(), None).await?;
 
     match res.status() {
         hyper::StatusCode::NO_CONTENT => Ok(()),
@@ -240,23 +217,15 @@ pub async fn head(
     addr: &str,
     topic: &str,
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
-    let stream = super::connect(addr).await?;
-    let io = hyper_util::rt::TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
-
-    let uri = format!("http://localhost/head/{}", topic);
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(empty())?;
-
-    let res = sender.send_request(req).await?;
+    let res = request::request(
+        addr,
+        Method::GET,
+        &format!("head/{}", topic),
+        None,
+        empty(),
+        None,
+    )
+    .await?;
 
     if res.status() != hyper::StatusCode::OK {
         return Err(format!("HTTP error: {}", res.status()).into());
