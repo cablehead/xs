@@ -29,7 +29,7 @@ def "op identify" [token: string, intents: int] {
             properties: {
                 os: (sys host | get name),
                 browser: "discord.nu",
-                device: "discord.nu",
+                device: "xs",
             },
         },
     }
@@ -65,6 +65,8 @@ def .send [] {
     # GUILDS, GUILD_MEMBERS, GUILD_MESSAGES, GUILD_MESSAGE_REACTIONS, MESSAGE_CONTENT
     let IDENTIFY_INTENTS = 34307
 
+    let token = (.head discord.ws.token | .cas $in.hash)
+
     if $frame.topic == "xs.pulse" {
         # we're not online
         if $state.heartbeat_interval == 0 {
@@ -73,7 +75,7 @@ def .send [] {
 
         # online, but not authed, attempt to auth
         if (($state.heartbeat_interval != 0) and ($state.authing | is-empty)) {
-            op identify $env.BOT_TOKEN $IDENTIFY_INTENTS | .send
+            op identify $token $IDENTIFY_INTENTS | .send
             return
         }
 
