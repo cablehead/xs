@@ -38,6 +38,9 @@ use xs.nu *
 "websocat "wss://gateway.discord.gg/?v=8&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines" |
     .append discord.ws.spawn --meta {duplex: true}
 
+# append the access token to use to the stream
+"<token>" | .append discord.ws.token
+
 open examples/discord-bot/handler-heartbeat.nu |
     .append "discord.heartbeat.register" --meta (open examples/discord-bot/handler-heartbeat.nuon)
 
