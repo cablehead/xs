@@ -35,7 +35,7 @@ In another session:
 ```nushell
 use xs.nu *
 
-"websocat "wss://gateway.discord.gg/?v=8&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines" |
+"websocat "wss://gateway.discord.gg/?v=10&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines" |
     .append discord.ws.spawn --meta {duplex: true}
 
 # append the access token to use to the stream
