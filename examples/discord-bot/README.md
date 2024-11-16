@@ -48,6 +48,23 @@ open examples/discord-bot/handler-heartbeat.nu |
 open examples/discord-bot/handler-roller.nu | .append "discord.roller.register"
 ```
 
+#### Slash commands
+
+We should be able to make this nicer?
+
+```nushell
+# create the command
+# see discord.nu
+discord app command create 1227338584814649364 dice "make a dice roll" --options [
+       (discord app command option int n "number of dice to roll" --required)
+       (discord app command option int d "die type / number of sides" --required)
+       (discord app command option int modifier "modifier")
+   ]
+
+# enable the command handler
+open examples/discord-bot/handler-slash-dice.nu | .append "discord.slash-dice.register"
+```
+
 ### run through
 
 This is a presentation I gave at the [Creative Code Toronto](https://www.meetup.com/creative-code-toronto/) [Sep '24 meetup](https://www.meetup.com/creative-code-toronto/events/303276625/?eventOrigin=group_events_list) :: [slides](https://cablehead.github.io/creative-codie/) :: [video](https://www.youtube.com/watch?v=Y2rsm5ohDrg&list=PL_YfqG2SCOAK52A4VQ7r7m9laijKSbmUB&index=2)
