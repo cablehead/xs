@@ -26,6 +26,13 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     ./aws/install && \
     rm -rf aws awscliv2.zip
 
+# deno
+ARG DENO_VERSION=2.1.1
+RUN curl --fail -L -o /tmp/deno.zip https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip && \
+    unzip /tmp/deno.zip -d /usr/bin && \
+    chmod +x /usr/bin/deno && \
+    rm /tmp/deno.zip
+
 WORKDIR /app
 
 COPY target/release/xs /usr/local/bin/xs
