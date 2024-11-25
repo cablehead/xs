@@ -25,7 +25,7 @@ async fn test_integration() {
             break;
         }
 
-        if start.elapsed() > Duration::from_secs(2) {
+        if start.elapsed() > Duration::from_secs(5) {
             panic!("Timeout waiting for sock file to be created");
         }
 

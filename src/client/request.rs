@@ -1,3 +1,4 @@
+use http_body_util::BodyExt;
 use hyper::{Method, Request};
 use hyper_util::rt::TokioIo;
 
@@ -47,5 +48,14 @@ where
     }
 
     let req = builder.body(body)?;
-    sender.send_request(req).await.map_err(Into::into)
+    let res = sender.send_request(req).await?;
+
+    // Handle non-OK responses
+    if res.status() != hyper::StatusCode::OK && res.status() != hyper::StatusCode::NO_CONTENT {
+        let status = res.status();
+        let body = res.collect().await?.to_bytes();
+        return Err(format!("{}:: {}", status, String::from_utf8_lossy(&body)).into());
+    }
+
+    Ok(res)
 }
