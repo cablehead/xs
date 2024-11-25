@@ -54,10 +54,6 @@ pub async fn cat(
 
     let res = request::request(addr, Method::GET, "", query.as_deref(), empty(), headers).await?;
 
-    if res.status() != hyper::StatusCode::OK {
-        return Err(format!("HTTP error: {}", res.status()).into());
-    }
-
     let (_parts, mut body) = res.into_parts();
     let (tx, rx) = tokio::sync::mpsc::channel(100);
 
@@ -114,10 +110,6 @@ where
 
     let res = request::request(addr, Method::POST, topic, query.as_deref(), body, headers).await?;
 
-    if res.status() != hyper::StatusCode::OK {
-        return Err(format!("HTTP error: {}", res.status()).into());
-    }
-
     let body = res.collect().await?.to_bytes();
     Ok(body)
 }
@@ -139,10 +131,6 @@ where
         None,
     )
     .await?;
-
-    if res.status() != hyper::StatusCode::OK {
-        return Err(format!("HTTP error: {}", res.status()).into());
-    }
 
     let mut body = res.into_body();
 
@@ -184,33 +172,19 @@ where
     )
     .await?;
 
-    if res.status() != hyper::StatusCode::OK {
-        return Err(format!("HTTP error: {}", res.status()).into());
-    }
-
     let body = res.collect().await?.to_bytes();
     Ok(body)
 }
 
 pub async fn get(addr: &str, id: &str) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
     let res = request::request(addr, Method::GET, id, None, empty(), None).await?;
-
-    if res.status() != hyper::StatusCode::OK {
-        return Err(format!("HTTP error: {}", res.status()).into());
-    }
-
     let body = res.collect().await?.to_bytes();
     Ok(body)
 }
 
 pub async fn remove(addr: &str, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let res = request::request(addr, Method::DELETE, id, None, empty(), None).await?;
-
-    match res.status() {
-        hyper::StatusCode::NO_CONTENT => Ok(()),
-        hyper::StatusCode::NOT_FOUND => Err(format!("not found: {}", id).into()),
-        _ => Err(format!("HTTP error: {}", res.status()).into()),
-    }
+    let _ = request::request(addr, Method::DELETE, id, None, empty(), None).await?;
+    Ok(())
 }
 
 pub async fn head(
@@ -226,10 +200,6 @@ pub async fn head(
         None,
     )
     .await?;
-
-    if res.status() != hyper::StatusCode::OK {
-        return Err(format!("HTTP error: {}", res.status()).into());
-    }
 
     let body = res.collect().await?.to_bytes();
     Ok(body)

@@ -115,7 +115,7 @@ async fn handle(
     let path = req.uri().path();
     let headers = req.headers().clone();
 
-    match match_route(method, path, &headers) {
+    let res = match match_route(method, path, &headers) {
         Routes::StreamCat(accept_type) => {
             let options = match ReadOptions::from_query(req.uri().query()) {
                 Ok(opts) => opts,
@@ -152,7 +152,9 @@ async fn handle(
         Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
 
         Routes::NotFound => response_404(),
-    }
+    };
+
+    res.or_else(|e| response_500(e.to_string()))
 }
 
 async fn handle_stream_cat(
@@ -284,14 +286,16 @@ async fn handle_pipe_post(
 
                 let block = engine.state.get_block(closure.block_id);
                 let mut stack = Stack::new();
-                let output = eval_block::<WithoutDebug>(&engine.state, &mut stack, block, input);
-                // TODO: surface nushell errors
-                let output = output?;
-                let value = output.into_value(Span::unknown())?;
 
+                let output = eval_block::<WithoutDebug>(&engine.state, &mut stack, block, input)
+                    .map_err(|e| {
+                        let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+                        nu_protocol::format_shell_error(&working_set, &e)
+                    })?;
+
+                let value = output.into_value(Span::unknown())?;
                 let json = nu::value_to_json(&value);
                 let bytes = serde_json::to_vec(&json)?;
-
                 Ok(bytes)
             })();
 
@@ -421,6 +425,13 @@ fn response_400(message: String) -> HTTPResult {
     let body = full(message);
     Ok(Response::builder()
         .status(StatusCode::BAD_REQUEST)
+        .body(body)?)
+}
+
+fn response_500(message: String) -> HTTPResult {
+    let body = full(message);
+    Ok(Response::builder()
+        .status(StatusCode::INTERNAL_SERVER_ERROR)
         .body(body)?)
 }
 

@@ -150,7 +150,7 @@ struct CommandGet {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
-    match args.command {
+    let res = match args.command {
         Command::Serve(args) => serve(args).await,
         Command::Cat(args) => cat(args).await,
         Command::Append(args) => append(args).await,
@@ -159,7 +159,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Head(args) => head(args).await,
         Command::Get(args) => get(args).await,
         Command::Pipe(args) => pipe(args).await,
+    };
+    if let Err(err) = res {
+        eprintln!("{}", err);
+        std::process::exit(1);
     }
+    Ok(())
 }
 
 async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
