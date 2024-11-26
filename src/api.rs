@@ -270,7 +270,7 @@ async fn handle_pipe_post(
     if let Some(frame) = store.get(&id) {
         let mut engine = engine.clone();
 
-        use nu_engine::eval_block;
+        use nu_engine::eval_block_with_early_return;
         use nu_protocol::debugger::WithoutDebug;
         use nu_protocol::engine::Stack;
         use nu_protocol::Span;
@@ -287,11 +287,16 @@ async fn handle_pipe_post(
                 let block = engine.state.get_block(closure.block_id);
                 let mut stack = Stack::new();
 
-                let output = eval_block::<WithoutDebug>(&engine.state, &mut stack, block, input)
-                    .map_err(|e| {
-                        let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-                        nu_protocol::format_shell_error(&working_set, &e)
-                    })?;
+                let output = eval_block_with_early_return::<WithoutDebug>(
+                    &engine.state,
+                    &mut stack,
+                    block,
+                    input,
+                )
+                .map_err(|e| {
+                    let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+                    nu_protocol::format_shell_error(&working_set, &e)
+                })?;
 
                 let value = output.into_value(Span::unknown())?;
                 let json = nu::value_to_json(&value);
