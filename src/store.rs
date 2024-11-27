@@ -44,7 +44,7 @@ pub enum TTL {
     Forever, // The event is kept indefinitely.
     Temporary, // (TBD) The event is kept in memory and will be lost when the current process ends.
     Ephemeral, // The event is not stored at all; only active subscribers can see it.
-    Time(Duration), // (TBD) The event is kept for a custom duration.
+    Time(Duration), // The event is kept for a custom duration.
 }
 
 impl TTL {
@@ -201,16 +201,27 @@ impl Store {
             let options_clone = options.clone();
             let should_follow_clone = should_follow;
 
+            let store_clone = self.clone();
+
             // Spawn OS thread to handle historical events
             std::thread::spawn(move || {
                 let mut last_id = None;
                 let mut count = 0;
+                let mut expired_frames = Vec::new();
 
                 let range = get_range(options_clone.last_id.as_ref());
                 let mut compacted_frames = HashMap::new();
 
                 for record in partition.range(range) {
                     let frame = deserialize_frame(record.unwrap());
+
+                    if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
+                        if is_expired(&frame.id, ttl) {
+                            expired_frames.push(frame.id);
+                            continue;
+                        }
+                    }
+
                     last_id = Some(frame.id);
 
                     if let Some(compaction_strategy) = &options_clone.compaction_strategy {
@@ -254,6 +265,10 @@ impl Store {
                     if tx_clone.blocking_send(threshold).is_err() {
                         return;
                     }
+                }
+
+                for id in expired_frames {
+                    let _ = store_clone.remove(&id);
                 }
 
                 // Signal completion with the last seen ID and count
@@ -758,4 +773,65 @@ mod test_ttl {
         let ttl = TTL::from_query(Some("ttl=time"));
         assert!(ttl.is_err());
     }
+}
+
+#[cfg(test)]
+mod tests_ttl_expire {
+    use super::*;
+    use tempfile::TempDir;
+    use tokio::time::sleep;
+    use tokio_stream::StreamExt;
+
+    #[tokio::test]
+    async fn test_time_based_ttl_expiry() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+
+        // Add permanent frame
+        let permanent_frame = store.append(Frame::with_topic("test").build()).await;
+
+        // Add frame with a TTL
+        let expiring_frame = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Time(Duration::from_millis(20)))
+                    .build(),
+            )
+            .await;
+
+        // Immediate read should show both frames
+        let recver = store.read(ReadOptions::default()).await;
+        assert_eq!(
+            tokio_stream::wrappers::ReceiverStream::new(recver)
+                .collect::<Vec<Frame>>()
+                .await,
+            vec![permanent_frame.clone(), expiring_frame.clone()]
+        );
+
+        // Wait for TTL to expire
+        sleep(Duration::from_millis(50)).await;
+
+        // Read after expiry should only show permanent frame
+        let recver = store.read(ReadOptions::default()).await;
+        assert_eq!(
+            tokio_stream::wrappers::ReceiverStream::new(recver)
+                .collect::<Vec<Frame>>()
+                .await,
+            vec![permanent_frame]
+        );
+
+        // Assert the underlying partition has been updated
+        assert_eq!(store.get(&expiring_frame.id), None);
+    }
+}
+
+fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
+    let created_ms = id.timestamp();
+    let expires_ms = created_ms.saturating_add(ttl.as_millis() as u64);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    now_ms >= expires_ms
 }
