@@ -120,8 +120,9 @@ async fn spawn(
                     .meta
                     .as_ref()
                     .and_then(|meta| meta.get("handler_id"))
-                    .and_then(|meta| meta.as_str().map(str::as_bytes))
-                    == Some(handler.id.as_bytes())
+                    .and_then(|handler_id| handler_id.as_str().map(str::as_bytes))
+                    .filter(|id_bytes| id_bytes == handler.id.as_bytes())
+                    .is_some()
                 {
                     continue;
                 }
