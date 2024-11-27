@@ -23,7 +23,7 @@ async-std = "1.12.0"
 bytes = "1.6.0"
 cacache = "13"
 clap = { version = "4", features = ["derive"] }
-fjall = "1.5"
+fjall = "2.4"
 futures = "0.3.31"
 scru128 = { version = "3", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
