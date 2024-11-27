@@ -2,7 +2,7 @@ use super::commands::add_custom_commands;
 use nu_cli::{add_cli_context, gather_parent_env_vars};
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
-use nu_engine::eval_block;
+use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, EngineState, Stack, StateWorkingSet};
@@ -41,7 +41,7 @@ impl Engine {
         let mut engine_state = self.state.clone();
         engine_state.merge_delta(working_set.render())?;
         let mut stack = Stack::new();
-        eval_block::<WithoutDebug>(&engine_state, &mut stack, &block, input)
+        eval_block_with_early_return::<WithoutDebug>(&engine_state, &mut stack, &block, input)
     }
 
     pub fn parse_closure(&mut self, script: &str) -> Result<Closure, ShellError> {
@@ -50,8 +50,12 @@ impl Engine {
         self.state.merge_delta(working_set.render())?;
 
         let mut stack = Stack::new();
-        let result =
-            eval_block::<WithoutDebug>(&self.state, &mut stack, &block, PipelineData::empty())?;
+        let result = eval_block_with_early_return::<WithoutDebug>(
+            &self.state,
+            &mut stack,
+            &block,
+            PipelineData::empty(),
+        )?;
         let closure = result.into_value(Span::unknown())?.into_closure()?;
 
         Ok(closure)
