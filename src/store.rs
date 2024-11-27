@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::broadcast;
@@ -10,7 +9,7 @@ use scru128::Scru128Id;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
+use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, Slice};
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 #[builder(start_fn = with_topic)]
@@ -418,7 +417,7 @@ fn get_range(last_id: Option<&Scru128Id>) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
     }
 }
 
-fn deserialize_frame(record: (Arc<[u8]>, Arc<[u8]>)) -> Frame {
+fn deserialize_frame(record: (Slice, Slice)) -> Frame {
     serde_json::from_slice(&record.1).unwrap_or_else(|e| {
         let key = std::str::from_utf8(&record.0).unwrap();
         let value = std::str::from_utf8(&record.1).unwrap();
