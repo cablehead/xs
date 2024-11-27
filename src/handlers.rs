@@ -126,7 +126,9 @@ async fn spawn(
                     }
                 }
 
-                if frame.topic == format!("{}.register", &handler.topic) && frame.id != handler.id {
+                if (frame.topic == format!("{}.register", &handler.topic) && frame.id != handler.id)
+                    || frame.topic == format!("{}.unregister", &handler.topic)
+                {
                     let _ = store
                         .append(
                             Frame::with_topic(format!("{}.unregistered", &handler.topic))
@@ -599,6 +601,47 @@ mod tests {
         let meta = frame.meta.unwrap();
         assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
         assert_eq!(meta["frame_id"], frame_pew.id.to_string());
+
+        // Ensure we've processed all frames
+        let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
+        tokio::pin!(timeout);
+        tokio::select! {
+            Some(frame) = recver.recv() => {
+                panic!("Unregistered handler still processing: {:?}", frame);
+            }
+            _ = &mut timeout => {
+                // Success - no frames processed after unregister
+            }
+        }
+
+        // Test explicit unregistration
+        store
+            .append(Frame::with_topic("action.unregister").build())
+            .await;
+
+        // Check for unregistered event
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action.unregister".to_string());
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action.unregistered".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
+
+        // Verify handler no longer processes events
+        let _ = store.append(Frame::with_topic("pew").build()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "pew".to_string());
+
+        // No response should come since handler is unregistered
+        let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
+        tokio::pin!(timeout);
+        tokio::select! {
+            Some(frame) = recver.recv() => {
+                panic!("Unregistered handler still processing: {:?}", frame);
+            }
+            _ = &mut timeout => {
+                // Success - no frames processed after unregister
+            }
+        }
     }
 
     #[tokio::test]
