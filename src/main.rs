@@ -243,11 +243,7 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
 
     let ttl = match args.ttl {
         Some(ttl_str) => {
-            let query = if let Ok(duration) = u64::from_str(&ttl_str) {
-                format!("ttl=time&duration={}", duration)
-            } else {
-                format!("ttl={}", ttl_str)
-            };
+            let query = format!("ttl={}", ttl_str);
             Some(xs::store::TTL::from_query(Some(&query))?)
         }
         None => None,
