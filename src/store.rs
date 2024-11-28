@@ -42,7 +42,6 @@ impl fmt::Debug for Frame {
 pub enum TTL {
     #[default]
     Forever, // The event is kept indefinitely.
-    Temporary, // (TBD) The event is kept in memory and will be lost when the current process ends.
     Ephemeral, // The event is not stored at all; only active subscribers can see it.
     Time(Duration), // The event is kept for a custom duration.
 }
@@ -51,7 +50,6 @@ impl TTL {
     pub fn to_query(&self) -> String {
         match self {
             TTL::Forever => "ttl=forever".to_string(),
-            TTL::Temporary => "ttl=temporary".to_string(),
             TTL::Ephemeral => "ttl=ephemeral".to_string(),
             TTL::Time(duration) => format!("ttl={}", duration.as_millis()),
         }
@@ -63,7 +61,6 @@ impl TTL {
             .and_then(|params| params.get("ttl").cloned())
             .map(|value| match value.as_str() {
                 "forever" => Ok(TTL::Forever),
-                "temporary" => Ok(TTL::Temporary),
                 "ephemeral" => Ok(TTL::Ephemeral),
                 duration_str => duration_str
                     .parse::<u64>()
@@ -762,7 +759,7 @@ mod test_ttl {
         assert_eq!(ttl, Ok(TTL::Forever));
 
         let ttl = TTL::from_query(Some("ttl=temporary"));
-        assert_eq!(ttl, Ok(TTL::Temporary));
+        assert!(ttl.is_err());
 
         let ttl = TTL::from_query(Some("ttl=ephemeral"));
         assert_eq!(ttl, Ok(TTL::Ephemeral));

@@ -70,7 +70,6 @@ impl Command for AppendCommand {
             Some(Value::String { val, .. }) => match val.as_str() {
                 "forever" => Some(TTL::Forever),
                 "ephemeral" => Some(TTL::Ephemeral),
-                "temporary" => Some(TTL::Temporary),
                 duration_str => duration_str.parse::<u64>()
                     .map(|millis| Some(TTL::Time(Duration::from_millis(millis))))
                     .map_err(|_| ShellError::TypeMismatch {
