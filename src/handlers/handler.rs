@@ -1,11 +1,16 @@
-use crate::error::Error;
-use crate::nu;
-use crate::thread_pool::ThreadPool;
 use nu_engine::eval_block_with_early_return;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::Stack;
+use nu_protocol::engine::StateWorkingSet;
+use nu_protocol::PipelineData;
 use nu_protocol::{Span, Value};
+
 use scru128::Scru128Id;
+
+use crate::error::Error;
+use crate::nu;
+use crate::nu::frame_to_value;
+use crate::thread_pool::ThreadPool;
 
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(untagged)]
@@ -15,7 +20,6 @@ pub enum StartDefinition {
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct Meta {
-    pub stateful: Option<bool>,
     pub initial_state: Option<serde_json::Value>,
     pub pulse: Option<u64>,
     pub start: Option<StartDefinition>,
@@ -28,6 +32,7 @@ pub struct Handler {
     pub meta: Meta,
     pub engine: nu::Engine,
     pub closure: nu_protocol::engine::Closure,
+    pub stateful: bool,
     pub state: Option<Value>,
 }
 
@@ -38,19 +43,33 @@ impl Handler {
         meta: Meta,
         mut engine: nu::Engine,
         expression: String,
-    ) -> Self {
-        let closure = engine.parse_closure(&expression).unwrap();
+    ) -> Result<Self, Error> {
+        let closure = engine.parse_closure(&expression)?;
+        let block = engine.state.get_block(closure.block_id);
 
-        Self {
+        // Validate closure has 1 or 2 args and set stateful
+        let arg_count = block.signature.required_positional.len();
+        let stateful = match arg_count {
+            1 => false,
+            2 => true,
+            _ => {
+                return Err(
+                    format!("Closure must accept 1 or 2 arguments, found {}", arg_count).into(),
+                )
+            }
+        };
+
+        Ok(Self {
             id,
             topic,
             meta: meta.clone(),
             engine,
             closure,
+            stateful,
             state: meta
                 .initial_state
                 .map(|state| crate::nu::util::json_to_value(&state, nu_protocol::Span::unknown())),
-        }
+        })
     }
 
     pub async fn eval_in_thread(&self, pool: &ThreadPool, frame: &crate::store::Frame) -> Value {
@@ -73,14 +92,18 @@ impl Handler {
     }
 
     fn eval(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
-        let input = nu::frame_to_pipeline(frame);
-        let block = self.engine.state.get_block(self.closure.block_id);
         let mut stack = Stack::new();
+        let block = self.engine.state.get_block(self.closure.block_id);
 
-        if self.meta.stateful.unwrap_or(false) {
-            let var_id = block.signature.required_positional[0].var_id.unwrap();
+        // First arg is always frame
+        let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
+        stack.add_var(frame_var_id, frame_to_value(frame, Span::unknown()));
+
+        // Second arg is state if stateful
+        if self.stateful {
+            let state_var_id = block.signature.required_positional[1].var_id.unwrap();
             stack.add_var(
-                var_id,
+                state_var_id,
                 self.state
                     .clone()
                     .unwrap_or(Value::nothing(Span::unknown())),
@@ -91,12 +114,12 @@ impl Handler {
             &self.engine.state,
             &mut stack,
             block,
-            input,
+            PipelineData::empty(), // no pipeline input, using args
         );
 
         Ok(output
             .map_err(|err| {
-                let working_set = nu_protocol::engine::StateWorkingSet::new(&self.engine.state);
+                let working_set = StateWorkingSet::new(&self.engine.state);
                 nu_protocol::format_shell_error(&working_set, &err)
             })?
             .into_value(Span::unknown())?)

@@ -132,7 +132,7 @@ async fn spawn(
                 }
 
                 let value = handler.eval_in_thread(&pool, &frame).await;
-                if handler.meta.stateful.unwrap_or(false) {
+                if handler.stateful {
                     handle_result_stateful(&store, &mut handler, &frame, value).await;
                 } else {
                     handle_result_stateless(&store, &handler, &frame, value).await;
@@ -189,15 +189,29 @@ pub async fn serve(
                 .await
                 .unwrap();
 
-            let handler = Handler::new(
+            match Handler::new(
                 frame.id,
                 topic.to_string(),
                 meta.clone(),
                 engine.clone(),
                 expression,
-            );
-
-            let _ = spawn(store.clone(), handler, pool.clone()).await?;
+            ) {
+                Ok(handler) => {
+                    let _ = spawn(store.clone(), handler, pool.clone()).await?;
+                }
+                Err(err) => {
+                    let _ = store
+                        .append(
+                            Frame::with_topic(format!("{}.unregister", topic))
+                                .meta(serde_json::json!({
+                                    "handler_id": frame.id.to_string(),
+                                    "error": err.to_string(),
+                                }))
+                                .build(),
+                        )
+                        .await;
+                }
+            }
         }
     }
 
@@ -230,8 +244,8 @@ mod tests {
                     .hash(
                         store
                             .cas_insert(
-                                r#"{||
-                                    if $in.topic != "topic2" { return }
+                                r#"{|frame|
+                                    if $frame.topic != "topic2" { return }
                                     "ran action"
                                    }"#,
                             )
@@ -297,18 +311,17 @@ mod tests {
                     .hash(
                         store
                             .cas_insert(
-                                r#"{|state|
-                    if $in.topic != "count.me" { return }
-                    mut state = $state
-                    $state.count += 1
-                    { state: $state }
-                   }"#,
+                                r#"{|frame, state|
+                                    if $frame.topic != "count.me" { return }
+                                    mut state = $state
+                                    $state.count += 1
+                                    { state: $state }
+                                   }"#,
                             )
                             .await
                             .unwrap(),
                     )
                     .meta(serde_json::json!({
-                        "stateful": true,
                         "initial_state": { "count": 0 }
                     }))
                     .build(),
@@ -386,8 +399,8 @@ mod tests {
                     .hash(
                         store
                             .cas_insert(
-                                r#"{||
-                                    if $in.topic != "pew" { return }
+                                r#"{|frame|
+                                    if $frame.topic != "pew" { return }
                                     "0.1"
                                 }"#,
                             )
@@ -425,8 +438,8 @@ mod tests {
                     .hash(
                         store
                             .cas_insert(
-                                r#"{||
-                                    if $in.topic != "pew" { return }
+                                r#"{|frame|
+                                    if $frame.topic != "pew" { return }
                                     "0.2"
                                 }"#,
                             )
@@ -554,8 +567,8 @@ mod tests {
                     .hash(
                         store
                             .cas_insert(
-                                r#"{||
-                                    $in
+                                r#"{|frame|
+                                    $frame
                                 }"#,
                             )
                             .await
@@ -583,6 +596,72 @@ mod tests {
         tokio::select! {
             Some(frame) = recver.recv() => {
                 panic!("Handler processed its own output: {:?}", frame);
+            }
+            _ = &mut timeout => {
+                // Success - no additional frames were processed
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_register_invalid_closure() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+        let pool = ThreadPool::new(4);
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine, pool).await.unwrap();
+            });
+        }
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut recver = store.read(options).await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.threshold".to_string()
+        );
+
+        // Attempt to register a closure with no arguments
+        let _ = store
+            .append(
+                Frame::with_topic("invalid.register")
+                    .hash(
+                        store
+                            .cas_insert(
+                                r#"{|| 42 }"#, // Invalid closure, expects at least one argument
+                            )
+                            .await
+                            .unwrap(),
+                    )
+                    .build(),
+            )
+            .await;
+
+        // Ensure the register frame is processed
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "invalid.register".to_string()
+        );
+
+        // Expect an unregister frame to be appended
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "invalid.unregister".to_string());
+
+        // Verify the content of the error frame
+        let meta = frame.meta.unwrap();
+        let error_message = meta["error"].as_str().unwrap();
+        assert!(error_message.contains("Closure must accept 1 or 2 arguments"));
+
+        // Ensure no additional frames are processed
+        let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
+        tokio::pin!(timeout);
+        tokio::select! {
+            Some(frame) = recver.recv() => {
+                panic!("Unexpected frame processed: {:?}", frame);
             }
             _ = &mut timeout => {
                 // Success - no additional frames were processed
