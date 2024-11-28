@@ -1,4 +1,3 @@
-use crate::store::TTL;
 use futures::StreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, StreamBody};
 use hyper::body::Bytes;
@@ -7,6 +6,8 @@ use ssri::Integrity;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::Receiver;
 use tokio_util::io::ReaderStream;
+
+use crate::ttl::TTL;
 
 use super::request;
 

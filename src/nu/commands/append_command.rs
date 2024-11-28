@@ -1,14 +1,13 @@
-use std::io::Read;
-use std::time::Duration;
-
 use async_std::io::WriteExt;
+use std::io::Read;
 
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 use crate::nu::util;
-use crate::store::{Frame, Store, TTL};
+use crate::store::{Frame, Store};
+use crate::ttl::TTL;
 
 #[derive(Clone)]
 pub struct AppendCommand {
@@ -38,8 +37,8 @@ impl Command for AppendCommand {
             )
             .named(
                 "ttl",
-                SyntaxShape::Any,
-                r#"forever, ephemeral, temporary, or a duration in milliseconds"#,
+                SyntaxShape::String,
+                r#"TTL specification: 'forever', 'ephemeral', 'time:<seconds>', or 'head:<n>'"#,
                 None,
             )
             .category(Category::Experimental)
@@ -64,25 +63,15 @@ impl Command for AppendCommand {
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         let meta = meta.map(|meta| util::value_to_json(&meta));
 
-        // Parse the ttl argument
-        let ttl: Option<Value> = call.get_flag(engine_state, stack, "ttl")?;
+        // Parse the TTL argument using the new TTL module
+        let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {
-            Some(Value::String { val, .. }) => match val.as_str() {
-                "forever" => Some(TTL::Forever),
-                "ephemeral" => Some(TTL::Ephemeral),
-                "temporary" => Some(TTL::Temporary),
-                duration_str => duration_str.parse::<u64>()
-                    .map(|millis| Some(TTL::Time(Duration::from_millis(millis))))
-                    .map_err(|_| ShellError::TypeMismatch {
-                        err_message: format!("Invalid TTL value: {}. Expected 'forever', 'ephemeral', 'temporary', or a duration in milliseconds", duration_str),
-                        span: call.span(),
-                    })?,
-            },
-            Some(Value::Int { val, .. }) => Some(TTL::Time(Duration::from_millis(val as u64))),
-            Some(value) => return Err(ShellError::TypeMismatch {
-                err_message: format!("Invalid TTL value: {:?}. Expected 'forever', 'ephemeral', 'temporary', or a duration in milliseconds", value),
-                span: call.span(),
-            }),
+            Some(ttl_str) => Some(TTL::from_query(Some(&format!("ttl={}", ttl_str))).map_err(
+                |e| ShellError::TypeMismatch {
+                    err_message: format!("Invalid TTL value: {}. {}", ttl_str, e),
+                    span: call.span(),
+                },
+            )?),
             None => None,
         };
 
@@ -140,21 +129,17 @@ impl Command for AppendCommand {
                 }
 
                 PipelineData::ByteStream(stream, ..) => {
-                    // Convert ByteStream into a synchronous reader
                     if let Some(mut reader) = stream.reader() {
-                        let mut buffer = [0; 8192]; // Adjust buffer size as needed
+                        let mut buffer = [0; 8192];
                         loop {
-                            // Read a chunk from the stream
                             let bytes_read = reader
                                 .read(&mut buffer)
                                 .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
-                            // If no more data, break out of the loop
                             if bytes_read == 0 {
                                 break;
                             }
 
-                            // Write this chunk to the writer
                             writer
                                 .write_all(&buffer[..bytes_read])
                                 .await

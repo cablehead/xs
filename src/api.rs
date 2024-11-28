@@ -22,8 +22,9 @@ use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
 use crate::nu;
-use crate::store::{self, Frame, ReadOptions, Store, TTL};
+use crate::store::{self, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
+use crate::ttl::TTL;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;

@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 use xs::nu;
 use xs::store::Store;
 use xs::thread_pool::ThreadPool;
+use xs::ttl::parse_ttl;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -98,8 +99,8 @@ struct CommandAppend {
     #[clap(long, value_parser)]
     meta: Option<String>,
 
-    /// Time-to-live for the event (forever, temporary, ephemeral, or duration in milliseconds)
-    #[clap(long, value_parser)]
+    /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<seconds>, head:<n>
+    #[clap(long)]
     ttl: Option<String>,
 }
 
@@ -238,23 +239,21 @@ use tokio::io::AsyncRead;
 async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let meta = args
         .meta
-        .map(|meta_str| serde_json::from_str(&meta_str))
+        .as_ref()
+        .map(|meta_str| serde_json::from_str(meta_str))
         .transpose()?;
 
     let ttl = match args.ttl {
-        Some(ttl_str) => {
-            let query = format!("ttl={}", ttl_str);
-            Some(xs::store::TTL::from_query(Some(&query))?)
-        }
+        Some(ref ttl_str) => Some(parse_ttl(ttl_str)?),
         None => None,
     };
 
-    let input = if !std::io::stdin().is_terminal() {
+    let input: Box<dyn AsyncRead + Unpin + Send> = if !std::io::stdin().is_terminal() {
         // Stdin is a pipe, use it as input
-        Box::new(stdin()) as Box<dyn AsyncRead + Unpin + Send>
+        Box::new(stdin())
     } else {
         // Stdin is not a pipe, use an empty reader
-        Box::new(tokio::io::empty()) as Box<dyn AsyncRead + Unpin + Send>
+        Box::new(tokio::io::empty())
     };
 
     let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref(), ttl).await?;

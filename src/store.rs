@@ -11,6 +11,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, Slice};
 
+use crate::error::Error;
+use crate::ttl::TTL;
+
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 #[builder(start_fn = with_topic)]
 pub struct Frame {
@@ -34,43 +37,6 @@ impl fmt::Debug for Frame {
             .field("meta", &self.meta)
             .field("ttl", &self.ttl)
             .finish()
-    }
-}
-
-#[derive(Default, PartialEq, Eq, Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TTL {
-    #[default]
-    Forever, // The event is kept indefinitely.
-    Temporary, // (TBD) The event is kept in memory and will be lost when the current process ends.
-    Ephemeral, // The event is not stored at all; only active subscribers can see it.
-    Time(Duration), // The event is kept for a custom duration.
-}
-
-impl TTL {
-    pub fn to_query(&self) -> String {
-        match self {
-            TTL::Forever => "ttl=forever".to_string(),
-            TTL::Temporary => "ttl=temporary".to_string(),
-            TTL::Ephemeral => "ttl=ephemeral".to_string(),
-            TTL::Time(duration) => format!("ttl={}", duration.as_millis()),
-        }
-    }
-
-    pub fn from_query(query: Option<&str>) -> Result<Self, String> {
-        query
-            .and_then(|q| serde_urlencoded::from_str::<HashMap<String, String>>(q).ok())
-            .and_then(|params| params.get("ttl").cloned())
-            .map(|value| match value.as_str() {
-                "forever" => Ok(TTL::Forever),
-                "temporary" => Ok(TTL::Temporary),
-                "ephemeral" => Ok(TTL::Ephemeral),
-                duration_str => duration_str
-                    .parse::<u64>()
-                    .map(|millis| TTL::Time(Duration::from_millis(millis)))
-                    .map_err(|_| format!("Invalid TTL value: {}", duration_str)),
-            })
-            .unwrap_or(Ok(TTL::default()))
     }
 }
 
@@ -138,7 +104,7 @@ pub enum FollowOption {
 }
 
 // TODO: split_once is unstable as of 2024-11-28
-fn split_once<'a, T, F>(slice: &'a [T], pred: F) -> Option<(&'a [T], &'a [T])>
+fn split_once<T, F>(slice: &[T], pred: F) -> Option<(&[T], &[T])>
 where
     F: FnMut(&T) -> bool,
 {
@@ -391,7 +357,8 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.as_bytes());
         batch.remove(&self.topic_index, Self::topic_index_key(&frame));
-        batch.commit()
+        batch.commit()?;
+        self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
 
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
@@ -419,12 +386,38 @@ impl Store {
         // only store the frame if it's not ephemeral
         if frame.ttl != Some(TTL::Ephemeral) {
             let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
-
             let mut batch = self.keyspace.batch();
             batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
             batch.insert(&self.topic_index, Self::topic_index_key(&frame), b"");
             batch.commit().unwrap();
             self.keyspace.persist(fjall::PersistMode::SyncAll).unwrap();
+
+            // If this is a Head TTL, cleanup old frames AFTER insert
+            if let Some(TTL::Head(n)) = frame.ttl {
+                let prefix = Self::topic_index_key(&frame);
+                let prefix = &prefix[..prefix.len() - frame.id.as_bytes().len()];
+
+                let frames_to_remove: Vec<_> = self
+                    .topic_index
+                    .prefix(prefix)
+                    .rev() // Scan from newest to oldest
+                    .skip(n as usize)
+                    .map(|r| -> Result<_, Error> {
+                        let (key, _) = r?;
+                        let (_topic_bytes, frame_id_bytes) =
+                            split_once(&key, |&c| c == 0xFF).ok_or("Missing delimiter")?;
+                        let bytes: [u8; 16] = frame_id_bytes
+                            .try_into()
+                            .map_err(|_| "Invalid frame ID length")?;
+                        Ok(Scru128Id::from_bytes(bytes))
+                    })
+                    .collect::<Result<_, _>>()
+                    .unwrap();
+
+                for frame_id in frames_to_remove {
+                    let _ = self.remove(&frame_id);
+                }
+            }
         }
 
         let _ = self.broadcast_tx.send(frame.clone());
@@ -498,7 +491,7 @@ mod tests_read_options {
     }
 
     #[test]
-    fn test_from_query() {
+    fn test_read_options_from_query() {
         let test_cases = [
             TestCase {
                 input: None,
@@ -742,50 +735,6 @@ mod tests_store {
 }
 
 #[cfg(test)]
-mod test_ttl {
-    use super::*;
-    use serde_json;
-
-    #[test]
-    fn test_serialize() {
-        let ttl: TTL = Default::default();
-        let serialized = serde_json::to_string(&ttl).unwrap();
-        assert_eq!(serialized, r#""forever""#);
-
-        let ttl = TTL::Time(Duration::from_secs(1));
-        let serialized = serde_json::to_string(&ttl).unwrap();
-        assert_eq!(serialized, r#"{"time":{"secs":1,"nanos":0}}"#);
-    }
-
-    #[test]
-    fn test_from_query() {
-        let ttl = TTL::from_query(None);
-        assert_eq!(ttl, Ok(TTL::default()));
-
-        let ttl = TTL::from_query(Some(""));
-        assert_eq!(ttl, Ok(TTL::default()));
-
-        let ttl = TTL::from_query(Some("foo=bar"));
-        assert_eq!(ttl, Ok(TTL::default()));
-
-        let ttl = TTL::from_query(Some("ttl=forever"));
-        assert_eq!(ttl, Ok(TTL::Forever));
-
-        let ttl = TTL::from_query(Some("ttl=temporary"));
-        assert_eq!(ttl, Ok(TTL::Temporary));
-
-        let ttl = TTL::from_query(Some("ttl=ephemeral"));
-        assert_eq!(ttl, Ok(TTL::Ephemeral));
-
-        let ttl = TTL::from_query(Some("ttl=1000"));
-        assert_eq!(ttl, Ok(TTL::Time(Duration::from_millis(1000))));
-
-        let ttl = TTL::from_query(Some("ttl=time"));
-        assert!(ttl.is_err());
-    }
-}
-
-#[cfg(test)]
 mod tests_ttl_expire {
     use super::*;
     use tempfile::TempDir;
@@ -832,6 +781,67 @@ mod tests_ttl_expire {
 
         // Assert the underlying partition has been updated
         assert_eq!(store.get(&expiring_frame.id), None);
+    }
+
+    #[tokio::test]
+    async fn test_head_based_ttl_retention() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+
+        // Add 4 frames to the same topic with Head(2) TTL
+        let _frame1 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 1}))
+                    .build(),
+            )
+            .await;
+
+        let _frame2 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 2}))
+                    .build(),
+            )
+            .await;
+
+        let frame3 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 3}))
+                    .build(),
+            )
+            .await;
+
+        let frame4 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 4}))
+                    .build(),
+            )
+            .await;
+
+        // Add a frame to a different topic to ensure isolation
+        let other_frame = store
+            .append(
+                Frame::with_topic("other")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 1}))
+                    .build(),
+            )
+            .await;
+
+        // Read all frames and assert exact expected set
+        let recver = store.read(ReadOptions::default()).await;
+        let frames = tokio_stream::wrappers::ReceiverStream::new(recver)
+            .collect::<Vec<Frame>>()
+            .await;
+
+        assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
 }
 
