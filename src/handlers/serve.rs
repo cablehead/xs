@@ -166,9 +166,11 @@ pub async fn serve(
             frame
                 .topic
                 .strip_suffix(".register")
+                .or_else(|| frame.topic.strip_suffix(".unregister"))
                 .map(|prefix| prefix.to_string())
         })
         .build();
+
     let mut recver = store.read(options).await;
 
     while let Some(frame) = recver.recv().await {
