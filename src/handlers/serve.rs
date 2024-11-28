@@ -5,10 +5,7 @@ use scru128::Scru128Id;
 use tokio::io::AsyncReadExt;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
-use nu_engine::eval_block_with_early_return;
-use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::Stack;
-use nu_protocol::{Span, Value};
+use nu_protocol::Value;
 
 use crate::error::Error;
 use crate::handlers::{Handler, HandlerMeta};
@@ -17,50 +14,6 @@ use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 use crate::ttl::TTL;
-
-async fn execute_and_get_result(pool: &ThreadPool, handler: Handler, frame: Frame) -> Value {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    pool.execute(move || {
-        let result = execute_handler(handler, &frame);
-        let _ = tx.send(result);
-    });
-
-    match rx.await.unwrap() {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("error: {}", err);
-            Value::nothing(Span::unknown())
-        }
-    }
-}
-
-fn execute_handler(handler: Handler, frame: &Frame) -> Result<Value, Error> {
-    let input = nu::frame_to_pipeline(frame);
-    let block = handler.engine.state.get_block(handler.closure.block_id);
-    let mut stack = Stack::new();
-
-    if handler.meta.stateful.unwrap_or(false) {
-        let var_id = block.signature.required_positional[0].var_id.unwrap();
-        stack.add_var(
-            var_id,
-            handler.state.unwrap_or(Value::nothing(Span::unknown())),
-        );
-    }
-
-    let output = eval_block_with_early_return::<WithoutDebug>(
-        &handler.engine.state,
-        &mut stack,
-        block,
-        input,
-    );
-
-    Ok(output
-        .map_err(|err| {
-            let working_set = nu_protocol::engine::StateWorkingSet::new(&handler.engine.state);
-            nu_protocol::format_shell_error(&working_set, &err)
-        })?
-        .into_value(Span::unknown())?)
-}
 
 async fn handle_result_stateful(store: &Store, handler: &mut Handler, frame: &Frame, value: Value) {
     match value {
@@ -115,7 +68,6 @@ async fn handle_result_stateless(store: &Store, handler: &Handler, frame: &Frame
         }
     }
 }
-
 async fn spawn(
     store: Store,
     handler: Handler,
@@ -179,7 +131,7 @@ async fn spawn(
                     break;
                 }
 
-                let value = execute_and_get_result(&pool, handler.clone(), frame.clone()).await;
+                let value = handler.eval_in_thread(&pool, &frame).await;
                 if handler.meta.stateful.unwrap_or(false) {
                     handle_result_stateful(&store, &mut handler, &frame, value).await;
                 } else {
