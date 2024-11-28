@@ -7,92 +7,127 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use nu_engine::eval_block_with_early_return;
 use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
+use nu_protocol::engine::Stack;
 use nu_protocol::{Span, Value};
 
 use crate::error::Error;
+use crate::handlers::{Handler, HandlerMeta};
 use crate::nu;
-use crate::nu::util::json_to_value;
-use crate::nu::value_to_json;
+use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 use crate::ttl::TTL;
 
-#[derive(Clone, Debug, serde::Deserialize)]
-#[serde(untagged)]
-pub enum StartDefinition {
-    Head { head: String },
-}
+async fn execute_and_get_result(pool: &ThreadPool, handler: Handler, frame: Frame) -> Value {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    pool.execute(move || {
+        let result = execute_handler(handler, &frame);
+        let _ = tx.send(result);
+    });
 
-#[derive(Clone, Debug, serde::Deserialize, Default)]
-pub struct HandlerMeta {
-    stateful: Option<bool>,
-    initial_state: Option<serde_json::Value>,
-    pulse: Option<u64>,
-    start: Option<StartDefinition>,
-}
-
-#[derive(Clone)]
-struct HandlerTask {
-    id: Scru128Id,
-    topic: String,
-    meta: HandlerMeta,
-    engine: nu::Engine,
-    closure: Closure,
-    state: Option<Value>,
-}
-
-impl HandlerTask {
-    fn new(
-        id: Scru128Id,
-        topic: String,
-        meta: HandlerMeta,
-        mut engine: nu::Engine,
-        expression: String,
-    ) -> Self {
-        // TODO: need to establish the different points at which a handler will pick its starting
-        // point in the stream
-
-        let closure = engine.parse_closure(&expression).unwrap();
-
-        /* TODO: confirm the supplied closure is the right shape
-        let block = &engine_state.get_block(closure.block_id);
-        // Check if the closure has exactly one required positional argument
-        if block.signature.required_positional.len() != 1 {
-            return Err(ShellError::NushellFailedSpanned {
-                msg: "Closure must accept exactly one argument".into(),
-                label: format!(
-                    "Found {} arguments, expected 1",
-                    block.signature.required_positional.len()
-                ),
-                span: Span::unknown(),
-            });
+    match rx.await.unwrap() {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("error: {}", err);
+            Value::nothing(Span::unknown())
         }
-        */
+    }
+}
 
-        Self {
-            id,
-            topic,
-            meta: meta.clone(),
-            engine,
-            closure,
-            state: meta
-                .initial_state
-                .map(|state| json_to_value(&state, Span::unknown())),
+fn execute_handler(handler: Handler, frame: &Frame) -> Result<Value, Error> {
+    let input = nu::frame_to_pipeline(frame);
+    let block = handler.engine.state.get_block(handler.closure.block_id);
+    let mut stack = Stack::new();
+
+    if handler.meta.stateful.unwrap_or(false) {
+        let var_id = block.signature.required_positional[0].var_id.unwrap();
+        stack.add_var(
+            var_id,
+            handler.state.unwrap_or(Value::nothing(Span::unknown())),
+        );
+    }
+
+    let output = eval_block_with_early_return::<WithoutDebug>(
+        &handler.engine.state,
+        &mut stack,
+        block,
+        input,
+    );
+
+    Ok(output
+        .map_err(|err| {
+            let working_set = nu_protocol::engine::StateWorkingSet::new(&handler.engine.state);
+            nu_protocol::format_shell_error(&working_set, &err)
+        })?
+        .into_value(Span::unknown())?)
+}
+
+async fn handle_result_stateful(store: &Store, handler: &mut Handler, frame: &Frame, value: Value) {
+    match value {
+        Value::Nothing { .. } => (),
+        Value::Record { ref val, .. } => {
+            if let Some(state) = val.get("state") {
+                handler.state = Some(state.clone());
+            }
+            let _ = store
+                .append(
+                    Frame::with_topic(format!("{}.state", &handler.topic))
+                        .hash(
+                            store
+                                .cas_insert(&value_to_json(&value).to_string())
+                                .await
+                                .unwrap(),
+                        )
+                        .meta(serde_json::json!({
+                            "handler_id": handler.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .ttl(TTL::Ephemeral)
+                        .build(),
+                )
+                .await;
+        }
+        _ => panic!("unexpected value type"),
+    }
+}
+
+async fn handle_result_stateless(store: &Store, handler: &Handler, frame: &Frame, value: Value) {
+    match value {
+        Value::Nothing { .. } => (),
+        _ => {
+            let _ = store
+                .append(
+                    Frame::with_topic(&handler.topic)
+                        .hash(
+                            store
+                                .cas_insert(&value_to_json(&value).to_string())
+                                .await
+                                .unwrap(),
+                        )
+                        .meta(serde_json::json!({
+                            "handler_id": handler.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .ttl(TTL::Ephemeral)
+                        .build(),
+                )
+                .await;
         }
     }
 }
 
 async fn spawn(
     store: Store,
-    handler: HandlerTask,
+    handler: Handler,
     pool: ThreadPool,
 ) -> Result<tokio::sync::mpsc::Sender<bool>, Error> {
     let (tx_command, _rx_command) = tokio::sync::mpsc::channel(1);
 
     let last_id: Option<Scru128Id> = if let Some(start) = handler.meta.start.as_ref() {
         match start {
-            StartDefinition::Head { head } => store.head(head).map(|frame| frame.id),
+            crate::handlers::StartDefinition::Head { head } => {
+                store.head(head).map(|frame| frame.id)
+            }
         }
     } else {
         None
@@ -168,114 +203,6 @@ async fn spawn(
     Ok(tx_command)
 }
 
-async fn execute_and_get_result(pool: &ThreadPool, handler: HandlerTask, frame: Frame) -> Value {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    pool.execute(move || {
-        let result = execute_handler(handler, &frame);
-        let _ = tx.send(result);
-    });
-
-    match rx.await.unwrap() {
-        Ok(value) => value,
-        Err(err) => {
-            eprintln!("error: {}", err);
-            Value::nothing(Span::unknown())
-        }
-    }
-}
-
-fn execute_handler(handler: HandlerTask, frame: &Frame) -> Result<Value, Error> {
-    let input = nu::frame_to_pipeline(frame);
-    let block = handler.engine.state.get_block(handler.closure.block_id);
-    let mut stack = Stack::new();
-
-    if handler.meta.stateful.unwrap_or(false) {
-        let var_id = block.signature.required_positional[0].var_id.unwrap();
-        stack.add_var(
-            var_id,
-            handler.state.unwrap_or(Value::nothing(Span::unknown())),
-        );
-    }
-
-    let output = eval_block_with_early_return::<WithoutDebug>(
-        &handler.engine.state,
-        &mut stack,
-        block,
-        input,
-    );
-
-    Ok(output
-        .map_err(|err| {
-            let working_set = StateWorkingSet::new(&handler.engine.state);
-            nu_protocol::format_shell_error(&working_set, &err)
-        })?
-        .into_value(Span::unknown())?)
-}
-
-async fn handle_result_stateful(
-    store: &Store,
-    handler: &mut HandlerTask,
-    frame: &Frame,
-    value: Value,
-) {
-    match value {
-        Value::Nothing { .. } => (),
-        Value::Record { ref val, .. } => {
-            if let Some(state) = val.get("state") {
-                handler.state = Some(state.clone());
-            }
-            let _ = store
-                .append(
-                    Frame::with_topic(format!("{}.state", &handler.topic))
-                        .hash(
-                            store
-                                .cas_insert(&value_to_json(&value).to_string())
-                                .await
-                                .unwrap(),
-                        )
-                        .meta(serde_json::json!({
-                            "handler_id": handler.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                        }))
-                        .ttl(TTL::Ephemeral)
-                        .build(),
-                )
-                .await;
-        }
-        _ => panic!("unexpected value type"),
-    }
-}
-
-async fn handle_result_stateless(
-    store: &Store,
-    handler: &HandlerTask,
-    frame: &Frame,
-    value: Value,
-) {
-    match value {
-        Value::Nothing { .. } => (),
-        _ => {
-            let _ = store
-                .append(
-                    Frame::with_topic(&handler.topic)
-                        .hash(
-                            store
-                                .cas_insert(&value_to_json(&value).to_string())
-                                .await
-                                .unwrap(),
-                        )
-                        .meta(serde_json::json!({
-                            "handler_id": handler.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                        }))
-                        .ttl(TTL::Ephemeral)
-                        .build(),
-                )
-                .await;
-        }
-    }
-}
-
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
@@ -310,7 +237,7 @@ pub async fn serve(
                 .await
                 .unwrap();
 
-            let handler = HandlerTask::new(
+            let handler = Handler::new(
                 frame.id,
                 topic.to_string(),
                 meta.clone(),
