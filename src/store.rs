@@ -11,6 +11,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, Slice};
 
+use crate::error::Error;
+
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 #[builder(start_fn = with_topic)]
 pub struct Frame {
@@ -463,20 +465,17 @@ impl Store {
                     .prefix(prefix)
                     .rev() // Scan from newest to oldest
                     .skip(n as usize)
-                    .take_while(|r| r.is_ok())
-                    .filter_map(|r| {
-                        let (key, _) = r.unwrap();
-                        key.split(|&c| c == 0xFF).nth(1).and_then(|frame_id| {
-                            if frame_id.len() == 16 {
-                                let mut bytes = [0u8; 16];
-                                bytes.copy_from_slice(frame_id);
-                                Some(Scru128Id::from_bytes(bytes))
-                            } else {
-                                None
-                            }
-                        })
+                    .map(|r| -> Result<_, Error> {
+                        let (key, _) = r?;
+                        let (_topic_bytes, frame_id_bytes) =
+                            split_once(&key, |&c| c == 0xFF).ok_or("Missing delimiter")?;
+                        let bytes: [u8; 16] = frame_id_bytes
+                            .try_into()
+                            .map_err(|_| "Invalid frame ID length")?;
+                        Ok(Scru128Id::from_bytes(bytes))
                     })
-                    .collect();
+                    .collect::<Result<_, _>>()
+                    .unwrap();
 
                 for frame_id in frames_to_remove {
                     let _ = self.remove(&frame_id);
