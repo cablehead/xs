@@ -1,5 +1,4 @@
-{||
-    let frame = $in
+{|frame|
     if $frame.topic != "pb.recv" { return }
 
     let data = .cas $frame.hash | from json | get types

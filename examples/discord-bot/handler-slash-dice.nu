@@ -33,8 +33,7 @@ def run-dice [options: record] {
    $content
 }
 
-{||
-    let frame = $in
+{|frame|
     if $frame.topic != "discord.ws.recv" { return }
 
     let message = $frame | .cas $in.hash | from json

@@ -1,5 +1,4 @@
 {
-  stateful: true,
   initial_state: {
     s: null,
     heartbeat_interval: 0,
