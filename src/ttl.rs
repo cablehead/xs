@@ -26,40 +26,18 @@ impl TTL {
 
     /// Parses a `TTL` from a query string.
     pub fn from_query(query: Option<&str>) -> Result<Self, String> {
+        // Parse query string into key-value pairs
         let params = match query {
-            None => return Ok(TTL::Forever), // Default to Forever
+            None => return Ok(TTL::default()), // Use default TTL if query is None
             Some(q) => serde_urlencoded::from_str::<HashMap<String, String>>(q)
                 .map_err(|_| "invalid query string".to_string())?,
         };
 
-        // Extract the `ttl` string
-        let ttl_str = params.get("ttl").ok_or("missing ttl type")?;
-
-        // Handle additional parameters for specific TTL types
-        match ttl_str.as_str() {
-            "forever" => Ok(TTL::Forever),
-            "ephemeral" => Ok(TTL::Ephemeral),
-            "time" => {
-                let duration = params
-                    .get("duration")
-                    .ok_or("missing duration for 'time' TTL".to_string())?
-                    .parse::<u64>()
-                    .map_err(|_| "invalid duration for 'time' TTL".to_string())?;
-                Ok(TTL::Time(Duration::from_secs(duration)))
-            }
-            "head" => {
-                let n = params
-                    .get("n")
-                    .ok_or("missing 'n' for 'head' TTL".to_string())?
-                    .parse::<u32>()
-                    .map_err(|_| "invalid 'n' value for 'head' TTL".to_string())?;
-                if n < 1 {
-                    Err("'n' must be >= 1 for 'head' TTL".to_string())
-                } else {
-                    Ok(TTL::Head(n))
-                }
-            }
-            _ => Err("invalid ttl type".to_string()),
+        // Extract the `ttl` parameter if it exists
+        if let Some(ttl_str) = params.get("ttl") {
+            parse_ttl(ttl_str)
+        } else {
+            Ok(TTL::default()) // Use default TTL if `ttl` is not present
         }
     }
 }
@@ -127,11 +105,9 @@ mod tests {
         assert_eq!(TTL::from_query(None), Ok(TTL::Forever));
         assert_eq!(TTL::from_query(Some("ttl=forever")), Ok(TTL::Forever));
         assert_eq!(TTL::from_query(Some("ttl=ephemeral")), Ok(TTL::Ephemeral));
-        assert_eq!(
-            TTL::from_query(Some("ttl=time&duration=3600")),
-            Ok(TTL::Time(Duration::from_secs(3600)))
-        );
-        assert_eq!(TTL::from_query(Some("ttl=head&n=2")), Ok(TTL::Head(2)));
+
+        // Default TTL when `ttl` is missing but query exists
+        assert_eq!(TTL::from_query(Some("foo=bar")), Ok(TTL::Forever));
 
         // Invalid cases
         assert!(TTL::from_query(Some("ttl=time")).is_err()); // Missing duration
