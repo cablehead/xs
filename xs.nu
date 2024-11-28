@@ -133,7 +133,7 @@ export def .remove [id: string] {
 
 export alias .rm = .remove
 
-export def .pipe [id: string] {
+export def .process [id: string] {
     let sp = (metadata $in).span
     let script = $in
     let content = match ($script | describe -d | get type) {
@@ -147,7 +147,7 @@ export def .pipe [id: string] {
             }
         })}
     }
-    $content | xs pipe (store-addr) $id
+    $content | xs process (store-addr) $id
 }
 
 # show the status of running tasks TBD

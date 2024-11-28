@@ -33,8 +33,8 @@ enum Command {
     Head(CommandHead),
     /// Get a frame by ID
     Get(CommandGet),
-    /// Pipe content through a handler
-    Pipe(CommandPipe),
+    /// Process content through a handler
+    Process(CommandProcess),
 }
 
 #[derive(Parser, Debug)]
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Remove(args) => remove(args).await,
         Command::Head(args) => head(args).await,
         Command::Get(args) => get(args).await,
-        Command::Pipe(args) => pipe(args).await,
+        Command::Process(args) => process(args).await,
     };
     if let Err(err) = res {
         eprintln!("{}", err);
@@ -288,24 +288,24 @@ async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + 
 }
 
 #[derive(Parser, Debug)]
-struct CommandPipe {
+struct CommandProcess {
     /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(value_parser)]
     addr: String,
 
-    /// ID of the handler to pipe through
+    /// Frame ID to process
     #[clap(value_parser)]
     id: String,
 }
 
-async fn pipe(args: CommandPipe) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn process(args: CommandProcess) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let input = if !std::io::stdin().is_terminal() {
         Box::new(stdin()) as Box<dyn AsyncRead + Unpin + Send>
     } else {
         Box::new(tokio::io::empty()) as Box<dyn AsyncRead + Unpin + Send>
     };
 
-    let response = xs::client::pipe(&args.addr, &args.id, input).await?;
+    let response = xs::client::process(&args.addr, &args.id, input).await?;
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }

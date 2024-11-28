@@ -146,7 +146,7 @@ where
     Ok(())
 }
 
-pub async fn pipe<R>(
+pub async fn process<R>(
     addr: &str,
     id: &str,
     data: R,
@@ -166,7 +166,7 @@ where
     let res = request::request(
         addr,
         Method::POST,
-        &format!("pipe/{}", id),
+        &format!("process/{}", id),
         None,
         body,
         None,
