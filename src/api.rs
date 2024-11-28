@@ -41,7 +41,7 @@ enum Routes {
     StreamItemGet(Scru128Id),
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
-    PipePost(Scru128Id),
+    ProcessPost(Scru128Id),
     HeadGet(String),
     NotFound,
 }
@@ -56,10 +56,10 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
             Routes::StreamCat(accept_type)
         }
 
-        (&Method::POST, p) if p.starts_with("/pipe/") => {
-            if let Some(id_str) = p.strip_prefix("/pipe/") {
+        (&Method::POST, p) if p.starts_with("/process/") => {
+            if let Some(id_str) = p.strip_prefix("/process/") {
                 if let Ok(id) = Scru128Id::from_str(id_str) {
-                    return Routes::PipePost(id);
+                    return Routes::ProcessPost(id);
                 }
             }
             Routes::NotFound
@@ -146,8 +146,8 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::PipePost(id) => {
-            handle_pipe_post(&mut store, engine, pool.clone(), id, req.into_body()).await
+        Routes::ProcessPost(id) => {
+            handle_process_post(&mut store, engine, pool.clone(), id, req.into_body()).await
         }
 
         Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
@@ -258,7 +258,7 @@ async fn handle_stream_append(
         .body(full(serde_json::to_string(&frame).unwrap()))?)
 }
 
-async fn handle_pipe_post(
+async fn handle_process_post(
     store: &mut Store,
     engine: nu::Engine,
     pool: ThreadPool,
