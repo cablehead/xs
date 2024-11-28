@@ -436,12 +436,41 @@ impl Store {
         // only store the frame if it's not ephemeral
         if frame.ttl != Some(TTL::Ephemeral) {
             let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
-
             let mut batch = self.keyspace.batch();
+
+            // Insert the new frame first
             batch.insert(&self.frame_partition, frame.id.to_bytes(), encoded);
             batch.insert(&self.topic_index, Self::topic_index_key(&frame), b"");
             batch.commit().unwrap();
             self.keyspace.persist(fjall::PersistMode::SyncAll).unwrap();
+
+            // If this is a Head TTL, cleanup old frames AFTER insert
+            if let Some(TTL::Head(n)) = frame.ttl {
+                let prefix = Self::topic_index_key(&frame);
+                let frames_to_remove: Vec<_> = self
+                    .topic_index
+                    .prefix(&prefix[..prefix.len() - frame.id.as_bytes().len()])
+                    .take_while(|r| r.is_ok())
+                    .map(|r| r.unwrap())
+                    .skip(n as usize) // Keep n frames (including the one we just inserted)
+                    .filter_map(|(key, _)| {
+                        key.split(|&c| c == 0xFF).nth(1).and_then(|frame_id| {
+                            if frame_id.len() == 16 {
+                                let mut bytes = [0u8; 16];
+                                bytes.copy_from_slice(frame_id);
+                                Some(Scru128Id::from_bytes(bytes))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .collect();
+
+                // Use Store::remove for each frame
+                for frame_id in frames_to_remove {
+                    let _ = self.remove(&frame_id);
+                }
+            }
         }
 
         let _ = self.broadcast_tx.send(frame.clone());
@@ -876,6 +905,85 @@ mod tests_ttl_expire {
 
         // Assert the underlying partition has been updated
         assert_eq!(store.get(&expiring_frame.id), None);
+    }
+
+    #[tokio::test]
+    async fn test_head_based_ttl_retention() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+
+        // Add 4 frames to the same topic with Head(2) TTL
+        let frame1 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 1}))
+                    .build(),
+            )
+            .await;
+
+        let frame2 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 2}))
+                    .build(),
+            )
+            .await;
+
+        let frame3 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 3}))
+                    .build(),
+            )
+            .await;
+
+        let frame4 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 4}))
+                    .build(),
+            )
+            .await;
+
+        // Add a frame to a different topic to ensure isolation
+        let other_frame = store
+            .append(
+                Frame::with_topic("other")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 1}))
+                    .build(),
+            )
+            .await;
+
+        // Read all frames - should only get the 2 most recent frames for "test" topic
+        // plus the frame from the other topic
+        let recver = store.read(ReadOptions::default()).await;
+        let frames = tokio_stream::wrappers::ReceiverStream::new(recver)
+            .collect::<Vec<Frame>>()
+            .await;
+
+        assert_eq!(frames.len(), 3, "Should only have 3 frames total");
+        assert!(
+            frames.contains(&frame3),
+            "Should contain second-to-last frame"
+        );
+        assert!(frames.contains(&frame4), "Should contain last frame");
+        assert!(
+            frames.contains(&other_frame),
+            "Should contain frame from other topic"
+        );
+
+        // Verify older frames were actually removed
+        assert_eq!(store.get(&frame1.id), None, "First frame should be removed");
+        assert_eq!(
+            store.get(&frame2.id),
+            None,
+            "Second frame should be removed"
+        );
     }
 }
 
