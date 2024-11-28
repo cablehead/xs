@@ -448,13 +448,16 @@ impl Store {
             // If this is a Head TTL, cleanup old frames AFTER insert
             if let Some(TTL::Head(n)) = frame.ttl {
                 let prefix = Self::topic_index_key(&frame);
-                // Collect all frames for this topic, sorted by ID (newest first)
-                let mut frames: Vec<_> = self
+                let prefix = &prefix[..prefix.len() - frame.id.as_bytes().len()];
+
+                let frames_to_remove: Vec<_> = self
                     .topic_index
-                    .prefix(&prefix[..prefix.len() - frame.id.as_bytes().len()])
+                    .prefix(prefix)
+                    .rev() // Scan from newest to oldest
+                    .skip(n as usize)
                     .take_while(|r| r.is_ok())
-                    .map(|r| r.unwrap())
-                    .filter_map(|(key, _)| {
+                    .filter_map(|r| {
+                        let (key, _) = r.unwrap();
                         key.split(|&c| c == 0xFF).nth(1).and_then(|frame_id| {
                             if frame_id.len() == 16 {
                                 let mut bytes = [0u8; 16];
@@ -467,13 +470,6 @@ impl Store {
                     })
                     .collect();
 
-                // Sort by ID descending (newest first)
-                frames.sort_by(|a, b| b.cmp(a));
-
-                // Remove all frames after the nth position
-                let frames_to_remove = frames.into_iter().skip(n as usize).collect::<Vec<_>>();
-
-                // Use Store::remove for each frame
                 for frame_id in frames_to_remove {
                     let _ = self.remove(&frame_id);
                 }
