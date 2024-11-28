@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
@@ -98,8 +99,8 @@ struct CommandAppend {
     #[clap(long, value_parser)]
     meta: Option<String>,
 
-    /// Time-to-live for the event (forever, temporary, ephemeral, or duration in milliseconds)
-    #[clap(long, value_parser)]
+    /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<seconds>, head:<n>
+    #[clap(long)]
     ttl: Option<String>,
 }
 
@@ -238,23 +239,21 @@ use tokio::io::AsyncRead;
 async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let meta = args
         .meta
-        .map(|meta_str| serde_json::from_str(&meta_str))
+        .as_ref()
+        .map(|meta_str| serde_json::from_str(meta_str))
         .transpose()?;
 
     let ttl = match args.ttl {
-        Some(ttl_str) => {
-            let query = format!("ttl={}", ttl_str);
-            Some(xs::store::TTL::from_query(Some(&query))?)
-        }
+        Some(ref ttl_str) => Some(parse_ttl(ttl_str)?),
         None => None,
     };
 
-    let input = if !std::io::stdin().is_terminal() {
+    let input: Box<dyn AsyncRead + Unpin + Send> = if !std::io::stdin().is_terminal() {
         // Stdin is a pipe, use it as input
-        Box::new(stdin()) as Box<dyn AsyncRead + Unpin + Send>
+        Box::new(stdin())
     } else {
         // Stdin is not a pipe, use an empty reader
-        Box::new(tokio::io::empty()) as Box<dyn AsyncRead + Unpin + Send>
+        Box::new(tokio::io::empty())
     };
 
     let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref(), ttl).await?;
@@ -309,4 +308,30 @@ async fn pipe(args: CommandPipe) -> Result<(), Box<dyn std::error::Error + Send 
     let response = xs::client::pipe(&args.addr, &args.id, input).await?;
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
+}
+
+fn parse_ttl(s: &str) -> Result<xs::store::TTL, String> {
+    match s {
+        "forever" => Ok(xs::store::TTL::Forever),
+        "ephemeral" => Ok(xs::store::TTL::Ephemeral),
+        _ if s.starts_with("time:") => {
+            let duration_str = &s[5..];
+            let duration = duration_str
+                .parse::<u64>()
+                .map_err(|_| "Invalid duration for 'time' TTL".to_string())?;
+            Ok(xs::store::TTL::Time(Duration::from_secs(duration)))
+        }
+        _ if s.starts_with("head:") => {
+            let n_str = &s[5..];
+            let n = n_str
+                .parse::<u32>()
+                .map_err(|_| "Invalid 'n' value for 'head' TTL".to_string())?;
+            if n < 1 {
+                Err("'n' must be >= 1 for 'head' TTL".to_string())
+            } else {
+                Ok(xs::store::TTL::Head(n))
+            }
+        }
+        _ => Err("Invalid TTL format".to_string()),
+    }
 }
