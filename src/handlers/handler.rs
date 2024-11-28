@@ -14,7 +14,7 @@ pub enum StartDefinition {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
-pub struct HandlerMeta {
+pub struct Meta {
     pub stateful: Option<bool>,
     pub initial_state: Option<serde_json::Value>,
     pub pulse: Option<u64>,
@@ -25,7 +25,7 @@ pub struct HandlerMeta {
 pub struct Handler {
     pub id: Scru128Id,
     pub topic: String,
-    pub meta: HandlerMeta,
+    pub meta: Meta,
     pub engine: nu::Engine,
     pub closure: nu_protocol::engine::Closure,
     pub state: Option<Value>,
@@ -35,7 +35,7 @@ impl Handler {
     pub fn new(
         id: Scru128Id,
         topic: String,
-        meta: HandlerMeta,
+        meta: Meta,
         mut engine: nu::Engine,
         expression: String,
     ) -> Self {
