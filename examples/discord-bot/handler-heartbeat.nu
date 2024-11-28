@@ -57,9 +57,8 @@ def .send [] {
     to json -r | $"($in)\n" | .append "discord.ws.send" --ttl ephemeral
 }
 
-{|state|
+{|frame, state|
     mut state = $state
-    let frame = $in
 
     # https://discord.com/developers/docs/topics/gateway#list-of-intents
     # GUILDS, GUILD_MEMBERS, GUILD_MESSAGES, GUILD_MESSAGE_REACTIONS, MESSAGE_CONTENT
