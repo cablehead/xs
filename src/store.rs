@@ -71,11 +71,6 @@ impl TTL {
             Some(s) => s,
         };
 
-        // Try to parse as duration (milliseconds) first - for backwards compatibility
-        if let Ok(millis) = ttl.parse::<u64>() {
-            return Ok(TTL::Time(Duration::from_millis(millis)));
-        }
-
         match ttl.as_str() {
             "forever" => Ok(TTL::Forever),
             "ephemeral" => Ok(TTL::Ephemeral),
@@ -859,9 +854,6 @@ mod test_ttl {
 
         let ttl = TTL::from_query(Some("ttl=ephemeral"));
         assert_eq!(ttl, Ok(TTL::Ephemeral));
-
-        let ttl = TTL::from_query(Some("ttl=1000"));
-        assert_eq!(ttl, Ok(TTL::Time(Duration::from_millis(1000))));
 
         let ttl = TTL::from_query(Some("ttl=time"));
         assert!(ttl.is_err());

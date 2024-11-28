@@ -114,8 +114,12 @@ export def .head [topic: string] {
 # Append an event to the stream
 export def .append [
     topic: string  # The topic to append the event to
-    --meta: record  # Optional metadata to include with the event
-    --ttl: string  # Optional Time-To-Live for the event. Can be a duration in milliseconds, "forever", "temporary", or "ephemeral"
+    --meta: record  # Optional metadata to include with the event, provided as a record
+    --ttl: string  # Optional Time-To-Live for the event. Supported formats:
+                   #   - "forever": The event is kept indefinitely.
+                   #   - "ephemeral": The event is not stored; only active subscribers can see it.
+                   #   - "time:<seconds>": The event is kept for a custom duration in seconds.
+                   #   - "head:<n>": Retains only the last n events for the topic (n must be >= 1).
 ] {
     xs append (store-addr) $topic ...([
         (if $meta != null { ["--meta" ($meta | to json -r)] })
