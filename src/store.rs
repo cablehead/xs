@@ -734,7 +734,6 @@ mod tests_store {
     }
 }
 
-
 #[cfg(test)]
 mod tests_ttl_expire {
     use super::*;

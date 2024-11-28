@@ -142,4 +142,33 @@ mod tests {
             assert_eq!(parsed, ttl, "Round trip failed for TTL: {:?}", ttl);
         }
     }
+
+    #[test]
+    fn test_ttl_json_round_trip() {
+        // Define the TTL variants to test
+        let ttls = vec![
+            TTL::Forever,
+            TTL::Ephemeral,
+            TTL::Time(Duration::from_secs(3600)),
+            TTL::Head(2),
+        ];
+
+        for ttl in ttls {
+            // Serialize TTL to JSON
+            let json = serde_json::to_string(&ttl).expect("Failed to serialize TTL to JSON");
+
+            eprintln!("json: {}", json);
+
+            // Deserialize JSON back into TTL
+            let deserialized: TTL =
+                serde_json::from_str(&json).expect("Failed to deserialize JSON back to TTL");
+
+            // Assert that the deserialized value matches the original
+            assert_eq!(
+                deserialized, ttl,
+                "JSON round-trip failed for TTL: {:?}",
+                ttl
+            );
+        }
+    }
 }
