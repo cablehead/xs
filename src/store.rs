@@ -137,6 +137,15 @@ pub enum FollowOption {
     WithHeartbeat(Duration),
 }
 
+// TODO: split_once is unstable as of 2024-11-28
+fn split_once<'a, T, F>(slice: &'a [T], pred: F) -> Option<(&'a [T], &'a [T])>
+where
+    F: FnMut(&T) -> bool,
+{
+    let index = slice.iter().position(pred)?;
+    Some((&slice[..index], &slice[index + 1..]))
+}
+
 #[derive(Clone)]
 pub struct Store {
     pub path: PathBuf,
@@ -349,7 +358,8 @@ impl Store {
 
         for kv in self.topic_index.prefix(prefix).rev() {
             let (k, _) = kv.unwrap();
-            let frame_id = k.split(|&c| c == 0xFF).nth(1).unwrap();
+
+            let (_topic, frame_id) = split_once(&k, |&c| c == 0xFF).unwrap();
 
             // Join back to "primary index"
             if let Some(value) = self.frame_partition.get(frame_id).unwrap() {
@@ -379,7 +389,7 @@ impl Store {
         };
 
         let mut batch = self.keyspace.batch();
-        batch.remove(&self.frame_partition, id.to_bytes());
+        batch.remove(&self.frame_partition, id.as_bytes());
         batch.remove(&self.topic_index, Self::topic_index_key(&frame));
         batch.commit()
     }
@@ -411,7 +421,7 @@ impl Store {
             let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
 
             let mut batch = self.keyspace.batch();
-            batch.insert(&self.frame_partition, frame.id.to_bytes(), encoded);
+            batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
             batch.insert(&self.topic_index, Self::topic_index_key(&frame), b"");
             batch.commit().unwrap();
             self.keyspace.persist(fjall::PersistMode::SyncAll).unwrap();
