@@ -327,7 +327,7 @@ pub async fn serve(
     let _ = store
         .append(
             Frame::with_topic("xs.start")
-                .meta(serde_json::json!({"expose": expose}))
+                .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
                 .build(),
         )
         .await;
