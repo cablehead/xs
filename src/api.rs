@@ -20,6 +20,7 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
+use crate::handlers::{Handler, Meta};
 use crate::listener::Listener;
 use crate::nu;
 use crate::store::{self, Frame, ReadOptions, Store};
@@ -269,46 +270,17 @@ async fn handle_process_post(
     let script = std::str::from_utf8(&bytes)?.to_string();
 
     if let Some(frame) = store.get(&id) {
-        let mut engine = engine.clone();
+        let handler = Handler::new(
+            id,
+            "process".to_string(),
+            Meta::default(),
+            engine.clone(),
+            script,
+        );
 
-        use nu_engine::eval_block_with_early_return;
-        use nu_protocol::debugger::WithoutDebug;
-        use nu_protocol::engine::Stack;
-        use nu_protocol::Span;
-
-        use crate::error::Error;
-
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        pool.execute(move || {
-            let result = (|| -> Result<Vec<u8>, Error> {
-                let closure = engine.parse_closure(&script)?;
-                let input = nu::frame_to_pipeline(&frame);
-
-                let block = engine.state.get_block(closure.block_id);
-                let mut stack = Stack::new();
-
-                let output = eval_block_with_early_return::<WithoutDebug>(
-                    &engine.state,
-                    &mut stack,
-                    block,
-                    input,
-                )
-                .map_err(|e| {
-                    let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-                    nu_protocol::format_shell_error(&working_set, &e)
-                })?;
-
-                let value = output.into_value(Span::unknown())?;
-                let json = nu::value_to_json(&value);
-                let bytes = serde_json::to_vec(&json)?;
-                Ok(bytes)
-            })();
-
-            let _ = tx.send(result);
-        });
-
-        let bytes = rx.await??;
+        let value = handler.eval_in_thread(&pool, &frame).await;
+        let json = nu::value_to_json(&value);
+        let bytes = serde_json::to_vec(&json)?;
 
         Ok(Response::builder()
             .status(StatusCode::OK)

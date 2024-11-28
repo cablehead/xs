@@ -8,7 +8,7 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 use nu_protocol::Value;
 
 use crate::error::Error;
-use crate::handlers::{Handler, HandlerMeta};
+use crate::handlers::{Handler, Meta};
 use crate::nu;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -176,8 +176,8 @@ pub async fn serve(
             let meta = frame
                 .meta
                 .clone()
-                .and_then(|meta| serde_json::from_value::<HandlerMeta>(meta).ok())
-                .unwrap_or_else(HandlerMeta::default);
+                .and_then(|meta| serde_json::from_value::<Meta>(meta).ok())
+                .unwrap_or_else(Meta::default);
 
             // TODO: emit a .err event on any of these unwraps
             let hash = frame.hash.unwrap();
