@@ -14,8 +14,9 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::util::json_to_value;
 use crate::nu::value_to_json;
-use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
+use crate::ttl::TTL;
 
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(untagged)]
