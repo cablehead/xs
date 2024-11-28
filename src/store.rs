@@ -165,7 +165,7 @@ pub enum FollowOption {
 }
 
 // TODO: split_once is unstable as of 2024-11-28
-fn split_once<'a, T, F>(slice: &'a [T], pred: F) -> Option<(&'a [T], &'a [T])>
+fn split_once<T, F>(slice: &[T], pred: F) -> Option<(&[T], &[T])>
 where
     F: FnMut(&T) -> bool,
 {
