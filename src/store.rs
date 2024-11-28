@@ -408,7 +408,8 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.to_bytes());
         batch.remove(&self.topic_index, Self::topic_index_key(&frame));
-        batch.commit()
+        batch.commit()?;
+        self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
 
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
@@ -429,7 +430,6 @@ impl Store {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }
 
-    // Inside impl Store
     pub async fn append(&self, frame: Frame) -> Frame {
         let mut frame = frame;
         frame.id = scru128::new();
