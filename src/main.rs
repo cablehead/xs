@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 
 use xs::nu;
 use xs::store::Store;
+use xs::ttl::TTL;
 use xs::thread_pool::ThreadPool;
 
 #[derive(Parser, Debug)]
@@ -310,16 +311,16 @@ async fn pipe(args: CommandPipe) -> Result<(), Box<dyn std::error::Error + Send 
     Ok(())
 }
 
-fn parse_ttl(s: &str) -> Result<xs::store::TTL, String> {
+fn parse_ttl(s: &str) -> Result<TTL, String> {
     match s {
-        "forever" => Ok(xs::store::TTL::Forever),
-        "ephemeral" => Ok(xs::store::TTL::Ephemeral),
+        "forever" => Ok(TTL::Forever),
+        "ephemeral" => Ok(TTL::Ephemeral),
         _ if s.starts_with("time:") => {
             let duration_str = &s[5..];
             let duration = duration_str
                 .parse::<u64>()
                 .map_err(|_| "Invalid duration for 'time' TTL".to_string())?;
-            Ok(xs::store::TTL::Time(Duration::from_secs(duration)))
+            Ok(TTL::Time(Duration::from_secs(duration)))
         }
         _ if s.starts_with("head:") => {
             let n_str = &s[5..];
@@ -329,7 +330,7 @@ fn parse_ttl(s: &str) -> Result<xs::store::TTL, String> {
             if n < 1 {
                 Err("'n' must be >= 1 for 'head' TTL".to_string())
             } else {
-                Ok(xs::store::TTL::Head(n))
+                Ok(TTL::Head(n))
             }
         }
         _ => Err("Invalid TTL format".to_string()),
