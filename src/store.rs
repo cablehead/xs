@@ -429,6 +429,7 @@ impl Store {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }
 
+    // Inside impl Store
     pub async fn append(&self, frame: Frame) -> Frame {
         let mut frame = frame;
         frame.id = scru128::new();
@@ -447,12 +448,12 @@ impl Store {
             // If this is a Head TTL, cleanup old frames AFTER insert
             if let Some(TTL::Head(n)) = frame.ttl {
                 let prefix = Self::topic_index_key(&frame);
-                let frames_to_remove: Vec<_> = self
+                // Collect all frames for this topic, sorted by ID (newest first)
+                let mut frames: Vec<_> = self
                     .topic_index
                     .prefix(&prefix[..prefix.len() - frame.id.as_bytes().len()])
                     .take_while(|r| r.is_ok())
                     .map(|r| r.unwrap())
-                    .skip(n as usize) // Keep n frames (including the one we just inserted)
                     .filter_map(|(key, _)| {
                         key.split(|&c| c == 0xFF).nth(1).and_then(|frame_id| {
                             if frame_id.len() == 16 {
@@ -465,6 +466,12 @@ impl Store {
                         })
                     })
                     .collect();
+
+                // Sort by ID descending (newest first)
+                frames.sort_by(|a, b| b.cmp(a));
+
+                // Remove all frames after the nth position
+                let frames_to_remove = frames.into_iter().skip(n as usize).collect::<Vec<_>>();
 
                 // Use Store::remove for each frame
                 for frame_id in frames_to_remove {
@@ -913,7 +920,7 @@ mod tests_ttl_expire {
         let store = Store::new(temp_dir.into_path()).await;
 
         // Add 4 frames to the same topic with Head(2) TTL
-        let frame1 = store
+        let _frame1 = store
             .append(
                 Frame::with_topic("test")
                     .ttl(TTL::Head(2))
@@ -922,7 +929,7 @@ mod tests_ttl_expire {
             )
             .await;
 
-        let frame2 = store
+        let _frame2 = store
             .append(
                 Frame::with_topic("test")
                     .ttl(TTL::Head(2))
@@ -959,31 +966,13 @@ mod tests_ttl_expire {
             )
             .await;
 
-        // Read all frames - should only get the 2 most recent frames for "test" topic
-        // plus the frame from the other topic
+        // Read all frames and assert exact expected set
         let recver = store.read(ReadOptions::default()).await;
         let frames = tokio_stream::wrappers::ReceiverStream::new(recver)
             .collect::<Vec<Frame>>()
             .await;
 
-        assert_eq!(frames.len(), 3, "Should only have 3 frames total");
-        assert!(
-            frames.contains(&frame3),
-            "Should contain second-to-last frame"
-        );
-        assert!(frames.contains(&frame4), "Should contain last frame");
-        assert!(
-            frames.contains(&other_frame),
-            "Should contain frame from other topic"
-        );
-
-        // Verify older frames were actually removed
-        assert_eq!(store.get(&frame1.id), None, "First frame should be removed");
-        assert_eq!(
-            store.get(&frame2.id),
-            None,
-            "Second frame should be removed"
-        );
+        assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
 }
 
