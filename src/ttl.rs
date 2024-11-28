@@ -19,8 +19,8 @@ impl TTL {
         match self {
             TTL::Forever => "ttl=forever".to_string(),
             TTL::Ephemeral => "ttl=ephemeral".to_string(),
-            TTL::Time(duration) => format!("ttl=time&duration={}", duration.as_secs()),
-            TTL::Head(n) => format!("ttl=head&n={}", n),
+            TTL::Time(duration) => format!("ttl=time:{}", duration.as_secs()),
+            TTL::Head(n) => format!("ttl=head:{}", n),
         }
     }
 
@@ -85,6 +85,17 @@ mod tests {
     }
 
     #[test]
+    fn test_to_query() {
+        assert_eq!(TTL::Forever.to_query(), "ttl=forever");
+        assert_eq!(TTL::Ephemeral.to_query(), "ttl=ephemeral");
+        assert_eq!(
+            TTL::Time(Duration::from_secs(3600)).to_query(),
+            "ttl=time:3600"
+        );
+        assert_eq!(TTL::Head(2).to_query(), "ttl=head:2");
+    }
+
+    #[test]
     fn test_parse_ttl() {
         assert_eq!(parse_ttl("forever"), Ok(TTL::Forever));
         assert_eq!(parse_ttl("ephemeral"), Ok(TTL::Ephemeral));
@@ -114,5 +125,21 @@ mod tests {
         assert!(TTL::from_query(Some("ttl=head")).is_err()); // Missing n
         assert!(TTL::from_query(Some("ttl=head&n=0")).is_err()); // Invalid n
         assert!(TTL::from_query(Some("ttl=invalid")).is_err()); // Invalid type
+    }
+
+    #[test]
+    fn test_ttl_round_trip() {
+        let ttls = vec![
+            TTL::Forever,
+            TTL::Ephemeral,
+            TTL::Time(Duration::from_secs(3600)),
+            TTL::Head(2),
+        ];
+
+        for ttl in ttls {
+            let query = ttl.to_query();
+            let parsed = TTL::from_query(Some(&query)).expect("Failed to parse query");
+            assert_eq!(parsed, ttl, "Round trip failed for TTL: {:?}", ttl);
+        }
     }
 }
