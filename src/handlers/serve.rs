@@ -99,7 +99,7 @@ async fn spawn(
 
     let options = ReadOptions::builder()
         .follow(follow_option)
-        .tail(matches!(handler.meta.mode, Mode::Online { start: None }))
+        .tail(matches!(handler.meta.mode, Mode::Online { .. }) && last_id.is_none())
         .maybe_last_id(last_id)
         .build();
 
