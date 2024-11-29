@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use nu_engine::eval_block_with_early_return;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::Stack;
@@ -10,19 +12,31 @@ use scru128::Scru128Id;
 use crate::error::Error;
 use crate::nu;
 use crate::nu::frame_to_value;
+use crate::store::{Frame, Store};
 use crate::thread_pool::ThreadPool;
-
-#[derive(Clone, Debug, serde::Deserialize)]
-#[serde(untagged)]
-pub enum StartDefinition {
-    Head { head: String },
-}
+use crate::ttl::TTL;
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct Meta {
     pub initial_state: Option<serde_json::Value>,
     pub pulse: Option<u64>,
-    pub start: Option<StartDefinition>,
+    pub mode: Mode,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    Batch,
+    Online {
+        start: Option<StartDefinition>,
+    },
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub enum StartDefinition {
+    Head { head: String },
 }
 
 #[derive(Clone)]
@@ -123,5 +137,32 @@ impl Handler {
                 nu_protocol::format_shell_error(&working_set, &err)
             })?
             .into_value(Span::unknown())?)
+    }
+
+    pub async fn get_cursor(&self, store: &Store) -> Option<Scru128Id> {
+        store
+            .head(&format!("{}.cursor", self.topic))
+            .and_then(|frame| {
+                frame.meta.and_then(|meta| {
+                    meta.get("frame_id").and_then(|v| {
+                        v.as_str()
+                            .and_then(|id| scru128::Scru128Id::from_str(id).ok())
+                    })
+                })
+            })
+    }
+
+    pub async fn save_cursor(&self, store: &Store, frame_id: Scru128Id) {
+        let _ = store
+            .append(
+                Frame::with_topic(format!("{}.cursor", self.topic))
+                    .meta(serde_json::json!({
+                        "handler_id": self.id.to_string(),
+                        "frame_id": frame_id.to_string(),
+                    }))
+                    .ttl(TTL::Head(1))
+                    .build(),
+            )
+            .await;
     }
 }

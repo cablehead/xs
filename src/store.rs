@@ -236,7 +236,10 @@ impl Store {
                     && options_clone.compaction_strategy.is_none()
                     && options_clone.limit.is_none()
                 {
-                    let threshold = Frame::with_topic("xs.threshold").id(scru128::new()).build();
+                    let threshold = Frame::with_topic("xs.threshold")
+                        .id(scru128::new())
+                        .ttl(TTL::Ephemeral)
+                        .build();
                     if tx_clone.blocking_send(threshold).is_err() {
                         return;
                     }
@@ -300,7 +303,10 @@ impl Store {
                 tokio::spawn(async move {
                     loop {
                         tokio::time::sleep(duration).await;
-                        let frame = Frame::with_topic("xs.pulse").id(scru128::new()).build();
+                        let frame = Frame::with_topic("xs.pulse")
+                            .id(scru128::new())
+                            .ttl(TTL::Ephemeral)
+                            .build();
                         if heartbeat_tx.send(frame).await.is_err() {
                             break;
                         }
