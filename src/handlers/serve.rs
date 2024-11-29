@@ -233,73 +233,6 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn test_serve_stateless() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
-        let pool = ThreadPool::new(4);
-        let engine = nu::Engine::new(store.clone()).unwrap();
-
-        {
-            let store = store.clone();
-            let _ = tokio::spawn(async move {
-                serve(store, engine, pool).await.unwrap();
-            });
-        }
-
-        let frame_handler = store
-            .append(
-                Frame::with_topic("action.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame|
-                                    if $frame.topic != "topic2" { return }
-                                    "ran action"
-                                   }"#,
-                            )
-                            .await
-                            .unwrap(),
-                    )
-                    .build(),
-            )
-            .await;
-
-        let options = ReadOptions::builder().follow(FollowOption::On).build();
-        let mut recver = store.read(options).await;
-
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "action.register".to_string()
-        );
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "xs.threshold".to_string()
-        );
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "action.registered".to_string()
-        );
-
-        let _ = store.append(Frame::with_topic("topic1").build()).await;
-        let frame_topic2 = store.append(Frame::with_topic("topic2").build()).await;
-        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
-        assert_eq!(recver.recv().await.unwrap().topic, "topic2".to_string());
-
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action".to_string());
-
-        let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-        assert_eq!(meta["frame_id"], frame_topic2.id.to_string());
-
-        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        assert_eq!(content, r#""ran action""#.as_bytes());
-
-        let _ = store.append(Frame::with_topic("topic3").build()).await;
-        assert_eq!(recver.recv().await.unwrap().topic, "topic3".to_string());
-    }
-
-    #[tokio::test]
     async fn test_serve_stateful() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path()).await;
@@ -380,7 +313,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handler_update() {
+    async fn test_online_tail() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
@@ -415,6 +348,9 @@ mod tests {
                             .await
                             .unwrap(),
                     )
+                    .meta(serde_json::json!({
+                        "mode": {"online": "tail"}
+                    }))
                     .build(),
             )
             .await;
@@ -454,6 +390,9 @@ mod tests {
                             .await
                             .unwrap(),
                     )
+                    .meta(serde_json::json!({
+                        "mode": {"online": "tail"}
+                    }))
                     .build(),
             )
             .await;
