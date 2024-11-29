@@ -126,7 +126,12 @@ pub struct Store {
 impl Store {
     pub async fn new(path: PathBuf) -> Store {
         let config = Config::new(path.join("fjall"));
-        let keyspace = config.open().unwrap();
+
+        let keyspace = config
+            .flush_workers(1)
+            .compaction_workers(1)
+            .open()
+            .unwrap();
 
         let frame_partition = keyspace
             .open_partition("stream", PartitionCreateOptions::default())
