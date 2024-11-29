@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::time::Duration;
 
 use nu_engine::eval_block_with_early_return;
 use nu_protocol::debugger::WithoutDebug;
@@ -12,31 +13,31 @@ use scru128::Scru128Id;
 use crate::error::Error;
 use crate::nu;
 use crate::nu::frame_to_value;
-use crate::store::{Frame, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 use crate::ttl::TTL;
 
-#[derive(Clone, Debug, serde::Deserialize, Default)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Meta {
     pub initial_state: Option<serde_json::Value>,
     pub pulse: Option<u64>,
     pub mode: Mode,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, Default)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     #[default]
     Batch,
-    Online {
-        start: Option<StartDefinition>,
-    },
+    Online(StartMode),
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
-#[serde(untagged)]
-pub enum StartDefinition {
-    Head { head: String },
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StartMode {
+    #[default]
+    Tail,
+    Head(String),
 }
 
 #[derive(Clone)]
@@ -164,5 +165,41 @@ impl Handler {
                     .build(),
             )
             .await;
+    }
+
+    pub async fn configure_read_options(&self, store: &Store) -> ReadOptions {
+        let last_id: Option<Scru128Id> = match self.meta.mode {
+            Mode::Batch => store
+                .head(&format!("{}.cursor", self.topic))
+                .and_then(|frame| {
+                    frame.meta.and_then(|meta| {
+                        meta.get("frame_id").and_then(|v| {
+                            v.as_str()
+                                .and_then(|id| scru128::Scru128Id::from_str(id).ok())
+                        })
+                    })
+                }),
+            Mode::Online(ref start_mode) => match start_mode {
+                StartMode::Tail => None,
+                StartMode::Head(ref head) => store.head(head).map(|frame| frame.id),
+            },
+        };
+
+        eprintln!("LAST_ID: {:?}", last_id.map(|id| id.to_string()));
+
+        let follow_option = self
+            .meta
+            .pulse
+            .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
+            .unwrap_or(FollowOption::On);
+
+        let is_tail = matches!(self.meta.mode, Mode::Online(_)) && last_id.is_none();
+        eprintln!("Tail: {}", is_tail);
+
+        ReadOptions::builder()
+            .follow(follow_option)
+            .tail(is_tail)
+            .maybe_last_id(last_id)
+            .build()
     }
 }

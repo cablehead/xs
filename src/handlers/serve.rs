@@ -1,14 +1,10 @@
-use std::time::Duration;
-
-use scru128::Scru128Id;
-
 use tokio::io::AsyncReadExt;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use nu_protocol::Value;
 
 use crate::error::Error;
-use crate::handlers::{Handler, Meta, Mode, StartDefinition};
+use crate::handlers::{Handler, Meta, Mode};
 use crate::nu;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -74,35 +70,11 @@ async fn spawn(
     handler: Handler,
     pool: ThreadPool,
 ) -> Result<tokio::sync::mpsc::Sender<bool>, Error> {
+    eprintln!("HANDLER: {:?} SPAWNING", handler.meta);
+
     let (tx_command, _rx_command) = tokio::sync::mpsc::channel(1);
 
-    let last_id: Option<Scru128Id> = match handler.meta.mode {
-        Mode::Batch => handler.get_cursor(&store).await,
-        Mode::Online { ref start } => {
-            if let Some(start) = start {
-                match start {
-                    StartDefinition::Head { head } => store.head(head).map(|frame| frame.id),
-                }
-            } else {
-                None
-            }
-        }
-    };
-
-    eprintln!("LAST_ID: {:?}", last_id.map(|id| id.to_string()));
-
-    let follow_option = handler
-        .meta
-        .pulse
-        .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
-        .unwrap_or(FollowOption::On);
-
-    let options = ReadOptions::builder()
-        .follow(follow_option)
-        .tail(matches!(handler.meta.mode, Mode::Online { .. }) && last_id.is_none())
-        .maybe_last_id(last_id)
-        .build();
-
+    let options = handler.configure_read_options(&store).await;
     let mut recver = store.read(options).await;
 
     {
@@ -555,7 +527,7 @@ mod tests {
 
     #[tokio::test]
     // This test is to ensure that a handler does not process its own output
-    async fn test_handler_stateless_no_self_loop() {
+    async fn test_no_self_loop() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
@@ -590,6 +562,9 @@ mod tests {
                             .await
                             .unwrap(),
                     )
+                    .meta(serde_json::json!({
+                        "mode": {"online": "tail"}
+                    }))
                     .build(),
             )
             .await;
