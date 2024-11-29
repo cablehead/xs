@@ -531,17 +531,7 @@ mod tests {
         assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
         assert_eq!(meta["frame_id"], frame_pew.id.to_string());
 
-        // Ensure we've processed all frames
-        let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
-        tokio::pin!(timeout);
-        tokio::select! {
-            Some(frame) = recver.recv() => {
-                panic!("Unregistered handler still processing: {:?}", frame);
-            }
-            _ = &mut timeout => {
-                // Success - no frames processed after unregister
-            }
-        }
+        assert_no_more_frames(&mut recver).await;
 
         // Test explicit unregistration
         store
@@ -560,17 +550,7 @@ mod tests {
         let _ = store.append(Frame::with_topic("pew").build()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "pew".to_string());
 
-        // No response should come since handler is unregistered
-        let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
-        tokio::pin!(timeout);
-        tokio::select! {
-            Some(frame) = recver.recv() => {
-                panic!("Unregistered handler still processing: {:?}", frame);
-            }
-            _ = &mut timeout => {
-                // Success - no frames processed after unregister
-            }
-        }
+        assert_no_more_frames(&mut recver).await;
     }
 
     #[tokio::test]
@@ -625,18 +605,7 @@ mod tests {
         assert_eq!(recver.recv().await.unwrap().topic, "a-frame");
         assert_eq!(recver.recv().await.unwrap().topic, "echo");
 
-        // Wait a bit to ensure no more frames are processed
-        let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
-        tokio::pin!(timeout);
-
-        tokio::select! {
-            Some(frame) = recver.recv() => {
-                panic!("Handler processed its own output: {:?}", frame);
-            }
-            _ = &mut timeout => {
-                // Success - no additional frames were processed
-            }
-        }
+        assert_no_more_frames(&mut recver).await;
     }
 
     #[tokio::test]
@@ -692,17 +661,7 @@ mod tests {
         let error_message = meta["error"].as_str().unwrap();
         assert!(error_message.contains("Closure must accept 1 or 2 arguments"));
 
-        // Ensure no additional frames are processed
-        let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
-        tokio::pin!(timeout);
-        tokio::select! {
-            Some(frame) = recver.recv() => {
-                panic!("Unexpected frame processed: {:?}", frame);
-            }
-            _ = &mut timeout => {
-                // Success - no additional frames were processed
-            }
-        }
+        assert_no_more_frames(&mut recver).await;
     }
 
     #[tokio::test]
