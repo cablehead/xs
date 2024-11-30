@@ -38,6 +38,19 @@ impl Engine {
     ) -> Result<PipelineData, ShellError> {
         let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, expression.as_bytes(), false);
+
+        // Check for parse errors
+        if !working_set.parse_errors.is_empty() {
+            let first_error = &working_set.parse_errors[0];
+            return Err(ShellError::GenericError {
+                error: "Parse error".into(),
+                msg: first_error.to_string(),
+                span: Some(first_error.span()),
+                help: None,
+                inner: vec![],
+            });
+        }
+
         let mut engine_state = self.state.clone();
         engine_state.merge_delta(working_set.render())?;
         let mut stack = Stack::new();

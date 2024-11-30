@@ -23,10 +23,11 @@ impl Command for CatCommand {
     fn signature(&self) -> Signature {
         Signature::build(".cat")
             .input_output_types(vec![(Type::Nothing, Type::Any)])
-            .optional(
+            .named(
                 "limit",
                 SyntaxShape::Int,
                 "limit the number of frames to retrieve",
+                None,
             )
             .named(
                 "last-id",
