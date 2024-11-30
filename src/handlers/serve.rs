@@ -4,7 +4,7 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 use nu_protocol::Value;
 
 use crate::error::Error;
-use crate::handlers::{Handler, Meta, Mode};
+use crate::handlers::{Handler, Meta};
 use crate::nu;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -103,12 +103,6 @@ async fn spawn(
                 let value = handler.eval_in_thread(&pool, &frame).await;
 
                 handle_result(&store, &handler, &frame, value).await;
-
-                // Save cursor after processing in batch mode, skip ephemeral frames
-                if matches!(handler.meta.mode, Mode::Batch) && frame.ttl != Some(TTL::Ephemeral) {
-                    eprintln!("HANDLER: {} SAVING CURSOR: frame: {:?}", handler.id, frame);
-                    handler.save_cursor(&store, frame.id).await;
-                }
             }
 
             eprintln!("HANDLER: {} EXITING", handler.id);
