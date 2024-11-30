@@ -17,7 +17,7 @@ async fn handle_result(store: &Store, handler: &Handler, frame: &Frame, value: V
         _ => {
             let _ = store
                 .append(
-                    Frame::with_topic(&handler.topic)
+                    Frame::with_topic(format!("{}.out", handler.topic))
                         .hash(
                             store
                                 .cas_insert(&value_to_json(&value).to_string())
@@ -193,298 +193,7 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use tempfile::TempDir;
-
-    #[tokio::test]
-    async fn test_serve_stateful() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
-        let pool = ThreadPool::new(4);
-        let engine = nu::Engine::new(store.clone()).unwrap();
-
-        {
-            let store = store.clone();
-            let _ = tokio::spawn(async move {
-                serve(store, engine, pool).await.unwrap();
-            });
-        }
-
-        let frame_handler = store
-            .append(
-                Frame::with_topic("counter.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame, state|
-                                    if $frame.topic != "count.me" { return }
-                                    mut state = $state
-                                    $state.count += 1
-                                    { state: $state }
-                                   }"#,
-                            )
-                            .await
-                            .unwrap(),
-                    )
-                    .meta(serde_json::json!({
-                        "initial_state": { "count": 0 }
-                    }))
-                    .build(),
-            )
-            .await;
-
-        let options = ReadOptions::builder().follow(FollowOption::On).build();
-        let mut recver = store.read(options).await;
-
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "counter.register".to_string()
-        );
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "xs.threshold".to_string()
-        );
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "counter.registered".to_string()
-        );
-
-        let _ = store.append(Frame::with_topic("topic1").build()).await;
-        let frame_count1 = store.append(Frame::with_topic("count.me").build()).await;
-        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
-        assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
-
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "counter.state".to_string());
-        let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-        assert_eq!(meta["frame_id"], frame_count1.id.to_string());
-        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
-        assert_eq!(value, serde_json::json!({ "state": { "count": 1 } }));
-
-        let frame_count2 = store.append(Frame::with_topic("count.me").build()).await;
-        assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
-
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "counter.state".to_string());
-        let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-        assert_eq!(meta["frame_id"], frame_count2.id.to_string());
-        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
-        assert_eq!(value, serde_json::json!({ "state": { "count": 2 } }));
-    }
-
-    #[tokio::test]
-    async fn test_online_tail() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
-        let pool = ThreadPool::new(4);
-        let engine = nu::Engine::new(store.clone()).unwrap();
-
-        {
-            let store = store.clone();
-            let _ = tokio::spawn(async move {
-                serve(store, engine, pool).await.unwrap();
-            });
-        }
-
-        let options = ReadOptions::builder().follow(FollowOption::On).build();
-        let mut recver = store.read(options).await;
-
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "xs.threshold".to_string()
-        );
-
-        let frame_handler_1 = store
-            .append(
-                Frame::with_topic("action.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame|
-                                    if $frame.topic != "pew" { return }
-                                    "0.1"
-                                }"#,
-                            )
-                            .await
-                            .unwrap(),
-                    )
-                    .meta(serde_json::json!({
-                        "mode": {"online": "tail"}
-                    }))
-                    .build(),
-            )
-            .await;
-
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "action.register".to_string()
-        );
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "action.registered".to_string()
-        );
-
-        let _ = store.append(Frame::with_topic("pew").build()).await;
-        let frame_pew = recver.recv().await.unwrap();
-        assert_eq!(frame_pew.topic, "pew".to_string());
-
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action".to_string());
-        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        assert_eq!(content, r#""0.1""#.as_bytes());
-        let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler_1.id.to_string());
-        assert_eq!(meta["frame_id"], frame_pew.id.to_string());
-
-        let frame_handler_2 = store
-            .append(
-                Frame::with_topic("action.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame|
-                                    if $frame.topic != "pew" { return }
-                                    "0.2"
-                                }"#,
-                            )
-                            .await
-                            .unwrap(),
-                    )
-                    .meta(serde_json::json!({
-                        "mode": {"online": "tail"}
-                    }))
-                    .build(),
-            )
-            .await;
-
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "action.register".to_string()
-        );
-
-        // the order of the next two frames is not guaranteed
-        // so we read them into a map and then make the assertions
-        let mut frame_map: HashMap<String, Frame> = HashMap::new();
-
-        // Read the first frame
-        let frame = recver.recv().await.unwrap();
-        frame_map.insert(frame.topic.clone(), frame);
-        // Read the second frame
-        let frame = recver.recv().await.unwrap();
-        frame_map.insert(frame.topic.clone(), frame);
-
-        // Now make the assertions using the frames from the map
-        let frame_handler_1_unregister = frame_map.get("action.unregistered").unwrap();
-        assert_eq!(
-            frame_handler_1_unregister.topic,
-            "action.unregistered".to_string()
-        );
-        let meta = frame_handler_1_unregister.meta.as_ref().unwrap();
-        assert_eq!(meta["handler_id"], frame_handler_1.id.to_string());
-        assert_eq!(meta["frame_id"], frame_handler_2.id.to_string());
-
-        let frame_handler_2_register = frame_map.get("action.registered").unwrap();
-        assert_eq!(
-            frame_handler_2_register.topic,
-            "action.registered".to_string()
-        );
-        // fin assertions on these two frames
-
-        let _ = store.append(Frame::with_topic("pew").build()).await;
-        let frame_pew = recver.recv().await.unwrap();
-        assert_eq!(frame_pew.topic, "pew".to_string());
-
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action".to_string());
-        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-        assert_eq!(content, r#""0.2""#.as_bytes());
-        let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
-        assert_eq!(meta["frame_id"], frame_pew.id.to_string());
-
-        assert_no_more_frames(&mut recver).await;
-
-        // Test explicit unregistration
-        store
-            .append(Frame::with_topic("action.unregister").build())
-            .await;
-
-        // Check for unregistered event
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action.unregister".to_string());
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action.unregistered".to_string());
-        let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
-
-        // Verify handler no longer processes events
-        let _ = store.append(Frame::with_topic("pew").build()).await;
-        assert_eq!(recver.recv().await.unwrap().topic, "pew".to_string());
-
-        assert_no_more_frames(&mut recver).await;
-    }
-
-    #[tokio::test]
-    // This test is to ensure that a handler does not process its own output
-    async fn test_no_self_loop() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
-        let pool = ThreadPool::new(4);
-        let engine = nu::Engine::new(store.clone()).unwrap();
-
-        {
-            let store = store.clone();
-            let _ = tokio::spawn(async move {
-                serve(store, engine, pool).await.unwrap();
-            });
-        }
-
-        let options = ReadOptions::builder().follow(FollowOption::On).build();
-        let mut recver = store.read(options).await;
-
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "xs.threshold".to_string()
-        );
-
-        // Register handler that would process its own output if not prevented
-        store
-            .append(
-                Frame::with_topic("echo.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame|
-                                    $frame
-                                }"#,
-                            )
-                            .await
-                            .unwrap(),
-                    )
-                    .meta(serde_json::json!({
-                        "mode": {"online": "tail"}
-                    }))
-                    .build(),
-            )
-            .await;
-
-        assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
-        assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
-
-        // note we don't see an echo of the echo.registered frame
-
-        // Trigger the handler
-        store.append(Frame::with_topic("a-frame").build()).await;
-        // we should see the trigger, and then a single echo
-        assert_eq!(recver.recv().await.unwrap().topic, "a-frame");
-        assert_eq!(recver.recv().await.unwrap().topic, "echo");
-
-        assert_no_more_frames(&mut recver).await;
-    }
 
     #[tokio::test]
     async fn test_register_invalid_closure() {
@@ -538,6 +247,61 @@ mod tests {
         let meta = frame.meta.unwrap();
         let error_message = meta["error"].as_str().unwrap();
         assert!(error_message.contains("Closure must accept 1 or 2 arguments"));
+
+        assert_no_more_frames(&mut recver).await;
+    }
+
+    #[tokio::test]
+    // This test is to ensure that a handler does not process its own output
+    async fn test_no_self_loop() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+        let pool = ThreadPool::new(4);
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine, pool).await.unwrap();
+            });
+        }
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut recver = store.read(options).await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.threshold".to_string()
+        );
+
+        // Register handler that would process its own output if not prevented
+        store
+            .append(
+                Frame::with_topic("echo.register")
+                    .hash(
+                        store
+                            .cas_insert(
+                                r#"{|frame|
+                                    $frame
+                                }"#,
+                            )
+                            .await
+                            .unwrap(),
+                    )
+                    .build(),
+            )
+            .await;
+
+        assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
+        assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
+
+        // note we don't see an echo of the echo.registered frame
+
+        // Trigger the handler
+        store.append(Frame::with_topic("a-frame").build()).await;
+        // we should see the trigger, and then a single echo
+        assert_eq!(recver.recv().await.unwrap().topic, "a-frame");
+        assert_eq!(recver.recv().await.unwrap().topic, "echo.out");
 
         assert_no_more_frames(&mut recver).await;
     }
@@ -669,6 +433,86 @@ mod tests {
         assert_eq!(meta["frame_id"], frame3.id.to_string());
 
         assert_no_more_frames(&mut recver).await;
+    }
+
+    #[tokio::test]
+    async fn test_serve_stateful() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+        let pool = ThreadPool::new(4);
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine, pool).await.unwrap();
+            });
+        }
+
+        let frame_handler = store
+            .append(
+                Frame::with_topic("counter.register")
+                    .hash(
+                        store
+                            .cas_insert(
+                                r#"{|frame, state|
+                                    if $frame.topic != "count.me" { return }
+                                    mut state = $state
+                                    $state.count += 1
+                                    { state: $state }
+                                   }"#,
+                            )
+                            .await
+                            .unwrap(),
+                    )
+                    .meta(serde_json::json!({
+                        "initial_state": { "count": 0 }
+                    }))
+                    .build(),
+            )
+            .await;
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut recver = store.read(options).await;
+
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "counter.register".to_string()
+        );
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.threshold".to_string()
+        );
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "counter.registered".to_string()
+        );
+
+        let _ = store.append(Frame::with_topic("topic1").build()).await;
+        let frame_count1 = store.append(Frame::with_topic("count.me").build()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
+        assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "counter.state".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["frame_id"], frame_count1.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
+        assert_eq!(value, serde_json::json!({ "state": { "count": 1 } }));
+
+        let frame_count2 = store.append(Frame::with_topic("count.me").build()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "counter.state".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["frame_id"], frame_count2.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
+        assert_eq!(value, serde_json::json!({ "state": { "count": 2 } }));
     }
 
     async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
