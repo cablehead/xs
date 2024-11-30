@@ -63,7 +63,6 @@ impl Command for AppendCommand {
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         let meta = meta.map(|meta| util::value_to_json(&meta));
 
-        // Parse the TTL argument using the new TTL module
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {
             Some(ttl_str) => Some(TTL::from_query(Some(&format!("ttl={}", ttl_str))).map_err(
@@ -113,9 +112,27 @@ impl Command for AppendCommand {
 
                         Ok(Some(hash))
                     }
+                    Value::Record { .. } => {
+                        // Convert record to JSON and write it
+                        let json = util::value_to_json(&value);
+                        let json_string = serde_json::to_string(&json)
+                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                        writer
+                            .write_all(json_string.as_bytes())
+                            .await
+                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                        let hash = writer
+                            .commit()
+                            .await
+                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                        Ok(Some(hash))
+                    }
                     _ => Err(ShellError::PipelineMismatch {
                         exp_input_type: format!(
-                            "expected: string, binary, or nothing :: received: {:?}",
+                            "expected: string, binary, record, or nothing :: received: {:?}",
                             value.get_type()
                         ),
                         dst_span: span,

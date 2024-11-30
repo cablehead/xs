@@ -35,8 +35,8 @@ mod tests {
 
         let frame = nu_eval(
             &engine,
-            PipelineData::Value(Value::string("test content", Span::test_data()), None),
-            ".append topic",
+            PipelineData::empty(),
+            r#""test content" | .append topic"#,
         );
 
         assert!(frame.get_data_by_key("id").is_some());
@@ -49,6 +49,31 @@ mod tests {
         let frame_hash = hash_value.as_str().unwrap();
         let content = store.cas_read(&frame_hash.parse().unwrap()).await.unwrap();
         assert_eq!(String::from_utf8(content).unwrap(), "test content");
+    }
+
+    #[tokio::test]
+    async fn test_append_record() -> Result<(), Error> {
+        let (store, engine) = setup_test_env().await;
+
+        let frame = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            r#"{data: 123} | .append topic"#,
+        );
+
+        // Get the hash from the frame and verify the content
+        let hash_value = frame.get_data_by_key("hash").unwrap();
+        let frame_hash = hash_value.as_str().unwrap();
+        let content = store.cas_read(&frame_hash.parse().unwrap()).await.unwrap();
+
+        // The content should be the JSON representation of our record
+        let expected_json = serde_json::json!({"data": 123});
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&content).unwrap(),
+            expected_json
+        );
+
+        Ok(())
     }
 
     #[tokio::test]
