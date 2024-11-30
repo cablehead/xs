@@ -48,7 +48,7 @@ async fn spawn(
 
     {
         let store = store.clone();
-        let mut handler = handler.clone();
+        let handler = handler.clone();
 
         tokio::spawn(async move {
             while let Some(frame) = recver.recv().await {
