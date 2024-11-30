@@ -26,7 +26,7 @@ pub struct Meta {
 #[serde(rename_all = "snake_case")]
 pub enum StartFrom {
     /// Only process new frames
-    #[default] 
+    #[default]
     Tail,
     /// Process from the beginning of the stream
     Root,
@@ -140,11 +140,13 @@ impl Handler {
 
     pub async fn configure_read_options(&self, store: &Store) -> ReadOptions {
         // Determine last_id based on StartFrom
+        eprintln!("START: {:?}", self.meta.start);
         let (last_id, is_tail) = match &self.meta.start {
             StartFrom::Root => (None, false),
             StartFrom::Tail => (None, true),
             StartFrom::At { topic, or_tail } => {
                 let id = store.head(topic).map(|frame| frame.id);
+                eprintln!("ID: {:?}", id.map(|id| id.to_string()));
                 // If we found the topic, use it. Otherwise fall back based on or_tail
                 match (id, or_tail) {
                     (Some(id), _) => (Some(id), false), // Found topic, use it

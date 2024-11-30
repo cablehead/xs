@@ -29,7 +29,7 @@ async fn handle_result(store: &Store, handler: &Handler, frame: &Frame, value: V
                             "frame_id": frame.id.to_string(),
                         }))
                         // TODO: TTL should be configurable
-                        .ttl(TTL::Ephemeral)
+                        // .ttl(TTL::Ephemeral)
                         .build(),
                 )
                 .await;
@@ -47,7 +47,7 @@ async fn spawn(
     let (tx_command, _rx_command) = tokio::sync::mpsc::channel(1);
 
     let options = handler.configure_read_options(&store).await;
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options.clone()).await;
 
     {
         let store = store.clone();
@@ -56,11 +56,6 @@ async fn spawn(
         tokio::spawn(async move {
             while let Some(frame) = recver.recv().await {
                 eprintln!("HANDLER: {} SEE: frame: {:?}", handler.id, frame);
-
-                // Skip cursor frames to prevent feedback loop of handlers updating cursors in response to cursor frames
-                if frame.topic.ends_with(".cursor") {
-                    continue;
-                }
 
                 // Skip registration activity that occurred before this handler was registered
                 if (frame.topic == format!("{}.register", handler.topic)
@@ -114,6 +109,8 @@ async fn spawn(
             Frame::with_topic(format!("{}.registered", &handler.topic))
                 .meta(serde_json::json!({
                     "handler_id": handler.id.to_string(),
+                    "tail": options.tail,
+                    "last_id": options.last_id.map(|id| id.to_string()),
                 }))
                 // Todo:
                 // .ttl(TTL::Head(1))
@@ -307,7 +304,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mode_batch() {
+    async fn test_essentials() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
@@ -331,53 +328,47 @@ mod tests {
         assert_eq!(recver.recv().await.unwrap().topic, "pew");
         assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-        // Start handler in batch mode
-        let frame_handler = store
-            .append(
-                Frame::with_topic("action.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame|
+        let handler_proto = Frame::with_topic("action.register")
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{|frame|
                                if $frame.topic != "pew" { return }
                                "processed"
                            }"#,
-                            )
-                            .await
-                            .unwrap(),
                     )
-                    .meta(serde_json::json!({
-                        "mode": "batch"
-                    }))
-                    .build(),
+                    .await
+                    .unwrap(),
             )
-            .await;
+            .meta(serde_json::json!({
+                "start": {"at": {"topic": "action.out"}},
+            }))
+            .build();
 
+        // Start handler
+        let frame_handler = store.append(handler_proto.clone()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "action.register");
-        assert_eq!(recver.recv().await.unwrap().topic, "action.registered");
+
+        // assert registered frame has the correct meta
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action.registered");
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["tail"], false);
+        assert_eq!(meta["last_id"], serde_json::Value::Null);
 
         // Should process historical frames
         let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action");
+        assert_eq!(frame.topic, "action.out");
         let meta = frame.meta.unwrap();
-        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-        assert_eq!(meta["frame_id"], frame1.id.to_string());
-
-        let cursor = recver.recv().await.unwrap();
-        assert_eq!(cursor.topic, "action.cursor");
-        let meta = cursor.meta.unwrap();
         assert_eq!(meta["handler_id"], frame_handler.id.to_string());
         assert_eq!(meta["frame_id"], frame1.id.to_string());
 
         let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action");
+        assert_eq!(frame.topic, "action.out");
         let meta = frame.meta.unwrap();
         assert_eq!(meta["frame_id"], frame2.id.to_string());
-
-        let cursor = recver.recv().await.unwrap();
-        assert_eq!(cursor.topic, "action.cursor");
-        let meta = cursor.meta.unwrap();
-        assert_eq!(meta["frame_id"], frame2.id.to_string());
+        let last_action_out_id = frame.id.to_string();
 
         assert_no_more_frames(&mut recver).await;
 
@@ -391,29 +382,16 @@ mod tests {
         assert_no_more_frames(&mut recver).await;
 
         // Restart handler
-        let frame_handler_2 = store
-            .append(
-                Frame::with_topic("action.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame|
-                               if $frame.topic != "pew" { return }
-                               "processed"
-                           }"#,
-                            )
-                            .await
-                            .unwrap(),
-                    )
-                    .meta(serde_json::json!({
-                        "mode": "batch"
-                    }))
-                    .build(),
-            )
-            .await;
-
+        let frame_handler_2 = store.append(handler_proto.clone()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "action.register");
-        assert_eq!(recver.recv().await.unwrap().topic, "action.registered");
+
+        // assert registered frame has the correct meta
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action.registered");
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
+        assert_eq!(meta["tail"], false);
+        assert_eq!(meta["last_id"], last_action_out_id);
 
         assert_no_more_frames(&mut recver).await;
 
@@ -422,14 +400,9 @@ mod tests {
 
         // Should only process frame3 since we resume from cursor
         let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "action");
+        assert_eq!(frame.topic, "action.out");
         let meta = frame.meta.clone().unwrap();
         assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
-        assert_eq!(meta["frame_id"], frame3.id.to_string());
-
-        let cursor = recver.recv().await.unwrap();
-        assert_eq!(cursor.topic, "action.cursor");
-        let meta = cursor.meta.unwrap();
         assert_eq!(meta["frame_id"], frame3.id.to_string());
 
         assert_no_more_frames(&mut recver).await;
