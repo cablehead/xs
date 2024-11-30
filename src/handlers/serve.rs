@@ -416,7 +416,7 @@ mod tests {
                                     if $frame.topic != "count.me" { return }
                                     mut state = $state
                                     $state.count += 1
-                                    $state | .append count.state
+                                    $state | .append counter.state
                                    }"#,
                             )
                             .await
