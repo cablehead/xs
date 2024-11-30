@@ -1,5 +1,8 @@
 use std::time::Duration;
 
+use tokio::io::AsyncReadExt;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+
 use nu_engine::eval_block_with_early_return;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::Stack;
@@ -12,13 +15,14 @@ use scru128::Scru128Id;
 use crate::error::Error;
 use crate::nu;
 use crate::nu::frame_to_value;
-use crate::store::{FollowOption, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Meta {
     pub initial_state: Option<serde_json::Value>,
     pub pulse: Option<u64>,
+    #[serde(default)]
     pub start: StartFrom,
 }
 
@@ -57,6 +61,8 @@ impl Handler {
         mut engine: nu::Engine,
         expression: String,
     ) -> Result<Self, Error> {
+        eprintln!("META: {:?}", meta);
+
         let closure = engine.parse_closure(&expression)?;
         let block = engine.state.get_block(closure.block_id);
 
@@ -85,6 +91,41 @@ impl Handler {
         })
     }
 
+    pub async fn from_frame(
+        frame: &Frame,
+        store: &Store,
+        engine: nu::Engine,
+    ) -> Result<Self, Error> {
+        let topic = frame
+            .topic
+            .strip_suffix(".register")
+            .ok_or("Frame topic must end with .register")?;
+
+        // Parse meta if present, otherwise use default
+        let meta = match &frame.meta {
+            Some(meta_value) => serde_json::from_value::<Meta>(meta_value.clone())
+                .map_err(|e| Error::from(format!("Failed to parse meta: {}", e)))?,
+            None => Meta::default(),
+        };
+
+        // Get hash and read expression
+        let hash = frame.hash.as_ref().ok_or("Missing hash field")?;
+        let reader = store
+            .cas_reader(hash.clone())
+            .await
+            .map_err(|e| format!("Failed to get cas reader: {}", e))?;
+
+        let mut expression = String::new();
+        reader
+            .compat()
+            .read_to_string(&mut expression)
+            .await
+            .map_err(|e| format!("Failed to read expression: {}", e))?;
+
+        // Create handler with proper error handling
+        Handler::new(frame.id, topic.to_string(), meta, engine, expression)
+    }
+
     pub async fn eval_in_thread(&self, pool: &ThreadPool, frame: &crate::store::Frame) -> Value {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let handler = self.clone();
@@ -111,6 +152,8 @@ impl Handler {
         // First arg is always frame
         let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
         stack.add_var(frame_var_id, frame_to_value(frame, Span::unknown()));
+
+        eprintln!("STATEFUL: {:?}", self.state);
 
         // Second arg is state if stateful
         if self.stateful {

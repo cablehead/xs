@@ -1,10 +1,7 @@
-use tokio::io::AsyncReadExt;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-
 use nu_protocol::Value;
 
 use crate::error::Error;
-use crate::handlers::{Handler, Meta};
+use crate::handlers::Handler;
 use crate::nu;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -141,34 +138,16 @@ pub async fn serve(
     let mut recver = store.read(options).await;
 
     while let Some(frame) = recver.recv().await {
+        // Updated calling code:
         if let Some(topic) = frame.topic.strip_suffix(".register") {
-            let meta = frame
-                .meta
-                .clone()
-                .and_then(|meta| serde_json::from_value::<Meta>(meta).ok())
-                .unwrap_or_else(Meta::default);
+            eprintln!("HANDLER: REGISTERING: {:?}", frame);
 
-            // TODO: emit a .err event on any of these unwraps
-            let hash = frame.hash.unwrap();
-            let reader = store.cas_reader(hash).await.unwrap();
-            let mut expression = String::new();
-            reader
-                .compat()
-                .read_to_string(&mut expression)
-                .await
-                .unwrap();
-
-            match Handler::new(
-                frame.id,
-                topic.to_string(),
-                meta.clone(),
-                engine.clone(),
-                expression,
-            ) {
+            match Handler::from_frame(&frame, &store, engine.clone()).await {
                 Ok(handler) => {
                     let _ = spawn(store.clone(), handler, pool.clone()).await?;
                 }
                 Err(err) => {
+                    eprintln!("ERROR: {:?}", err);
                     let _ = store
                         .append(
                             Frame::with_topic(format!("{}.unregister", topic))
@@ -409,7 +388,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_serve_stateful() {
+    async fn test_unregsiter_on_error() {
+        // TODO
+    }
+
+    #[tokio::test]
+    async fn test_state() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path()).await;
         let pool = ThreadPool::new(4);
@@ -432,7 +416,7 @@ mod tests {
                                     if $frame.topic != "count.me" { return }
                                     mut state = $state
                                     $state.count += 1
-                                    { state: $state }
+                                    $state | .append count.state
                                    }"#,
                             )
                             .await
@@ -448,18 +432,9 @@ mod tests {
         let options = ReadOptions::builder().follow(FollowOption::On).build();
         let mut recver = store.read(options).await;
 
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "counter.register".to_string()
-        );
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "xs.threshold".to_string()
-        );
-        assert_eq!(
-            recver.recv().await.unwrap().topic,
-            "counter.registered".to_string()
-        );
+        assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
+        assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(recver.recv().await.unwrap().topic, "counter.registered");
 
         let _ = store.append(Frame::with_topic("topic1").build()).await;
         let frame_count1 = store.append(Frame::with_topic("count.me").build()).await;
