@@ -153,8 +153,6 @@ impl Handler {
         let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
         stack.add_var(frame_var_id, frame_to_value(frame, Span::unknown()));
 
-        eprintln!("STATEFUL: {:?}", self.state);
-
         // Second arg is state if stateful
         if self.stateful {
             let state_var_id = block.signature.required_positional[1].var_id.unwrap();
@@ -165,6 +163,22 @@ impl Handler {
                     .unwrap_or(Value::nothing(Span::unknown())),
             );
         }
+
+        // Add handler_id and frame_id to the environment
+        stack.add_env_var(
+            "handler_id".to_string(),
+            Value::String {
+                val: self.id.to_string(),
+                internal_span: Span::unknown(),
+            },
+        );
+        stack.add_env_var(
+            "frame_id".to_string(),
+            Value::String {
+                val: frame.id.to_string(),
+                internal_span: Span::unknown(),
+            },
+        );
 
         let output = eval_block_with_early_return::<WithoutDebug>(
             &self.engine.state,
