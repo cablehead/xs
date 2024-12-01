@@ -48,11 +48,25 @@ async fn spawn(
 
     {
         let store = store.clone();
-        let handler = handler.clone();
+        let mut handler = handler.clone();
 
         tokio::spawn(async move {
             while let Some(frame) = recver.recv().await {
                 eprintln!("HANDLER: {} SEE: frame: {:?}", handler.id, frame);
+
+                if frame.topic == format!("{}.state", handler.topic) {
+                    if let Some(hash) = &frame.hash {
+                        let content = store.cas_read(hash).await.unwrap();
+                        let json_value: serde_json::Value =
+                            serde_json::from_slice(&content).unwrap();
+                        let new_state = crate::nu::util::json_to_value(
+                            &json_value,
+                            nu_protocol::Span::unknown(),
+                        );
+                        handler.state = Some(new_state);
+                    }
+                    continue;
+                }
 
                 // Skip registration activity that occurred before this handler was registered
                 if (frame.topic == format!("{}.register", handler.topic)

@@ -155,6 +155,8 @@ impl Command for AppendCommand {
                     Value::Record { .. } => {
                         // Convert record to JSON and write it
                         let json = util::value_to_json(&value);
+
+                        eprintln!("APPEND_COMMAND: json: {:?}", json);
                         let json_string = serde_json::to_string(&json)
                             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
