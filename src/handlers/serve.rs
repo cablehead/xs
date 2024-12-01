@@ -417,6 +417,7 @@ mod tests {
                                     mut state = $state
                                     $state.count += 1
                                     $state | .append counter.state
+                                    return
                                    }"#,
                             )
                             .await
@@ -448,7 +449,7 @@ mod tests {
         assert_eq!(meta["frame_id"], frame_count1.id.to_string());
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
         let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
-        assert_eq!(value, serde_json::json!({ "state": { "count": 1 } }));
+        assert_eq!(value, serde_json::json!({"count": 1}));
 
         let frame_count2 = store.append(Frame::with_topic("count.me").build()).await;
         assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
@@ -460,7 +461,9 @@ mod tests {
         assert_eq!(meta["frame_id"], frame_count2.id.to_string());
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
         let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
-        assert_eq!(value, serde_json::json!({ "state": { "count": 2 } }));
+        assert_eq!(value, serde_json::json!({"count": 2}));
+
+        assert_no_more_frames(&mut recver).await;
     }
 
     async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
