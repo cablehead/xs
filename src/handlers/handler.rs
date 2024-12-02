@@ -138,7 +138,11 @@ impl Handler {
         Ok(handler)
     }
 
-    pub async fn eval_in_thread(&self, pool: &ThreadPool, frame: &crate::store::Frame) -> Value {
+    pub async fn eval_in_thread(
+        &self,
+        pool: &ThreadPool,
+        frame: &crate::store::Frame,
+    ) -> Result<Value, Error> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let handler = self.clone();
         let frame = frame.clone();
@@ -148,13 +152,7 @@ impl Handler {
             let _ = tx.send(result);
         });
 
-        match rx.await.unwrap() {
-            Ok(value) => value,
-            Err(err) => {
-                eprintln!("error: {}", err);
-                Value::nothing(Span::unknown())
-            }
-        }
+        rx.await.unwrap()
     }
 
     fn eval(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
