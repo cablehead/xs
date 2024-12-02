@@ -116,7 +116,7 @@ async fn spawn(
                         }
                     }
                     Err(err) => {
-                        eprintln!("ERROR: {:?}", err);
+                        eprintln!("ERROR 123: {:?}", err);
                         let _ = store
                             .append(
                                 Frame::with_topic(format!("{}.unregister", handler.topic))
@@ -180,7 +180,7 @@ pub async fn serve(
                     let _ = spawn(store.clone(), handler, pool.clone()).await?;
                 }
                 Err(err) => {
-                    eprintln!("ERROR: {:?}", err);
+                    eprintln!("ERROR 456: {:?}", err);
                     let _ = store
                         .append(
                             Frame::with_topic(format!("{}.unregister", topic))
@@ -588,6 +588,86 @@ mod tests {
         assert_eq!(value, serde_json::json!({"count": 3}));
 
         assert_no_more_frames(&mut recver).await;
+    }
+
+    #[tokio::test]
+    async fn test_return_options() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+        let pool = ThreadPool::new(4);
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine, pool).await.unwrap();
+            });
+        }
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut recver = store.read(options).await;
+
+        assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+        // Register handler with return_options
+        let handler_proto = Frame::with_topic("echo.register")
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{|frame|
+                        if $frame.topic != "ping" { return }
+                        "pong"
+                    }"#,
+                    )
+                    .await
+                    .unwrap(),
+            )
+            .meta(serde_json::json!({
+                "return_options": {
+                    "postfix": ".warble",
+                    "ttl": "head:1",
+                }
+            }))
+            .build();
+
+        let frame_handler = store.append(handler_proto).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
+        assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
+
+        // Send first ping
+        let frame1 = store.append(Frame::with_topic("ping").build()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "ping");
+
+        // Check response has custom postfix and right meta
+        let response1 = recver.recv().await.unwrap();
+        assert_eq!(response1.topic, "echo.warble");
+        assert_eq!(response1.ttl, Some(TTL::Head(1)));
+        let meta = response1.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["frame_id"], frame1.id.to_string());
+
+        // Send second ping - should only see newest response due to Head(1)
+        let frame2 = store.append(Frame::with_topic("ping").build()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "ping");
+
+        let response2 = recver.recv().await.unwrap();
+        assert_eq!(response2.topic, "echo.warble");
+        let meta = response2.meta.unwrap();
+        assert_eq!(meta["frame_id"], frame2.id.to_string());
+
+        // Only newest response should be in store
+        let options = ReadOptions::default();
+        let recver = store.read(options).await;
+        use tokio_stream::StreamExt;
+        let frames: Vec<_> = tokio_stream::wrappers::ReceiverStream::new(recver)
+            .filter(|f| f.topic == "echo.warble")
+            .collect::<Vec<_>>()
+            .await;
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0].meta.as_ref().unwrap()["frame_id"],
+            frame2.id.to_string()
+        );
     }
 
     async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
