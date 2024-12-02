@@ -420,29 +420,28 @@ mod tests {
             });
         }
 
-        let frame_handler = store
-            .append(
-                Frame::with_topic("counter.register")
-                    .hash(
-                        store
-                            .cas_insert(
-                                r#"{|frame, state|
-                                    if $frame.topic != "count.me" { return }
-                                    mut state = $state
-                                    $state.count += 1
-                                    $state | .append counter.state
-                                    return
-                                   }"#,
-                            )
-                            .await
-                            .unwrap(),
+        let handler_proto = Frame::with_topic("counter.register")
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{|frame, state|
+                        if $frame.topic != "count.me" { return }
+                        mut state = $state
+                        $state.count += 1
+                        $state | .append counter.state
+                        return
+                       }"#,
                     )
-                    .meta(serde_json::json!({
-                        "initial_state": { "count": 0 }
-                    }))
-                    .build(),
+                    .await
+                    .unwrap(),
             )
-            .await;
+            .meta(serde_json::json!({
+                "initial_state": { "count": 0 },
+                "start": {"at": {"topic": "counter.state"}}
+            }))
+            .build();
+
+        let frame_handler = store.append(handler_proto.clone()).await;
 
         let options = ReadOptions::builder().follow(FollowOption::On).build();
         let mut recver = store.read(options).await;
@@ -476,6 +475,32 @@ mod tests {
         let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
         let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
         assert_eq!(value, serde_json::json!({"count": 2}));
+
+        // Unregister the handler
+        store
+            .append(Frame::with_topic("counter.unregister").build())
+            .await;
+        assert_eq!(recver.recv().await.unwrap().topic, "counter.unregister");
+        assert_eq!(recver.recv().await.unwrap().topic, "counter.unregistered");
+
+        // Re-register the handler
+        let frame_handler2 = store.append(handler_proto.clone()).await;
+
+        assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
+        assert_eq!(recver.recv().await.unwrap().topic, "counter.registered");
+
+        // Send another count.me frame
+        let frame_count3 = store.append(Frame::with_topic("count.me").build()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
+
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "counter.state".to_string());
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler2.id.to_string());
+        assert_eq!(meta["frame_id"], frame_count3.id.to_string());
+        let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
+        assert_eq!(value, serde_json::json!({"count": 3}));
 
         assert_no_more_frames(&mut recver).await;
     }

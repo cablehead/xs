@@ -122,8 +122,20 @@ impl Handler {
             .await
             .map_err(|e| format!("Failed to read expression: {}", e))?;
 
-        // Create handler with proper error handling
-        Handler::new(frame.id, topic.to_string(), meta, engine, expression)
+        let mut handler = Handler::new(frame.id, topic.to_string(), meta, engine, expression)?;
+
+        if handler.stateful {
+            if let Some(existing_state) = store.head(&format!("{}.state", topic)) {
+                if let Some(hash) = &existing_state.hash {
+                    let content = store.cas_read(hash).await?;
+                    let json_value: serde_json::Value = serde_json::from_slice(&content)?;
+                    handler.state =
+                        Some(crate::nu::util::json_to_value(&json_value, Span::unknown()));
+                }
+            }
+        }
+
+        Ok(handler)
     }
 
     pub async fn eval_in_thread(&self, pool: &ThreadPool, frame: &crate::store::Frame) -> Value {
