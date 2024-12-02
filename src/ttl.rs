@@ -63,8 +63,8 @@ impl<'de> Deserialize<'de> for TTL {
     where
         D: Deserializer<'de>,
     {
-        let s: &str = Deserialize::deserialize(deserializer)?;
-        parse_ttl(s).map_err(serde::de::Error::custom)
+        let s: String = Deserialize::deserialize(deserializer)?;
+        parse_ttl(&s).map_err(serde::de::Error::custom)
     }
 }
 

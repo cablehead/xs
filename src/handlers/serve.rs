@@ -94,9 +94,16 @@ async fn spawn(
                                     continue;
                                 }
 
+                                // Extract ReturnOptions from handler.meta
+                                let return_options = handler.meta.return_options.as_ref();
+                                let postfix = return_options
+                                    .and_then(|ro| ro.postfix.as_deref())
+                                    .unwrap_or(".out");
+                                let ttl = return_options.and_then(|ro| ro.ttl.clone());
+
                                 let _ = store
                                     .append(
-                                        Frame::with_topic(format!("{}.out", handler.topic))
+                                        Frame::with_topic(format!("{}{}", handler.topic, postfix))
                                             .hash(
                                                 store
                                                     .cas_insert(&value_to_json(&value).to_string())
@@ -107,8 +114,7 @@ async fn spawn(
                                                 "handler_id": handler.id.to_string(),
                                                 "frame_id": frame.id.to_string(),
                                             }))
-                                            // TODO: TTL should be configurable
-                                            // .ttl(TTL::Ephemeral)
+                                            .maybe_ttl(ttl)
                                             .build(),
                                     )
                                     .await;
@@ -625,7 +631,7 @@ mod tests {
             .meta(serde_json::json!({
                 "return_options": {
                     "postfix": ".warble",
-                    "ttl": "head:1",
+                    "ttl": "head:1"
                 }
             }))
             .build();
