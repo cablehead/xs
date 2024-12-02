@@ -88,6 +88,12 @@ async fn spawn(
                         match value {
                             Value::Nothing { .. } => (),
                             _ => {
+                                // if the return value looks like a frame returned from a .append:
+                                // ignore it
+                                if is_value_an_append_frame(&value, &handler.id) {
+                                    continue;
+                                }
+
                                 let _ = store
                                     .append(
                                         Frame::with_topic(format!("{}.out", handler.topic))
@@ -191,6 +197,21 @@ pub async fn serve(
     }
 
     Ok(())
+}
+
+fn is_value_an_append_frame(value: &Value, handler_id: &scru128::Scru128Id) -> bool {
+    value
+        .as_record()
+        .ok()
+        // Ensure required fields exist
+        .filter(|record| record.get("id").is_some() && record.get("topic").is_some())
+        // Chain through meta field and handler_id check
+        .and_then(|record| record.get("meta"))
+        .and_then(|meta| meta.as_record().ok())
+        .and_then(|meta_record| meta_record.get("handler_id"))
+        .and_then(|id| id.as_str().ok())
+        .filter(|id| *id == handler_id.to_string())
+        .is_some()
 }
 
 #[cfg(test)]
@@ -492,8 +513,8 @@ mod tests {
                         if $frame.topic != "count.me" { return }
                         mut state = $state
                         $state.count += 1
+                        # note that the return value here is ignored
                         $state | .append counter.state
-                        return
                        }"#,
                     )
                     .await
