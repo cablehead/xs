@@ -38,7 +38,7 @@ impl Command for AppendCommand {
             .named(
                 "ttl",
                 SyntaxShape::String,
-                r#"TTL specification: 'forever', 'ephemeral', 'time:<seconds>', or 'head:<n>'"#,
+                r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'"#,
                 None,
             )
             .category(Category::Experimental)

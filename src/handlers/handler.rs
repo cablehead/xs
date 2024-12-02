@@ -17,6 +17,7 @@ use crate::nu;
 use crate::nu::frame_to_value;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
+use crate::ttl::TTL;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Meta {
@@ -24,6 +25,13 @@ pub struct Meta {
     pub pulse: Option<u64>,
     #[serde(default)]
     pub start: StartFrom,
+    pub return_options: Option<ReturnOptions>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+pub struct ReturnOptions {
+    pub postfix: Option<String>,
+    pub ttl: Option<TTL>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
