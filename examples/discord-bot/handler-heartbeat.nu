@@ -108,7 +108,8 @@ def .send [] {
         # heartbeat_ack
         {op: 11} => {
             $state.last_ack = $frame.id
-            .rm $frame.id
+            # TODO: revisit
+            # .rm $frame.id
         }
 
         # resume
