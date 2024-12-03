@@ -141,6 +141,8 @@ async fn spawn(
                             .await;
                     }
                 }
+
+                eprintln!("CALLS: {:?}", handler.calls);
             }
 
             eprintln!("HANDLER: {} EXITING", handler.id);
@@ -695,7 +697,6 @@ mod tests {
                 serve(store, engine, pool).await.unwrap();
             });
         }
-
 
         let options = ReadOptions::builder().follow(FollowOption::On).build();
         let mut recver = store.read(options).await;

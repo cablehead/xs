@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use tokio::io::AsyncReadExt;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
@@ -19,7 +21,7 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
 use crate::ttl::TTL;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Meta {
     pub initial_state: Option<serde_json::Value>,
     pub pulse: Option<u64>,
@@ -28,13 +30,13 @@ pub struct Meta {
     pub return_options: Option<ReturnOptions>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ReturnOptions {
     pub postfix: Option<String>,
     pub ttl: Option<TTL>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StartFrom {
     /// Only process new frames
@@ -184,6 +186,9 @@ impl Handler {
     }
 
     fn eval(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
+        // assert calls is empty as a sanity check
+        assert!(self.calls.lock().unwrap().is_empty());
+
         let mut stack = Stack::new();
         let block = self.engine.state.get_block(self.closure.block_id);
 
@@ -358,6 +363,7 @@ impl Command for AppendCommand {
 }
 
 // Define a struct to represent the recorded call
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CallRecord {
     pub topic: String,
     pub meta: Option<Value>,
