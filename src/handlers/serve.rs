@@ -708,8 +708,8 @@ mod tests {
                     .cas_insert(
                         r#"{|frame|
                                if $frame.topic != "trigger" { return }
-                               1 | .append topic1 --meta {"t": "1"}
-                               2 | .append topic2 --meta {"t": "2"}
+                               "1" | .append topic1 --meta {"t": "1"}
+                               "2" | .append topic2 --meta {"t": "2"}
                                "out"
                            }"#,
                     )

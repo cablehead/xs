@@ -70,6 +70,7 @@ impl Handler {
         meta: Meta,
         mut engine: nu::Engine,
         expression: String,
+        store: Store,
     ) -> Result<Self, Error> {
         eprintln!("META: {:?}", meta);
 
@@ -81,6 +82,7 @@ impl Handler {
             // Add the custom .append command, which will shadow the existing one
             working_set.add_decl(Box::new(AppendCommand {
                 calls: calls.clone(),
+                store: store.clone(),
             }));
             // Merge the changes back into the engine's state
             engine.state.merge_delta(working_set.render())?;
@@ -147,7 +149,7 @@ impl Handler {
             .await
             .map_err(|e| format!("Failed to read expression: {}", e))?;
 
-        let mut handler = Handler::new(frame.id, topic.to_string(), meta, engine, expression)?;
+        let mut handler = Handler::new(frame.id, topic.to_string(), meta, engine, expression, store.clone())?;
 
         if handler.stateful {
             if let Some(existing_state) = store.head(&format!("{}.state", topic)) {
@@ -277,6 +279,7 @@ use nu_protocol::{Category, ShellError, Signature, SyntaxShape, Type};
 #[derive(Clone)]
 pub struct AppendCommand {
     calls: Arc<Mutex<Vec<CallRecord>>>,
+    store: Store,
 }
 
 impl Command for AppendCommand {
@@ -325,11 +328,25 @@ impl Command for AppendCommand {
         // Use the `?` operator to handle the Result from `input.into_value(span)`
         let input_value = input.into_value(span)?;
 
+        // Write to CAS and get hash
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+        let hash = rt.block_on(async {
+            crate::nu::util::write_pipeline_to_cas(
+                PipelineData::Value(input_value.clone(), None),
+                &self.store,
+                span,
+            )
+            .await
+        })?;
+
         let call_record = CallRecord {
             topic,
             meta,
             ttl,
             input: input_value,
+            hash,
         };
 
         // Record the call
@@ -346,4 +363,5 @@ pub struct CallRecord {
     pub meta: Option<Value>,
     pub ttl: Option<String>,
     pub input: Value,
+    pub hash: Option<ssri::Integrity>,
 }
