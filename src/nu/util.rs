@@ -1,5 +1,11 @@
+use std::io::Read;
+
+use async_std::io::WriteExt;
+
+use nu_protocol::{PipelineData, Record, ShellError, Span, Value};
+
 use crate::store::Frame;
-use nu_protocol::{PipelineData, Record, Span, Value};
+use crate::store::Store;
 
 pub fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
     match json {
@@ -71,4 +77,104 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
         }
         _ => serde_json::Value::Null,
     }
+}
+
+
+pub async fn write_pipeline_to_cas(
+   input: PipelineData,
+   store: &Store,
+   span: Span,
+) -> Result<Option<ssri::Integrity>, ShellError> {
+   let mut writer = store.cas_writer().await
+       .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+   match input {
+       PipelineData::Value(value, _) => match value {
+           Value::Nothing { .. } => Ok(None),
+           Value::String { val, .. } => {
+               writer
+                   .write_all(val.as_bytes())
+                   .await
+                   .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+               let hash = writer
+                   .commit()
+                   .await
+                   .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+               Ok(Some(hash))
+           }
+           Value::Binary { val, .. } => {
+               writer
+                   .write_all(&val)
+                   .await
+                   .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+               let hash = writer
+                   .commit()
+                   .await
+                   .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+               Ok(Some(hash))
+           }
+           Value::Record { .. } => {
+               let json = value_to_json(&value);
+               let json_string = serde_json::to_string(&json)
+                   .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+               writer
+                   .write_all(json_string.as_bytes())
+                   .await
+                   .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+               let hash = writer
+                   .commit()
+                   .await
+                   .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+               Ok(Some(hash))
+           }
+           _ => Err(ShellError::PipelineMismatch {
+               exp_input_type: format!(
+                   "expected: string, binary, record, or nothing :: received: {:?}",
+                   value.get_type()
+               ),
+               dst_span: span,
+               src_span: value.span(),
+           }),
+       },
+
+       PipelineData::ListStream(_stream, ..) => {
+           panic!("ListStream handling is not yet implemented");
+       }
+
+       PipelineData::ByteStream(stream, ..) => {
+           if let Some(mut reader) = stream.reader() {
+               let mut buffer = [0; 8192];
+               loop {
+                   let bytes_read = reader
+                       .read(&mut buffer)
+                       .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+                   if bytes_read == 0 {
+                       break;
+                   }
+
+                   writer
+                       .write_all(&buffer[..bytes_read])
+                       .await
+                       .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+               }
+           }
+
+           let hash = writer
+               .commit()
+               .await
+               .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+           Ok(Some(hash))
+       }
+
+       PipelineData::Empty => Ok(None),
+   }
 }

@@ -1,6 +1,3 @@
-use async_std::io::WriteExt;
-use std::io::Read;
-
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
@@ -118,105 +115,7 @@ impl Command for AppendCommand {
             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
         let frame = rt.block_on(async {
-            let mut writer = store
-                .cas_writer()
-                .await
-                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-            let hash = match input {
-                PipelineData::Value(value, _) => match value {
-                    Value::Nothing { .. } => Ok(None),
-                    Value::String { val, .. } => {
-                        writer
-                            .write_all(val.as_bytes())
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        let hash = writer
-                            .commit()
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        Ok(Some(hash))
-                    }
-                    Value::Binary { val, .. } => {
-                        writer
-                            .write_all(&val)
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        let hash = writer
-                            .commit()
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        Ok(Some(hash))
-                    }
-                    Value::Record { .. } => {
-                        // Convert record to JSON and write it
-                        let json = util::value_to_json(&value);
-
-                        eprintln!("APPEND_COMMAND: json: {:?}", json);
-                        let json_string = serde_json::to_string(&json)
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        writer
-                            .write_all(json_string.as_bytes())
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        let hash = writer
-                            .commit()
-                            .await
-                            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                        Ok(Some(hash))
-                    }
-                    _ => Err(ShellError::PipelineMismatch {
-                        exp_input_type: format!(
-                            "expected: string, binary, record, or nothing :: received: {:?}",
-                            value.get_type()
-                        ),
-                        dst_span: span,
-                        src_span: value.span(),
-                    }),
-                },
-
-                PipelineData::ListStream(_stream, ..) => {
-                    // Handle the ListStream case (for now, we'll just panic)
-                    panic!("ListStream handling is not yet implemented");
-                }
-
-                PipelineData::ByteStream(stream, ..) => {
-                    if let Some(mut reader) = stream.reader() {
-                        let mut buffer = [0; 8192];
-                        loop {
-                            let bytes_read = reader
-                                .read(&mut buffer)
-                                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                            if bytes_read == 0 {
-                                break;
-                            }
-
-                            writer
-                                .write_all(&buffer[..bytes_read])
-                                .await
-                                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-                        }
-                    }
-
-                    let hash = writer
-                        .commit()
-                        .await
-                        .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-                    Ok(Some(hash))
-                }
-
-                PipelineData::Empty => Ok(None),
-            }?;
-
+            let hash = util::write_pipeline_to_cas(input, &store, span).await?;
             let frame = store
                 .append(
                     Frame::with_topic(topic)
