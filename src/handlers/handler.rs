@@ -60,6 +60,7 @@ pub struct Handler {
     pub stateful: bool,
     pub state: Option<Value>,
     pub state_frame_id: Option<Scru128Id>,
+    pub calls: Arc<Mutex<Vec<CallRecord>>>,
 }
 
 impl Handler {
@@ -71,6 +72,19 @@ impl Handler {
         expression: String,
     ) -> Result<Self, Error> {
         eprintln!("META: {:?}", meta);
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+
+        // Set up a new StateWorkingSet to customize the engine
+        {
+            let mut working_set = StateWorkingSet::new(&engine.state);
+            // Add the custom .append command, which will shadow the existing one
+            working_set.add_decl(Box::new(AppendCommand {
+                calls: calls.clone(),
+            }));
+            // Merge the changes back into the engine's state
+            engine.state.merge_delta(working_set.render())?;
+        }
 
         let closure = engine.parse_closure(&expression)?;
         let block = engine.state.get_block(closure.block_id);
@@ -98,6 +112,7 @@ impl Handler {
                 .initial_state
                 .map(|state| crate::nu::util::json_to_value(&state, nu_protocol::Span::unknown())),
             state_frame_id: None,
+            calls,
         })
     }
 
@@ -257,7 +272,7 @@ use std::sync::{Arc, Mutex};
 
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState};
-use nu_protocol::{ShellError, Signature};
+use nu_protocol::{Category, ShellError, Signature, SyntaxShape, Type};
 
 #[derive(Clone)]
 pub struct AppendCommand {
@@ -270,7 +285,28 @@ impl Command for AppendCommand {
     }
 
     fn signature(&self) -> Signature {
-        // ... same as the original .append command ...
+        Signature::build(".append")
+            .input_output_types(vec![(Type::Any, Type::Any)])
+            .required("topic", SyntaxShape::String, "this clip's topic")
+            .named(
+                "meta",
+                SyntaxShape::Record(vec![]),
+                "arbitrary metadata",
+                None,
+            )
+            .named(
+                "ttl",
+                SyntaxShape::String,
+                r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'"#,
+                None,
+            )
+            .category(Category::Experimental)
+    }
+
+    fn description(&self) -> &str {
+        "Writes its input to the CAS and then appends a frame with a hash of this content to the
+            given topic on the stream. Automatically includes handler_id and frame_id and
+            state_id."
     }
 
     fn run(
@@ -286,11 +322,14 @@ impl Command for AppendCommand {
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
 
+        // Use the `?` operator to handle the Result from `input.into_value(span)`
+        let input_value = input.into_value(span)?;
+
         let call_record = CallRecord {
             topic,
             meta,
             ttl,
-            input: input.into_value(span),
+            input: input_value,
         };
 
         // Record the call

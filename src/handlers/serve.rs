@@ -682,6 +682,60 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_custom_append() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path()).await;
+        let pool = ThreadPool::new(4);
+        let engine = nu::Engine::new(store.clone()).unwrap();
+
+        {
+            let store = store.clone();
+            let _ = tokio::spawn(async move {
+                serve(store, engine, pool).await.unwrap();
+            });
+        }
+
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut recver = store.read(options).await;
+
+        assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+        let handler_proto = Frame::with_topic("action.register")
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{|frame|
+                               if $frame.topic != "trigger" { return }
+                               1 | .append topic1 --meta {"t": "1"}
+                               2 | .append topic2 --meta {"t": "2"}
+                               "out"
+                           }"#,
+                    )
+                    .await
+                    .unwrap(),
+            )
+            .build();
+
+        // Start handler
+        let frame_handler = store.append(handler_proto.clone()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "action.register");
+        assert_eq!(recver.recv().await.unwrap().topic, "action.registered");
+
+        let trigger_frame = store.append(Frame::with_topic("trigger").build()).await;
+        assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+        // assert registered frame has the correct meta
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "action.out");
+        let meta = frame.meta.unwrap();
+        assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+        assert_eq!(meta["frame_id"], trigger_frame.id.to_string());
+
+        assert_no_more_frames(&mut recver).await;
+    }
+
     async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
         let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
         tokio::pin!(timeout);
