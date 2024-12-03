@@ -10,6 +10,13 @@
   },
   pulse: 1000,
   start: {
-    head: discord.ws.start
+    at: {
+      topic: "discord.ws.start"
+      or_tail: true
+    }
+  }
+  return_options: {
+      postfix: ".state"
+      ttl: "forever"
   }
 }

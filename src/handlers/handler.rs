@@ -173,6 +173,7 @@ impl Handler {
 
         // Second arg is state if stateful
         if self.stateful {
+            eprintln!("STATE: {:?}", self.state);
             let state_var_id = block.signature.required_positional[1].var_id.unwrap();
             stack.add_var(
                 state_var_id,
