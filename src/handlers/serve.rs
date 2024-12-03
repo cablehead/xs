@@ -38,6 +38,7 @@ async fn spawn(
                             nu_protocol::Span::unknown(),
                         );
                         handler.state = Some(new_state);
+                        handler.state_frame_id = Some(frame.id);
                     }
                     continue;
                 }
@@ -101,7 +102,10 @@ async fn spawn(
                                     .unwrap_or(".out");
                                 let ttl = return_options.and_then(|ro| ro.ttl.clone());
 
-                                eprintln!("HANDLER: {} RETURNING: {:?}, {} {:?}", handler.id, value, postfix, ttl);
+                                eprintln!(
+                                    "HANDLER: {} RETURNING: {:?}, {} {:?}",
+                                    handler.id, value, postfix, ttl
+                                );
 
                                 let _ = store
                                     .append(

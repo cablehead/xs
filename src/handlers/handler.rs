@@ -59,6 +59,7 @@ pub struct Handler {
     pub closure: nu_protocol::engine::Closure,
     pub stateful: bool,
     pub state: Option<Value>,
+    pub state_frame_id: Option<Scru128Id>,
 }
 
 impl Handler {
@@ -96,6 +97,7 @@ impl Handler {
             state: meta
                 .initial_state
                 .map(|state| crate::nu::util::json_to_value(&state, nu_protocol::Span::unknown())),
+            state_frame_id: None,
         })
     }
 
@@ -139,6 +141,7 @@ impl Handler {
                     let json_value: serde_json::Value = serde_json::from_slice(&content)?;
                     handler.state =
                         Some(crate::nu::util::json_to_value(&json_value, Span::unknown()));
+                    handler.state_frame_id = Some(existing_state.id);
                 }
             }
         }
@@ -248,4 +251,60 @@ impl Handler {
             .maybe_last_id(last_id)
             .build()
     }
+}
+
+use std::sync::{Arc, Mutex};
+
+use nu_engine::CallExt;
+use nu_protocol::engine::{Call, Command, EngineState};
+use nu_protocol::{ShellError, Signature};
+
+#[derive(Clone)]
+pub struct AppendCommand {
+    calls: Arc<Mutex<Vec<CallRecord>>>,
+}
+
+impl Command for AppendCommand {
+    fn name(&self) -> &str {
+        ".append"
+    }
+
+    fn signature(&self) -> Signature {
+        // ... same as the original .append command ...
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let span = call.head;
+
+        let topic: String = call.req(engine_state, stack, 0)?;
+        let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
+        let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
+
+        let call_record = CallRecord {
+            topic,
+            meta,
+            ttl,
+            input: input.into_value(span),
+        };
+
+        // Record the call
+        self.calls.lock().unwrap().push(call_record);
+
+        // Return an empty result or appropriate value
+        Ok(PipelineData::Empty)
+    }
+}
+
+// Define a struct to represent the recorded call
+pub struct CallRecord {
+    pub topic: String,
+    pub meta: Option<Value>,
+    pub ttl: Option<String>,
+    pub input: Value,
 }
