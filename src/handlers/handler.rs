@@ -265,15 +265,12 @@ impl Handler {
     pub async fn spawn(&self, store: Store, pool: ThreadPool) -> Result<(), Error> {
         eprintln!("HANDLER: {:?} SPAWNING", self.meta);
 
-        let options = self.configure_read_options(&store).await;
-        let mut recver = store.read(options.clone()).await;
-
         {
             let store = store.clone();
             let mut handler = self.clone();
 
             tokio::spawn(async move {
-                handler.serve(&store, &pool, &mut recver).await;
+                handler.serve(&store, &pool).await;
                 eprintln!("HANDLER: {} EXITING", handler.id);
             });
         }
@@ -294,24 +291,19 @@ impl Handler {
         Ok(())
     }
 
-    async fn serve(
-        &mut self,
-        store: &Store,
-        pool: &ThreadPool,
-        recver: &mut tokio::sync::mpsc::Receiver<Frame>,
-    ) {
+    async fn serve(&mut self, store: &Store, pool: &ThreadPool) {
+        let options = self.configure_read_options(store).await;
+        let mut recver = store.read(options).await;
+
         while let Some(frame) = recver.recv().await {
             eprintln!("HANDLER: {} SEE: frame: {:?}", self.id, frame);
 
             if frame.topic == format!("{}.state", self.topic) {
                 if let Some(hash) = &frame.hash {
                     let content = store.cas_read(hash).await.unwrap();
-                    let json_value: serde_json::Value =
-                        serde_json::from_slice(&content).unwrap();
-                    let new_state = crate::nu::util::json_to_value(
-                        &json_value,
-                        nu_protocol::Span::unknown(),
-                    );
+                    let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
+                    let new_state =
+                        crate::nu::util::json_to_value(&json_value, nu_protocol::Span::unknown());
                     self.state = Some(new_state);
                     self.state_frame_id = Some(frame.id);
                 }
