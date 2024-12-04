@@ -262,14 +262,8 @@ impl Handler {
         Ok(())
     }
 
-    pub async fn spawn(
-        &self,
-        store: Store,
-        pool: ThreadPool,
-    ) -> Result<tokio::sync::mpsc::Sender<bool>, Error> {
+    pub async fn spawn(&self, store: Store, pool: ThreadPool) -> Result<(), Error> {
         eprintln!("HANDLER: {:?} SPAWNING", self.meta);
-
-        let (tx_command, _rx_command) = tokio::sync::mpsc::channel(1);
 
         let options = self.configure_read_options(&store).await;
         let mut recver = store.read(options.clone()).await;
@@ -367,7 +361,7 @@ impl Handler {
             )
             .await;
 
-        Ok(tx_command)
+        Ok(())
     }
 
     fn eval(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
