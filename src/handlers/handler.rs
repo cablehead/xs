@@ -265,12 +265,15 @@ impl Handler {
     pub async fn spawn(&self, store: Store, pool: ThreadPool) -> Result<(), Error> {
         eprintln!("HANDLER: {:?} SPAWNING", self.meta);
 
+        let options = self.configure_read_options(&store).await;
+
         {
             let store = store.clone();
+            let options = options.clone();
             let mut handler = self.clone();
 
             tokio::spawn(async move {
-                handler.serve(&store, &pool).await;
+                handler.serve(&store, &pool, options).await;
                 eprintln!("HANDLER: {} EXITING", handler.id);
             });
         }
@@ -291,8 +294,7 @@ impl Handler {
         Ok(())
     }
 
-    async fn serve(&mut self, store: &Store, pool: &ThreadPool) {
-        let options = self.configure_read_options(store).await;
+    async fn serve(&mut self, store: &Store, pool: &ThreadPool, options: ReadOptions) {
         let mut recver = store.read(options).await;
 
         while let Some(frame) = recver.recv().await {
@@ -351,9 +353,10 @@ impl Handler {
                 eprintln!("HANDLER: {} ERROR: {:?}", self.id, err);
                 let _ = store
                     .append(
-                        Frame::with_topic(format!("{}.unregister", self.topic))
+                        Frame::with_topic(format!("{}.unregistered", self.topic))
                             .meta(serde_json::json!({
                                 "handler_id": self.id.to_string(),
+                                "frame_id": frame.id.to_string(),
                                 "error": err.to_string(),
                             }))
                             .build(),
