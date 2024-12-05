@@ -311,7 +311,6 @@ impl Handler {
                         "tail": options.tail,
                         "last_id": options.last_id.map(|id| id.to_string()),
                     }))
-                    .ttl(TTL::Ephemeral)
                     .build(),
             )
             .await;
@@ -343,7 +342,6 @@ impl Handler {
                                 "handler_id": self.id.to_string(),
                                 "frame_id": frame.id.to_string(),
                             }))
-                            .ttl(TTL::Ephemeral)
                             .build(),
                     )
                     .await;

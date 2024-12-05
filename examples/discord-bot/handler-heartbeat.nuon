@@ -12,6 +12,6 @@
   start: {after: "discord.ws.start"}
   return_options: {
       postfix: ".state"
-      ttl: "forever"
+      ttl: "ephemeral"
   }
 }
