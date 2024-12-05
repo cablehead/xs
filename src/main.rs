@@ -27,6 +27,8 @@ enum Command {
     Append(CommandAppend),
     /// Retrieve content from Content-Addressable Storage
     Cas(CommandCas),
+    /// Store content in Content-Addressable Storage
+    CasPost(CommandCasPost),
     /// Remove an item from the stream
     Remove(CommandRemove),
     /// Get the head frame for a topic
@@ -116,6 +118,13 @@ struct CommandCas {
 }
 
 #[derive(Parser, Debug)]
+struct CommandCasPost {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+}
+
+#[derive(Parser, Debug)]
 struct CommandRemove {
     /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(value_parser)]
@@ -156,6 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Cat(args) => cat(args).await,
         Command::Append(args) => append(args).await,
         Command::Cas(args) => cas(args).await,
+        Command::CasPost(args) => cas_post(args).await,
         Command::Remove(args) => remove(args).await,
         Command::Head(args) => head(args).await,
         Command::Get(args) => get(args).await,
@@ -267,6 +277,18 @@ async fn cas(args: CommandCas) -> Result<(), Box<dyn std::error::Error + Send + 
     let mut stdout = tokio::io::stdout();
     xs::client::cas_get(&args.addr, integrity, &mut stdout).await?;
     stdout.flush().await?;
+    Ok(())
+}
+
+async fn cas_post(args: CommandCasPost) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let input: Box<dyn AsyncRead + Unpin + Send> = if !std::io::stdin().is_terminal() {
+        Box::new(stdin())
+    } else {
+        Box::new(tokio::io::empty())
+    };
+
+    let response = xs::client::cas_post(&args.addr, input).await?;
+    tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }
 

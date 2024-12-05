@@ -42,6 +42,7 @@ enum Routes {
     StreamItemGet(Scru128Id),
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
+    CasPost,
     ProcessPost(Scru128Id),
     HeadGet(String),
     NotFound,
@@ -81,6 +82,8 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
             }
             Routes::NotFound
         }
+
+        (&Method::POST, "/cas") => Routes::CasPost,
 
         (&Method::GET, p) => {
             if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
@@ -142,6 +145,8 @@ async fn handle(
             let body = StreamBody::new(stream).boxed();
             Ok(Response::new(body))
         }
+
+        Routes::CasPost => handle_cas_post(&mut store, req.into_body()).await,
 
         Routes::StreamItemGet(id) => response_frame_or_404(store.get(&id)),
 
@@ -289,6 +294,32 @@ async fn handle_process_post(
     } else {
         response_404()
     }
+}
+
+async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> HTTPResult {
+    let hash = {
+        let writer = store.cas_writer().await?;
+        let mut writer = writer.compat_write();
+        let mut bytes_written = 0;
+
+        while let Some(frame) = body.frame().await {
+            if let Ok(data) = frame?.into_data() {
+                writer.write_all(&data).await?;
+                bytes_written += data.len();
+            }
+        }
+
+        if bytes_written == 0 {
+            return response_400("Empty body".to_string());
+        }
+
+        writer.into_inner().commit().await?
+    };
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "text/plain")
+        .body(full(hash.to_string()))?)
 }
 
 pub async fn serve(
