@@ -390,18 +390,22 @@ impl Store {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }
 
+    pub fn insert_frame(&self, frame: &Frame) -> Result<(), fjall::Error> {
+        let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
+        let mut batch = self.keyspace.batch();
+        batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
+        batch.insert(&self.topic_index, Self::topic_index_key(frame), b"");
+        batch.commit()?;
+        self.keyspace.persist(fjall::PersistMode::SyncAll)
+    }
+
     pub async fn append(&self, frame: Frame) -> Frame {
         let mut frame = frame;
         frame.id = scru128::new();
 
         // only store the frame if it's not ephemeral
         if frame.ttl != Some(TTL::Ephemeral) {
-            let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
-            let mut batch = self.keyspace.batch();
-            batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
-            batch.insert(&self.topic_index, Self::topic_index_key(&frame), b"");
-            batch.commit().unwrap();
-            self.keyspace.persist(fjall::PersistMode::SyncAll).unwrap();
+            self.insert_frame(&frame).unwrap();
 
             // If this is a Head TTL, cleanup old frames AFTER insert
             if let Some(TTL::Head(n)) = frame.ttl {

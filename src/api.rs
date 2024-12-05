@@ -45,6 +45,7 @@ enum Routes {
     CasPost,
     ProcessPost(Scru128Id),
     HeadGet(String),
+    Import,
     NotFound,
 }
 
@@ -84,6 +85,8 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
         }
 
         (&Method::POST, "/cas") => Routes::CasPost,
+
+        (&Method::POST, "/import") => Routes::Import,
 
         (&Method::GET, p) => {
             if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
@@ -157,6 +160,8 @@ async fn handle(
         }
 
         Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
+
+        Routes::Import => handle_import(&mut store, req.into_body()).await,
 
         Routes::NotFound => response_404(),
     };
@@ -423,6 +428,23 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
                 .body(full("internal-error"))?)
         }
     }
+}
+
+async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPResult {
+    let bytes = body.collect().await?.to_bytes();
+    let frame: Frame = match serde_json::from_slice(&bytes) {
+        Ok(frame) => frame,
+        Err(e) => return response_400(format!("Invalid frame JSON: {}", e)),
+    };
+
+    store
+        .insert_frame(&frame)
+        .map_err(|e| Box::new(e) as BoxError)?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(full(serde_json::to_string(&frame).unwrap()))?)
 }
 
 fn response_404() -> HTTPResult {
