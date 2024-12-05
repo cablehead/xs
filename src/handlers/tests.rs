@@ -5,6 +5,37 @@ use crate::thread_pool::ThreadPool;
 use crate::ttl::TTL;
 use tempfile::TempDir;
 
+macro_rules! validate_handler_output_frame {
+    ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr) => {{
+        let frame = $frame_expr; // Capture the expression result into a local variable
+        assert_eq!(frame.topic, $expected_topic, "Unexpected topic");
+        let meta = frame.meta.as_ref().expect("Meta is None");
+        assert_eq!(
+            meta["handler_id"],
+            $handler.id.to_string(),
+            "Unexpected handler_id"
+        );
+        assert_eq!(
+            meta["frame_id"],
+            $trigger.id.to_string(),
+            "Unexpected frame_id"
+        );
+    }};
+}
+
+macro_rules! validate_handler_output_frames {
+    ($recver:expr, $handler:expr, $trigger:expr, [$( $topic:expr ),+ $(,)?]) => {{
+        $(
+            validate_handler_output_frame!(
+                $recver.recv().await.unwrap(),
+                $topic,
+                $handler,
+                $trigger
+            );
+        )+
+    }};
+}
+
 #[tokio::test]
 async fn test_register_invalid_closure() {
     let temp_dir = TempDir::new().unwrap();
@@ -501,12 +532,12 @@ async fn test_custom_append() {
     let trigger_frame = store.append(Frame::with_topic("trigger").build()).await;
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
-    // assert registered frame has the correct meta
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.out");
-    let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-    assert_eq!(meta["frame_id"], trigger_frame.id.to_string());
+    validate_handler_output_frames!(
+        recver,
+        frame_handler,
+        trigger_frame,
+        ["topic1", "topic2", "action.out"]
+    );
 
     assert_no_more_frames(&mut recver).await;
 }
