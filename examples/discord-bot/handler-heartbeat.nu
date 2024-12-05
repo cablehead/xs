@@ -54,7 +54,7 @@ def "scru128-since" [$id1, $id2] {
 }
 
 def .send [] {
-    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl forever
+    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl time:3600000
 }
 
 {|frame, state|
@@ -108,8 +108,7 @@ def .send [] {
         # heartbeat_ack
         {op: 11} => {
             $state.last_ack = $frame.id
-            # TODO: revisit
-            # .rm $frame.id
+            .rm $frame.id
         }
 
         # resume
