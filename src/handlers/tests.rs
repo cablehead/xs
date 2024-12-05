@@ -264,7 +264,6 @@ async fn test_essentials() {
 
 #[tokio::test]
 async fn test_unregister_on_error() {
-    return;
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.into_path()).await;
     let pool = ThreadPool::new(4);
@@ -308,13 +307,11 @@ async fn test_unregister_on_error() {
 
     // Expect an unregister frame to be appended
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "error.unregister");
+    assert_eq!(frame.topic, "error.unregistered");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler.id.to_string());
     let error_message = meta["error"].as_str().unwrap();
     assert!(error_message.contains("nothing doesn't support cell paths"));
-
-    assert_eq!(recver.recv().await.unwrap().topic, "error.unregistered");
 
     assert_no_more_frames(&mut recver).await;
 }
