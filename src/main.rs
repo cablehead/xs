@@ -37,6 +37,8 @@ enum Command {
     Get(CommandGet),
     /// Process content through a handler
     Process(CommandProcess),
+    /// Import a frame directly into the store
+    Import(CommandImport),
 }
 
 #[derive(Parser, Debug)]
@@ -170,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Head(args) => head(args).await,
         Command::Get(args) => get(args).await,
         Command::Process(args) => process(args).await,
+        Command::Import(args) => import(args).await,
     };
     if let Err(err) = res {
         eprintln!("{}", err);
@@ -328,6 +331,25 @@ async fn process(args: CommandProcess) -> Result<(), Box<dyn std::error::Error +
     };
 
     let response = xs::client::process(&args.addr, &args.id, input).await?;
+    tokio::io::stdout().write_all(&response).await?;
+    Ok(())
+}
+
+#[derive(Parser, Debug)]
+struct CommandImport {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+}
+
+async fn import(args: CommandImport) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let input: Box<dyn AsyncRead + Unpin + Send> = if !std::io::stdin().is_terminal() {
+        Box::new(stdin())
+    } else {
+        Box::new(tokio::io::empty())
+    };
+
+    let response = xs::client::import(&args.addr, input).await?;
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }
