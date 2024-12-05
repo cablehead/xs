@@ -23,14 +23,11 @@ pub async fn serve(
 
     while let Some(frame) = recver.recv().await {
         if let Some(topic) = frame.topic.strip_suffix(".register") {
-            eprintln!("HANDLER: REGISTERING: {:?}", frame);
-
             match Handler::from_frame(&frame, &store, engine.clone()).await {
                 Ok(handler) => {
                     handler.spawn(store.clone(), pool.clone()).await?;
                 }
                 Err(err) => {
-                    eprintln!("ERROR 456: {:?}", err);
                     let _ = store
                         .append(
                             Frame::with_topic(format!("{}.unregistered", topic))

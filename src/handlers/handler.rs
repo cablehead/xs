@@ -74,8 +74,6 @@ impl Handler {
         expression: String,
         store: Store,
     ) -> Result<Self, Error> {
-        eprintln!("META: {:?}", meta);
-
         let output = Arc::new(Mutex::new(Vec::new()));
 
         // Set up a new StateWorkingSet to customize the engine
@@ -213,8 +211,6 @@ impl Handler {
         store: &Store,
         pool: &ThreadPool,
     ) -> Result<(), Error> {
-        eprintln!("HANDLER: {} PROCESSING: frame: {:?}", self.id, frame);
-
         let value = self.eval_in_thread(pool, frame).await?;
 
         // First, process the value and determine if we need a synthetic call
@@ -272,7 +268,6 @@ impl Handler {
             let output_frame = store.append(output_frame).await;
 
             if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
-                eprintln!("UPDATE STATE: {:?}", output_frame);
                 if let Some(hash) = &output_frame.hash {
                     let content = store.cas_read(hash).await.unwrap();
                     let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
@@ -288,8 +283,6 @@ impl Handler {
     }
 
     pub async fn spawn(&self, store: Store, pool: ThreadPool) -> Result<(), Error> {
-        eprintln!("HANDLER: {:?} SPAWNING", self.meta);
-
         let options = self.configure_read_options(&store).await;
 
         {
@@ -299,7 +292,6 @@ impl Handler {
 
             tokio::spawn(async move {
                 handler.serve(&store, &pool, options).await;
-                eprintln!("HANDLER: {} EXITING", handler.id);
             });
         }
 
@@ -322,8 +314,6 @@ impl Handler {
         let mut recver = store.read(options).await;
 
         while let Some(frame) = recver.recv().await {
-            eprintln!("HANDLER: {} SEE: frame: {:?}", self.id, frame);
-
             // Skip registration activity that occurred before this handler was registered
             if (frame.topic == format!("{}.register", self.topic)
                 || frame.topic == format!("{}.unregister", self.topic))
@@ -361,7 +351,6 @@ impl Handler {
             }
 
             if let Err(err) = self.process_frame(&frame, store, pool).await {
-                eprintln!("HANDLER: {} ERROR: {:?}", self.id, err);
                 let _ = store
                     .append(
                         Frame::with_topic(format!("{}.unregistered", self.topic))
@@ -391,7 +380,6 @@ impl Handler {
 
         // Second arg is state if stateful
         if self.stateful {
-            eprintln!("STATE: {:?}", self.state);
             let state_var_id = block.signature.required_positional[1].var_id.unwrap();
             stack.add_var(
                 state_var_id,
@@ -418,7 +406,6 @@ impl Handler {
 
     pub async fn configure_read_options(&self, store: &Store) -> ReadOptions {
         // Determine last_id based on StartFrom
-        eprintln!("START: {:?}", self.meta.start);
         let (last_id, is_tail) = match &self.meta.start {
             StartFrom::Root => (None, false),
             StartFrom::Tail => (None, true),
@@ -444,9 +431,6 @@ impl Handler {
                 .map(|frame| (Some(frame.id), false))
                 .unwrap_or((None, true)),
         };
-
-        eprintln!("LAST_ID: {:?}", last_id.map(|id| id.to_string()));
-        eprintln!("Tail: {}", is_tail);
 
         // Configure follow option based on pulse setting
         let follow_option = self
