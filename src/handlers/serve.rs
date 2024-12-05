@@ -11,10 +11,10 @@ pub async fn serve(
     let options = ReadOptions::builder()
         .follow(FollowOption::On)
         .compaction_strategy(|frame| {
-            frame
-                .topic
-                .strip_suffix(".register")
-                .or_else(|| frame.topic.strip_suffix(".unregister"))
+            let suffixes = [".register", ".unregister", ".unregistered"];
+            suffixes
+                .iter()
+                .find_map(|suffix| frame.topic.strip_suffix(suffix))
                 .map(|prefix| prefix.to_string())
         })
         .build();
