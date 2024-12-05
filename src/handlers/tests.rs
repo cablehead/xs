@@ -46,6 +46,57 @@ macro_rules! validate_handler_output_frames {
     }};
 }
 
+macro_rules! validate_frame {
+    ($frame:expr, { $( $field:ident : $value:expr ),* $(,)? }) => {{
+        let frame = $frame;
+        $(
+            validate_field!(frame, $field : $value);
+        )*
+    }};
+}
+
+macro_rules! validate_field {
+    // Validation for the "topic" field
+    ($frame:expr, topic : $value:expr) => {{
+        assert_eq!(
+            $frame.topic, $value,
+            "Topic mismatch: expected '{}', got '{}'",
+            $value, $frame.topic
+        );
+    }};
+    // Validation for the "error" field
+    ($frame:expr, error : $value:expr) => {{
+        let meta = $frame.meta.as_ref().expect("Meta is None");
+        let error_message = meta["error"]
+            .as_str()
+            .expect("Expected 'error' to be a string");
+        assert!(
+            error_message.contains($value),
+            "Error message '{}' does not contain expected substring '{}'",
+            error_message,
+            $value
+        );
+    }};
+    // Validation for meta fields like "handler", "trigger", "state"
+    ($frame:expr, $field:ident : $value:expr) => {{
+        let meta = $frame.meta.as_ref().expect("Meta is None");
+        let key = match stringify!($field) {
+            "handler" => "handler_id",
+            "trigger" => "frame_id",
+            "state" => "state_id",
+            _ => panic!("Invalid field: {}", stringify!($field)),
+        };
+        assert_eq!(
+            meta[key],
+            $value.id.to_string(),
+            "{} mismatch: expected '{}', got '{}'",
+            key,
+            $value.id.to_string(),
+            meta[key]
+        );
+    }};
+}
+
 #[tokio::test]
 async fn test_register_invalid_closure() {
     let temp_dir = TempDir::new().unwrap();
@@ -302,16 +353,16 @@ async fn test_unregister_on_error() {
     assert_eq!(recver.recv().await.unwrap().topic, "error.registered");
 
     // Trigger error
-    store.append(Frame::with_topic("trigger").build()).await;
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    let frame_trigger = store.append(Frame::with_topic("trigger").build()).await;
+    validate_frame!( recver.recv().await.unwrap(), {topic: "trigger"});
 
-    // Expect an unregister frame to be appended
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "error.unregistered");
-    let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-    let error_message = meta["error"].as_str().unwrap();
-    assert!(error_message.contains("nothing doesn't support cell paths"));
+    // Expect an unregistered frame to be appended
+    validate_frame!(recver.recv().await.unwrap(), {
+        topic: "error.unregistered",
+        handler: &frame_handler,
+        trigger: &frame_trigger,
+        error: "nothing doesn't support cell paths",
+    });
 
     assert_no_more_frames(&mut recver).await;
 }
