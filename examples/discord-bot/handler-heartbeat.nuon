@@ -9,7 +9,9 @@
     resume_gateway_url: null
   },
   pulse: 1000,
-  start: {
-    head: discord.ws.start
+  start: {after: "discord.ws.start"}
+  return_options: {
+      postfix: ".state"
+      ttl: "ephemeral"
   }
 }
