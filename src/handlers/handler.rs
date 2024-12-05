@@ -246,23 +246,48 @@ impl Handler {
         // TODO: we should put these appends into a single batch
         // /cc @marvin_j97 for thoughts
         for mut output_frame in output_to_process {
-            output_frame
+            let meta_obj = output_frame
                 .meta
-                .get_or_insert_with(|| serde_json::Value::Object(Default::default()));
+                .get_or_insert_with(|| serde_json::Value::Object(Default::default()))
+                .as_object_mut()
+                .expect("meta should be an object");
 
-            if let serde_json::Value::Object(ref mut meta_obj) = output_frame.meta.as_mut().unwrap()
-            {
-                meta_obj.insert(
-                    "handler_id".to_string(),
-                    serde_json::Value::String(self.id.to_string()),
-                );
-                meta_obj.insert(
-                    "frame_id".to_string(),
-                    serde_json::Value::String(frame.id.to_string()),
-                );
+            meta_obj.insert(
+                "handler_id".to_string(),
+                serde_json::Value::String(self.id.to_string()),
+            );
+            meta_obj.insert(
+                "frame_id".to_string(),
+                serde_json::Value::String(frame.id.to_string()),
+            );
+
+            if self.stateful {
+                if let Some(state_id) = self.state_frame_id {
+                    meta_obj.insert(
+                        "state_id".to_string(),
+                        serde_json::Value::String(state_id.to_string()),
+                    );
+                }
             }
 
-            store.append(output_frame).await;
+            let output_frame = store.append(output_frame).await;
+
+            if self.stateful {
+                if output_frame.topic == format!("{}.state", self.topic) {
+                    eprintln!("UPDATE STATE: {:?}", output_frame);
+                    if let Some(hash) = &output_frame.hash {
+                        let content = store.cas_read(hash).await.unwrap();
+                        let json_value: serde_json::Value =
+                            serde_json::from_slice(&content).unwrap();
+                        let new_state = crate::nu::util::json_to_value(
+                            &json_value,
+                            nu_protocol::Span::unknown(),
+                        );
+                        self.state = Some(new_state);
+                        self.state_frame_id = Some(output_frame.id);
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -305,18 +330,6 @@ impl Handler {
 
         while let Some(frame) = recver.recv().await {
             eprintln!("HANDLER: {} SEE: frame: {:?}", self.id, frame);
-
-            if frame.topic == format!("{}.state", self.topic) {
-                if let Some(hash) = &frame.hash {
-                    let content = store.cas_read(hash).await.unwrap();
-                    let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
-                    let new_state =
-                        crate::nu::util::json_to_value(&json_value, nu_protocol::Span::unknown());
-                    self.state = Some(new_state);
-                    self.state_frame_id = Some(frame.id);
-                }
-                continue;
-            }
 
             // Skip registration activity that occurred before this handler was registered
             if (frame.topic == format!("{}.register", self.topic)

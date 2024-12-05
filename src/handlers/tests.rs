@@ -6,7 +6,7 @@ use crate::ttl::TTL;
 use tempfile::TempDir;
 
 macro_rules! validate_handler_output_frame {
-    ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr) => {{
+    ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr, $state_frame:expr) => {{
         let frame = $frame_expr; // Capture the expression result into a local variable
         assert_eq!(frame.topic, $expected_topic, "Unexpected topic");
         let meta = frame.meta.as_ref().expect("Meta is None");
@@ -20,17 +20,27 @@ macro_rules! validate_handler_output_frame {
             $trigger.id.to_string(),
             "Unexpected frame_id"
         );
+        let state_frame: Option<&Frame> = $state_frame; // Ensure the type is Option<&Frame>
+        if let Some(state_frame) = state_frame {
+            assert_eq!(
+                meta["state_id"],
+                state_frame.id.to_string(),
+                "Unexpected state_id"
+            );
+        }
     }};
 }
 
 macro_rules! validate_handler_output_frames {
-    ($recver:expr, $handler:expr, $trigger:expr, [$( $topic:expr ),+ $(,)?]) => {{
+    ($recver:expr, $handler:expr, $trigger:expr, $state_frame:expr, [$( $topic:expr ),+ $(,)?]) => {{
+        let state_frame: Option<&Frame> = $state_frame; // Explicit type for state_frame
         $(
             validate_handler_output_frame!(
                 $recver.recv().await.unwrap(),
                 $topic,
                 $handler,
-                $trigger
+                $trigger,
+                state_frame
             );
         )+
     }};
@@ -311,7 +321,6 @@ async fn test_unregister_on_error() {
 
 #[tokio::test]
 async fn test_state() {
-    return;
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.into_path()).await;
     let pool = ThreadPool::new(4);
@@ -359,24 +368,36 @@ async fn test_state() {
     assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
     assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "counter.state".to_string());
-    let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-    assert_eq!(meta["frame_id"], frame_count1.id.to_string());
-    let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+    let frame_state_1 = recver.recv().await.unwrap();
+    validate_handler_output_frame!(
+        frame_state_1.clone(),
+        "counter.state",
+        frame_handler,
+        frame_count1,
+        None
+    );
+    let content = store
+        .cas_read(&frame_state_1.clone().hash.unwrap())
+        .await
+        .unwrap();
     let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
     assert_eq!(value, serde_json::json!({"count": 1}));
 
     let frame_count2 = store.append(Frame::with_topic("count.me").build()).await;
     assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "counter.state".to_string());
-    let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-    assert_eq!(meta["frame_id"], frame_count2.id.to_string());
-    let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+    let frame_state_2 = recver.recv().await.unwrap();
+    validate_handler_output_frame!(
+        frame_state_2.clone(),
+        "counter.state",
+        frame_handler,
+        frame_count2,
+        Some(&frame_state_1)
+    );
+    let content = store
+        .cas_read(&frame_state_2.clone().hash.unwrap())
+        .await
+        .unwrap();
     let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
     assert_eq!(value, serde_json::json!({"count": 2}));
 
@@ -397,12 +418,15 @@ async fn test_state() {
     let frame_count3 = store.append(Frame::with_topic("count.me").build()).await;
     assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
 
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "counter.state".to_string());
-    let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler2.id.to_string());
-    assert_eq!(meta["frame_id"], frame_count3.id.to_string());
-    let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+    let frame_state_3 = recver.recv().await.unwrap();
+    validate_handler_output_frame!(
+        frame_state_3.clone(),
+        "counter.state",
+        frame_handler2,
+        frame_count3,
+        Some(&frame_state_2)
+    );
+    let content = store.cas_read(&frame_state_3.hash.unwrap()).await.unwrap();
     let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
     assert_eq!(value, serde_json::json!({"count": 3}));
 
@@ -536,6 +560,7 @@ async fn test_custom_append() {
         recver,
         frame_handler,
         trigger_frame,
+        None,
         ["topic1", "topic2", "action.out"]
     );
 
