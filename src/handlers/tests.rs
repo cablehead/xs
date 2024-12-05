@@ -190,9 +190,9 @@ async fn test_no_self_loop() {
 async fn test_essentials() {
     let (store, _temp_dir) = setup_test_environment().await;
 
-    // Create some initial data
-    let frame1 = store.append(Frame::with_topic("pew").build()).await;
-    let frame2 = store.append(Frame::with_topic("pew").build()).await;
+    // Create initial frames
+    let pew1 = store.append(Frame::with_topic("pew").build()).await;
+    let pew2 = store.append(Frame::with_topic("pew").build()).await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -201,47 +201,55 @@ async fn test_essentials() {
     assert_eq!(recver.recv().await.unwrap().topic, "pew");
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
+    // Create a pointer frame that contains indicates we've processed pew1
+    let _pointer_frame = store
+        .append(
+            Frame::with_topic("action.out")
+                .meta(serde_json::json!({
+                    "frame_id": pew1.id.to_string()
+                }))
+                .build(),
+        )
+        .await;
+
+    // Register handler with start pointing to the content of action.out
     let handler_proto = Frame::with_topic("action.register")
         .hash(
             store
                 .cas_insert(
                     r#"{|frame|
-                               if $frame.topic != "pew" { return }
-                               "processed"
-                           }"#,
+                           if $frame.topic != "pew" { return }
+                           "processed"
+                       }"#,
                 )
                 .await
                 .unwrap(),
         )
         .meta(serde_json::json!({
-            "start": {"at": {"topic": "action.out"}},
+            "start": {"cursor": "action.out"}
         }))
         .build();
 
     // Start handler
     let frame_handler = store.append(handler_proto.clone()).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "action.out"); // The pointer frame
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
 
-    // assert registered frame has the correct meta
+    // Assert registered frame has the correct meta
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "action.registered");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler.id.to_string());
     assert_eq!(meta["tail"], false);
-    assert_eq!(meta["last_id"], serde_json::Value::Null);
+    // The last_id should the frame pointed to the pointer frame
+    assert_eq!(meta["last_id"], pew1.id.to_string());
 
-    // Should process historical frames
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.out");
-    let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-    assert_eq!(meta["frame_id"], frame1.id.to_string());
-
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.out");
-    let meta = frame.meta.unwrap();
-    assert_eq!(meta["frame_id"], frame2.id.to_string());
-    let last_action_out_id = frame.id.to_string();
+    // Should process frame2 (since pew1 was before the start point)
+    validate_frame!(recver.recv().await.unwrap(), {
+        topic: "action.out",
+        handler: &frame_handler,
+        trigger: &pew2,
+    });
 
     assert_no_more_frames(&mut recver).await;
 
@@ -258,25 +266,24 @@ async fn test_essentials() {
     let frame_handler_2 = store.append(handler_proto.clone()).await;
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
 
-    // assert registered frame has the correct meta
+    // Assert registered frame has the correct meta
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "action.registered");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
     assert_eq!(meta["tail"], false);
-    assert_eq!(meta["last_id"], last_action_out_id);
+    // The last_id should now be pew2
+    assert_eq!(meta["last_id"], pew2.id.to_string());
 
-    assert_no_more_frames(&mut recver).await;
-
-    let frame3 = store.append(Frame::with_topic("pew").build()).await;
+    let pew3 = store.append(Frame::with_topic("pew").build()).await;
     assert_eq!(recver.recv().await.unwrap().topic, "pew");
 
-    // Should only process frame3 since we resume from cursor
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.out");
-    let meta = frame.meta.clone().unwrap();
-    assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
-    assert_eq!(meta["frame_id"], frame3.id.to_string());
+    // Should resume processing from pew3 on
+    validate_frame!(recver.recv().await.unwrap(), {
+        topic: "action.out",
+        handler: &frame_handler_2,
+        trigger: &pew3,
+    });
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -346,7 +353,7 @@ async fn test_state() {
         )
         .meta(serde_json::json!({
             "initial_state": { "count": 0 },
-            "start": {"at": {"topic": "counter.state"}}
+            "start": {"cursor": "counter.state"}
         }))
         .build();
 

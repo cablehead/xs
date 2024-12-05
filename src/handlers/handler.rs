@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -45,12 +46,10 @@ pub enum StartFrom {
     Tail,
     /// Process from the beginning of the stream
     Root,
-    /// Try specific topic, then tail
-    At {
-        topic: String,
-        #[serde(default)]
-        or_tail: bool,
-    },
+    /// Batch process using a given topic as a cursor which points to the last frame processed
+    Cursor(String),
+    /// Begin processing after a specific topic, or from the tail if the topic is not found
+    After(String),
 }
 
 #[derive(Clone)]
@@ -441,16 +440,27 @@ impl Handler {
         let (last_id, is_tail) = match &self.meta.start {
             StartFrom::Root => (None, false),
             StartFrom::Tail => (None, true),
-            StartFrom::At { topic, or_tail } => {
-                let id = store.head(topic).map(|frame| frame.id);
-                eprintln!("ID: {:?}", id.map(|id| id.to_string()));
-                // If we found the topic, use it. Otherwise fall back based on or_tail
-                match (id, or_tail) {
-                    (Some(id), _) => (Some(id), false), // Found topic, use it
-                    (None, true) => (None, true),       // Not found, fallback to tail
-                    (None, false) => (None, false),     // Not found, fallback to root
-                }
-            }
+
+            StartFrom::Cursor(topic) => store
+                .head(topic)
+                .and_then(|frame| {
+                    frame
+                        .meta
+                        .as_ref()
+                        .and_then(|meta| meta.get("frame_id"))
+                        .and_then(|id| id.as_str())
+                        .map(|frame_id_str| {
+                            Scru128Id::from_str(frame_id_str)
+                                .unwrap_or_else(|err| panic!("Invalid frame_id format: {}", err))
+                        })
+                        .or_else(|| panic!("frame_id not present in frame.meta"))
+                })
+                .map_or((None, false), |frame_id| (Some(frame_id), false)),
+
+            StartFrom::After(topic) => store
+                .head(topic)
+                .map(|frame| (Some(frame.id), false))
+                .unwrap_or((None, true)),
         };
 
         eprintln!("LAST_ID: {:?}", last_id.map(|id| id.to_string()));
