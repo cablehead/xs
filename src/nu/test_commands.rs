@@ -141,14 +141,10 @@ mod tests {
         let frames = value.as_list().unwrap();
         assert_eq!(frames.len(), 2);
 
-        eprintln!(".cat 1 {:?}", frames);
-
         // Test .cat with limit - try with quotes
         let value = nu_eval(&engine, PipelineData::empty(), ".cat --limit 1");
         let frames = value.as_list().unwrap();
         assert_eq!(frames.len(), 1);
-
-        eprintln!(".cat 2 {:?}", frames);
 
         Ok(())
     }
