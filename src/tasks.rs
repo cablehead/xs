@@ -146,7 +146,7 @@ async fn append(
     store: Store,
     source_id: Scru128Id,
     topic: &str,
-    postfix: &str,
+    suffix: &str,
     content: Option<String>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
     let hash = if let Some(content) = content {
@@ -161,7 +161,7 @@ async fn append(
 
     let frame = store
         .append(
-            Frame::with_topic(format!("{}.{}", topic, postfix))
+            Frame::with_topic(format!("{}.{}", topic, suffix))
                 .maybe_hash(hash)
                 .meta(meta)
                 .build(),
