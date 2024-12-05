@@ -218,70 +218,55 @@ impl Handler {
 
         let value = self.eval_in_thread(pool, &frame).await?;
 
-        // Get accumulated calls from evaluation
-        let mut calls = self.calls.lock().unwrap();
+        // First, process the value and determine if we need a synthetic call
+        let synthetic_call =
+            if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
+                let return_options = self.meta.return_options.as_ref();
+                let postfix = return_options
+                    .and_then(|ro| ro.postfix.as_deref())
+                    .unwrap_or(".out");
 
-        // If we got a non-Nothing return value and it's not an append frame, add it as a synthetic .append call
-        match value {
-            Value::Nothing { .. } => (),
-            _ => {
-                // Only add as synthetic call if it's not already an append frame
-                if !self.is_value_an_append_frame(&value) {
-                    let return_options = self.meta.return_options.as_ref();
-                    let postfix = return_options
-                        .and_then(|ro| ro.postfix.as_deref())
-                        .unwrap_or(".out");
-                    let ttl = return_options.and_then(|ro| ro.ttl.clone());
+                let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
 
-                    // Insert return value into CAS
-                    let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
-
-                    calls.push(CallRecord {
-                        topic: format!("{}{}", self.topic, postfix),
-                        meta: None, // Let the loop inject handler_id and frame_id
-                        ttl: ttl,
-                        input: value,
-                        hash: Some(hash),
-                    });
-                }
-            }
-        }
-
-        // Process all accumulated calls
-        for call in calls.iter() {
-            // Convert call metadata to serde_json::Value and add handler/frame ids
-            let meta = match &call.meta {
-                Some(meta_value) => {
-                    let mut json_meta = value_to_json(meta_value);
-                    if let serde_json::Value::Object(ref mut map) = json_meta {
-                        map.insert(
-                            "handler_id".to_string(),
-                            serde_json::Value::String(self.id.to_string()),
-                        );
-                        map.insert(
-                            "frame_id".to_string(),
-                            serde_json::Value::String(frame.id.to_string()),
-                        );
-                    }
-                    json_meta
-                }
-                None => serde_json::json!({
-                    "handler_id": self.id.to_string(),
-                    "frame_id": frame.id.to_string(),
-                }),
+                Some(CallRecord {
+                    topic: format!("{}{}", self.topic, postfix),
+                    meta: None,
+                    ttl: return_options.and_then(|ro| ro.ttl.clone()),
+                    input: value,
+                    hash: Some(hash),
+                })
+            } else {
+                None
             };
 
-            let frame = Frame::with_topic(call.topic.clone())
-                .hash(call.hash.clone().expect("Hash should be present"))
+        let calls_to_process: Vec<_> = {
+            let mut calls = self.calls.lock().unwrap();
+            calls.drain(..).chain(synthetic_call.into_iter()).collect()
+        };
+
+        // TODO: we should put these appends into a single batch
+        for call in calls_to_process {
+            let mut meta = serde_json::json!({
+                "handler_id": self.id.to_string(),
+                "frame_id": frame.id.to_string(),
+            });
+
+            if let Some(meta_value) = &call.meta {
+                if let serde_json::Value::Object(ref mut map) = meta {
+                    if let serde_json::Value::Object(additional) = value_to_json(meta_value) {
+                        map.extend(additional);
+                    }
+                }
+            }
+
+            let frame = Frame::with_topic(call.topic)
+                .hash(call.hash.expect("Hash should be present"))
                 .meta(meta)
-                .maybe_ttl(call.ttl.clone())
+                .maybe_ttl(call.ttl)
                 .build();
 
             store.append(frame).await;
         }
-
-        // Clear the calls for next evaluation
-        calls.clear();
 
         Ok(())
     }
