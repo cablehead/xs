@@ -63,7 +63,7 @@ pub struct Handler {
     pub stateful: bool,
     pub state: Option<Value>,
     pub state_frame_id: Option<Scru128Id>,
-    pub calls: Arc<Mutex<Vec<CallRecord>>>,
+    output: Arc<Mutex<Vec<Frame>>>,
 }
 
 impl Handler {
@@ -77,14 +77,14 @@ impl Handler {
     ) -> Result<Self, Error> {
         eprintln!("META: {:?}", meta);
 
-        let calls = Arc::new(Mutex::new(Vec::new()));
+        let output = Arc::new(Mutex::new(Vec::new()));
 
         // Set up a new StateWorkingSet to customize the engine
         {
             let mut working_set = StateWorkingSet::new(&engine.state);
             // Add the custom .append command, which will shadow the existing one
             working_set.add_decl(Box::new(AppendCommand {
-                calls: calls.clone(),
+                output: output.clone(),
                 store: store.clone(),
             }));
             // Merge the changes back into the engine's state
@@ -117,7 +117,7 @@ impl Handler {
                 .initial_state
                 .map(|state| crate::nu::util::json_to_value(&state, nu_protocol::Span::unknown())),
             state_frame_id: None,
-            calls,
+            output,
         })
     }
 
@@ -228,44 +228,41 @@ impl Handler {
 
                 let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
 
-                Some(CallRecord {
-                    topic: format!("{}{}", self.topic, postfix),
-                    meta: None,
-                    ttl: return_options.and_then(|ro| ro.ttl.clone()),
-                    input: value,
-                    hash: Some(hash),
-                })
+                Some(
+                    Frame::with_topic(format!("{}{}", self.topic, postfix))
+                        .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
+                        .hash(hash)
+                        .build(),
+                )
             } else {
                 None
             };
 
-        let calls_to_process: Vec<_> = {
-            let mut calls = self.calls.lock().unwrap();
-            calls.drain(..).chain(synthetic_call.into_iter()).collect()
+        let output_to_process: Vec<_> = {
+            let mut output = self.output.lock().unwrap();
+            output.drain(..).chain(synthetic_call.into_iter()).collect()
         };
 
         // TODO: we should put these appends into a single batch
-        for call in calls_to_process {
-            let mut meta = serde_json::json!({
-                "handler_id": self.id.to_string(),
-                "frame_id": frame.id.to_string(),
-            });
+        // /cc @marvin_j97 for thoughts
+        for mut output_frame in output_to_process {
+            output_frame
+                .meta
+                .get_or_insert_with(|| serde_json::Value::Object(Default::default()));
 
-            if let Some(meta_value) = &call.meta {
-                if let serde_json::Value::Object(ref mut map) = meta {
-                    if let serde_json::Value::Object(additional) = value_to_json(meta_value) {
-                        map.extend(additional);
-                    }
-                }
+            if let serde_json::Value::Object(ref mut meta_obj) = output_frame.meta.as_mut().unwrap()
+            {
+                meta_obj.insert(
+                    "handler_id".to_string(),
+                    serde_json::Value::String(self.id.to_string()),
+                );
+                meta_obj.insert(
+                    "frame_id".to_string(),
+                    serde_json::Value::String(frame.id.to_string()),
+                );
             }
 
-            let frame = Frame::with_topic(call.topic)
-                .hash(call.hash.expect("Hash should be present"))
-                .meta(meta)
-                .maybe_ttl(call.ttl)
-                .build();
-
-            store.append(frame).await;
+            store.append(output_frame).await;
         }
 
         Ok(())
@@ -377,8 +374,8 @@ impl Handler {
     }
 
     fn eval(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
-        // assert calls is empty as a sanity check
-        assert!(self.calls.lock().unwrap().is_empty());
+        // assert output is empty as a sanity check
+        assert!(self.output.lock().unwrap().is_empty());
 
         let mut stack = Stack::new();
         let block = self.engine.state.get_block(self.closure.block_id);
@@ -474,7 +471,7 @@ use nu_protocol::{Category, ShellError, Signature, SyntaxShape, Type};
 
 #[derive(Clone)]
 pub struct AppendCommand {
-    calls: Arc<Mutex<Vec<CallRecord>>>,
+    output: Arc<Mutex<Vec<Frame>>>,
     store: Store,
 }
 
@@ -547,26 +544,14 @@ impl Command for AppendCommand {
             .await
         })?;
 
-        let call_record = CallRecord {
-            topic,
-            meta,
-            ttl,
-            input: input_value,
-            hash,
-        };
+        let frame = Frame::with_topic(topic)
+            .maybe_meta(meta.map(|v| value_to_json(&v)))
+            .maybe_hash(hash)
+            .maybe_ttl(ttl)
+            .build();
 
-        self.calls.lock().unwrap().push(call_record);
+        self.output.lock().unwrap().push(frame);
 
         Ok(PipelineData::Empty)
     }
-}
-
-// Define a struct to represent the recorded call
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CallRecord {
-    pub topic: String,
-    pub meta: Option<Value>,
-    pub ttl: Option<TTL>,
-    pub input: Value,
-    pub hash: Option<ssri::Integrity>,
 }
