@@ -1,15 +1,15 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 /// Enum representing the TTL (Time-To-Live) for an event.
-#[derive(Default, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Default, PartialEq, Eq, Clone, Debug)]
 pub enum TTL {
     #[default]
     Forever, // Event is kept indefinitely.
     Ephemeral,      // Event is not stored; only active subscribers can see it.
-    Time(Duration), // Event is kept for a custom duration in seconds.
+    Time(Duration), // Event is kept for a custom duration
     Head(u32),      // Retains only the last n events for a topic (n >= 1).
 }
 
@@ -19,7 +19,7 @@ impl TTL {
         match self {
             TTL::Forever => "ttl=forever".to_string(),
             TTL::Ephemeral => "ttl=ephemeral".to_string(),
-            TTL::Time(duration) => format!("ttl=time:{}", duration.as_secs()),
+            TTL::Time(duration) => format!("ttl=time:{}", duration.as_millis()),
             TTL::Head(n) => format!("ttl=head:{}", n),
         }
     }
@@ -42,6 +42,32 @@ impl TTL {
     }
 }
 
+impl Serialize for TTL {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            TTL::Forever => serializer.serialize_str("forever"),
+            TTL::Ephemeral => serializer.serialize_str("ephemeral"),
+            TTL::Time(duration) => {
+                serializer.serialize_str(&format!("time:{}", duration.as_millis()))
+            }
+            TTL::Head(n) => serializer.serialize_str(&format!("head:{}", n)),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TTL {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+        parse_ttl(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Parses a raw TTL string and converts it to the `TTL` enum.
 pub fn parse_ttl(s: &str) -> Result<TTL, String> {
     match s {
@@ -52,7 +78,7 @@ pub fn parse_ttl(s: &str) -> Result<TTL, String> {
             let duration = duration_str
                 .parse::<u64>()
                 .map_err(|_| "Invalid duration for 'time' TTL".to_string())?;
-            Ok(TTL::Time(Duration::from_secs(duration)))
+            Ok(TTL::Time(Duration::from_millis(duration)))
         }
         _ if s.starts_with("head:") => {
             let n_str = &s[5..];
@@ -81,7 +107,7 @@ mod tests {
 
         let ttl = TTL::Time(Duration::from_secs(1));
         let serialized = serde_json::to_string(&ttl).unwrap();
-        assert_eq!(serialized, r#"{"time":{"secs":1,"nanos":0}}"#);
+        assert_eq!(serialized, r#""time:1000""#);
     }
 
     #[test]
@@ -90,7 +116,7 @@ mod tests {
         assert_eq!(TTL::Ephemeral.to_query(), "ttl=ephemeral");
         assert_eq!(
             TTL::Time(Duration::from_secs(3600)).to_query(),
-            "ttl=time:3600"
+            "ttl=time:3600000"
         );
         assert_eq!(TTL::Head(2).to_query(), "ttl=head:2");
     }
@@ -100,7 +126,7 @@ mod tests {
         assert_eq!(parse_ttl("forever"), Ok(TTL::Forever));
         assert_eq!(parse_ttl("ephemeral"), Ok(TTL::Ephemeral));
         assert_eq!(
-            parse_ttl("time:3600"),
+            parse_ttl("time:3600000"),
             Ok(TTL::Time(Duration::from_secs(3600)))
         );
         assert_eq!(parse_ttl("head:3"), Ok(TTL::Head(3)));
@@ -147,17 +173,16 @@ mod tests {
     fn test_ttl_json_round_trip() {
         // Define the TTL variants to test
         let ttls = vec![
-            TTL::Forever,
-            TTL::Ephemeral,
-            TTL::Time(Duration::from_secs(3600)),
-            TTL::Head(2),
+            (TTL::Forever, r#""forever""#),
+            (TTL::Ephemeral, r#""ephemeral""#),
+            (TTL::Time(Duration::from_secs(3600)), r#""time:3600000""#),
+            (TTL::Head(2), r#""head:2""#),
         ];
 
-        for ttl in ttls {
+        for (ttl, expect) in ttls {
             // Serialize TTL to JSON
             let json = serde_json::to_string(&ttl).expect("Failed to serialize TTL to JSON");
-
-            eprintln!("json: {}", json);
+            assert_eq!(json, expect);
 
             // Deserialize JSON back into TTL
             let deserialized: TTL =

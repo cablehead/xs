@@ -276,9 +276,10 @@ async fn handle_process_post(
             Meta::default(),
             engine.clone(),
             script,
+            store.clone(),
         )?;
 
-        let value = handler.eval_in_thread(&pool, &frame).await;
+        let value = handler.eval_in_thread(&pool, &frame).await?;
         let json = nu::value_to_json(&value);
         let bytes = serde_json::to_vec(&json)?;
 

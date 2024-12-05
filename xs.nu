@@ -118,7 +118,7 @@ export def .append [
     --ttl: string  # Optional Time-To-Live for the event. Supported formats:
                    #   - "forever": The event is kept indefinitely.
                    #   - "ephemeral": The event is not stored; only active subscribers can see it.
-                   #   - "time:<seconds>": The event is kept for a custom duration in seconds.
+                   #   - "time:<milliseconds>": The event is kept for a custom duration in milliseconds.
                    #   - "head:<n>": Retains only the last n events for the topic (n must be >= 1).
 ] {
     xs append (store-addr) $topic ...([
