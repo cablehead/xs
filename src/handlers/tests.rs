@@ -99,18 +99,7 @@ macro_rules! validate_field {
 
 #[tokio::test]
 async fn test_register_invalid_closure() {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
-    let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
-
-    {
-        let store = store.clone();
-        let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
-        });
-    }
-
+    let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
@@ -156,18 +145,7 @@ async fn test_register_invalid_closure() {
 #[tokio::test]
 // This test is to ensure that a handler does not process its own output
 async fn test_no_self_loop() {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
-    let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
-
-    {
-        let store = store.clone();
-        let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
-        });
-    }
-
+    let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
@@ -210,17 +188,7 @@ async fn test_no_self_loop() {
 
 #[tokio::test]
 async fn test_essentials() {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
-    let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
-
-    {
-        let store = store.clone();
-        let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
-        });
-    }
+    let (store, _temp_dir) = setup_test_environment().await;
 
     // Create some initial data
     let frame1 = store.append(Frame::with_topic("pew").build()).await;
@@ -315,17 +283,7 @@ async fn test_essentials() {
 
 #[tokio::test]
 async fn test_unregister_on_error() {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
-    let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
-
-    {
-        let store = store.clone();
-        let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
-        });
-    }
+    let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -369,17 +327,7 @@ async fn test_unregister_on_error() {
 
 #[tokio::test]
 async fn test_state() {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
-    let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
-
-    {
-        let store = store.clone();
-        let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
-        });
-    }
+    let (store, _temp_dir) = setup_test_environment().await;
 
     let handler_proto = Frame::with_topic("counter.register")
         .hash(
@@ -483,17 +431,7 @@ async fn test_state() {
 
 #[tokio::test]
 async fn test_return_options() {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
-    let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
-
-    {
-        let store = store.clone();
-        let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
-        });
-    }
+    let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -563,17 +501,7 @@ async fn test_return_options() {
 
 #[tokio::test]
 async fn test_custom_append() {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
-    let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
-
-    {
-        let store = store.clone();
-        let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
-        });
-    }
+    let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -626,4 +554,20 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
             // Success - no additional frames were processed
         }
     }
+}
+
+async fn setup_test_environment() -> (Store, TempDir) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).await;
+    let pool = ThreadPool::new(4);
+    let engine = nu::Engine::new(store.clone()).unwrap();
+
+    {
+        let store = store.clone();
+        let _ = tokio::spawn(async move {
+            serve(store, engine, pool).await.unwrap();
+        });
+    }
+
+    (store, temp_dir)
 }
