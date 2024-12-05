@@ -218,46 +218,70 @@ impl Handler {
 
         let value = self.eval_in_thread(pool, &frame).await?;
 
+        // Get accumulated calls from evaluation
+        let mut calls = self.calls.lock().unwrap();
+
+        // If we got a non-Nothing return value and it's not an append frame, add it as a synthetic .append call
         match value {
             Value::Nothing { .. } => (),
             _ => {
-                // if the return value looks like a frame returned from a .append:
-                // ignore it
-                if self.is_value_an_append_frame(&value) {
-                    return Ok(());
+                // Only add as synthetic call if it's not already an append frame
+                if !self.is_value_an_append_frame(&value) {
+                    let return_options = self.meta.return_options.as_ref();
+                    let postfix = return_options
+                        .and_then(|ro| ro.postfix.as_deref())
+                        .unwrap_or(".out");
+                    let ttl = return_options.and_then(|ro| ro.ttl.clone());
+
+                    // Insert return value into CAS
+                    let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
+
+                    calls.push(CallRecord {
+                        topic: format!("{}{}", self.topic, postfix),
+                        meta: None, // Let the loop inject handler_id and frame_id
+                        ttl: ttl,
+                        input: value,
+                        hash: Some(hash),
+                    });
                 }
-
-                // Extract ReturnOptions from handler.meta
-                let return_options = self.meta.return_options.as_ref();
-                let postfix = return_options
-                    .and_then(|ro| ro.postfix.as_deref())
-                    .unwrap_or(".out");
-                let ttl = return_options.and_then(|ro| ro.ttl.clone());
-
-                eprintln!(
-                    "HANDLER: {} RETURNING: {:?}, {} {:?}",
-                    self.id, value, postfix, ttl
-                );
-
-                let _ = store
-                    .append(
-                        Frame::with_topic(format!("{}{}", self.topic, postfix))
-                            .hash(
-                                store
-                                    .cas_insert(&value_to_json(&value).to_string())
-                                    .await
-                                    .unwrap(),
-                            )
-                            .meta(serde_json::json!({
-                                "handler_id": self.id.to_string(),
-                                "frame_id": frame.id.to_string(),
-                            }))
-                            .maybe_ttl(ttl)
-                            .build(),
-                    )
-                    .await;
             }
         }
+
+        // Process all accumulated calls
+        for call in calls.iter() {
+            // Convert call metadata to serde_json::Value and add handler/frame ids
+            let meta = match &call.meta {
+                Some(meta_value) => {
+                    let mut json_meta = value_to_json(meta_value);
+                    if let serde_json::Value::Object(ref mut map) = json_meta {
+                        map.insert(
+                            "handler_id".to_string(),
+                            serde_json::Value::String(self.id.to_string()),
+                        );
+                        map.insert(
+                            "frame_id".to_string(),
+                            serde_json::Value::String(frame.id.to_string()),
+                        );
+                    }
+                    json_meta
+                }
+                None => serde_json::json!({
+                    "handler_id": self.id.to_string(),
+                    "frame_id": frame.id.to_string(),
+                }),
+            };
+
+            let frame = Frame::with_topic(call.topic.clone())
+                .hash(call.hash.clone().expect("Hash should be present"))
+                .meta(meta)
+                .maybe_ttl(call.ttl.clone())
+                .build();
+
+            store.append(frame).await;
+        }
+
+        // Clear the calls for next evaluation
+        calls.clear();
 
         Ok(())
     }
@@ -510,12 +534,22 @@ impl Command for AppendCommand {
 
         let topic: String = call.req(engine_state, stack, 0)?;
         let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-        let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
+        let ttl_str: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
 
-        // Use the `?` operator to handle the Result from `input.into_value(span)`
+        // Convert string TTL to TTL enum
+        let ttl = ttl_str
+            .map(|s| TTL::from_query(Some(&format!("ttl={}", s))))
+            .transpose()
+            .map_err(|e| ShellError::GenericError {
+                error: "Invalid TTL format".into(),
+                msg: e.to_string(),
+                span: Some(span),
+                help: Some("TTL must be one of: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'".into()),
+                inner: vec![],
+            })?;
+
         let input_value = input.into_value(span)?;
 
-        // Write to CAS and get hash
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
@@ -536,10 +570,8 @@ impl Command for AppendCommand {
             hash,
         };
 
-        // Record the call
         self.calls.lock().unwrap().push(call_record);
 
-        // Return an empty result or appropriate value
         Ok(PipelineData::Empty)
     }
 }
@@ -549,7 +581,7 @@ impl Command for AppendCommand {
 pub struct CallRecord {
     pub topic: String,
     pub meta: Option<Value>,
-    pub ttl: Option<String>,
+    pub ttl: Option<TTL>,
     pub input: Value,
     pub hash: Option<ssri::Integrity>,
 }
