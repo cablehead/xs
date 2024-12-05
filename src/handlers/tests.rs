@@ -296,6 +296,15 @@ async fn test_unregister_on_error() {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
+    // This frame will trigger the error when the handler comes online
+    let frame_trigger = store.append(Frame::with_topic("trigger").build()).await;
+    validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
+
+    // add an additional frame, which shouldn't be processed, as the handler should immediately
+    // unregister
+    let _ = store.append(Frame::with_topic("trigger").build()).await;
+    validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
+
     // Start handler
     let frame_handler = store
         .append(
@@ -311,15 +320,14 @@ async fn test_unregister_on_error() {
                         .await
                         .unwrap(),
                 )
+                .meta(serde_json::json!({
+                    "start": {"cursor": "root"}
+                }))
                 .build(),
         )
         .await;
     assert_eq!(recver.recv().await.unwrap().topic, "error.register");
     assert_eq!(recver.recv().await.unwrap().topic, "error.registered");
-
-    // Trigger error
-    let frame_trigger = store.append(Frame::with_topic("trigger").build()).await;
-    validate_frame!( recver.recv().await.unwrap(), {topic: "trigger"});
 
     // Expect an unregistered frame to be appended
     validate_frame!(recver.recv().await.unwrap(), {
