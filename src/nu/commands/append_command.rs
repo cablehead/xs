@@ -42,7 +42,7 @@ impl Command for AppendCommand {
     }
 
     fn description(&self) -> &str {
-        "Writes its input to the CAS and then appends a frame with a hash of this content to the given topic on the stream. Automatically includes handler_id and frame_id in meta if used within a handler."
+        "Writes its input to the CAS and then appends a frame with a hash of this content to the given topic on the stream."
     }
 
     fn run(
@@ -57,48 +57,8 @@ impl Command for AppendCommand {
         let store = self.store.clone();
 
         let topic: String = call.req(engine_state, stack, 0)?;
-        let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-
-        // Retrieve handler_id and frame_id from the environment
-        let handler_id = stack.get_env_var(engine_state, "handler_id");
-        let frame_id = stack.get_env_var(engine_state, "frame_id");
-
-        // Build the meta data
-        let mut meta_map = match user_meta {
-            Some(Value::Record { val, .. }) => val
-                .iter()
-                .map(|(k, v)| (k.clone(), util::value_to_json(v)))
-                .collect(),
-            Some(_) => {
-                return Err(ShellError::GenericError {
-                    error: "Invalid meta data".into(),
-                    msg: "Meta data must be a record".into(),
-                    span: Some(span),
-                    help: None,
-                    inner: vec![],
-                });
-            }
-            None => serde_json::Map::new(),
-        };
-
-        if let Some(Value::String { val, .. }) = handler_id {
-            meta_map.insert(
-                "handler_id".to_string(),
-                serde_json::Value::String(val.clone()),
-            );
-        }
-        if let Some(Value::String { val, .. }) = frame_id {
-            meta_map.insert(
-                "frame_id".to_string(),
-                serde_json::Value::String(val.clone()),
-            );
-        }
-
-        let meta = if meta_map.is_empty() {
-            None
-        } else {
-            Some(serde_json::Value::Object(meta_map))
-        };
+        let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
+        let meta = meta.map(|meta| util::value_to_json(&meta));
 
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {

@@ -403,22 +403,6 @@ impl Handler {
             );
         }
 
-        // Add handler_id and frame_id to the environment
-        stack.add_env_var(
-            "handler_id".to_string(),
-            Value::String {
-                val: self.id.to_string(),
-                internal_span: Span::unknown(),
-            },
-        );
-        stack.add_env_var(
-            "frame_id".to_string(),
-            Value::String {
-                val: frame.id.to_string(),
-                internal_span: Span::unknown(),
-            },
-        );
-
         let output = eval_block_with_early_return::<WithoutDebug>(
             &self.engine.state,
             &mut stack,
