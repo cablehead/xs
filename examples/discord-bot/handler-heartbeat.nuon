@@ -11,7 +11,7 @@
   pulse: 1000,
   start: {after: "discord.ws.start"}
   return_options: {
-      postfix: ".state"
+      suffix: ".state"
       ttl: "ephemeral"
   }
 }

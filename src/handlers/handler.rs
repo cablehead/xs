@@ -34,7 +34,7 @@ pub struct Meta {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ReturnOptions {
-    pub postfix: Option<String>,
+    pub suffix: Option<String>,
     pub ttl: Option<TTL>,
 }
 
@@ -217,14 +217,14 @@ impl Handler {
         let synthetic_call =
             if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
                 let return_options = self.meta.return_options.as_ref();
-                let postfix = return_options
-                    .and_then(|ro| ro.postfix.as_deref())
+                let suffix = return_options
+                    .and_then(|ro| ro.suffix.as_deref())
                     .unwrap_or(".out");
 
                 let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
 
                 Some(
-                    Frame::with_topic(format!("{}{}", self.topic, postfix))
+                    Frame::with_topic(format!("{}{}", self.topic, suffix))
                         .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
                         .hash(hash)
                         .build(),

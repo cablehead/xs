@@ -467,7 +467,7 @@ async fn test_return_options() {
         )
         .meta(serde_json::json!({
             "return_options": {
-                "postfix": ".warble",
+                "suffix": ".warble",
                 "ttl": "head:1"
             }
         }))
@@ -481,7 +481,7 @@ async fn test_return_options() {
     let frame1 = store.append(Frame::with_topic("ping").build()).await;
     assert_eq!(recver.recv().await.unwrap().topic, "ping");
 
-    // Check response has custom postfix and right meta
+    // Check response has custom suffix and right meta
     let response1 = recver.recv().await.unwrap();
     assert_eq!(response1.topic, "echo.warble");
     assert_eq!(response1.ttl, Some(TTL::Head(1)));
