@@ -146,6 +146,28 @@ where
     Ok(())
 }
 
+pub async fn cas_post<R>(
+    addr: &str,
+    data: R,
+) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    // Setup stream from data
+    let reader_stream = ReaderStream::new(data);
+    let mapped_stream = reader_stream.map(|result| {
+        result
+            .map(hyper::body::Frame::data)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    });
+    let body = StreamBody::new(mapped_stream);
+
+    let res = request::request(addr, Method::POST, "cas", None, body, None).await?;
+
+    let body = res.collect().await?.to_bytes();
+    Ok(body)
+}
+
 pub async fn process<R>(
     addr: &str,
     id: &str,
