@@ -27,7 +27,7 @@ pub async fn serve(
 
             match Handler::from_frame(&frame, &store, engine.clone()).await {
                 Ok(handler) => {
-                    let _ = handler.spawn(store.clone(), pool.clone()).await?;
+                    handler.spawn(store.clone(), pool.clone()).await?;
                 }
                 Err(err) => {
                     eprintln!("ERROR 456: {:?}", err);

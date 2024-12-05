@@ -216,7 +216,7 @@ impl Handler {
     ) -> Result<(), Error> {
         eprintln!("HANDLER: {} PROCESSING: frame: {:?}", self.id, frame);
 
-        let value = self.eval_in_thread(pool, &frame).await?;
+        let value = self.eval_in_thread(pool, frame).await?;
 
         // First, process the value and determine if we need a synthetic call
         let synthetic_call =
@@ -272,20 +272,15 @@ impl Handler {
 
             let output_frame = store.append(output_frame).await;
 
-            if self.stateful {
-                if output_frame.topic == format!("{}.state", self.topic) {
-                    eprintln!("UPDATE STATE: {:?}", output_frame);
-                    if let Some(hash) = &output_frame.hash {
-                        let content = store.cas_read(hash).await.unwrap();
-                        let json_value: serde_json::Value =
-                            serde_json::from_slice(&content).unwrap();
-                        let new_state = crate::nu::util::json_to_value(
-                            &json_value,
-                            nu_protocol::Span::unknown(),
-                        );
-                        self.state = Some(new_state);
-                        self.state_frame_id = Some(output_frame.id);
-                    }
+            if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
+                eprintln!("UPDATE STATE: {:?}", output_frame);
+                if let Some(hash) = &output_frame.hash {
+                    let content = store.cas_read(hash).await.unwrap();
+                    let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
+                    let new_state =
+                        crate::nu::util::json_to_value(&json_value, nu_protocol::Span::unknown());
+                    self.state = Some(new_state);
+                    self.state_frame_id = Some(output_frame.id);
                 }
             }
         }
