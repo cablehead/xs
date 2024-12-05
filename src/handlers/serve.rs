@@ -33,7 +33,7 @@ pub async fn serve(
                     eprintln!("ERROR 456: {:?}", err);
                     let _ = store
                         .append(
-                            Frame::with_topic(format!("{}.unregister", topic))
+                            Frame::with_topic(format!("{}.unregistered", topic))
                                 .meta(serde_json::json!({
                                     "handler_id": frame.id.to_string(),
                                     "error": err.to_string(),

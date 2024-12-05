@@ -109,7 +109,7 @@ async fn test_register_invalid_closure() {
     );
 
     // Attempt to register a closure with no arguments
-    let _ = store
+    let frame_handler = store
         .append(
             Frame::with_topic("invalid.register")
                 .hash(
@@ -130,14 +130,13 @@ async fn test_register_invalid_closure() {
         "invalid.register".to_string()
     );
 
-    // Expect an unregister frame to be appended
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "invalid.unregister".to_string());
-
-    // Verify the content of the error frame
-    let meta = frame.meta.unwrap();
-    let error_message = meta["error"].as_str().unwrap();
-    assert!(error_message.contains("Closure must accept 1 or 2 arguments"));
+    // Expect an unregistered frame to be appended
+    validate_frame!(
+        recver.recv().await.unwrap(), {
+        topic: "invalid.unregistered",
+        handler: frame_handler,
+        error: "Closure must accept 1 or 2 arguments",
+    });
 
     assert_no_more_frames(&mut recver).await;
 }
