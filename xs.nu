@@ -11,7 +11,7 @@ def and-then [ next: closure --else: closure ] {
 }
 
 export def store-addr [] {
-    $env | default "./store" XSPWD | get XSPWD
+    $env | get XS_ADDR? | ? else { "./store" }
 }
 
 # update to use (store-addr) and the xs cli
