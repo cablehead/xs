@@ -22,7 +22,7 @@ Come hang out and play
 You can install the tool with:
 
 ```sh
-cargo install cross-stream
+cargo install cross-stream --locked
 ```
 
 or
