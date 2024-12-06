@@ -248,6 +248,23 @@ where
     Ok(body)
 }
 
+pub async fn version(addr: &str) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+    match request::request(addr, Method::GET, "version", None, empty(), None).await {
+        Ok(res) => {
+            let body = res.collect().await?.to_bytes();
+            Ok(body)
+        }
+        Err(e) => {
+            // this was the version before the /version endpoint was added
+            if e.to_string().contains("404 Not Found") {
+                Ok(Bytes::from(r#"{"version":"0.0.9"}"#))
+            } else {
+                Err(e) // Propagate other errors
+            }
+        }
+    }
+}
+
 fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
