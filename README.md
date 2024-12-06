@@ -195,7 +195,7 @@ $ use xs.nu *
 
 This will add some `.command` conveniences to your session. The commands default
 to working with a `./store` in your current directory. You can customize this by
-setting `$env.XSPWD`.
+setting `$env.XS_ADDR`.
 
 Appending looks like this:
 
