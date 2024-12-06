@@ -46,11 +46,14 @@ enum Routes {
     ProcessPost(Scru128Id),
     HeadGet(String),
     Import,
+    Version,
     NotFound,
 }
 
 fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Routes {
     match (method, path) {
+        (&Method::GET, "/version") => Routes::Version,
+
         (&Method::GET, "/") => {
             let accept_type = match headers.get(ACCEPT) {
                 Some(accept) if accept == "text/event-stream" => AcceptType::EventStream,
@@ -124,6 +127,8 @@ async fn handle(
     let headers = req.headers().clone();
 
     let res = match match_route(method, path, &headers) {
+        Routes::Version => handle_version().await,
+
         Routes::StreamCat(accept_type) => {
             let options = match ReadOptions::from_query(req.uri().query()) {
                 Ok(opts) => opts,
@@ -325,6 +330,15 @@ async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> 
         .status(StatusCode::OK)
         .header("Content-Type", "text/plain")
         .body(full(hash.to_string()))?)
+}
+
+async fn handle_version() -> HTTPResult {
+    let version = env!("CARGO_PKG_VERSION");
+    let version_info = serde_json::json!({ "version": version });
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(full(serde_json::to_string(&version_info).unwrap()))?)
 }
 
 pub async fn serve(

@@ -39,6 +39,8 @@ enum Command {
     Process(CommandProcess),
     /// Import a frame directly into the store
     Import(CommandImport),
+    /// Get the version of the server
+    Version(CommandVersion),
 }
 
 #[derive(Parser, Debug)]
@@ -173,6 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Get(args) => get(args).await,
         Command::Process(args) => process(args).await,
         Command::Import(args) => import(args).await,
+        Command::Version(args) => version(args).await,
     };
     if let Err(err) = res {
         eprintln!("{}", err);
@@ -351,5 +354,18 @@ async fn import(args: CommandImport) -> Result<(), Box<dyn std::error::Error + S
 
     let response = xs::client::import(&args.addr, input).await?;
     tokio::io::stdout().write_all(&response).await?;
+    Ok(())
+}
+
+#[derive(Parser, Debug)]
+struct CommandVersion {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+}
+
+async fn version(args: CommandVersion) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let response = xs::client::version(&args.addr).await?;
+    println!("{}", String::from_utf8_lossy(&response));
     Ok(())
 }
