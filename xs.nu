@@ -155,6 +155,38 @@ export def .tasks [] {
     .cat
 }
 
+export def .dump [path: string] {
+    if ($path | path exists) {
+        print "path exists"
+        return
+    }
+    mkdir ($path | path join "cas")
+
+    xs cat (store-addr) | save ($path | path join "frames.jsonl")
+
+    open ($path | path join "frames.jsonl") | lines | each { from json | get hash } | uniq | each {|hash|
+        # if ($hash | is-empty) { return }
+        let hash_64 = $hash | encode base64
+        let out_path = $"($path)/cas/($hash_64)"
+        print $out_path
+        .cas $hash | save $out_path
+    }
+}
+
+export def .load [path: string] {
+    glob ([$path "cas"] | path join "*") | each {|x|
+        let want = ($x | path basename | decode base64 | decode)
+        let got = cat $x | xs cas-post (store-addr)
+        if $got != $want {
+            return (error make {
+                msg: $"hash mismatch got=($got) want=($want)",
+            })
+        }
+        $got
+    }
+
+    open ($path | path join "frames.jsonl") | lines | each { xs import (store-addr) }
+}
 
 export def .test [] {
     use std assert;
