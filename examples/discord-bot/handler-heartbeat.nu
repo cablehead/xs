@@ -54,7 +54,7 @@ def "scru128-since" [$id1, $id2] {
 }
 
 def .send [] {
-    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl time:3600000
+    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl time:300000
 }
 
 {|frame, state|
