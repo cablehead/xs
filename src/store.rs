@@ -330,6 +330,7 @@ impl Store {
         res.map(|value| serde_json::from_slice(&value).unwrap())
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn head(&self, topic: &str) -> Option<Frame> {
         let mut prefix = Vec::with_capacity(topic.len() + 1);
         prefix.extend(topic.as_bytes());
@@ -392,6 +393,7 @@ impl Store {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), fjall::Error> {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         let mut batch = self.keyspace.batch();

@@ -32,7 +32,8 @@ impl FooSubscriber {
 
 impl Subscriber for FooSubscriber {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        metadata.target().starts_with(env!("CARGO_PKG_NAME"))
+        // metadata.target().starts_with("xs")
+        true
     }
 
     fn new_span(&self, span: &Attributes<'_>) -> Id {

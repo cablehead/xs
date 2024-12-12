@@ -187,6 +187,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     xs::trace::init();
 
+    tracing::trace!("Starting server with path: {:?}", args.path);
+
     let store = Store::new(args.path).await;
     let pool = ThreadPool::new(10);
     let engine = nu::Engine::new(store.clone())?;
