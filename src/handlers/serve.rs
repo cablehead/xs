@@ -50,8 +50,6 @@ pub async fn serve(
 
     // Process historical frames until threshold
     while let Some(frame) = recver.recv().await {
-        eprintln!("historical frame: {:?}", frame);
-
         if frame.topic == "xs.threshold" {
             break;
         }
@@ -98,7 +96,6 @@ pub async fn serve(
 
     // Continue processing new frames
     while let Some(frame) = recver.recv().await {
-        eprintln!("live frame: {:?}", frame);
         if let Some(topic) = frame.topic.strip_suffix(".register") {
             start_handler(&frame, &store, &engine, &pool, topic).await?;
         }

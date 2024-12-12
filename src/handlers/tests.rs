@@ -557,6 +557,78 @@ async fn test_custom_append() {
     assert_no_more_frames(&mut recver).await;
 }
 
+#[tokio::test]
+async fn test_handler_replacement() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Register first handler
+    let _ = store
+        .append(
+            Frame::with_topic("h.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{|frame|
+                                if $frame.topic != "trigger" { return }
+                                "handler1"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "h.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.registered");
+
+    // Register second handler for same topic
+    let handler2 = store
+        .append(
+            Frame::with_topic("h.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{|frame|
+                                if $frame.topic != "trigger" { return }
+                                "handler2"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "h.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.unregistered");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.registered");
+
+    // Send trigger - should be handled by handler2
+    let trigger = store.append(Frame::with_topic("trigger").build()).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    // Verify handler2 processed it
+    let response = recver.recv().await.unwrap();
+    assert_eq!(response.topic, "h.out");
+    let meta = response.meta.unwrap();
+    assert_eq!(meta["handler_id"], handler2.id.to_string());
+    assert_eq!(meta["frame_id"], trigger.id.to_string());
+
+    // Verify content shows it was handler2
+    let content = store.cas_read(&response.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), r#""handler2""#);
+
+    assert_no_more_frames(&mut recver).await;
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
