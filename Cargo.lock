@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "cross-stream"
-version = "0.1.0"
+version = "0.1.1-dev"
 dependencies = [
  "assert_cmd",
  "async-std",
