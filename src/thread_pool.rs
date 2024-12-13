@@ -21,9 +21,15 @@ impl ThreadPool {
 
             std::thread::spawn(move || {
                 while let Ok(job) = rx.recv() {
-                    active_count.fetch_add(1, Ordering::SeqCst);
+                    let count = active_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    tracing::debug!("pool count increased to: {}", count);
+
                     job();
-                    if active_count.fetch_sub(1, Ordering::SeqCst) == 1 {
+
+                    let count = active_count.fetch_sub(1, Ordering::SeqCst) - 1;
+                    tracing::debug!("pool count decreased to: {}", count);
+
+                    if count == 0 {
                         let (lock, cvar) = &*completion_pair;
                         let guard = lock.lock().unwrap();
                         cvar.notify_all();
