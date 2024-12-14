@@ -362,6 +362,7 @@ impl Store {
         v
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn remove(&self, id: &Scru128Id) -> Result<(), fjall::Error> {
         let Some(frame) = self.get(id) else {
             // Already deleted
@@ -434,7 +435,9 @@ impl Store {
                     .unwrap();
 
                 for frame_id in frames_to_remove {
+                    tracing::trace!("Removing old frame: {:?}", frame_id);
                     let _ = self.remove(&frame_id);
+                    tracing::trace!("Removed old frame: {:?}", frame_id);
                 }
             }
         }
