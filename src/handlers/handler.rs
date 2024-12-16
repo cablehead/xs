@@ -213,8 +213,7 @@ impl Handler {
     ) -> Result<(), Error> {
         let value = self.eval_in_thread(pool, frame).await?;
 
-        // First, process the value and determine if we need a synthetic call
-        let synthetic_call =
+        let additional_frame =
             if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
                 let return_options = self.meta.return_options.as_ref();
                 let suffix = return_options
@@ -235,7 +234,10 @@ impl Handler {
 
         let output_to_process: Vec<_> = {
             let mut output = self.output.lock().unwrap();
-            output.drain(..).chain(synthetic_call.into_iter()).collect()
+            output
+                .drain(..)
+                .chain(additional_frame.into_iter())
+                .collect()
         };
 
         // TODO: we should put these appends into a single batch
