@@ -1,6 +1,8 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use tracing::{instrument, Span};
+
 use serde::{Deserialize, Serialize};
 
 use tokio::io::AsyncReadExt;
@@ -11,7 +13,7 @@ use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::Stack;
 use nu_protocol::engine::StateWorkingSet;
 use nu_protocol::PipelineData;
-use nu_protocol::{Span, Value};
+use nu_protocol::{Span as NuSpan, Value};
 
 use scru128::Scru128Id;
 
@@ -112,7 +114,7 @@ impl Handler {
             stateful,
             state: meta
                 .initial_state
-                .map(|state| crate::nu::util::json_to_value(&state, nu_protocol::Span::unknown())),
+                .map(|state| crate::nu::util::json_to_value(&state, NuSpan::unknown())),
             state_frame_id: None,
             output,
         })
@@ -163,8 +165,10 @@ impl Handler {
                 if let Some(hash) = &existing_state.hash {
                     let content = store.cas_read(hash).await?;
                     let json_value: serde_json::Value = serde_json::from_slice(&content)?;
-                    handler.state =
-                        Some(crate::nu::util::json_to_value(&json_value, Span::unknown()));
+                    handler.state = Some(crate::nu::util::json_to_value(
+                        &json_value,
+                        NuSpan::unknown(),
+                    ));
                     handler.state_frame_id = Some(existing_state.id);
                 }
             }
@@ -205,14 +209,30 @@ impl Handler {
             .is_some()
     }
 
+    #[instrument(
+        level = "info",
+        skip(self, frame, store, pool),
+        fields(handler_id = %self.id, frame_topic = %frame.topic, frame_id = %frame.id)
+    )]
     async fn process_frame(
         &mut self,
         frame: &Frame,
         store: &Store,
         pool: &ThreadPool,
     ) -> Result<(), Error> {
-        let value = self.eval_in_thread(pool, frame).await?;
+        let current_span = Span::current();
 
+        let handler = self.clone();
+        let frame_clone = frame.clone();
+        let value_result = pool.execute_with_span(current_span.clone(), move || {
+            current_span.in_scope(|| handler.eval(&frame_clone))
+        });
+
+        let value = value_result
+            .join()
+            .map_err(|e| Error::from(format!("Thread panicked: {:?}", e)))??;
+
+        // Check if the evaluated value is an append frame
         let additional_frame =
             if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
                 let return_options = self.meta.return_options.as_ref();
@@ -221,17 +241,17 @@ impl Handler {
                     .unwrap_or(".out");
 
                 let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
-
                 Some(
                     Frame::with_topic(format!("{}{}", self.topic, suffix))
                         .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
-                        .hash(hash)
+                        .maybe_hash(Some(hash))
                         .build(),
                 )
             } else {
                 None
             };
 
+        // Process buffered appends and the additional frame
         let output_to_process: Vec<_> = {
             let mut output = self.output.lock().unwrap();
             output
@@ -269,12 +289,12 @@ impl Handler {
 
             let output_frame = store.append(output_frame).await;
 
+            // Update state if the appended frame is a state frame
             if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
                 if let Some(hash) = &output_frame.hash {
                     let content = store.cas_read(hash).await.unwrap();
                     let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
-                    let new_state =
-                        crate::nu::util::json_to_value(&json_value, nu_protocol::Span::unknown());
+                    let new_state = crate::nu::util::json_to_value(&json_value, NuSpan::unknown());
                     self.state = Some(new_state);
                     self.state_frame_id = Some(output_frame.id);
                 }
@@ -378,7 +398,7 @@ impl Handler {
 
         // First arg is always frame
         let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
-        stack.add_var(frame_var_id, frame_to_value(frame, Span::unknown()));
+        stack.add_var(frame_var_id, frame_to_value(frame, NuSpan::unknown()));
 
         // Second arg is state if stateful
         if self.stateful {
@@ -387,7 +407,7 @@ impl Handler {
                 state_var_id,
                 self.state
                     .clone()
-                    .unwrap_or(Value::nothing(Span::unknown())),
+                    .unwrap_or(Value::nothing(NuSpan::unknown())),
             );
         }
 
@@ -403,7 +423,7 @@ impl Handler {
                 let working_set = StateWorkingSet::new(&self.engine.state);
                 nu_protocol::format_shell_error(&working_set, &err)
             })?
-            .into_value(Span::unknown())?)
+            .into_value(NuSpan::unknown())?)
     }
 
     pub async fn configure_read_options(&self, store: &Store) -> ReadOptions {

@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
+use tracing::Span;
+
 #[derive(Clone)]
 pub struct ThreadPool {
     tx: crossbeam_channel::Sender<Box<dyn FnOnce() + Send + 'static>>,
@@ -51,6 +53,18 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static,
     {
         self.tx.send(Box::new(f)).unwrap();
+    }
+
+    /// Executes a task while entering the given span for tracing.
+    pub fn execute_with_span<F, R>(&self, span: Span, f: F) -> std::thread::JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        std::thread::spawn(move || {
+            let _entered = span.enter();
+            f()
+        })
     }
 
     pub fn wait_for_completion(&self) {
