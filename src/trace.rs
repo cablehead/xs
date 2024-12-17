@@ -9,8 +9,8 @@ use tracing_subscriber::Registry;
 use chrono::{Local, Utc};
 use console::{style, Term};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::store::{FollowOption, ReadOptions, Store};
 
@@ -100,14 +100,17 @@ impl TraceNode {
     }
 }
 
+#[derive(Clone)]
 pub struct HierarchicalSubscriber {
-    spans: Mutex<HashMap<Id, TraceNode>>,
+    spans: Arc<Mutex<HashMap<Id, TraceNode>>>,
+    long_running_threshold: Duration,
 }
 
 impl HierarchicalSubscriber {
-    pub fn new() -> Self {
+    pub fn new(long_running_threshold: Duration) -> Self {
         HierarchicalSubscriber {
-            spans: Mutex::new(HashMap::new()),
+            spans: Arc::new(Mutex::new(HashMap::new())),
+            long_running_threshold,
         }
     }
 
@@ -170,6 +173,23 @@ impl HierarchicalSubscriber {
                     Child::Span(child_id) => {
                         self.print_span_tree(child_id, depth + 1, spans);
                     }
+                }
+            }
+        }
+    }
+
+    pub fn monitor_long_spans(&self) {
+        let spans = self.spans.lock().unwrap();
+        let now = Instant::now();
+
+        for node in spans.values() {
+            if let Some(start_time) = node.start_time {
+                if now.duration_since(start_time) > self.long_running_threshold {
+                    eprintln!(
+                        "WARN: Long-running span '{}' open for more than {}ms",
+                        node.name,
+                        self.long_running_threshold.as_millis()
+                    );
                 }
             }
         }
@@ -277,6 +297,16 @@ pub async fn log_stream(store: Store) {
 }
 
 pub fn init() {
-    let subscriber = Registry::default().with(HierarchicalSubscriber::new());
-    tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
+    let subscriber = HierarchicalSubscriber::new(Duration::from_secs(5));
+
+    // Clone the subscriber for monitoring
+    let monitor_subscriber = Arc::new(subscriber.clone());
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(1));
+        monitor_subscriber.monitor_long_spans();
+    });
+
+    // Register the subscriber directly
+    let registry = Registry::default().with(subscriber);
+    tracing::subscriber::set_global_default(registry).expect("setting tracing default failed");
 }
