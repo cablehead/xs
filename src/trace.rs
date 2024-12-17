@@ -2,6 +2,7 @@ use chrono::{Local, Utc};
 use console::Term;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Instant;
 use tracing::span::{Attributes, Id};
 use tracing::{field::Visit, span, Event, Level, Metadata, Subscriber};
 
@@ -16,6 +17,8 @@ struct TraceNode {
     file: Option<String>,
     line: Option<u32>,
     fields: HashMap<String, String>,
+    start_time: Option<Instant>,
+    took: Option<u128>, // Duration in microseconds
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +50,16 @@ impl TraceNode {
             file,
             line,
             fields: HashMap::new(),
+            start_time: None,
+            took: None,
+        }
+    }
+
+    fn duration_text(&self) -> String {
+        match self.took {
+            Some(micros) if micros >= 1000 => format!("{}ms", micros / 1000),
+            Some(_) => "0ms".to_string(),
+            None => "0ms".to_string(),
         }
     }
 }
@@ -71,7 +84,7 @@ impl HierarchicalSubscriber {
         Id::from_u64(id)
     }
 
-    fn format_trace_node(&self, node: &TraceNode, depth: usize) -> String {
+    fn format_trace_node(&self, node: &TraceNode, depth: usize, is_last: bool) -> String {
         let now = Utc::now().with_timezone(&Local);
         let formatted_time = now.format("%H:%M:%S%.3f").to_string();
 
@@ -81,25 +94,28 @@ impl HierarchicalSubscriber {
             (Some(file), None) => file.clone(),
             _ => String::new(),
         };
-        let truncated_loc = loc
-            .chars()
-            .rev()
-            .take(25)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect::<String>();
+        let module_path = loc.split('/').last().unwrap_or(&loc);
+
+        // Build the tree visualization
+        let mut prefix = String::new();
+        for i in 1..depth {
+            prefix.push_str(if i == depth - 1 { "    " } else { "│   " });
+        }
+        if depth > 0 {
+            prefix.push_str(if is_last { "└─ " } else { "├─ " });
+        }
+
+        // Format duration
+        let duration_text = format!("{:>5}", node.duration_text());
 
         // Build the message content
-        let indent = "    ".repeat(depth);
-        let prefix = if depth > 0 { "└─ " } else { "" };
-
         let mut message = format!(
-            "{} {:>5} {}{}{}",
-            formatted_time, node.level, indent, prefix, node.name
+            "{} {:>5} {} {}",
+            formatted_time, node.level, duration_text, prefix,
         );
 
-        // Add fields if present
+        // Add name and fields
+        message.push_str(&node.name);
         if !node.fields.is_empty() {
             let fields = node
                 .fields
@@ -110,16 +126,36 @@ impl HierarchicalSubscriber {
             message.push_str(&format!(" {}", fields));
         }
 
-        // Add padding and location
+        // Add right-aligned module path
         let terminal_width = Term::stdout().size().1 as usize;
         let content_width =
-            console::measure_text_width(&message) + console::measure_text_width(&truncated_loc);
+            console::measure_text_width(&message) + console::measure_text_width(module_path);
         let padding = " ".repeat(terminal_width.saturating_sub(content_width));
-
         message.push_str(&padding);
-        message.push_str(&truncated_loc);
+        message.push_str(module_path);
 
         message
+    }
+
+    fn print_span_tree(&self, span_id: &Id, depth: usize, spans: &HashMap<Id, TraceNode>) {
+        if let Some(node) = spans.get(span_id) {
+            eprintln!("{}", self.format_trace_node(node, depth, false));
+
+            let children_count = node.children.len();
+            for (idx, child) in node.children.iter().enumerate() {
+                let is_last = idx == children_count - 1;
+                match child {
+                    Child::Event(event_node) => {
+                        eprintln!("{}", self.format_trace_node(event_node, depth + 1, is_last));
+                    }
+                    Child::Span(child_id) => {
+                        if let Some(child_node) = spans.get(child_id) {
+                            eprintln!("{}", self.format_trace_node(child_node, depth + 1, is_last));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -136,27 +172,18 @@ impl Subscriber for HierarchicalSubscriber {
         let mut node = TraceNode::new(
             *metadata.level(),
             metadata.name().to_string(),
-            None, // Will be set if this is a child span
+            None,
             metadata.file().map(ToString::to_string),
             metadata.line(),
         );
 
-        // Record the fields
         attrs.record(&mut node);
 
-        // Set parent relationship if this is a child span
-        if let Some(parent_id) = spans.iter().find_map(|(span_id, span)| {
-            if span
-                .children
-                .iter()
-                .any(|child| matches!(child, Child::Span(_)))
-            {
-                Some(span_id.clone())
-            } else {
-                None
+        if let Some(parent_id) = attrs.parent() {
+            node.parent_id = Some(parent_id.clone());
+            if let Some(parent_node) = spans.get_mut(&parent_id) {
+                parent_node.children.push(Child::Span(id.clone()));
             }
-        }) {
-            node.parent_id = Some(parent_id);
         }
 
         spans.insert(id.clone(), node);
@@ -175,7 +202,6 @@ impl Subscriber for HierarchicalSubscriber {
     fn event(&self, event: &Event<'_>) {
         let metadata = event.metadata();
 
-        // Create an event node
         let mut event_node = TraceNode::new(
             *metadata.level(),
             metadata.name().to_string(),
@@ -184,44 +210,41 @@ impl Subscriber for HierarchicalSubscriber {
             metadata.line(),
         );
 
-        // Record the event fields
         event.record(&mut event_node);
 
         let mut spans = self.spans.lock().unwrap();
 
-        // If we have a current span, add this event as a child
         if let Some(current_span_id) = event.parent() {
             if let Some(parent_span) = spans.get_mut(current_span_id) {
                 parent_span.children.push(Child::Event(event_node.clone()));
             }
         }
 
-        // Print the event
-        eprintln!("{}", self.format_trace_node(&event_node, 0));
+        let is_root = event.parent().is_none();
+        eprintln!(
+            "{}",
+            self.format_trace_node(&event_node, if is_root { 0 } else { 1 }, true)
+        );
     }
 
     fn enter(&self, span: &Id) {
-        let spans = self.spans.lock().unwrap();
-        if let Some(node) = spans.get(span) {
-            eprintln!("{}", self.format_trace_node(node, 0));
+        let mut spans = self.spans.lock().unwrap();
+        if let Some(node) = spans.get_mut(span) {
+            node.start_time = Some(Instant::now());
         }
     }
 
     fn exit(&self, span: &Id) {
-        let spans = self.spans.lock().unwrap();
-        if let Some(node) = spans.get(span) {
-            // Print any child events/spans on exit
-            for child in &node.children {
-                match child {
-                    Child::Event(event_node) => {
-                        eprintln!("{}", self.format_trace_node(event_node, 1));
-                    }
-                    Child::Span(child_id) => {
-                        if let Some(child_node) = spans.get(child_id) {
-                            eprintln!("{}", self.format_trace_node(child_node, 1));
-                        }
-                    }
-                }
+        let mut spans = self.spans.lock().unwrap();
+        if let Some(node) = spans.get_mut(span) {
+            if let Some(start_time) = node.start_time.take() {
+                let elapsed = start_time.elapsed().as_micros();
+                node.took = Some(elapsed);
+            }
+
+            // Only print on exit if this is a root span
+            if node.parent_id.is_none() {
+                self.print_span_tree(span, 0, &spans);
             }
         }
     }
