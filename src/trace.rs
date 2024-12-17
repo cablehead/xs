@@ -1,10 +1,16 @@
+use tracing::span::{Attributes, Id};
+use tracing::{field::Visit, Event, Level, Subscriber};
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::Layer;
+use tracing_subscriber::Registry;
+
 use chrono::{Local, Utc};
 use console::{style, Term};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
-use tracing::span::{Attributes, Id};
-use tracing::{field::Visit, span, Event, Level, Metadata, Subscriber};
 
 use crate::store::{FollowOption, ReadOptions, Store};
 
@@ -15,7 +21,6 @@ struct TraceNode {
     parent_id: Option<Id>,
     children: Vec<Child>,
     module_path: Option<String>,
-    file: Option<String>,
     line: Option<u32>,
     fields: HashMap<String, String>,
     start_time: Option<Instant>,
@@ -41,7 +46,6 @@ impl TraceNode {
         name: String,
         parent_id: Option<Id>,
         module_path: Option<String>,
-        file: Option<String>,
         line: Option<u32>,
     ) -> Self {
         Self {
@@ -50,7 +54,6 @@ impl TraceNode {
             parent_id,
             children: Vec::new(),
             module_path,
-            file,
             line,
             fields: HashMap::new(),
             start_time: None,
@@ -99,22 +102,13 @@ impl TraceNode {
 
 pub struct HierarchicalSubscriber {
     spans: Mutex<HashMap<Id, TraceNode>>,
-    next_id: Mutex<u64>,
 }
 
 impl HierarchicalSubscriber {
     pub fn new() -> Self {
         HierarchicalSubscriber {
             spans: Mutex::new(HashMap::new()),
-            next_id: Mutex::new(1),
         }
-    }
-
-    fn next_id(&self) -> Id {
-        let mut guard = self.next_id.lock().unwrap();
-        let id = *guard;
-        *guard += 1;
-        Id::from_u64(id)
     }
 
     fn format_trace_node(&self, node: &TraceNode, depth: usize, is_last: bool) -> String {
@@ -166,7 +160,6 @@ impl HierarchicalSubscriber {
     fn print_span_tree(&self, span_id: &Id, depth: usize, spans: &HashMap<Id, TraceNode>) {
         if let Some(node) = spans.get(span_id) {
             eprintln!("{}", self.format_trace_node(node, depth, false));
-
             let children_count = node.children.len();
             for (idx, child) in node.children.iter().enumerate() {
                 let is_last = idx == children_count - 1;
@@ -183,48 +176,28 @@ impl HierarchicalSubscriber {
     }
 }
 
-impl Subscriber for HierarchicalSubscriber {
-    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-        true
+impl<S> Layer<S> for HierarchicalSubscriber
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_enter(&self, id: &Id, _ctx: Context<'_, S>) {
+        let mut spans = self.spans.lock().unwrap();
+        if let Some(node) = spans.get_mut(id) {
+            node.start_time = Some(Instant::now());
+        }
     }
 
-    fn new_span(&self, attrs: &Attributes<'_>) -> Id {
-        let id = self.next_id();
-        let metadata = attrs.metadata();
-
-        let mut node = TraceNode::new(
-            *metadata.level(),
-            metadata.name().to_string(),
-            None,
-            metadata.module_path().map(ToString::to_string),
-            metadata.file().map(ToString::to_string),
-            metadata.line(),
-        );
-
-        attrs.record(&mut node);
-
+    fn on_exit(&self, id: &Id, _ctx: Context<'_, S>) {
         let mut spans = self.spans.lock().unwrap();
-        if let Some(parent_id) = attrs.parent() {
-            node.parent_id = Some(parent_id.clone());
-            if let Some(parent_node) = spans.get_mut(&parent_id) {
-                parent_node.children.push(Child::Span(id.clone()));
+        if let Some(node) = spans.get_mut(id) {
+            if let Some(start_time) = node.start_time.take() {
+                let elapsed = start_time.elapsed().as_micros();
+                node.took = Some(node.took.unwrap_or(0) + elapsed);
             }
         }
-
-        spans.insert(id.clone(), node);
-        id
     }
 
-    fn record(&self, span: &Id, values: &span::Record<'_>) {
-        let mut spans = self.spans.lock().unwrap();
-        if let Some(node) = spans.get_mut(span) {
-            values.record(node);
-        }
-    }
-
-    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
-
-    fn event(&self, event: &Event<'_>) {
+    fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let metadata = event.metadata();
 
         let mut event_node = TraceNode::new(
@@ -232,7 +205,6 @@ impl Subscriber for HierarchicalSubscriber {
             metadata.name().to_string(),
             None,
             metadata.module_path().map(ToString::to_string),
-            metadata.file().map(ToString::to_string),
             metadata.line(),
         );
 
@@ -240,8 +212,9 @@ impl Subscriber for HierarchicalSubscriber {
 
         let mut spans = self.spans.lock().unwrap();
 
-        if let Some(current_span_id) = event.parent() {
-            if let Some(parent_span) = spans.get_mut(current_span_id) {
+        if let Some(span) = ctx.lookup_current() {
+            let id = span.id();
+            if let Some(parent_span) = spans.get_mut(&id) {
                 parent_span.children.push(Child::Event(event_node.clone()));
             }
         } else {
@@ -249,28 +222,41 @@ impl Subscriber for HierarchicalSubscriber {
         }
     }
 
-    fn enter(&self, span: &Id) {
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let metadata = attrs.metadata();
+
+        let curr = ctx.current_span();
+        let parent_id = curr.id();
+
+        let mut node = TraceNode::new(
+            *metadata.level(),
+            metadata.name().to_string(),
+            parent_id.cloned(),
+            metadata.module_path().map(ToString::to_string),
+            metadata.line(),
+        );
+        attrs.record(&mut node);
+
         let mut spans = self.spans.lock().unwrap();
-        if let Some(node) = spans.get_mut(span) {
-            node.start_time = Some(Instant::now());
-            if node.parent_id.is_none() {
-                eprintln!("{}", self.format_trace_node(node, 0, true));
+
+        if let Some(parent_id) = &parent_id {
+            if let Some(parent_node) = spans.get_mut(parent_id) {
+                parent_node.children.push(Child::Span(id.clone()));
             }
         }
+
+        spans.insert(id.clone(), node);
     }
 
-    fn exit(&self, span: &Id) {
-        let mut spans = self.spans.lock().unwrap();
-        if let Some(node) = spans.get_mut(span) {
-            if let Some(start_time) = node.start_time.take() {
-                let elapsed = start_time.elapsed().as_micros();
-                node.took = Some(node.took.unwrap_or(0) + elapsed);
-            }
-
-            // Only print the full tree when exiting a root span
+    fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
+        let spans = self.spans.lock().unwrap();
+        if let Some(node) = spans.get(&id) {
+            // Only print when a root span closes
             if node.parent_id.is_none() {
-                self.print_span_tree(span, 0, &spans);
+                self.print_span_tree(&id, 0, &spans);
             }
+        } else {
+            eprintln!("DEBUG: No node found for closing span");
         }
     }
 }
@@ -291,6 +277,6 @@ pub async fn log_stream(store: Store) {
 }
 
 pub fn init() {
-    let subscriber = HierarchicalSubscriber::new();
+    let subscriber = Registry::default().with(HierarchicalSubscriber::new());
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
 }
