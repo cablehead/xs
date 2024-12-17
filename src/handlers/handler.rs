@@ -212,7 +212,12 @@ impl Handler {
     #[instrument(
         level = "info",
         skip(self, frame, store, pool),
-        fields(handler_id = %self.id, frame_topic = %frame.topic, frame_id = %frame.id)
+        fields(
+            handler_topic = %self.topic,
+            handler_id = %self.id,
+            frame_topic = %frame.topic,
+            frame_id = %frame.id,
+        )
     )]
     async fn process_frame(
         &mut self,
