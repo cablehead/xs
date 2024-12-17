@@ -1,5 +1,5 @@
 use chrono::{Local, Utc};
-use console::Term;
+use console::{style, Term};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -14,6 +14,7 @@ struct TraceNode {
     name: String,
     parent_id: Option<Id>,
     children: Vec<Child>,
+    module_path: Option<String>,
     file: Option<String>,
     line: Option<u32>,
     fields: HashMap<String, String>,
@@ -39,6 +40,7 @@ impl TraceNode {
         level: Level,
         name: String,
         parent_id: Option<Id>,
+        module_path: Option<String>,
         file: Option<String>,
         line: Option<u32>,
     ) -> Self {
@@ -47,6 +49,7 @@ impl TraceNode {
             name,
             parent_id,
             children: Vec::new(),
+            module_path,
             file,
             line,
             fields: HashMap::new(),
@@ -58,9 +61,39 @@ impl TraceNode {
     fn duration_text(&self) -> String {
         match self.took {
             Some(micros) if micros >= 1000 => format!("{}ms", micros / 1000),
-            Some(_) => "0ms".to_string(),
-            None => "0ms".to_string(),
+            _ => String::new(),
         }
+    }
+
+    fn format_message(&self) -> String {
+        let mut parts = Vec::new();
+
+        // Name is styled in cyan for spans (which have took value)
+        if self.took.is_some() {
+            parts.push(style(&self.name).cyan().to_string());
+        } else {
+            parts.push(self.name.clone());
+        }
+
+        // Message field doesn't get key=value treatment
+        if let Some(msg) = self.fields.get("message") {
+            parts.push(style(msg.trim_matches('"')).italic().to_string());
+        }
+
+        // Other fields get key=value format
+        let fields: String = self
+            .fields
+            .iter()
+            .filter(|(k, _)| *k != "message")
+            .map(|(k, v)| format!("{}={}", k, v.trim_matches('"')))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if !fields.is_empty() {
+            parts.push(fields);
+        }
+
+        parts.join(" ")
     }
 }
 
@@ -88,51 +121,44 @@ impl HierarchicalSubscriber {
         let now = Utc::now().with_timezone(&Local);
         let formatted_time = now.format("%H:%M:%S%.3f").to_string();
 
-        // Format location info
-        let loc = match (node.file.as_ref(), node.line) {
-            (Some(file), Some(line)) => format!("{}:{}", file, line),
-            (Some(file), None) => file.clone(),
-            _ => String::new(),
+        // Format location info using module_path instead of file
+        let loc = if let Some(module_path) = &node.module_path {
+            if let Some(line) = node.line {
+                format!("{}:{}", module_path, line)
+            } else {
+                module_path.clone()
+            }
+        } else {
+            String::new()
         };
-        let module_path = loc.split('/').last().unwrap_or(&loc);
 
         // Build the tree visualization
         let mut prefix = String::new();
-        for i in 1..depth {
-            prefix.push_str(if i == depth - 1 { "    " } else { "│   " });
-        }
         if depth > 0 {
+            prefix.push_str(&"│   ".repeat(depth - 1));
             prefix.push_str(if is_last { "└─ " } else { "├─ " });
         }
 
-        // Format duration
-        let duration_text = format!("{:>5}", node.duration_text());
+        // Format duration with proper alignment
+        let duration_text = format!("{:>7}", node.duration_text());
 
         // Build the message content
         let mut message = format!(
-            "{} {:>5} {} {}",
-            formatted_time, node.level, duration_text, prefix,
+            "{} {:>5} {} {}{}",
+            formatted_time,
+            node.level,
+            duration_text,
+            prefix,
+            node.format_message()
         );
-
-        // Add name and fields
-        message.push_str(&node.name);
-        if !node.fields.is_empty() {
-            let fields = node
-                .fields
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join(" ");
-            message.push_str(&format!(" {}", fields));
-        }
 
         // Add right-aligned module path
         let terminal_width = Term::stdout().size().1 as usize;
         let content_width =
-            console::measure_text_width(&message) + console::measure_text_width(module_path);
+            console::measure_text_width(&message) + console::measure_text_width(&loc);
         let padding = " ".repeat(terminal_width.saturating_sub(content_width));
         message.push_str(&padding);
-        message.push_str(module_path);
+        message.push_str(&loc);
 
         message
     }
@@ -149,9 +175,7 @@ impl HierarchicalSubscriber {
                         eprintln!("{}", self.format_trace_node(event_node, depth + 1, is_last));
                     }
                     Child::Span(child_id) => {
-                        if let Some(child_node) = spans.get(child_id) {
-                            eprintln!("{}", self.format_trace_node(child_node, depth + 1, is_last));
-                        }
+                        self.print_span_tree(child_id, depth + 1, spans);
                     }
                 }
             }
@@ -168,17 +192,18 @@ impl Subscriber for HierarchicalSubscriber {
         let id = self.next_id();
         let metadata = attrs.metadata();
 
-        let mut spans = self.spans.lock().unwrap();
         let mut node = TraceNode::new(
             *metadata.level(),
             metadata.name().to_string(),
             None,
+            metadata.module_path().map(ToString::to_string),
             metadata.file().map(ToString::to_string),
             metadata.line(),
         );
 
         attrs.record(&mut node);
 
+        let mut spans = self.spans.lock().unwrap();
         if let Some(parent_id) = attrs.parent() {
             node.parent_id = Some(parent_id.clone());
             if let Some(parent_node) = spans.get_mut(&parent_id) {
@@ -206,6 +231,7 @@ impl Subscriber for HierarchicalSubscriber {
             *metadata.level(),
             metadata.name().to_string(),
             None,
+            metadata.module_path().map(ToString::to_string),
             metadata.file().map(ToString::to_string),
             metadata.line(),
         );
@@ -218,19 +244,18 @@ impl Subscriber for HierarchicalSubscriber {
             if let Some(parent_span) = spans.get_mut(current_span_id) {
                 parent_span.children.push(Child::Event(event_node.clone()));
             }
+        } else {
+            eprintln!("{}", self.format_trace_node(&event_node, 0, true));
         }
-
-        let is_root = event.parent().is_none();
-        eprintln!(
-            "{}",
-            self.format_trace_node(&event_node, if is_root { 0 } else { 1 }, true)
-        );
     }
 
     fn enter(&self, span: &Id) {
         let mut spans = self.spans.lock().unwrap();
         if let Some(node) = spans.get_mut(span) {
             node.start_time = Some(Instant::now());
+            if node.parent_id.is_none() {
+                eprintln!("{}", self.format_trace_node(node, 0, true));
+            }
         }
     }
 
@@ -239,10 +264,10 @@ impl Subscriber for HierarchicalSubscriber {
         if let Some(node) = spans.get_mut(span) {
             if let Some(start_time) = node.start_time.take() {
                 let elapsed = start_time.elapsed().as_micros();
-                node.took = Some(elapsed);
+                node.took = Some(node.took.unwrap_or(0) + elapsed);
             }
 
-            // Only print on exit if this is a root span
+            // Only print the full tree when exiting a root span
             if node.parent_id.is_none() {
                 self.print_span_tree(span, 0, &spans);
             }
