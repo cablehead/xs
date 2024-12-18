@@ -154,6 +154,7 @@ impl Store {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
@@ -192,7 +193,6 @@ impl Store {
                 let range = get_range(options_clone.last_id.as_ref());
                 let mut compacted_frames = HashMap::new();
 
-                eprintln!("Reading historical frames {:?}", range);
                 for record in partition.range(range) {
                     let frame = deserialize_frame(record.unwrap());
 
@@ -221,7 +221,6 @@ impl Store {
                         count += 1;
                     }
                 }
-                eprintln!("Finished reading historical frames: {}", count);
 
                 // Send compacted frames if any, ordered by ID
                 let mut ordered_frames: Vec<_> = compacted_frames.into_values().collect();

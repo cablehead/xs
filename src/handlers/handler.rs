@@ -213,10 +213,9 @@ impl Handler {
         level = "info",
         skip(self, frame, store, pool),
         fields(
-            handler_topic = %self.topic,
-            handler_id = %self.id,
-            frame_topic = %frame.topic,
-            frame_id = %frame.id,
+            message = %format!(
+                "handler={}:{} frame={}:{}",
+                self.id, self.topic, frame.id, frame.topic)
         )
     )]
     async fn process_frame(
