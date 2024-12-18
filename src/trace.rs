@@ -182,7 +182,7 @@ impl HierarchicalSubscriber {
         let spans = self.spans.lock().unwrap();
         let now = Instant::now();
 
-        for node in spans.values() {
+        for (span_id, node) in spans.iter() {
             if let Some(start_time) = node.start_time {
                 if now.duration_since(start_time) > self.long_running_threshold {
                     eprintln!(
@@ -192,6 +192,8 @@ impl HierarchicalSubscriber {
                             now.duration_since(start_time)
                         )
                     );
+                    // Print nested traces under the long-lived span
+                    self.print_span_tree(span_id, 1, &spans);
                 }
             }
         }
