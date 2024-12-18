@@ -362,7 +362,7 @@ impl Store {
         v
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
     pub fn remove(&self, id: &Scru128Id) -> Result<(), fjall::Error> {
         let Some(frame) = self.get(id) else {
             // Already deleted
