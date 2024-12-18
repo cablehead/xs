@@ -109,6 +109,12 @@ pub struct HierarchicalSubscriber {
     next_log_delta: Arc<Mutex<HashMap<Id, Duration>>>,
 }
 
+impl Default for HierarchicalSubscriber {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HierarchicalSubscriber {
     pub fn new() -> Self {
         HierarchicalSubscriber {
