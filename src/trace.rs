@@ -337,11 +337,10 @@ where
 }
 
 fn calculate_next_backoff(current_backoff: Duration) -> Duration {
-    let next_backoff = current_backoff * 2;
-    if next_backoff > MAX_BACKOFF {
-        MAX_BACKOFF
+    if current_backoff > MAX_BACKOFF {
+        current_backoff + MAX_BACKOFF
     } else {
-        next_backoff
+        current_backoff * 2
     }
 }
 
