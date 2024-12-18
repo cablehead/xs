@@ -154,6 +154,7 @@ impl Store {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
@@ -328,6 +329,7 @@ impl Store {
         res.map(|value| serde_json::from_slice(&value).unwrap())
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn head(&self, topic: &str) -> Option<Frame> {
         let mut prefix = Vec::with_capacity(topic.len() + 1);
         prefix.extend(topic.as_bytes());
@@ -359,6 +361,7 @@ impl Store {
         v
     }
 
+    #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
     pub fn remove(&self, id: &Scru128Id) -> Result<(), fjall::Error> {
         let Some(frame) = self.get(id) else {
             // Already deleted
@@ -390,6 +393,7 @@ impl Store {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), fjall::Error> {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         let mut batch = self.keyspace.batch();
@@ -430,7 +434,9 @@ impl Store {
                     .unwrap();
 
                 for frame_id in frames_to_remove {
+                    tracing::trace!("Removing old frame: {:?}", frame_id);
                     let _ = self.remove(&frame_id);
+                    tracing::trace!("Removed old frame: {:?}", frame_id);
                 }
             }
         }
