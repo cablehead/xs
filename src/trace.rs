@@ -179,24 +179,16 @@ impl HierarchicalSubscriber {
     }
 
     pub fn monitor_long_spans(&self) {
-        eprintln!("DEBUG: Monitoring long spans");
         let spans = self.spans.lock().unwrap();
         let now = Instant::now();
 
-        for (id, node) in spans.iter() {
+        for node in spans.values() {
             if let Some(start_time) = node.start_time {
                 if now.duration_since(start_time) > self.long_running_threshold {
-                    let mut spans = self.spans.lock().unwrap();
-                    if let Some(node) = spans.get_mut(id) {
-                        node.fields
-                            .insert("incomplete".to_string(), "true".to_string());
-                    }
-
                     eprintln!(
                         "{}",
                         self.format_trace_node_with_incomplete(
                             node,
-                            0,
                             now.duration_since(start_time)
                         )
                     );
@@ -205,12 +197,7 @@ impl HierarchicalSubscriber {
         }
     }
 
-    fn format_trace_node_with_incomplete(
-        &self,
-        node: &TraceNode,
-        depth: usize,
-        duration: Duration,
-    ) -> String {
+    fn format_trace_node_with_incomplete(&self, node: &TraceNode, duration: Duration) -> String {
         let now = Utc::now().with_timezone(&Local);
         let formatted_time = now.format("%H:%M:%S%.3f").to_string();
 
@@ -224,34 +211,19 @@ impl HierarchicalSubscriber {
             String::new()
         };
 
-        let mut prefix = String::new();
-        if depth > 0 {
-            prefix.push_str(&"│   ".repeat(depth - 1));
-            prefix.push_str("├─ ");
-        }
-
         // Highlight incomplete spans
-        let duration_text = if node.fields.get("incomplete").is_some() {
-            format!(
-                "{}{:>7}ms",
-                style(">").yellow(),
-                style(duration.as_millis()).yellow()
-            )
-        } else {
-            format!("{:>7}", node.duration_text())
-        };
+        let duration_text = format!(
+            "{}{:>7}ms",
+            style(">").yellow(),
+            style(duration.as_millis()).yellow()
+        );
 
         let mut message = format!(
-            "{} {:>5} {} {}{}",
+            "{} {:>5} {} {}",
             formatted_time,
             node.level,
             duration_text,
-            prefix,
-            if node.fields.get("incomplete").is_some() {
-                style(&node.name).yellow().to_string()
-            } else {
-                node.format_message()
-            }
+            style(&node.name).yellow()
         );
 
         let terminal_width = Term::stdout().size().1 as usize;
