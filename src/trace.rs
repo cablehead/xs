@@ -14,6 +14,9 @@ use std::time::{Duration, Instant};
 
 use crate::store::{FollowOption, ReadOptions, Store};
 
+const INITIAL_BACKOFF: Duration = Duration::from_secs(10);
+const MAX_BACKOFF: Duration = Duration::from_secs(1800); // 30 minutes
+
 #[derive(Debug, Clone)]
 struct TraceNode {
     level: Level,
@@ -103,14 +106,14 @@ impl TraceNode {
 #[derive(Clone)]
 pub struct HierarchicalSubscriber {
     spans: Arc<Mutex<HashMap<Id, TraceNode>>>,
-    long_running_threshold: Duration,
+    next_log_delta: Arc<Mutex<HashMap<Id, Duration>>>,
 }
 
 impl HierarchicalSubscriber {
-    pub fn new(long_running_threshold: Duration) -> Self {
+    pub fn new() -> Self {
         HierarchicalSubscriber {
             spans: Arc::new(Mutex::new(HashMap::new())),
-            long_running_threshold,
+            next_log_delta: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -180,11 +183,14 @@ impl HierarchicalSubscriber {
 
     pub fn monitor_long_spans(&self) {
         let spans = self.spans.lock().unwrap();
+        let mut next_log_delta = self.next_log_delta.lock().unwrap();
         let now = Instant::now();
-
         for (span_id, node) in spans.iter() {
             if let Some(start_time) = node.start_time {
-                if now.duration_since(start_time) > self.long_running_threshold {
+                let next_delta = next_log_delta
+                    .entry(span_id.clone())
+                    .or_insert_with(|| INITIAL_BACKOFF);
+                if now >= start_time + *next_delta {
                     eprintln!(
                         "{}",
                         self.format_trace_node_with_incomplete(
@@ -192,8 +198,8 @@ impl HierarchicalSubscriber {
                             now.duration_since(start_time)
                         )
                     );
-                    // Print nested traces under the long-lived span
                     self.print_span_tree(span_id, 1, &spans);
+                    *next_delta = calculate_next_backoff(*next_delta);
                 }
             }
         }
@@ -324,6 +330,15 @@ where
     }
 }
 
+fn calculate_next_backoff(current_backoff: Duration) -> Duration {
+    let next_backoff = current_backoff * 2;
+    if next_backoff > MAX_BACKOFF {
+        MAX_BACKOFF
+    } else {
+        next_backoff
+    }
+}
+
 pub async fn log_stream(store: Store) {
     let options = ReadOptions::builder()
         .follow(FollowOption::On)
@@ -340,7 +355,7 @@ pub async fn log_stream(store: Store) {
 }
 
 pub fn init() {
-    let subscriber = HierarchicalSubscriber::new(Duration::from_secs(5));
+    let subscriber = HierarchicalSubscriber::new();
 
     // Clone the subscriber for monitoring
     let monitor_subscriber = Arc::new(subscriber.clone());
