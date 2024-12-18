@@ -179,20 +179,89 @@ impl HierarchicalSubscriber {
     }
 
     pub fn monitor_long_spans(&self) {
+        eprintln!("DEBUG: Monitoring long spans");
         let spans = self.spans.lock().unwrap();
         let now = Instant::now();
 
-        for node in spans.values() {
+        for (id, node) in spans.iter() {
             if let Some(start_time) = node.start_time {
                 if now.duration_since(start_time) > self.long_running_threshold {
+                    let mut spans = self.spans.lock().unwrap();
+                    if let Some(node) = spans.get_mut(id) {
+                        node.fields
+                            .insert("incomplete".to_string(), "true".to_string());
+                    }
+
                     eprintln!(
-                        "WARN: Long-running span '{}' open for more than {}ms",
-                        node.name,
-                        self.long_running_threshold.as_millis()
+                        "{}",
+                        self.format_trace_node_with_incomplete(
+                            node,
+                            0,
+                            now.duration_since(start_time)
+                        )
                     );
                 }
             }
         }
+    }
+
+    fn format_trace_node_with_incomplete(
+        &self,
+        node: &TraceNode,
+        depth: usize,
+        duration: Duration,
+    ) -> String {
+        let now = Utc::now().with_timezone(&Local);
+        let formatted_time = now.format("%H:%M:%S%.3f").to_string();
+
+        let loc = if let Some(module_path) = &node.module_path {
+            if let Some(line) = node.line {
+                format!("{}:{}", module_path, line)
+            } else {
+                module_path.clone()
+            }
+        } else {
+            String::new()
+        };
+
+        let mut prefix = String::new();
+        if depth > 0 {
+            prefix.push_str(&"│   ".repeat(depth - 1));
+            prefix.push_str("├─ ");
+        }
+
+        // Highlight incomplete spans
+        let duration_text = if node.fields.get("incomplete").is_some() {
+            format!(
+                "{}{:>7}ms",
+                style(">").yellow(),
+                style(duration.as_millis()).yellow()
+            )
+        } else {
+            format!("{:>7}", node.duration_text())
+        };
+
+        let mut message = format!(
+            "{} {:>5} {} {}{}",
+            formatted_time,
+            node.level,
+            duration_text,
+            prefix,
+            if node.fields.get("incomplete").is_some() {
+                style(&node.name).yellow().to_string()
+            } else {
+                node.format_message()
+            }
+        );
+
+        let terminal_width = Term::stdout().size().1 as usize;
+        let content_width =
+            console::measure_text_width(&message) + console::measure_text_width(&loc);
+        let padding = " ".repeat(terminal_width.saturating_sub(content_width));
+        message.push_str(&padding);
+        message.push_str(&loc);
+
+        message
     }
 }
 
