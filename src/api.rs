@@ -287,7 +287,8 @@ async fn handle_process_post(
             engine.clone(),
             script,
             store.clone(),
-        )?;
+        )
+        .await?;
 
         let value = handler.eval_in_thread(&pool, &frame).await?;
         let json = nu::value_to_json(&value);

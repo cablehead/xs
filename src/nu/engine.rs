@@ -73,4 +73,40 @@ impl Engine {
 
         Ok(closure)
     }
+
+    pub fn add_module(&mut self, name: &str, content: &str) -> Result<(), ShellError> {
+        let mut working_set = StateWorkingSet::new(&self.state);
+
+        // Create temporary file with .nu extension that will be cleaned up when temp_dir is dropped
+        let temp_dir = tempfile::TempDir::new().map_err(|e| ShellError::IOError {
+            msg: format!(
+                "Failed to create temporary directory for module '{}': {}",
+                name, e
+            ),
+        })?;
+        let module_path = temp_dir.path().join(format!("{}.nu", name));
+        std::fs::write(&module_path, content)
+            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
+        // Parse the use statement
+        let use_stmt = format!("use {}", module_path.display());
+        let _block = parse(&mut working_set, None, use_stmt.as_bytes(), false);
+
+        // Check for parse errors
+        if !working_set.parse_errors.is_empty() {
+            let first_error = &working_set.parse_errors[0];
+            return Err(ShellError::GenericError {
+                error: "Parse error".into(),
+                msg: first_error.to_string(),
+                span: Some(first_error.span()),
+                help: None,
+                inner: vec![],
+            });
+        }
+
+        // Merge changes into engine state
+        self.state.merge_delta(working_set.render())?;
+
+        Ok(())
+    }
 }

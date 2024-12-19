@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -31,6 +32,7 @@ pub struct Meta {
     #[serde(default)]
     pub start: StartFrom,
     pub return_options: Option<ReturnOptions>,
+    pub use_modules: Option<HashMap<String, String>>, // module_name -> frame_id
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -67,7 +69,7 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub fn new(
+    pub async fn new(
         id: Scru128Id,
         topic: String,
         meta: Meta,
@@ -77,17 +79,48 @@ impl Handler {
     ) -> Result<Self, Error> {
         let output = Arc::new(Mutex::new(Vec::new()));
 
-        // Set up a new StateWorkingSet to customize the engine
-        {
-            let mut working_set = StateWorkingSet::new(&engine.state);
-            // Add the custom .append command, which will shadow the existing one
-            working_set.add_decl(Box::new(AppendCommand {
-                output: output.clone(),
-                store: store.clone(),
-            }));
-            // Merge the changes back into the engine's state
-            engine.state.merge_delta(working_set.render())?;
+        // Handle any modules first if specified
+        if let Some(modules) = &meta.use_modules {
+            for (name, frame_id) in modules {
+                tracing::debug!("Loading module '{}' from frame {}", name, frame_id);
+
+                // Parse frame ID
+                let id = Scru128Id::from_str(frame_id)
+                    .map_err(|e| format!("Invalid module frame ID '{}': {}", frame_id, e))?;
+
+                // Get frame
+                let module_frame = store
+                    .get(&id)
+                    .ok_or_else(|| format!("Module frame '{}' not found", frame_id))?;
+
+                // Get module content from CAS
+                let hash = module_frame
+                    .hash
+                    .as_ref()
+                    .ok_or_else(|| format!("Module frame '{}' has no content hash", frame_id))?;
+
+                let content = store
+                    .cas_read(hash)
+                    .await
+                    .map_err(|e| format!("Failed to read module content: {}", e))?;
+
+                let content = String::from_utf8(content)
+                    .map_err(|e| format!("Module content is not valid UTF-8: {}", e))?;
+
+                // Configure engine with module
+                engine
+                    .add_module(name, &content)
+                    .map_err(|e| format!("Failed to load module '{}': {}", name, e))?;
+            }
         }
+
+        // Set up engine with custom append command
+        let mut working_set = StateWorkingSet::new(&engine.state);
+        working_set.add_decl(Box::new(AppendCommand {
+            output: output.clone(),
+            store: store.clone(),
+        }));
+        engine.state.merge_delta(working_set.render())?;
 
         let closure = engine.parse_closure(&expression)?;
         let block = engine.state.get_block(closure.block_id);
@@ -156,7 +189,8 @@ impl Handler {
             engine,
             expression,
             store.clone(),
-        )?;
+        )
+        .await?;
 
         if handler.stateful {
             if let Some(existing_state) = store.head(&format!("{}.state", topic)) {
