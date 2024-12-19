@@ -1,3 +1,4 @@
+use crate::error::Error;
 use crate::handlers::serve;
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -627,6 +628,78 @@ async fn test_handler_replacement() {
     assert_eq!(std::str::from_utf8(&content).unwrap(), r#""handler2""#);
 
     assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_handler_with_module() -> Result<(), Error> {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // First create our module that exports a function
+    let module_frame = store
+        .append(
+            Frame::with_topic("mymod.nu")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"
+                            # Add two numbers and format result
+                            export def add_nums [x, y] {
+                                $"sum is ($x + $y)"
+                            }
+                            "#,
+                        )
+                        .await?,
+                )
+                .build(),
+        )
+        .await;
+    assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
+
+    // Create handler that uses the module
+    let frame_handler = store
+        .append(
+            Frame::with_topic("test.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{|frame|
+                                if $frame.topic != "trigger" { return }
+                                mymod add_nums 40 2
+                            }"#,
+                        )
+                        .await?,
+                )
+                .meta(serde_json::json!({
+                    "use_modules": {
+                        "mymod": module_frame.id.to_string()
+                    }
+                }))
+                .build(),
+        )
+        .await;
+
+    // Wait for handler registration
+    assert_eq!(recver.recv().await.unwrap().topic, "test.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
+
+    // Send trigger frame
+    let trigger = store.append(Frame::with_topic("trigger").build()).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    // Get handler output
+    let output = recver.recv().await.unwrap();
+    validate_handler_output_frame!(&output, "test.out", frame_handler, trigger, None);
+
+    // Verify output content
+    let content = store.cas_read(&output.hash.unwrap()).await?;
+    let result = String::from_utf8(content)?;
+    assert_eq!(result, r#""sum is 42""#);
+
+    assert_no_more_frames(&mut recver).await;
+    Ok(())
 }
 
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
