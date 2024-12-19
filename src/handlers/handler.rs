@@ -6,7 +6,6 @@ use tracing::{instrument, Span};
 use serde::{Deserialize, Serialize};
 
 use tokio::io::AsyncReadExt;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use nu_engine::eval_block_with_early_return;
 use nu_protocol::debugger::WithoutDebug;
@@ -139,14 +138,13 @@ impl Handler {
 
         // Get hash and read expression
         let hash = frame.hash.as_ref().ok_or("Missing hash field")?;
-        let reader = store
+        let mut reader = store
             .cas_reader(hash.clone())
             .await
             .map_err(|e| format!("Failed to get cas reader: {}", e))?;
 
         let mut expression = String::new();
         reader
-            .compat()
             .read_to_string(&mut expression)
             .await
             .map_err(|e| format!("Failed to read expression: {}", e))?;

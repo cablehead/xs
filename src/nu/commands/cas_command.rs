@@ -1,8 +1,10 @@
-use crate::store::Store;
-use futures::io::AsyncReadExt;
+use tokio::io::AsyncReadExt;
+
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
+
+use crate::store::Store;
 
 #[derive(Clone)]
 pub struct CasCommand {
