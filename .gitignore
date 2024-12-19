@@ -1,2 +1,4 @@
 /target
 store
+.aider*
+.env
