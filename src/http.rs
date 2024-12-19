@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
 use tokio_stream::{Stream, StreamExt};
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tokio_util::compat::FuturesAsyncWriteCompatExt;
 use tokio_util::io::ReaderStream;
 
 use http_body_util::StreamBody;
@@ -103,16 +101,11 @@ async fn handle(
     let hash = if body.is_end_stream() {
         None
     } else {
-        let writer = store.cas_writer().await?;
-
-        // convert writer from async-std -> tokio
-        let mut writer = writer.compat_write();
+        let mut writer = store.cas_writer().await?;
         while let Some(frame) = body.frame().await {
             let data = frame?.into_data().unwrap();
             writer.write_all(&data).await?;
         }
-        // get the original writer back
-        let writer = writer.into_inner();
         Some(writer.commit().await?)
     };
 
@@ -308,7 +301,6 @@ async fn transform_hash_stream(
         async move {
             match store.cas_reader(hash).await {
                 Ok(reader) => {
-                    let reader = reader.compat();
                     let stream = ReaderStream::new(reader);
                     Ok::<_, Box<dyn Error + Send + Sync>>(stream.map(|frame| {
                         let frame = frame.unwrap();

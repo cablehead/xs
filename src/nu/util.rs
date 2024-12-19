@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use async_std::io::WriteExt;
+use tokio::io::AsyncWriteExt;
 
 use nu_protocol::{PipelineData, Record, ShellError, Span, Value};
 

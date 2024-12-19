@@ -8,9 +8,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
 
-// needed to convert async-std AsyncRead/Write to a tokio AsyncRead/Write
-use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
-
 use http_body_util::StreamBody;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Bytes;
@@ -142,7 +139,6 @@ async fn handle(
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
-            let reader = reader.compat();
             let stream = ReaderStream::new(reader);
 
             let stream = stream.map(|frame| {
@@ -227,8 +223,7 @@ async fn handle_stream_append(
     };
 
     let hash = {
-        let writer = store.cas_writer().await?;
-        let mut writer = writer.compat_write();
+        let mut writer = store.cas_writer().await?;
         let mut bytes_written = 0;
 
         while let Some(frame) = body.frame().await {
@@ -239,7 +234,7 @@ async fn handle_stream_append(
         }
 
         if bytes_written > 0 {
-            Some(writer.into_inner().commit().await?)
+            Some(writer.commit().await?)
         } else {
             None
         }
@@ -308,8 +303,7 @@ async fn handle_process_post(
 
 async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> HTTPResult {
     let hash = {
-        let writer = store.cas_writer().await?;
-        let mut writer = writer.compat_write();
+        let mut writer = store.cas_writer().await?;
         let mut bytes_written = 0;
 
         while let Some(frame) = body.frame().await {
@@ -323,7 +317,7 @@ async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> 
             return response_400("Empty body".to_string());
         }
 
-        writer.into_inner().commit().await?
+        writer.commit().await?
     };
 
     Ok(Response::builder()

@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use scru128::Scru128Id;
 
 use tokio::io::AsyncReadExt;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
 
@@ -62,9 +61,9 @@ async fn handle_spawn_event(
     }
 
     let hash = frame.hash.clone().ok_or("Missing hash")?;
-    let reader = store.cas_reader(hash).await?;
+    let mut reader = store.cas_reader(hash).await?;
     let mut expression = String::new();
-    reader.compat().read_to_string(&mut expression).await?;
+    reader.read_to_string(&mut expression).await?;
 
     let task = GeneratorTask {
         id: frame.id,
