@@ -34,7 +34,7 @@ fn test_add_module() {
         export def double [x] { $x * 2 }
 
         # Add then double
-        export def add_then_double [x, y] { 
+        export def add_then_double [x, y] {
             ($x + $y) * 2
         }
         "#,
@@ -99,4 +99,18 @@ fn test_add_multiple_modules() {
 
     let str_result = eval_to_value(&engine, "my-strings join 'hello ' 'world'");
     assert_eq!(str_result.as_str().unwrap(), "hello world");
+}
+
+#[test]
+fn test_engine_env_vars() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_store, engine) = rt.block_on(setup_test_env());
+
+    let engine = engine
+        .with_env_vars([("TEST_VAR".to_string(), "test_value".to_string())])
+        .unwrap();
+
+    // Test accessing the environment variable
+    let result = eval_to_value(&engine, "$env.TEST_VAR");
+    assert_eq!(result.as_str().unwrap(), "test_value");
 }

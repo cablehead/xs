@@ -109,4 +109,16 @@ impl Engine {
 
         Ok(())
     }
+
+    pub fn with_env_vars(
+        mut self,
+        vars: impl IntoIterator<Item = (String, String)>,
+    ) -> Result<Self, Error> {
+        for (key, value) in vars {
+            self.state
+                .add_env_var(key, nu_protocol::Value::string(value, Span::unknown()));
+        }
+
+        Ok(self)
+    }
 }
