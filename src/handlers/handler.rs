@@ -32,7 +32,7 @@ pub struct Meta {
     #[serde(default)]
     pub start: StartFrom,
     pub return_options: Option<ReturnOptions>,
-    pub use_modules: Option<HashMap<String, String>>, // module_name -> frame_id
+    pub modules: Option<HashMap<String, String>>, // module_name -> frame_id
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -80,7 +80,7 @@ impl Handler {
         let output = Arc::new(Mutex::new(Vec::new()));
 
         // Handle any modules first if specified
-        if let Some(modules) = &meta.use_modules {
+        if let Some(modules) = &meta.modules {
             for (name, frame_id) in modules {
                 tracing::debug!("Loading module '{}' from frame {}", name, frame_id);
 

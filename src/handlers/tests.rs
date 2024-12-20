@@ -673,7 +673,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
                         .await?,
                 )
                 .meta(serde_json::json!({
-                    "use_modules": {
+                    "modules": {
                         "mymod": module_frame.id.to_string()
                     }
                 }))
