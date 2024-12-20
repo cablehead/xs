@@ -702,6 +702,67 @@ async fn test_handler_with_module() -> Result<(), Error> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_handler_with_env() -> Result<(), Error> {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Create a frame with some content for the env var
+    let env_frame = store
+        .append(
+            Frame::with_topic("env-content")
+                .hash(store.cas_insert("hello world").await?)
+                .build(),
+        )
+        .await;
+    assert_eq!(recver.recv().await.unwrap().topic, "env-content");
+
+    // Create handler that uses the env var
+    let frame_handler = store
+        .append(
+            Frame::with_topic("test.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{|frame|
+                               if $frame.topic != "trigger" { return }
+                               $env.TEST_VAR
+                           }"#,
+                        )
+                        .await?,
+                )
+                .meta(serde_json::json!({
+                    "with_env": {
+                        "TEST_VAR": env_frame.id.to_string()
+                    }
+                }))
+                .build(),
+        )
+        .await;
+
+    // Wait for handler registration
+    assert_eq!(recver.recv().await.unwrap().topic, "test.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
+
+    // Send trigger frame
+    let trigger = store.append(Frame::with_topic("trigger").build()).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    // Get handler output
+    let output = recver.recv().await.unwrap();
+    validate_handler_output_frame!(&output, "test.out", frame_handler, trigger, None);
+
+    // Verify output content shows the env var value
+    let content = store.cas_read(&output.hash.unwrap()).await?;
+    let result = String::from_utf8(content)?;
+    assert_eq!(result, r#""hello world""#);
+
+    assert_no_more_frames(&mut recver).await;
+    Ok(())
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
