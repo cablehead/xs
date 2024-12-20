@@ -41,11 +41,23 @@ use xs.nu *
 # append the access token to use to the stream
 "<token>" | .append discord.ws.token
 
+# add the heartbeat handler to authenticate and maintain an active connection
 open examples/discord-bot/handler-heartbeat.nu |
-    .append "discord.heartbeat.register" --meta (open examples/discord-bot/handler-heartbeat.nuon)
+    .append "discord.heartbeat.register" --meta (
+        open examples/discord-bot/handler-heartbeat.nuon
+            | insert with_env {BOT_TOKEN: (.head discord.ws.token).id}
+)
 
-# to enable a `./roll <n>d<m>` command
-open examples/discord-bot/handler-roller.nu | .append "discord.roller.register"
+# add the discord.nu module for working with discord's REST API
+# https://github.com/cablehead/discord.nu
+http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu | .append discord.nu
+
+# we can now register additional handlers to add functionality to the bot
+# for example, to enable a `./roll <n>d<m>` command
+open examples/discord-bot/handler-roller.nu | .append "discord.roller.register" --meta {
+    modules: {discord: (.head discord.nu).id},
+    with_env: {BOT_TOKEN: (.head discord.ws.token).id},
+}
 ```
 
 #### Slash commands
