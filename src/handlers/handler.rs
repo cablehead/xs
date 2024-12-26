@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
-use tracing::{instrument, Span};
+use tracing::instrument;
 
 use serde::{Deserialize, Serialize};
 
@@ -287,17 +287,9 @@ impl Handler {
         store: &Store,
         pool: &ThreadPool,
     ) -> Result<(), Error> {
-        let current_span = Span::current();
-
-        let handler = self.clone();
         let frame_clone = frame.clone();
-        let value_result = pool.execute_with_span(current_span.clone(), move || {
-            current_span.in_scope(|| handler.eval(&frame_clone))
-        });
 
-        let value = value_result
-            .join()
-            .map_err(|e| Error::from(format!("Thread panicked: {:?}", e)))??;
+        let value = self.eval_in_thread(pool, &frame_clone).await?;
 
         // Check if the evaluated value is an append frame
         let additional_frame =

@@ -5,14 +5,14 @@ use tracing::Span;
 
 #[derive(Clone)]
 pub struct ThreadPool {
-    tx: crossbeam_channel::Sender<Box<dyn FnOnce() + Send + 'static>>,
+    tx: crossbeam_channel::Sender<(Span, Box<dyn FnOnce() + Send + 'static>)>,
     active_count: Arc<AtomicUsize>,
     completion_pair: Arc<(Mutex<()>, Condvar)>,
 }
 
 impl ThreadPool {
     pub fn new(size: usize) -> Self {
-        let (tx, rx) = crossbeam_channel::bounded::<Box<dyn FnOnce() + Send + 'static>>(0);
+        let (tx, rx) = crossbeam_channel::bounded::<(Span, Box<dyn FnOnce() + Send + 'static>)>(0);
         let active_count = Arc::new(AtomicUsize::new(0));
         let completion_pair = Arc::new((Mutex::new(()), Condvar::new()));
 
@@ -22,7 +22,8 @@ impl ThreadPool {
             let completion_pair = completion_pair.clone();
 
             std::thread::spawn(move || {
-                while let Ok(job) = rx.recv() {
+                while let Ok((span, job)) = rx.recv() {
+                    let _entered = span.enter();
                     let count = active_count.fetch_add(1, Ordering::SeqCst) + 1;
                     tracing::debug!("pool count increased to: {}", count);
 
@@ -52,19 +53,8 @@ impl ThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
-        self.tx.send(Box::new(f)).unwrap();
-    }
-
-    /// Executes a task while entering the given span for tracing.
-    pub fn execute_with_span<F, R>(&self, span: Span, f: F) -> std::thread::JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        std::thread::spawn(move || {
-            let _entered = span.enter();
-            f()
-        })
+        let span = Span::current();
+        self.tx.send((span, Box::new(f))).unwrap();
     }
 
     pub fn wait_for_completion(&self) {
