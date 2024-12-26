@@ -3,6 +3,8 @@ use std::str::FromStr;
 
 use scru128::Scru128Id;
 
+use tracing::instrument;
+
 use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
@@ -269,6 +271,13 @@ async fn handle_stream_append(
         .body(full(serde_json::to_string(&frame).unwrap()))?)
 }
 
+#[instrument(
+   level = "info",
+   skip(store, engine, pool, body),
+   fields(
+       frame_id = %id,
+   )
+)]
 async fn handle_process_post(
     store: &mut Store,
     engine: nu::Engine,
@@ -291,6 +300,7 @@ async fn handle_process_post(
         .await?;
 
         let value = handler.eval_in_thread(&pool, &frame).await?;
+
         let json = nu::value_to_json(&value);
         let bytes = serde_json::to_vec(&json)?;
 
