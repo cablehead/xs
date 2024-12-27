@@ -108,14 +108,12 @@ async fn handle(
         Some(writer.commit().await?)
     };
 
-    let frame = store
-        .append(
-            Frame::with_topic("http.request")
-                .maybe_hash(hash)
-                .maybe_meta(serde_json::to_value(&req_meta).ok())
-                .build(),
-        )
-        .await;
+    let frame = store.append(
+        Frame::with_topic("http.request")
+            .maybe_hash(hash)
+            .maybe_meta(serde_json::to_value(&req_meta).ok())
+            .build(),
+    );
 
     // Track request after creating its frame
     active_streams.lock().await.track(&connection_id, frame.id);
@@ -228,16 +226,14 @@ pub async fn serve(
             if let Some(requests) = streams.untrack_connection(&connection_id) {
                 for request_id in requests {
                     let store = store.clone();
-                    let _ = store
-                        .append(
-                            Frame::with_topic("http.disconnect")
-                                .meta(serde_json::json!({
-                                    "request_id": request_id.to_string(),
-                                }))
-                                .ttl(TTL::Ephemeral)
-                                .build(),
-                        )
-                        .await;
+                    let _ = store.append(
+                        Frame::with_topic("http.disconnect")
+                            .meta(serde_json::json!({
+                                "request_id": request_id.to_string(),
+                            }))
+                            .ttl(TTL::Ephemeral)
+                            .build(),
+                    );
                 }
             }
         });

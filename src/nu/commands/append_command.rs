@@ -75,15 +75,13 @@ impl Command for AppendCommand {
 
         let frame = rt.block_on(async {
             let hash = util::write_pipeline_to_cas(input, &store, span).await?;
-            let frame = store
-                .append(
-                    Frame::with_topic(topic)
-                        .maybe_hash(hash)
-                        .maybe_meta(meta)
-                        .maybe_ttl(ttl)
-                        .build(),
-                )
-                .await;
+            let frame = store.append(
+                Frame::with_topic(topic)
+                    .maybe_hash(hash)
+                    .maybe_meta(meta)
+                    .maybe_ttl(ttl)
+                    .build(),
+            );
             Ok::<_, ShellError>(frame)
         })?;
 
