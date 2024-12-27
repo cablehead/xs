@@ -368,7 +368,7 @@ impl Store {
         self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
 
-    pub async fn append(&self, frame: Frame) -> Frame {
+    pub fn append(&self, frame: Frame) -> Frame {
         let mut frame = frame;
         frame.id = scru128::new();
 

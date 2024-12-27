@@ -254,15 +254,13 @@ async fn handle_stream_append(
         Err(e) => return response_400(e.to_string()),
     };
 
-    let frame = store
-        .append(
-            Frame::with_topic(topic)
-                .maybe_hash(hash)
-                .maybe_meta(meta)
-                .ttl(ttl)
-                .build(),
-        )
-        .await;
+    let frame = store.append(
+        Frame::with_topic(topic)
+            .maybe_hash(hash)
+            .maybe_meta(meta)
+            .ttl(ttl)
+            .build(),
+    );
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -351,13 +349,11 @@ pub async fn serve(
     pool: ThreadPool,
     expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _ = store
-        .append(
-            Frame::with_topic("xs.start")
-                .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
-                .build(),
-        )
-        .await;
+    let _ = store.append(
+        Frame::with_topic("xs.start")
+            .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
+            .build(),
+    );
 
     let path = store.path.join("sock").to_string_lossy().to_string();
     let listener = Listener::bind(&path).await?;

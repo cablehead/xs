@@ -345,7 +345,7 @@ impl Handler {
                 }
             }
 
-            let output_frame = store.append(output_frame).await;
+            let output_frame = store.append(output_frame);
 
             // Update state if the appended frame is a state frame
             if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
@@ -375,17 +375,15 @@ impl Handler {
             });
         }
 
-        let _ = store
-            .append(
-                Frame::with_topic(format!("{}.registered", &self.topic))
-                    .meta(serde_json::json!({
-                        "handler_id": self.id.to_string(),
-                        "tail": options.tail,
-                        "last_id": options.last_id.map(|id| id.to_string()),
-                    }))
-                    .build(),
-            )
-            .await;
+        let _ = store.append(
+            Frame::with_topic(format!("{}.registered", &self.topic))
+                .meta(serde_json::json!({
+                    "handler_id": self.id.to_string(),
+                    "tail": options.tail,
+                    "last_id": options.last_id.map(|id| id.to_string()),
+                }))
+                .build(),
+        );
 
         Ok(())
     }
@@ -405,16 +403,14 @@ impl Handler {
             if frame.topic == format!("{}.register", &self.topic)
                 || frame.topic == format!("{}.unregister", &self.topic)
             {
-                let _ = store
-                    .append(
-                        Frame::with_topic(format!("{}.unregistered", &self.topic))
-                            .meta(serde_json::json!({
-                                "handler_id": self.id.to_string(),
-                                "frame_id": frame.id.to_string(),
-                            }))
-                            .build(),
-                    )
-                    .await;
+                let _ = store.append(
+                    Frame::with_topic(format!("{}.unregistered", &self.topic))
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .build(),
+                );
                 break;
             }
 
@@ -431,17 +427,15 @@ impl Handler {
             }
 
             if let Err(err) = self.process_frame(&frame, store, pool).await {
-                let _ = store
-                    .append(
-                        Frame::with_topic(format!("{}.unregistered", self.topic))
-                            .meta(serde_json::json!({
-                                "handler_id": self.id.to_string(),
-                                "frame_id": frame.id.to_string(),
-                                "error": err.to_string(),
-                            }))
-                            .build(),
-                    )
-                    .await;
+                let _ = store.append(
+                    Frame::with_topic(format!("{}.unregistered", self.topic))
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                            "error": err.to_string(),
+                        }))
+                        .build(),
+                );
                 break;
             }
         }

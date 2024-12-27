@@ -91,21 +91,17 @@ mod tests {
     async fn test_head_command() -> Result<(), Error> {
         let (store, engine) = setup_test_env().await;
 
-        let _frame1 = store
-            .append(
-                Frame::with_topic("topic")
-                    .hash(store.cas_insert("content1").await?)
-                    .build(),
-            )
-            .await;
+        let _frame1 = store.append(
+            Frame::with_topic("topic")
+                .hash(store.cas_insert("content1").await?)
+                .build(),
+        );
 
-        let frame2 = store
-            .append(
-                Frame::with_topic("topic")
-                    .hash(store.cas_insert("content2").await?)
-                    .build(),
-            )
-            .await;
+        let frame2 = store.append(
+            Frame::with_topic("topic")
+                .hash(store.cas_insert("content2").await?)
+                .build(),
+        );
 
         let head_frame = nu_eval(&engine, PipelineData::empty(), ".head topic");
 
@@ -120,21 +116,17 @@ mod tests {
     async fn test_cat_command() -> Result<(), Error> {
         let (store, engine) = setup_test_env().await;
 
-        let _frame1 = store
-            .append(
-                Frame::with_topic("topic")
-                    .hash(store.cas_insert("content1").await?)
-                    .build(),
-            )
-            .await;
+        let _frame1 = store.append(
+            Frame::with_topic("topic")
+                .hash(store.cas_insert("content1").await?)
+                .build(),
+        );
 
-        let _frame2 = store
-            .append(
-                Frame::with_topic("topic")
-                    .hash(store.cas_insert("content2").await?)
-                    .build(),
-            )
-            .await;
+        let _frame2 = store.append(
+            Frame::with_topic("topic")
+                .hash(store.cas_insert("content2").await?)
+                .build(),
+        );
 
         // Test basic .cat
         let value = nu_eval(&engine, PipelineData::empty(), ".cat");
@@ -153,13 +145,11 @@ mod tests {
     async fn test_remove_command() -> Result<(), Error> {
         let (store, engine) = setup_test_env().await;
 
-        let frame = store
-            .append(
-                Frame::with_topic("topic")
-                    .hash(store.cas_insert("test").await?)
-                    .build(),
-            )
-            .await;
+        let frame = store.append(
+            Frame::with_topic("topic")
+                .hash(store.cas_insert("test").await?)
+                .build(),
+        );
 
         nu_eval(
             &engine,
