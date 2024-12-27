@@ -121,7 +121,7 @@ pub struct Store {
 }
 
 impl Store {
-    pub async fn new(path: PathBuf) -> Store {
+    pub fn new(path: PathBuf) -> Store {
         let config = Config::new(path.join("fjall"));
 
         let keyspace = config
@@ -460,7 +460,7 @@ mod tests_read_options {
     async fn test_topic_index() -> Result<(), crate::error::Error> {
         let folder = tempfile::tempdir()?;
 
-        let store = Store::new(folder.path().to_path_buf()).await;
+        let store = Store::new(folder.path().to_path_buf());
 
         let frame1 = Frame {
             id: scru128::new(),
@@ -547,7 +547,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_get() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path());
         let meta = serde_json::json!({"key": "value"});
         let frame = store
             .append(Frame::with_topic("stream").meta(meta).build())
@@ -559,7 +559,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_follow() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path());
 
         // Append two initial clips
         let f1 = store.append(Frame::with_topic("stream").build()).await;
@@ -599,7 +599,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_stream_basics() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path());
 
         let f1 = store.append(Frame::with_topic("/stream").build()).await;
         let f2 = store.append(Frame::with_topic("/stream").build()).await;
@@ -628,7 +628,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf()).await;
+        let store = Store::new(temp_dir.path().to_path_buf());
 
         // Add 3 items
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -650,7 +650,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf()).await;
+        let store = Store::new(temp_dir.path().to_path_buf());
 
         // Add 1 item
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -686,7 +686,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_processing_history() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf()).await;
+        let store = Store::new(temp_dir.path().to_path_buf());
 
         // Create 5 records upfront
         let frame1 = store.append(Frame::with_topic("test").build()).await;
@@ -727,7 +727,7 @@ mod tests_ttl_expire {
     #[tokio::test]
     async fn test_time_based_ttl_expiry() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path());
 
         // Add permanent frame
         let permanent_frame = store.append(Frame::with_topic("test").build()).await;
@@ -769,7 +769,7 @@ mod tests_ttl_expire {
     #[tokio::test]
     async fn test_head_based_ttl_retention() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path()).await;
+        let store = Store::new(temp_dir.into_path());
 
         // Add 4 frames to the same topic with Head(2) TTL
         let _frame1 = store
