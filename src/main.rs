@@ -6,9 +6,8 @@ use clap::{Parser, Subcommand};
 use tokio::io::AsyncWriteExt;
 
 use xs::nu;
-use xs::store::Store;
+use xs::store::{parse_ttl, Store};
 use xs::thread_pool::ThreadPool;
-use xs::ttl::parse_ttl;
 
 #[derive(Parser, Debug)]
 #[clap(version)]

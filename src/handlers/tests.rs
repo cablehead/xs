@@ -1,9 +1,9 @@
 use crate::error::Error;
 use crate::handlers::serve;
 use crate::nu;
+use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
-use crate::ttl::TTL;
 use tempfile::TempDir;
 
 macro_rules! validate_handler_output_frame {
