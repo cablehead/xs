@@ -321,17 +321,6 @@ impl Store {
         None
     }
 
-    /// Formats a key for the topic secondary index
-    fn topic_index_key(frame: &Frame) -> Vec<u8> {
-        // We use a 0xFF as delimiter, because
-        // 0xFF cannot appear in a valid UTF-8 sequence
-        let mut v = Vec::with_capacity(frame.id.as_bytes().len() + 1 + frame.topic.len());
-        v.extend(frame.topic.as_bytes());
-        v.push(0xFF);
-        v.extend(frame.id.as_bytes());
-        v
-    }
-
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
     pub fn remove(&self, id: &Scru128Id) -> Result<(), fjall::Error> {
         let Some(frame) = self.get(id) else {
@@ -341,7 +330,7 @@ impl Store {
 
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.as_bytes());
-        batch.remove(&self.topic_index, Self::topic_index_key(&frame));
+        batch.remove(&self.topic_index, topic_index_key_for_frame(&frame));
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
@@ -369,7 +358,7 @@ impl Store {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         let mut batch = self.keyspace.batch();
         batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
-        batch.insert(&self.topic_index, Self::topic_index_key(frame), b"");
+        batch.insert(&self.topic_index, topic_index_key_for_frame(frame), b"");
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
@@ -384,7 +373,7 @@ impl Store {
 
             // If this is a Head TTL, cleanup old frames AFTER insert
             if let Some(TTL::Head(n)) = frame.ttl {
-                let prefix = Self::topic_index_key(&frame);
+                let prefix = topic_index_key_for_frame(&frame);
                 let prefix = &prefix[..prefix.len() - frame.id.as_bytes().len()];
 
                 let frames_to_remove: Vec<_> = self
@@ -837,4 +826,14 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
         .as_millis() as u64;
 
     now_ms >= expires_ms
+}
+
+fn topic_index_key_for_frame(frame: &Frame) -> Vec<u8> {
+    // We use a 0xFF as delimiter, because
+    // 0xFF cannot appear in a valid UTF-8 sequence
+    let mut v = Vec::with_capacity(frame.id.as_bytes().len() + 1 + frame.topic.len());
+    v.extend(frame.topic.as_bytes());
+    v.push(0xFF);
+    v.extend(frame.id.as_bytes());
+    v
 }
