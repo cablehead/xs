@@ -6,7 +6,7 @@ use crate::store::Store;
 
 async fn setup_test_env() -> (Store, Engine) {
     let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path()).await;
+    let store = Store::new(temp_dir.into_path());
     let engine = Engine::new(store.clone()).unwrap();
     (store, engine)
 }
