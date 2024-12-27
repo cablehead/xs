@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -82,8 +81,6 @@ pub struct ReadOptions {
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
     pub limit: Option<usize>,
-    #[serde(skip)]
-    pub compaction_strategy: Option<fn(&Frame) -> Option<String>>,
 }
 
 impl ReadOptions {
@@ -191,8 +188,6 @@ impl Store {
                 let mut expired_frames = Vec::new();
 
                 let range = get_range(options_clone.last_id.as_ref());
-                let mut compacted_frames = HashMap::new();
-
                 for record in partition.range(range) {
                     let frame = deserialize_frame(record.unwrap());
 
@@ -205,43 +200,19 @@ impl Store {
 
                     last_id = Some(frame.id);
 
-                    if let Some(compaction_strategy) = &options_clone.compaction_strategy {
-                        if let Some(key) = compaction_strategy(&frame) {
-                            compacted_frames.insert(key, frame);
-                        }
-                    } else {
-                        if let Some(limit) = options_clone.limit {
-                            if count >= limit {
-                                return; // Exit early if limit reached
-                            }
-                        }
-                        if tx_clone.blocking_send(frame).is_err() {
-                            return; // Receiver dropped, exit thread
-                        }
-                        count += 1;
-                    }
-                }
-
-                // Send compacted frames if any, ordered by ID
-                let mut ordered_frames: Vec<_> = compacted_frames.into_values().collect();
-                ordered_frames.sort_by_key(|frame| frame.id);
-                for frame in ordered_frames {
                     if let Some(limit) = options_clone.limit {
                         if count >= limit {
                             return; // Exit early if limit reached
                         }
                     }
                     if tx_clone.blocking_send(frame).is_err() {
-                        return;
+                        return; // Receiver dropped, exit thread
                     }
                     count += 1;
                 }
 
-                // Send threshold message if following and no compaction/limit
-                if should_follow_clone
-                    && options_clone.compaction_strategy.is_none()
-                    && options_clone.limit.is_none()
-                {
+                // Send threshold message if following and no limit
+                if should_follow_clone && options_clone.limit.is_none() {
                     let threshold = Frame::with_topic("xs.threshold")
                         .id(scru128::new())
                         .ttl(TTL::Ephemeral)
@@ -614,22 +585,13 @@ mod tests_store {
         let f4 = store.append(Frame::with_topic("stream").build()).await;
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
-        let head = f4;
 
         // Assert we see some heartbeats
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
 
-        // start a new subscriber to exercise compaction_strategy
-        let follow_options = ReadOptions::builder()
-            .follow(FollowOption::WithHeartbeat(Duration::from_millis(5)))
-            .compaction_strategy(|frame| Some(frame.topic.clone()))
-            .build();
-        let mut recver = store.read(follow_options).await;
+        // Assert we see some heartbeats
 
-        assert_eq!(head, recver.recv().await.unwrap());
-
-        // Assert we see some heartbeats - note we don't see xs.threshold
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
