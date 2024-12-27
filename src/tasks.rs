@@ -43,6 +43,37 @@ struct GeneratorTask {
     expression: String,
 }
 
+async fn try_start_task(
+    topic: &str,
+    frame: &Frame,
+    generators: &mut HashMap<String, GeneratorTask>,
+    engine: &nu::Engine,
+    store: &Store,
+) {
+    if let Err(e) = handle_spawn_event(
+        topic,
+        frame.clone(),
+        generators,
+        engine.clone(),
+        store.clone(),
+    )
+    .await
+    {
+        let meta = serde_json::json!({
+            "source_id": frame.id.to_string(),
+            "reason": e.to_string()
+        });
+
+        let _ = store
+            .append(
+                Frame::with_topic(format!("{}.spawn.error", topic))
+                    .meta(meta)
+                    .build(),
+            )
+            .await;
+    }
+}
+
 async fn handle_spawn_event(
     topic: &str,
     frame: Frame,
@@ -82,21 +113,44 @@ pub async fn serve(
     store: Store,
     engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let options = ReadOptions::builder()
-        .follow(FollowOption::On)
-        .compaction_strategy(|frame| {
-            frame
-                .topic
-                .strip_suffix(".spawn.error")
-                .or_else(|| frame.topic.strip_suffix(".spawn"))
-                .map(String::from)
-        })
-        .build();
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
     let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
+    let mut compacted_frames: HashMap<String, Frame> = HashMap::new();
 
+    // Phase 1: Collect and compact messages until threshold
     while let Some(frame) = recver.recv().await {
+        if frame.topic == "xs.threshold" {
+            break;
+        }
+
+        // Compact spawn frames
+        if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".spawn.error") {
+            if let Some(topic) = frame
+                .topic
+                .strip_suffix(".spawn.error")
+                .or_else(|| frame.topic.strip_suffix(".spawn"))
+            {
+                compacted_frames.insert(topic.to_string(), frame);
+            }
+        }
+    }
+
+    // Process compacted frames
+    for frame in compacted_frames.values() {
+        if let Some(topic) = frame.topic.strip_suffix(".spawn") {
+            try_start_task(topic, frame, &mut generators, &engine, &store).await;
+        }
+    }
+
+    // Phase 2: Process messages as they arrive
+    while let Some(frame) = recver.recv().await {
+        if let Some(topic) = frame.topic.strip_suffix(".spawn") {
+            try_start_task(topic, &frame, &mut generators, &engine, &store).await;
+            continue;
+        }
+
         if let Some(topic) = frame.topic.strip_suffix(".stop") {
             if let Some(task) = generators.get(topic) {
                 // respawn the task in a second
