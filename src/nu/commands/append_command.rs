@@ -3,8 +3,7 @@ use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 use crate::nu::util;
-use crate::store::{Frame, Store};
-use crate::ttl::TTL;
+use crate::store::{Frame, Store, TTL};
 
 #[derive(Clone)]
 pub struct AppendCommand {

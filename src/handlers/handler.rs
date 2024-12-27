@@ -21,9 +21,8 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::frame_to_value;
 use crate::nu::util::value_to_json;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 use crate::thread_pool::ThreadPool;
-use crate::ttl::TTL;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Meta {
