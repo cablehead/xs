@@ -488,6 +488,7 @@ async fn test_return_options() {
     assert_eq!(meta["frame_id"], frame2.id.to_string());
 
     // Only newest response should be in store
+    store.wait_for_gc().await;
     let options = ReadOptions::default();
     let recver = store.read(options).await;
     use tokio_stream::StreamExt;
