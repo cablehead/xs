@@ -1,6 +1,5 @@
 use std::io::Read;
-
-use tokio::io::AsyncWriteExt;
+use std::io::Write;
 
 use nu_protocol::{PipelineData, Record, ShellError, Span, Value};
 
@@ -79,14 +78,13 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
-pub async fn write_pipeline_to_cas(
+pub fn write_pipeline_to_cas(
     input: PipelineData,
     store: &Store,
     span: Span,
 ) -> Result<Option<ssri::Integrity>, ShellError> {
     let mut writer = store
-        .cas_writer()
-        .await
+        .cas_writer_sync()
         .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
     match input {
@@ -95,12 +93,10 @@ pub async fn write_pipeline_to_cas(
             Value::String { val, .. } => {
                 writer
                     .write_all(val.as_bytes())
-                    .await
                     .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
                 let hash = writer
                     .commit()
-                    .await
                     .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
                 Ok(Some(hash))
@@ -108,12 +104,10 @@ pub async fn write_pipeline_to_cas(
             Value::Binary { val, .. } => {
                 writer
                     .write_all(&val)
-                    .await
                     .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
                 let hash = writer
                     .commit()
-                    .await
                     .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
                 Ok(Some(hash))
@@ -125,12 +119,10 @@ pub async fn write_pipeline_to_cas(
 
                 writer
                     .write_all(json_string.as_bytes())
-                    .await
                     .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
                 let hash = writer
                     .commit()
-                    .await
                     .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
                 Ok(Some(hash))
@@ -144,11 +136,9 @@ pub async fn write_pipeline_to_cas(
                 src_span: value.span(),
             }),
         },
-
         PipelineData::ListStream(_stream, ..) => {
             panic!("ListStream handling is not yet implemented");
         }
-
         PipelineData::ByteStream(stream, ..) => {
             if let Some(mut reader) = stream.reader() {
                 let mut buffer = [0; 8192];
@@ -163,19 +153,16 @@ pub async fn write_pipeline_to_cas(
 
                     writer
                         .write_all(&buffer[..bytes_read])
-                        .await
                         .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
                 }
             }
 
             let hash = writer
                 .commit()
-                .await
                 .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
             Ok(Some(hash))
         }
-
         PipelineData::Empty => Ok(None),
     }
 }

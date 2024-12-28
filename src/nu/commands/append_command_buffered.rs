@@ -73,17 +73,11 @@ impl Command for AppendCommand {
 
         let input_value = input.into_value(span)?;
 
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-        let hash = rt.block_on(async {
-            crate::nu::util::write_pipeline_to_cas(
-                PipelineData::Value(input_value.clone(), None),
-                &self.store,
-                span,
-            )
-            .await
-        })?;
+        let hash = crate::nu::util::write_pipeline_to_cas(
+            PipelineData::Value(input_value.clone(), None),
+            &self.store,
+            span,
+        )?;
 
         let frame = Frame::with_topic(topic)
             .maybe_meta(meta.map(|v| value_to_json(&v)))

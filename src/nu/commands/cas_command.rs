@@ -1,4 +1,4 @@
-use tokio::io::AsyncReadExt;
+use std::io::Read;
 
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
@@ -45,28 +45,21 @@ impl Command for CasCommand {
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
-
         let hash: String = call.req(engine_state, stack, 0)?;
         let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::IOError {
             msg: format!("Malformed ssri::Integrity:: {}", e),
         })?;
 
-        let rt = tokio::runtime::Runtime::new()
+        let mut reader = self
+            .store
+            .cas_reader_sync(hash)
             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-        let contents = rt.block_on(async {
-            let mut reader = self
-                .store
-                .cas_reader(hash)
-                .await
-                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-            let mut contents = Vec::new();
-            reader
-                .read_to_end(&mut contents)
-                .await
-                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-            String::from_utf8(contents).map_err(|e| ShellError::IOError { msg: e.to_string() })
-        })?;
+        let mut contents = Vec::new();
+        reader
+            .read_to_end(&mut contents)
+            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+        let contents =
+            String::from_utf8(contents).map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
         Ok(PipelineData::Value(
             Value::String {

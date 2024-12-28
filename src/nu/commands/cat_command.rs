@@ -58,19 +58,10 @@ impl Command for CatCommand {
             ..Default::default()
         };
 
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-        let frames = rt.block_on(async {
-            let mut frames = vec![];
-            let mut receiver = self.store.read(options).await;
-
-            while let Some(frame) = receiver.recv().await {
-                frames.push(frame);
-            }
-
-            Ok::<_, ShellError>(frames)
-        })?;
+        let frames = self
+            .store
+            .read_sync(options.last_id.as_ref(), options.limit)
+            .collect::<Vec<_>>();
 
         use nu_protocol::Value;
 
