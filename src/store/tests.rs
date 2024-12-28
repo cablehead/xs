@@ -424,6 +424,7 @@ mod tests_ttl_expire {
         );
 
         // Assert the underlying partition has been updated
+        store.wait_for_gc().await;
         assert_eq!(store.get(&expiring_frame.id), None);
     }
 
@@ -470,6 +471,7 @@ mod tests_ttl_expire {
         );
 
         // Read all frames and assert exact expected set
+        store.wait_for_gc().await;
         let recver = store.read(ReadOptions::default()).await;
         let frames = tokio_stream::wrappers::ReceiverStream::new(recver)
             .collect::<Vec<Frame>>()
