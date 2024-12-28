@@ -276,6 +276,29 @@ mod tests_store {
             "Channel should be closed after limit"
         );
     }
+
+    #[test]
+    fn test_read_sync() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        // Append three frames
+        let frame1 = store.append(Frame::with_topic("test").build());
+        let frame2 = store.append(Frame::with_topic("test").build());
+        let frame3 = store.append(Frame::with_topic("test").build());
+
+        // Test reading all frames
+        let frames: Vec<Frame> = store.read_sync(None, None).collect();
+        assert_eq!(vec![frame1.clone(), frame2.clone(), frame3.clone()], frames);
+
+        // Test with last_id (passing Scru128Id directly)
+        let frames: Vec<Frame> = store.read_sync(Some(&frame1.id), None).collect();
+        assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
+
+        // Test with limit
+        let frames: Vec<Frame> = store.read_sync(None, Some(2)).collect();
+        assert_eq!(vec![frame1, frame2], frames);
+    }
 }
 
 mod tests_ttl {
