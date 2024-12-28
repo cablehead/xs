@@ -37,6 +37,18 @@ impl Engine {
         Ok(())
     }
 
+    pub fn add_alias(&mut self, name: &str, target: &str) -> Result<(), Error> {
+        let mut working_set = StateWorkingSet::new(&self.state);
+        let _ = parse(
+            &mut working_set,
+            None,
+            format!("alias {} = {}", name, target).as_bytes(),
+            false,
+        );
+        self.state.merge_delta(working_set.render())?;
+        Ok(())
+    }
+
     pub fn eval(
         &self,
         input: PipelineData,

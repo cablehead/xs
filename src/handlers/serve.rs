@@ -49,6 +49,7 @@ pub async fn serve(
         Box::new(commands::head_command::HeadCommand::new(store.clone())),
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
     ])?;
+    engine.add_alias(".rm", ".remove")?;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
 
