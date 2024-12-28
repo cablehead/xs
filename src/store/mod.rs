@@ -377,18 +377,34 @@ impl Store {
         cacache::Reader::open_hash(&self.path.join("cacache"), hash).await
     }
 
+    pub fn cas_reader_sync(&self, hash: ssri::Integrity) -> cacache::Result<cacache::SyncReader> {
+        cacache::SyncReader::open_hash(self.path.join("cacache"), hash)
+    }
+
     pub async fn cas_writer(&self) -> cacache::Result<cacache::Writer> {
         cacache::WriteOpts::new()
             .open_hash(&self.path.join("cacache"))
             .await
     }
 
+    pub fn cas_writer_sync(&self) -> cacache::Result<cacache::SyncWriter> {
+        cacache::WriteOpts::new().open_hash_sync(self.path.join("cacache"))
+    }
+
     pub async fn cas_insert(&self, content: &str) -> cacache::Result<ssri::Integrity> {
         cacache::write_hash(&self.path.join("cacache"), content).await
     }
 
+    pub fn cas_insert_sync(&self, content: &str) -> cacache::Result<ssri::Integrity> {
+        cacache::write_hash_sync(self.path.join("cacache"), content)
+    }
+
     pub async fn cas_read(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
         cacache::read_hash(&self.path.join("cacache"), hash).await
+    }
+
+    pub fn cas_read_sync(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
+        cacache::read_hash_sync(self.path.join("cacache"), hash)
     }
 
     #[tracing::instrument(skip(self))]
