@@ -8,7 +8,7 @@ mod tests {
     use crate::nu::Engine;
     use crate::store::{Frame, Store};
 
-    async fn setup_test_env() -> (Store, Engine) {
+    fn setup_test_env() -> (Store, Engine) {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
         let engine = Engine::new().unwrap();
@@ -30,9 +30,9 @@ mod tests {
         .unwrap()
     }
 
-    #[tokio::test]
-    async fn test_append_command() {
-        let (store, mut engine) = setup_test_env().await;
+    #[test]
+    fn test_append_command() {
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(store.clone()),
@@ -53,13 +53,13 @@ mod tests {
 
         let hash_value = frame.get_data_by_key("hash").unwrap();
         let frame_hash = hash_value.as_str().unwrap();
-        let content = store.cas_read(&frame_hash.parse().unwrap()).await.unwrap();
+        let content = store.cas_read_sync(&frame_hash.parse().unwrap()).unwrap();
         assert_eq!(String::from_utf8(content).unwrap(), "test content");
     }
 
-    #[tokio::test]
-    async fn test_append_record() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env().await;
+    #[test]
+    fn test_append_record() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(store.clone()),
@@ -75,7 +75,7 @@ mod tests {
         // Get the hash from the frame and verify the content
         let hash_value = frame.get_data_by_key("hash").unwrap();
         let frame_hash = hash_value.as_str().unwrap();
-        let content = store.cas_read(&frame_hash.parse().unwrap()).await.unwrap();
+        let content = store.cas_read_sync(&frame_hash.parse().unwrap()).unwrap();
 
         // The content should be the JSON representation of our record
         let expected_json = serde_json::json!({"data": 123});
@@ -87,16 +87,16 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_cas_command() {
-        let (store, mut engine) = setup_test_env().await;
+    #[test]
+    fn test_cas_command() {
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
                 store.clone(),
             ))])
             .unwrap();
 
-        let hash = store.cas_insert("test content").await.unwrap();
+        let hash = store.cas_insert_sync("test content").unwrap();
 
         let value = nu_eval(&engine, PipelineData::empty(), format!(".cas {}", hash));
 
@@ -104,9 +104,9 @@ mod tests {
         assert_eq!(content, "test content");
     }
 
-    #[tokio::test]
-    async fn test_head_command() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env().await;
+    #[test]
+    fn test_head_command() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::head_command::HeadCommand::new(
                 store.clone(),
@@ -115,13 +115,13 @@ mod tests {
 
         let _frame1 = store.append(
             Frame::with_topic("topic")
-                .hash(store.cas_insert("content1").await?)
+                .hash(store.cas_insert_sync("content1")?)
                 .build(),
         );
 
         let frame2 = store.append(
             Frame::with_topic("topic")
-                .hash(store.cas_insert("content2").await?)
+                .hash(store.cas_insert_sync("content2")?)
                 .build(),
         );
 
@@ -134,9 +134,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_cat_command() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env().await;
+    #[test]
+    fn test_cat_command() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
                 store.clone(),
@@ -145,13 +145,13 @@ mod tests {
 
         let _frame1 = store.append(
             Frame::with_topic("topic")
-                .hash(store.cas_insert("content1").await?)
+                .hash(store.cas_insert_sync("content1")?)
                 .build(),
         );
 
         let _frame2 = store.append(
             Frame::with_topic("topic")
-                .hash(store.cas_insert("content2").await?)
+                .hash(store.cas_insert_sync("content2")?)
                 .build(),
         );
 
@@ -168,9 +168,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_remove_command() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env().await;
+    #[test]
+    fn test_remove_command() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::remove_command::RemoveCommand::new(store.clone()),
@@ -179,7 +179,7 @@ mod tests {
 
         let frame = store.append(
             Frame::with_topic("topic")
-                .hash(store.cas_insert("test").await?)
+                .hash(store.cas_insert_sync("test")?)
                 .build(),
         );
 

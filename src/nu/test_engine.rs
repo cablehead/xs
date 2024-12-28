@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use crate::nu::Engine;
 use crate::store::Store;
 
-async fn setup_test_env() -> (Store, Engine) {
+fn setup_test_env() -> (Store, Engine) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.into_path());
     let engine = Engine::new().unwrap();
@@ -22,8 +22,7 @@ fn eval_to_value(engine: &Engine, expr: &str) -> Value {
 
 #[test]
 fn test_add_module() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let (_store, mut engine) = rt.block_on(setup_test_env());
+    let (_store, mut engine) = setup_test_env();
 
     // Add a module that exports two functions
     engine
@@ -52,8 +51,7 @@ fn test_add_module() {
 
 #[test]
 fn test_add_module_syntax_error() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let (_store, mut engine) = rt.block_on(setup_test_env());
+    let (_store, mut engine) = setup_test_env();
 
     // Try to add a module with invalid syntax
     let result = engine.add_module(
@@ -70,8 +68,7 @@ fn test_add_module_syntax_error() {
 
 #[test]
 fn test_add_multiple_modules() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let (_store, mut engine) = rt.block_on(setup_test_env());
+    let (_store, mut engine) = setup_test_env();
 
     // Add first module
     engine
@@ -103,8 +100,7 @@ fn test_add_multiple_modules() {
 
 #[test]
 fn test_engine_env_vars() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let (_store, engine) = rt.block_on(setup_test_env());
+    let (_store, engine) = setup_test_env();
 
     let engine = engine
         .with_env_vars([("TEST_VAR".to_string(), "test_value".to_string())])

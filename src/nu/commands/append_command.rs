@@ -70,20 +70,14 @@ impl Command for AppendCommand {
             None => None,
         };
 
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-        let frame = rt.block_on(async {
-            let hash = util::write_pipeline_to_cas(input, &store, span).await?;
-            let frame = store.append(
-                Frame::with_topic(topic)
-                    .maybe_hash(hash)
-                    .maybe_meta(meta)
-                    .maybe_ttl(ttl)
-                    .build(),
-            );
-            Ok::<_, ShellError>(frame)
-        })?;
+        let hash = util::write_pipeline_to_cas(input, &store, span)?;
+        let frame = store.append(
+            Frame::with_topic(topic)
+                .maybe_hash(hash)
+                .maybe_meta(meta)
+                .maybe_ttl(ttl)
+                .build(),
+        );
 
         Ok(PipelineData::Value(
             util::frame_to_value(&frame, span),
