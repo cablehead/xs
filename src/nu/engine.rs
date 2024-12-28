@@ -1,15 +1,13 @@
-use super::commands::add_custom_commands;
 use nu_cli::{add_cli_context, gather_parent_env_vars};
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{Closure, EngineState, Stack, StateWorkingSet};
+use nu_protocol::engine::{Closure, Command, EngineState, Stack, StateWorkingSet};
 use nu_protocol::{PipelineData, ShellError, Span};
 
 use crate::error::Error;
-use crate::store::Store;
 
 #[derive(Clone)]
 pub struct Engine {
@@ -17,11 +15,10 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(store: Store) -> Result<Self, Error> {
+    pub fn new() -> Result<Self, Error> {
         let mut engine_state = create_default_context();
         engine_state = add_shell_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
-        engine_state = add_custom_commands(store.clone(), engine_state);
 
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
@@ -29,6 +26,15 @@ impl Engine {
         Ok(Self {
             state: engine_state,
         })
+    }
+
+    pub fn add_commands(&mut self, commands: Vec<Box<dyn Command>>) -> Result<(), Error> {
+        let mut working_set = StateWorkingSet::new(&self.state);
+        for command in commands {
+            working_set.add_decl(command);
+        }
+        self.state.merge_delta(working_set.render())?;
+        Ok(())
     }
 
     pub fn eval(

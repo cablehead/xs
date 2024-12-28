@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
 use crate::handlers::Handler;
 use crate::nu;
+use crate::nu::commands;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
-use std::collections::HashMap;
 
 async fn start_handler(
     frame: &Frame,
@@ -38,9 +40,16 @@ struct TopicState {
 
 pub async fn serve(
     store: Store,
-    engine: nu::Engine,
+    mut engine: nu::Engine,
     pool: ThreadPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    engine.add_commands(vec![
+        Box::new(commands::cas_command::CasCommand::new(store.clone())),
+        Box::new(commands::cat_command::CatCommand::new(store.clone())),
+        Box::new(commands::head_command::HeadCommand::new(store.clone())),
+        Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
+    ])?;
+
     let options = ReadOptions::builder().follow(FollowOption::On).build();
 
     let mut recver = store.read(options).await;

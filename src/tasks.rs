@@ -329,7 +329,7 @@ mod tests {
     async fn test_serve_basic() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
-        let engine = nu::Engine::new(store.clone()).unwrap();
+        let engine = nu::Engine::new().unwrap();
 
         {
             let store = store.clone();
@@ -382,7 +382,7 @@ mod tests {
     async fn test_serve_duplex() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
-        let engine = nu::Engine::new(store.clone()).unwrap();
+        let engine = nu::Engine::new().unwrap();
 
         {
             let store = store.clone();
@@ -430,7 +430,7 @@ mod tests {
     async fn test_serve_compact() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
-        let engine = nu::Engine::new(store.clone()).unwrap();
+        let engine = nu::Engine::new().unwrap();
 
         let _ = store.append(
             Frame::with_topic("toml.spawn")

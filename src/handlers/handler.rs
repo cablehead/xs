@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tracing::instrument;
@@ -19,6 +20,7 @@ use scru128::Scru128Id;
 
 use crate::error::Error;
 use crate::nu;
+use crate::nu::commands;
 use crate::nu::frame_to_value;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
@@ -78,6 +80,9 @@ impl Handler {
         store: Store,
     ) -> Result<Self, Error> {
         let output = Arc::new(Mutex::new(Vec::new()));
+        engine.add_commands(vec![Box::new(
+            commands::append_command_buffered::AppendCommand::new(store.clone(), output.clone()),
+        )])?;
 
         // Handle any modules first if specified
         if let Some(modules) = &meta.modules {
@@ -143,14 +148,6 @@ impl Handler {
                 engine = engine.with_env_vars([(var_name.clone(), content)])?;
             }
         }
-
-        // Set up engine with custom append command
-        let mut working_set = StateWorkingSet::new(&engine.state);
-        working_set.add_decl(Box::new(AppendCommand {
-            output: output.clone(),
-            store: store.clone(),
-        }));
-        engine.state.merge_delta(working_set.render())?;
 
         let closure = engine.parse_closure(&expression)?;
         let block = engine.state.get_block(closure.block_id);
@@ -518,98 +515,5 @@ impl Handler {
             .tail(is_tail)
             .maybe_last_id(last_id)
             .build()
-    }
-}
-
-use std::sync::{Arc, Mutex};
-
-use nu_engine::CallExt;
-use nu_protocol::engine::{Call, Command, EngineState};
-use nu_protocol::{Category, ShellError, Signature, SyntaxShape, Type};
-
-#[derive(Clone)]
-pub struct AppendCommand {
-    output: Arc<Mutex<Vec<Frame>>>,
-    store: Store,
-}
-
-impl Command for AppendCommand {
-    fn name(&self) -> &str {
-        ".append"
-    }
-
-    fn signature(&self) -> Signature {
-        Signature::build(".append")
-            .input_output_types(vec![(Type::Any, Type::Any)])
-            .required("topic", SyntaxShape::String, "this clip's topic")
-            .named(
-                "meta",
-                SyntaxShape::Record(vec![]),
-                "arbitrary metadata",
-                None,
-            )
-            .named(
-                "ttl",
-                SyntaxShape::String,
-                r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'"#,
-                None,
-            )
-            .category(Category::Experimental)
-    }
-
-    fn description(&self) -> &str {
-        "Writes its input to the CAS and then appends a frame with a hash of this content to the
-            given topic on the stream. Automatically includes handler_id and frame_id and
-            state_id."
-    }
-
-    fn run(
-        &self,
-        engine_state: &EngineState,
-        stack: &mut Stack,
-        call: &Call,
-        input: PipelineData,
-    ) -> Result<PipelineData, ShellError> {
-        let span = call.head;
-
-        let topic: String = call.req(engine_state, stack, 0)?;
-        let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-        let ttl_str: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
-
-        // Convert string TTL to TTL enum
-        let ttl = ttl_str
-            .map(|s| TTL::from_query(Some(&format!("ttl={}", s))))
-            .transpose()
-            .map_err(|e| ShellError::GenericError {
-                error: "Invalid TTL format".into(),
-                msg: e.to_string(),
-                span: Some(span),
-                help: Some("TTL must be one of: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'".into()),
-                inner: vec![],
-            })?;
-
-        let input_value = input.into_value(span)?;
-
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-
-        let hash = rt.block_on(async {
-            crate::nu::util::write_pipeline_to_cas(
-                PipelineData::Value(input_value.clone(), None),
-                &self.store,
-                span,
-            )
-            .await
-        })?;
-
-        let frame = Frame::with_topic(topic)
-            .maybe_meta(meta.map(|v| value_to_json(&v)))
-            .maybe_hash(hash)
-            .maybe_ttl(ttl)
-            .build();
-
-        self.output.lock().unwrap().push(frame);
-
-        Ok(PipelineData::Empty)
     }
 }

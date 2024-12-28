@@ -1,10 +1,11 @@
+use tempfile::TempDir;
+
 use crate::error::Error;
 use crate::handlers::serve;
 use crate::nu;
 use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::thread_pool::ThreadPool;
-use tempfile::TempDir;
 
 macro_rules! validate_handler_output_frame {
     ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr, $state_frame:expr) => {{
@@ -756,8 +757,8 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
 async fn setup_test_environment() -> (Store, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
+    let engine = nu::Engine::new().unwrap();
     let pool = ThreadPool::new(4);
-    let engine = nu::Engine::new(store.clone()).unwrap();
 
     {
         let store = store.clone();

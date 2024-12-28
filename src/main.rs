@@ -190,7 +190,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
     let store = Store::new(args.path);
     let pool = ThreadPool::new(10);
-    let engine = nu::Engine::new(store.clone())?;
+    let engine = nu::Engine::new()?;
 
     {
         let store = store.clone();
