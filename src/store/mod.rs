@@ -307,6 +307,32 @@ impl Store {
         rx
     }
 
+    #[tracing::instrument(skip(self))]
+    pub fn read_sync(
+        &self,
+        last_id: Option<&Scru128Id>,
+        limit: Option<usize>,
+    ) -> impl Iterator<Item = Frame> + '_ {
+        let range = get_range(last_id);
+
+        self.frame_partition
+            .range(range)
+            .filter_map(move |record| {
+                let frame = deserialize_frame(record.ok()?);
+
+                // Filter out expired frames
+                if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
+                    if is_expired(&frame.id, ttl) {
+                        let _ = self.gc_tx.send(GCTask::Remove(frame.id));
+                        return None;
+                    }
+                }
+
+                Some(frame)
+            })
+            .take(limit.unwrap_or(usize::MAX))
+    }
+
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
         let res = self.frame_partition.get(id.to_bytes()).unwrap();
         res.map(|value| serde_json::from_slice(&value).unwrap())
