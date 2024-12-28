@@ -4,13 +4,14 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::error::Error;
+    use crate::nu::commands;
     use crate::nu::Engine;
     use crate::store::{Frame, Store};
 
     async fn setup_test_env() -> (Store, Engine) {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
-        let engine = Engine::new(store.clone()).unwrap();
+        let engine = Engine::new().unwrap();
         (store, engine)
     }
 
@@ -31,7 +32,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_append_command() {
-        let (store, engine) = setup_test_env().await;
+        let (store, mut engine) = setup_test_env().await;
+        engine
+            .add_commands(vec![Box::new(
+                commands::append_command::AppendCommand::new(store.clone()),
+            )])
+            .unwrap();
 
         let frame = nu_eval(
             &engine,
@@ -53,7 +59,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_append_record() -> Result<(), Error> {
-        let (store, engine) = setup_test_env().await;
+        let (store, mut engine) = setup_test_env().await;
+        engine
+            .add_commands(vec![Box::new(
+                commands::append_command::AppendCommand::new(store.clone()),
+            )])
+            .unwrap();
 
         let frame = nu_eval(
             &engine,
@@ -78,7 +89,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_cas_command() {
-        let (store, engine) = setup_test_env().await;
+        let (store, mut engine) = setup_test_env().await;
+        engine
+            .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
         let hash = store.cas_insert("test content").await.unwrap();
 
         let value = nu_eval(&engine, PipelineData::empty(), format!(".cas {}", hash));
@@ -89,7 +106,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_head_command() -> Result<(), Error> {
-        let (store, engine) = setup_test_env().await;
+        let (store, mut engine) = setup_test_env().await;
+        engine
+            .add_commands(vec![Box::new(commands::head_command::HeadCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
 
         let _frame1 = store.append(
             Frame::with_topic("topic")
@@ -114,7 +136,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_cat_command() -> Result<(), Error> {
-        let (store, engine) = setup_test_env().await;
+        let (store, mut engine) = setup_test_env().await;
+        engine
+            .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
 
         let _frame1 = store.append(
             Frame::with_topic("topic")
@@ -143,7 +170,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_command() -> Result<(), Error> {
-        let (store, engine) = setup_test_env().await;
+        let (store, mut engine) = setup_test_env().await;
+        engine
+            .add_commands(vec![Box::new(
+                commands::remove_command::RemoveCommand::new(store.clone()),
+            )])
+            .unwrap();
 
         let frame = store.append(
             Frame::with_topic("topic")
