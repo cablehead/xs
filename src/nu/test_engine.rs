@@ -119,6 +119,8 @@ use nu_protocol::engine::StateWorkingSet;
 
 #[test]
 fn test_env_var_persistence() {
+    // this test is just to build understanding of how Nushell works with respect to preserving
+    // environment variables across evaluations
     let (_store, engine) = setup_test_env();
     let mut engine = engine;
 
