@@ -5,7 +5,6 @@ use crate::handlers::serve;
 use crate::nu;
 use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
-use crate::thread_pool::ThreadPool;
 
 macro_rules! validate_handler_output_frame {
     ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr, $state_frame:expr) => {{
@@ -741,6 +740,59 @@ async fn test_handler_with_env() -> Result<(), Error> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_handler_preserve_env() -> Result<(), Error> {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    let frame_handler = store.append(
+        Frame::with_topic("test.register")
+            .hash(store.cas_insert_sync(
+                r#"{|frame|
+                               if $frame.topic != "trigger" { return }
+                               $env.abc = $env | default 0 abc | get abc | $in + 1
+                               $env.abc
+                           }"#,
+            )?)
+            .build(),
+    );
+
+    // Wait for handler registration
+    assert_eq!(recver.recv().await.unwrap().topic, "test.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
+
+    // Send trigger frame
+    let trigger = store.append(Frame::with_topic("trigger").build());
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    // Get handler output
+    let output = recver.recv().await.unwrap();
+    validate_handler_output_frame!(&output, "test.out", frame_handler, trigger, None);
+
+    // Verify output content shows the env var value
+    let content = store.cas_read(&output.hash.unwrap()).await?;
+    let result = String::from_utf8(content)?;
+    assert_eq!(result, "1");
+
+    // Send trigger frame
+    let trigger = store.append(Frame::with_topic("trigger").build());
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    // Get handler output
+    let output = recver.recv().await.unwrap();
+    validate_handler_output_frame!(&output, "test.out", frame_handler, trigger, None);
+
+    // Verify output content shows the env var value
+    let content = store.cas_read(&output.hash.unwrap()).await?;
+    let result = String::from_utf8(content)?;
+    assert_eq!(result, "2");
+
+    assert_no_more_frames(&mut recver).await;
+    Ok(())
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
@@ -758,12 +810,11 @@ async fn setup_test_environment() -> (Store, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
     let engine = nu::Engine::new().unwrap();
-    let pool = ThreadPool::new(4);
 
     {
         let store = store.clone();
         let _ = tokio::spawn(async move {
-            serve(store, engine, pool).await.unwrap();
+            serve(store, engine).await.unwrap();
         });
     }
 

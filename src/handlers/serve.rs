@@ -4,18 +4,16 @@ use crate::handlers::Handler;
 use crate::nu;
 use crate::nu::commands;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
-use crate::thread_pool::ThreadPool;
 
 async fn start_handler(
     frame: &Frame,
     store: &Store,
     engine: &nu::Engine,
-    pool: &ThreadPool,
     topic: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match Handler::from_frame(frame, store, engine.clone()).await {
         Ok(handler) => {
-            handler.spawn(store.clone(), pool.clone()).await?;
+            handler.spawn(store.clone()).await?;
             Ok(())
         }
         Err(err) => {
@@ -41,7 +39,6 @@ struct TopicState {
 pub async fn serve(
     store: Store,
     mut engine: nu::Engine,
-    pool: ThreadPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     engine.add_commands(vec![
         Box::new(commands::cas_command::CasCommand::new(store.clone())),
@@ -98,14 +95,14 @@ pub async fn serve(
 
     for state in ordered_states {
         if let Some(topic) = state.register_frame.topic.strip_suffix(".register") {
-            start_handler(&state.register_frame, &store, &engine, &pool, topic).await?;
+            start_handler(&state.register_frame, &store, &engine, topic).await?;
         }
     }
 
     // Continue processing new frames
     while let Some(frame) = recver.recv().await {
         if let Some(topic) = frame.topic.strip_suffix(".register") {
-            start_handler(&frame, &store, &engine, &pool, topic).await?;
+            start_handler(&frame, &store, &engine, topic).await?;
         }
     }
 

@@ -110,3 +110,31 @@ fn test_engine_env_vars() {
     let result = eval_to_value(&engine, "$env.TEST_VAR");
     assert_eq!(result.as_str().unwrap(), "test_value");
 }
+
+use nu_engine::eval_block_with_early_return;
+use nu_parser::parse;
+use nu_protocol::debugger::WithoutDebug;
+use nu_protocol::engine::Stack;
+use nu_protocol::engine::StateWorkingSet;
+
+#[test]
+fn test_env_var_persistence() {
+    let (_store, engine) = setup_test_env();
+    let mut engine = engine;
+
+    // First evaluation - set env var
+    let mut stack = Stack::new();
+    let mut working_set = StateWorkingSet::new(&engine.state);
+    let block = parse(&mut working_set, None, b"$env.TEST_VAR = '123'", false);
+    let _ = eval_block_with_early_return::<WithoutDebug>(
+        &engine.state,
+        &mut stack,
+        &block,
+        PipelineData::empty(),
+    );
+    engine.state.merge_env(&mut stack).unwrap();
+
+    // Second evaluation - verify env var persists
+    let result = eval_to_value(&engine, "$env.TEST_VAR");
+    assert_eq!(result.as_str().unwrap(), "123");
+}

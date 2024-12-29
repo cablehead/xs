@@ -9,11 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use tokio::io::AsyncReadExt;
 
-use nu_engine::eval_block_with_early_return;
-use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::Stack;
-use nu_protocol::engine::StateWorkingSet;
-use nu_protocol::PipelineData;
 use nu_protocol::{Span as NuSpan, Value};
 
 use scru128::Scru128Id;
@@ -21,10 +16,8 @@ use scru128::Scru128Id;
 use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
-use crate::nu::frame_to_value;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
-use crate::thread_pool::ThreadPool;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Meta {
@@ -62,11 +55,10 @@ pub struct Handler {
     pub id: Scru128Id,
     pub topic: String,
     pub meta: Meta,
-    pub engine: nu::Engine,
-    pub closure: nu_protocol::engine::Closure,
     pub stateful: bool,
     pub state: Option<Value>,
     pub state_frame_id: Option<Scru128Id>,
+    engine_worker: Arc<EngineWorker>,
     output: Arc<Mutex<Vec<Frame>>>,
 }
 
@@ -164,19 +156,204 @@ impl Handler {
             }
         };
 
+        let engine_worker = Arc::new(EngineWorker::new(engine, closure));
+
         Ok(Self {
             id,
             topic,
             meta: meta.clone(),
-            engine,
-            closure,
             stateful,
             state: meta
                 .initial_state
                 .map(|state| crate::nu::util::json_to_value(&state, NuSpan::unknown())),
             state_frame_id: None,
+            engine_worker,
             output,
         })
+    }
+
+    pub async fn eval_in_thread(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
+        self.engine_worker
+            .eval(frame.clone(), self.state.clone())
+            .await
+    }
+
+    #[instrument(
+        level = "info",
+        skip(self, frame, store),
+        fields(
+            message = %format!(
+                "handler={}:{} frame={}:{}",
+                self.id, self.topic, frame.id, frame.topic)
+        )
+    )]
+    async fn process_frame(&mut self, frame: &Frame, store: &Store) -> Result<(), Error> {
+        let frame_clone = frame.clone();
+
+        let value = self.eval_in_thread(&frame_clone).await?;
+
+        // Check if the evaluated value is an append frame
+        let additional_frame =
+            if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
+                let return_options = self.meta.return_options.as_ref();
+                let suffix = return_options
+                    .and_then(|ro| ro.suffix.as_deref())
+                    .unwrap_or(".out");
+
+                let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
+                Some(
+                    Frame::with_topic(format!("{}{}", self.topic, suffix))
+                        .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
+                        .maybe_hash(Some(hash))
+                        .build(),
+                )
+            } else {
+                None
+            };
+
+        // Process buffered appends and the additional frame
+        let output_to_process: Vec<_> = {
+            let mut output = self.output.lock().unwrap();
+            output
+                .drain(..)
+                .chain(additional_frame.into_iter())
+                .collect()
+        };
+
+        for mut output_frame in output_to_process {
+            let meta_obj = output_frame
+                .meta
+                .get_or_insert_with(|| serde_json::Value::Object(Default::default()))
+                .as_object_mut()
+                .expect("meta should be an object");
+
+            meta_obj.insert(
+                "handler_id".to_string(),
+                serde_json::Value::String(self.id.to_string()),
+            );
+            meta_obj.insert(
+                "frame_id".to_string(),
+                serde_json::Value::String(frame.id.to_string()),
+            );
+
+            if self.stateful {
+                if let Some(state_id) = self.state_frame_id {
+                    meta_obj.insert(
+                        "state_id".to_string(),
+                        serde_json::Value::String(state_id.to_string()),
+                    );
+                }
+            }
+
+            let output_frame = store.append(output_frame);
+
+            // Update state if the appended frame is a state frame
+            if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
+                if let Some(hash) = &output_frame.hash {
+                    let content = store.cas_read(hash).await.unwrap();
+                    let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
+                    let new_state = crate::nu::util::json_to_value(&json_value, NuSpan::unknown());
+                    self.state = Some(new_state);
+                    self.state_frame_id = Some(output_frame.id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_value_an_append_frame(&self, value: &Value) -> bool {
+        value
+            .as_record()
+            .ok()
+            // Ensure required fields exist
+            .filter(|record| record.get("id").is_some() && record.get("topic").is_some())
+            // Chain through meta field and handler_id check
+            .and_then(|record| record.get("meta"))
+            .and_then(|meta| meta.as_record().ok())
+            .and_then(|meta_record| meta_record.get("handler_id"))
+            .and_then(|id| id.as_str().ok())
+            .filter(|id| *id == self.id.to_string())
+            .is_some()
+    }
+
+    async fn serve(&mut self, store: &Store, options: ReadOptions) {
+        let mut recver = store.read(options).await;
+
+        while let Some(frame) = recver.recv().await {
+            // Skip registration activity that occurred before this handler was registered
+            if (frame.topic == format!("{}.register", self.topic)
+                || frame.topic == format!("{}.unregister", self.topic))
+                && frame.id <= self.id
+            {
+                continue;
+            }
+
+            if frame.topic == format!("{}.register", &self.topic)
+                || frame.topic == format!("{}.unregister", &self.topic)
+            {
+                let _ = store.append(
+                    Frame::with_topic(format!("{}.unregistered", &self.topic))
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .build(),
+                );
+                break;
+            }
+
+            // Skip frames that were generated by this handler
+            if frame
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get("handler_id"))
+                .and_then(|handler_id| handler_id.as_str())
+                .filter(|handler_id| *handler_id == self.id.to_string())
+                .is_some()
+            {
+                continue;
+            }
+
+            if let Err(err) = self.process_frame(&frame, store).await {
+                let _ = store.append(
+                    Frame::with_topic(format!("{}.unregistered", self.topic))
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                            "error": err.to_string(),
+                        }))
+                        .build(),
+                );
+                break;
+            }
+        }
+    }
+
+    pub async fn spawn(&self, store: Store) -> Result<(), Error> {
+        let options = self.configure_read_options(&store).await;
+
+        {
+            let store = store.clone();
+            let options = options.clone();
+            let mut handler = self.clone();
+
+            tokio::spawn(async move {
+                handler.serve(&store, options).await;
+            });
+        }
+
+        let _ = store.append(
+            Frame::with_topic(format!("{}.registered", &self.topic))
+                .meta(serde_json::json!({
+                    "handler_id": self.id.to_string(),
+                    "tail": options.tail,
+                    "last_id": options.last_id.map(|id| id.to_string()),
+                }))
+                .build(),
+        );
+
+        Ok(())
     }
 
     pub async fn from_frame(
@@ -236,245 +413,6 @@ impl Handler {
         Ok(handler)
     }
 
-    pub async fn eval_in_thread(
-        &self,
-        pool: &ThreadPool,
-        frame: &crate::store::Frame,
-    ) -> Result<Value, Error> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let handler = self.clone();
-        let frame = frame.clone();
-
-        pool.execute(move || {
-            let result = handler.eval(&frame);
-            let _ = tx.send(result);
-        });
-
-        rx.await.unwrap()
-    }
-
-    fn is_value_an_append_frame(&self, value: &Value) -> bool {
-        value
-            .as_record()
-            .ok()
-            // Ensure required fields exist
-            .filter(|record| record.get("id").is_some() && record.get("topic").is_some())
-            // Chain through meta field and handler_id check
-            .and_then(|record| record.get("meta"))
-            .and_then(|meta| meta.as_record().ok())
-            .and_then(|meta_record| meta_record.get("handler_id"))
-            .and_then(|id| id.as_str().ok())
-            .filter(|id| *id == self.id.to_string())
-            .is_some()
-    }
-
-    #[instrument(
-        level = "info",
-        skip(self, frame, store, pool),
-        fields(
-            message = %format!(
-                "handler={}:{} frame={}:{}",
-                self.id, self.topic, frame.id, frame.topic)
-        )
-    )]
-    async fn process_frame(
-        &mut self,
-        frame: &Frame,
-        store: &Store,
-        pool: &ThreadPool,
-    ) -> Result<(), Error> {
-        let frame_clone = frame.clone();
-
-        let value = self.eval_in_thread(pool, &frame_clone).await?;
-
-        // Check if the evaluated value is an append frame
-        let additional_frame =
-            if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
-                let return_options = self.meta.return_options.as_ref();
-                let suffix = return_options
-                    .and_then(|ro| ro.suffix.as_deref())
-                    .unwrap_or(".out");
-
-                let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
-                Some(
-                    Frame::with_topic(format!("{}{}", self.topic, suffix))
-                        .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
-                        .maybe_hash(Some(hash))
-                        .build(),
-                )
-            } else {
-                None
-            };
-
-        // Process buffered appends and the additional frame
-        let output_to_process: Vec<_> = {
-            let mut output = self.output.lock().unwrap();
-            output
-                .drain(..)
-                .chain(additional_frame.into_iter())
-                .collect()
-        };
-
-        // TODO: we should put these appends into a single batch
-        // /cc @marvin_j97 for thoughts
-        for mut output_frame in output_to_process {
-            let meta_obj = output_frame
-                .meta
-                .get_or_insert_with(|| serde_json::Value::Object(Default::default()))
-                .as_object_mut()
-                .expect("meta should be an object");
-
-            meta_obj.insert(
-                "handler_id".to_string(),
-                serde_json::Value::String(self.id.to_string()),
-            );
-            meta_obj.insert(
-                "frame_id".to_string(),
-                serde_json::Value::String(frame.id.to_string()),
-            );
-
-            if self.stateful {
-                if let Some(state_id) = self.state_frame_id {
-                    meta_obj.insert(
-                        "state_id".to_string(),
-                        serde_json::Value::String(state_id.to_string()),
-                    );
-                }
-            }
-
-            let output_frame = store.append(output_frame);
-
-            // Update state if the appended frame is a state frame
-            if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
-                if let Some(hash) = &output_frame.hash {
-                    let content = store.cas_read(hash).await.unwrap();
-                    let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
-                    let new_state = crate::nu::util::json_to_value(&json_value, NuSpan::unknown());
-                    self.state = Some(new_state);
-                    self.state_frame_id = Some(output_frame.id);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn spawn(&self, store: Store, pool: ThreadPool) -> Result<(), Error> {
-        let options = self.configure_read_options(&store).await;
-
-        {
-            let store = store.clone();
-            let options = options.clone();
-            let mut handler = self.clone();
-
-            tokio::spawn(async move {
-                handler.serve(&store, &pool, options).await;
-            });
-        }
-
-        let _ = store.append(
-            Frame::with_topic(format!("{}.registered", &self.topic))
-                .meta(serde_json::json!({
-                    "handler_id": self.id.to_string(),
-                    "tail": options.tail,
-                    "last_id": options.last_id.map(|id| id.to_string()),
-                }))
-                .build(),
-        );
-
-        Ok(())
-    }
-
-    async fn serve(&mut self, store: &Store, pool: &ThreadPool, options: ReadOptions) {
-        let mut recver = store.read(options).await;
-
-        while let Some(frame) = recver.recv().await {
-            // Skip registration activity that occurred before this handler was registered
-            if (frame.topic == format!("{}.register", self.topic)
-                || frame.topic == format!("{}.unregister", self.topic))
-                && frame.id <= self.id
-            {
-                continue;
-            }
-
-            if frame.topic == format!("{}.register", &self.topic)
-                || frame.topic == format!("{}.unregister", &self.topic)
-            {
-                let _ = store.append(
-                    Frame::with_topic(format!("{}.unregistered", &self.topic))
-                        .meta(serde_json::json!({
-                            "handler_id": self.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                        }))
-                        .build(),
-                );
-                break;
-            }
-
-            // Skip frames that were generated by this handler
-            if frame
-                .meta
-                .as_ref()
-                .and_then(|meta| meta.get("handler_id"))
-                .and_then(|handler_id| handler_id.as_str())
-                .filter(|handler_id| *handler_id == self.id.to_string())
-                .is_some()
-            {
-                continue;
-            }
-
-            if let Err(err) = self.process_frame(&frame, store, pool).await {
-                let _ = store.append(
-                    Frame::with_topic(format!("{}.unregistered", self.topic))
-                        .meta(serde_json::json!({
-                            "handler_id": self.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                            "error": err.to_string(),
-                        }))
-                        .build(),
-                );
-                break;
-            }
-        }
-    }
-
-    fn eval(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
-        // assert output is empty as a sanity check
-        assert!(self.output.lock().unwrap().is_empty());
-
-        let mut stack = Stack::new();
-        let block = self.engine.state.get_block(self.closure.block_id);
-
-        // First arg is always frame
-        let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
-        stack.add_var(frame_var_id, frame_to_value(frame, NuSpan::unknown()));
-
-        // Second arg is state if stateful
-        if self.stateful {
-            let state_var_id = block.signature.required_positional[1].var_id.unwrap();
-            stack.add_var(
-                state_var_id,
-                self.state
-                    .clone()
-                    .unwrap_or(Value::nothing(NuSpan::unknown())),
-            );
-        }
-
-        let output = eval_block_with_early_return::<WithoutDebug>(
-            &self.engine.state,
-            &mut stack,
-            block,
-            PipelineData::empty(), // no pipeline input, using args
-        );
-
-        Ok(output
-            .map_err(|err| {
-                let working_set = StateWorkingSet::new(&self.engine.state);
-                nu_protocol::format_shell_error(&working_set, &err)
-            })?
-            .into_value(NuSpan::unknown())?)
-    }
-
     pub async fn configure_read_options(&self, store: &Store) -> ReadOptions {
         // Determine last_id based on StartFrom
         let (last_id, is_tail) = match &self.meta.start {
@@ -515,5 +453,102 @@ impl Handler {
             .tail(is_tail)
             .maybe_last_id(last_id)
             .build()
+    }
+}
+
+// use crate::error::Error;
+// use crate::nu;
+// use crate::store::Frame;
+// use nu_protocol::Value;
+use tokio::sync::{mpsc, oneshot};
+
+pub struct EngineWorker {
+    work_tx: mpsc::Sender<WorkItem>,
+}
+
+struct WorkItem {
+    frame: Frame,
+    state: Option<Value>,
+    resp_tx: oneshot::Sender<Result<Value, Error>>,
+}
+
+impl EngineWorker {
+    pub fn new(engine: nu::Engine, closure: nu_protocol::engine::Closure) -> Self {
+        let (work_tx, mut work_rx) = mpsc::channel(32);
+
+        std::thread::spawn(move || {
+            let mut engine = engine;
+
+            while let Some(WorkItem {
+                frame,
+                state,
+                resp_tx,
+            }) = work_rx.blocking_recv()
+            {
+                let mut stack = nu_protocol::engine::Stack::new();
+                let block = engine.state.get_block(closure.block_id);
+
+                let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
+                stack.add_var(
+                    frame_var_id,
+                    crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown()),
+                );
+
+                if block.signature.required_positional.len() > 1 {
+                    let state_var_id = block.signature.required_positional[1].var_id.unwrap();
+                    stack.add_var(
+                        state_var_id,
+                        state.unwrap_or_else(|| Value::nothing(nu_protocol::Span::unknown())),
+                    );
+                }
+
+                let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+
+                let result =
+                    nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
+                        &engine.state,
+                        &mut stack,
+                        block,
+                        nu_protocol::PipelineData::empty(),
+                    );
+
+                let delta = working_set.render();
+                let _ = engine.state.merge_delta(delta);
+                let _ = engine.state.merge_env(&mut stack);
+
+                let output = result
+                    .map_err(|err| {
+                        let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+                        Error::from(nu_protocol::format_shell_error(&working_set, &err))
+                    })
+                    .and_then(|pipeline_data| {
+                        pipeline_data
+                            .into_value(nu_protocol::Span::unknown())
+                            .map_err(Error::from)
+                    });
+
+                let _ = resp_tx.send(output);
+            }
+        });
+
+        Self { work_tx }
+    }
+
+    pub async fn eval(&self, frame: Frame, state: Option<Value>) -> Result<Value, Error> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let work_item = WorkItem {
+            frame,
+            state,
+            resp_tx,
+        };
+
+        self.work_tx
+            .send(work_item)
+            .await
+            .map_err(|_| Error::from("Engine worker thread has terminated"))?;
+
+        resp_rx
+            .await
+            .map_err(|_| Error::from("Engine worker thread has terminated"))?
     }
 }

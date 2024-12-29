@@ -23,7 +23,6 @@ use crate::handlers::{Handler, Meta};
 use crate::listener::Listener;
 use crate::nu;
 use crate::store::{self, Frame, ReadOptions, Store, TTL};
-use crate::thread_pool::ThreadPool;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -117,7 +116,6 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 async fn handle(
     mut store: Store,
     engine: nu::Engine,
-    pool: ThreadPool,
     req: Request<hyper::body::Incoming>,
 ) -> HTTPResult {
     let method = req.method();
@@ -158,7 +156,7 @@ async fn handle(
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
         Routes::ProcessPost(id) => {
-            handle_process_post(&mut store, engine, pool.clone(), id, req.into_body()).await
+            handle_process_post(&mut store, engine, id, req.into_body()).await
         }
 
         Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
@@ -270,7 +268,7 @@ async fn handle_stream_append(
 
 #[instrument(
    level = "info",
-   skip(store, engine, pool, body),
+   skip(store, engine, body),
    fields(
        frame_id = %id,
    )
@@ -278,7 +276,6 @@ async fn handle_stream_append(
 async fn handle_process_post(
     store: &mut Store,
     engine: nu::Engine,
-    pool: ThreadPool,
     id: Scru128Id,
     body: hyper::body::Incoming,
 ) -> HTTPResult {
@@ -296,7 +293,7 @@ async fn handle_process_post(
         )
         .await?;
 
-        let value = handler.eval_in_thread(&pool, &frame).await?;
+        let value = handler.eval_in_thread(&frame).await?;
 
         let json = nu::value_to_json(&value);
         let bytes = serde_json::to_vec(&json)?;
@@ -346,7 +343,6 @@ async fn handle_version() -> HTTPResult {
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
-    pool: ThreadPool,
     expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = store.append(
@@ -368,8 +364,7 @@ pub async fn serve(
     for listener in listeners {
         let store = store.clone();
         let engine = engine.clone();
-        let pool = pool.clone();
-        let task = tokio::spawn(async move { listener_loop(listener, store, engine, pool).await });
+        let task = tokio::spawn(async move { listener_loop(listener, store, engine).await });
         tasks.push(task);
     }
 
@@ -386,19 +381,17 @@ async fn listener_loop(
     mut listener: Listener,
     store: Store,
     engine: nu::Engine,
-    pool: ThreadPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let store = store.clone();
         let engine = engine.clone();
-        let pool = pool.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_fn(move |req| handle(store.clone(), engine.clone(), pool.clone(), req)),
+                    service_fn(move |req| handle(store.clone(), engine.clone(), req)),
                 )
                 .await
             {

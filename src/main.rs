@@ -7,7 +7,6 @@ use tokio::io::AsyncWriteExt;
 
 use xs::nu;
 use xs::store::{parse_ttl, Store};
-use xs::thread_pool::ThreadPool;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -189,7 +188,6 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     tracing::trace!("Starting server with path: {:?}", args.path);
 
     let store = Store::new(args.path);
-    let pool = ThreadPool::new(10);
     let engine = nu::Engine::new()?;
 
     {
@@ -210,9 +208,8 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     {
         let store = store.clone();
         let engine = engine.clone();
-        let pool = pool.clone();
         tokio::spawn(async move {
-            let _ = xs::handlers::serve(store, engine, pool).await;
+            let _ = xs::handlers::serve(store, engine).await;
         });
     }
 
@@ -224,8 +221,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     }
 
     // TODO: graceful shutdown
-    xs::api::serve(store, engine.clone(), pool.clone(), args.expose).await?;
-    pool.wait_for_completion();
+    xs::api::serve(store, engine.clone(), args.expose).await?;
 
     Ok(())
 }
