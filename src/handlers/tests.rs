@@ -747,14 +747,24 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
+    let _ = store.append(
+        Frame::with_topic("abc.init")
+            .hash(store.cas_insert(r#"42"#).await.unwrap())
+            .build(),
+    );
+    assert_eq!(recver.recv().await.unwrap().topic, "abc.init");
+
     let frame_handler = store.append(
         Frame::with_topic("test.register")
             .hash(store.cas_insert_sync(
-                r#"{|frame|
-                               if $frame.topic != "trigger" { return }
-                               $env.abc = $env | default 0 abc | get abc | $in + 1
-                               $env.abc
-                           }"#,
+                r#"
+                    $env.abc = .head abc.init | .cas $in.hash | from json
+                    {|frame|
+                        if $frame.topic != "trigger" { return }
+                        $env.abc = $env | default 0 abc | get abc | $in + 1
+                        $env.abc
+                    }
+                    "#,
             )?)
             .build(),
     );
@@ -774,7 +784,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     // Verify output content shows the env var value
     let content = store.cas_read(&output.hash.unwrap()).await?;
     let result = String::from_utf8(content)?;
-    assert_eq!(result, "1");
+    assert_eq!(result, "43");
 
     // Send trigger frame
     let trigger = store.append(Frame::with_topic("trigger").build());
@@ -787,7 +797,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     // Verify output content shows the env var value
     let content = store.cas_read(&output.hash.unwrap()).await?;
     let result = String::from_utf8(content)?;
-    assert_eq!(result, "2");
+    assert_eq!(result, "44");
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
