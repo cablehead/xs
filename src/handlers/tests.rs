@@ -115,7 +115,7 @@ async fn test_register_invalid_closure() {
             .hash(
                 store
                     .cas_insert(
-                        r#"{|| 42 }"#, // Invalid closure, expects at least one argument
+                        r#"{process: {|| 42}}"#, // Invalid closure, expects at least one argument
                     )
                     .await
                     .unwrap(),
@@ -157,11 +157,7 @@ async fn test_no_self_loop() {
         Frame::with_topic("echo.register")
             .hash(
                 store
-                    .cas_insert(
-                        r#"{|frame|
-                            $frame
-                        }"#,
-                    )
+                    .cas_insert(r#"{process: {|frame| $frame}}"#)
                     .await
                     .unwrap(),
             )
@@ -211,10 +207,13 @@ async fn test_essentials() {
         .hash(
             store
                 .cas_insert(
-                    r#"{|frame|
-                           if $frame.topic != "pew" { return }
-                           "processed"
-                       }"#,
+                    r#"
+                    {
+                      process: {|frame|
+                        if $frame.topic != "pew" { return }
+                        "processed"
+                      }
+                    }"#,
                 )
                 .await
                 .unwrap(),
@@ -303,10 +302,10 @@ async fn test_unregister_on_error() {
             .hash(
                 store
                     .cas_insert(
-                        r#"{|frame|
+                        r#"{process: {|frame|
                                let x = {"foo": null}
                                $x.foo.bar  # Will error at runtime - null access
-                           }"#,
+                           }}"#,
                     )
                     .await
                     .unwrap(),
@@ -344,10 +343,10 @@ async fn test_return_options() {
         .hash(
             store
                 .cas_insert(
-                    r#"{|frame|
+                    r#"{process: {|frame|
                         if $frame.topic != "ping" { return }
                         "pong"
-                    }"#,
+                    }}"#,
                 )
                 .await
                 .unwrap(),
@@ -414,12 +413,14 @@ async fn test_custom_append() {
         .hash(
             store
                 .cas_insert(
-                    r#"{|frame|
-                               if $frame.topic != "trigger" { return }
-                               "1" | .append topic1 --meta {"t": "1"}
-                               "2" | .append topic2 --meta {"t": "2"}
-                               "out"
-                           }"#,
+                    r#"{
+                      process: {|frame|
+                       if $frame.topic != "trigger" { return }
+                       "1" | .append topic1 --meta {"t": "1"}
+                       "2" | .append topic2 --meta {"t": "2"}
+                       "out"
+                       }
+                    }"#,
                 )
                 .await
                 .unwrap(),
@@ -460,10 +461,10 @@ async fn test_handler_replacement() {
             .hash(
                 store
                     .cas_insert(
-                        r#"{|frame|
+                        r#"{process: {|frame|
                         if $frame.topic != "trigger" { return }
                         "handler1"
-                    }"#,
+                    }}"#,
                     )
                     .await
                     .unwrap(),
@@ -480,10 +481,10 @@ async fn test_handler_replacement() {
             .hash(
                 store
                     .cas_insert(
-                        r#"{|frame|
+                        r#"{process: {|frame|
                         if $frame.topic != "trigger" { return }
                         "handler2"
-                    }"#,
+                    }}"#,
                     )
                     .await
                     .unwrap(),
@@ -545,10 +546,12 @@ async fn test_handler_with_module() -> Result<(), Error> {
             .hash(
                 store
                     .cas_insert(
-                        r#"{|frame|
-                        if $frame.topic != "trigger" { return }
-                        mymod add_nums 40 2
-                    }"#,
+                        r#"{
+                            process: {|frame|
+                                if $frame.topic != "trigger" { return }
+                                mymod add_nums 40 2
+                            }
+                        }"#,
                     )
                     .await?,
             )
@@ -600,10 +603,12 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
             .hash(store.cas_insert_sync(
                 r#"
                     $env.abc = .head abc.init | .cas $in.hash | from json
-                    {|frame|
-                        if $frame.topic != "trigger" { return }
-                        $env.abc = $env | default 0 abc | get abc | $in + 1
-                        $env.abc
+                    {
+                        process: {|frame|
+                            if $frame.topic != "trigger" { return }
+                            $env.abc = $env | default 0 abc | get abc | $in + 1
+                            $env.abc
+                        }
                     }
                     "#,
             )?)

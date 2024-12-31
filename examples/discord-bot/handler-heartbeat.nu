@@ -69,7 +69,8 @@ $env.state = {
 
 $env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
 
-{|frame|
+{
+  process: {|frame|
     # https://discord.com/developers/docs/topics/gateway#list-of-intents
     # GUILDS, GUILD_MEMBERS, GUILD_MESSAGES, GUILD_MESSAGE_REACTIONS, MESSAGE_CONTENT
     let IDENTIFY_INTENTS = 34307
@@ -153,4 +154,5 @@ $env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
             # ignore
         }
     }
+  }
 }

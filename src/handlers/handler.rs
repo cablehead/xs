@@ -106,7 +106,8 @@ impl Handler {
             }
         }
 
-        let closure = engine.parse_closure(&expression)?;
+        let closure = parse_handler_configuration_script(&mut engine, &expression)?;
+
         let block = engine.state.get_block(closure.block_id);
 
         // Validate closure has exactly one arg
@@ -455,4 +456,38 @@ fn is_value_an_append_frame_from_handler(value: &Value, handler_id: &Scru128Id) 
         .and_then(|id| id.as_str().ok())
         .filter(|id| *id == handler_id.to_string())
         .is_some()
+}
+
+use nu_engine::eval_block_with_early_return;
+use nu_parser::parse;
+use nu_protocol::debugger::WithoutDebug;
+use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
+use nu_protocol::PipelineData;
+
+fn parse_handler_configuration_script(
+    engine: &mut nu::Engine,
+    script: &str,
+) -> Result<Closure, Error> {
+    let mut working_set = StateWorkingSet::new(&engine.state);
+    let block = parse(&mut working_set, None, script.as_bytes(), false);
+    engine.state.merge_delta(working_set.render())?;
+
+    let mut stack = Stack::new();
+    let result = eval_block_with_early_return::<WithoutDebug>(
+        &engine.state,
+        &mut stack,
+        &block,
+        PipelineData::empty(),
+    )?;
+
+    let config = result.into_value(nu_protocol::Span::unknown())?;
+    let process = config
+        .get_data_by_key("process")
+        .ok_or("No 'process' field found in handler configuration")?
+        .into_closure()?;
+    // let meta = // TODO: Parse other config fields into Meta struct
+
+    engine.state.merge_env(&mut stack)?;
+
+    Ok(process)
 }
