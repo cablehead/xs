@@ -150,23 +150,24 @@ impl Handler {
         let value = self.eval_in_thread(&frame_clone).await?;
 
         // Check if the evaluated value is an append frame
-        let additional_frame =
-            if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
-                let return_options = self.meta.return_options.as_ref();
-                let suffix = return_options
-                    .and_then(|ro| ro.suffix.as_deref())
-                    .unwrap_or(".out");
+        let additional_frame = if !is_value_an_append_frame_from_handler(&value, &self.id)
+            && !matches!(value, Value::Nothing { .. })
+        {
+            let return_options = self.meta.return_options.as_ref();
+            let suffix = return_options
+                .and_then(|ro| ro.suffix.as_deref())
+                .unwrap_or(".out");
 
-                let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
-                Some(
-                    Frame::with_topic(format!("{}{}", self.topic, suffix))
-                        .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
-                        .maybe_hash(Some(hash))
-                        .build(),
-                )
-            } else {
-                None
-            };
+            let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
+            Some(
+                Frame::with_topic(format!("{}{}", self.topic, suffix))
+                    .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
+                    .maybe_hash(Some(hash))
+                    .build(),
+            )
+        } else {
+            None
+        };
 
         // Process buffered appends and the additional frame
         let output_to_process: Vec<_> = {
@@ -197,21 +198,6 @@ impl Handler {
         }
 
         Ok(())
-    }
-
-    fn is_value_an_append_frame(&self, value: &Value) -> bool {
-        value
-            .as_record()
-            .ok()
-            // Ensure required fields exist
-            .filter(|record| record.get("id").is_some() && record.get("topic").is_some())
-            // Chain through meta field and handler_id check
-            .and_then(|record| record.get("meta"))
-            .and_then(|meta| meta.as_record().ok())
-            .and_then(|meta_record| meta_record.get("handler_id"))
-            .and_then(|id| id.as_str().ok())
-            .filter(|id| *id == self.id.to_string())
-            .is_some()
     }
 
     async fn serve(&mut self, store: &Store, options: ReadOptions) {
@@ -456,4 +442,17 @@ impl EngineWorker {
             .await
             .map_err(|_| Error::from("Engine worker thread has terminated"))?
     }
+}
+
+fn is_value_an_append_frame_from_handler(value: &Value, handler_id: &Scru128Id) -> bool {
+    value
+        .as_record()
+        .ok()
+        .filter(|record| record.get("id").is_some() && record.get("topic").is_some())
+        .and_then(|record| record.get("meta"))
+        .and_then(|meta| meta.as_record().ok())
+        .and_then(|meta_record| meta_record.get("handler_id"))
+        .and_then(|id| id.as_str().ok())
+        .filter(|id| *id == handler_id.to_string())
+        .is_some()
 }
