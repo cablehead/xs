@@ -10,7 +10,7 @@ making the process feel alive. `xs` encourages experimentation, allowing you to
 make messes and explore freely—then gives you tools to organize and make sense
 of it all.
 
-![overview](./docs/overview.png)
+![overview](./notes/overview.png)
 
 > "You don't so much run it, as poke _at_ it."
 
