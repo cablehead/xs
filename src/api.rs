@@ -40,7 +40,6 @@ enum Routes {
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
-    ProcessPost(Scru128Id),
     HeadGet(String),
     Import,
     Version,
@@ -57,15 +56,6 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
                 _ => AcceptType::Ndjson,
             };
             Routes::StreamCat(accept_type)
-        }
-
-        (&Method::POST, p) if p.starts_with("/process/") => {
-            if let Some(id_str) = p.strip_prefix("/process/") {
-                if let Ok(id) = Scru128Id::from_str(id_str) {
-                    return Routes::ProcessPost(id);
-                }
-            }
-            Routes::NotFound
         }
 
         (&Method::GET, p) if p.starts_with("/head/") => {
@@ -115,7 +105,7 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 
 async fn handle(
     mut store: Store,
-    engine: nu::Engine,
+    _engine: nu::Engine, // TODO: potentially vestigial, will .process come back?
     req: Request<hyper::body::Incoming>,
 ) -> HTTPResult {
     let method = req.method();
@@ -154,10 +144,6 @@ async fn handle(
         Routes::StreamItemGet(id) => response_frame_or_404(store.get(&id)),
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
-
-        Routes::ProcessPost(id) => {
-            handle_process_post(&mut store, engine, id, req.into_body()).await
-        }
 
         Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
 
