@@ -26,7 +26,6 @@ pub struct Meta {
     pub start: StartFrom,
     pub return_options: Option<ReturnOptions>,
     pub modules: Option<HashMap<String, String>>, // module_name -> frame_id
-    pub with_env: Option<HashMap<String, String>>, // env_var -> frame_id
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -104,36 +103,6 @@ impl Handler {
                 engine
                     .add_module(name, &content)
                     .map_err(|e| format!("Failed to load module '{}': {}", name, e))?;
-            }
-        }
-
-        // Handle environment variables if specified
-        if let Some(env_vars) = &meta.with_env {
-            for (var_name, frame_id) in env_vars {
-                // Parse frame ID
-                let id = Scru128Id::from_str(frame_id)
-                    .map_err(|e| format!("Invalid env var frame ID '{}': {}", frame_id, e))?;
-
-                // Get frame
-                let env_frame = store
-                    .get(&id)
-                    .ok_or_else(|| format!("Env var frame '{}' not found", frame_id))?;
-
-                // Get content from CAS
-                let hash = env_frame
-                    .hash
-                    .as_ref()
-                    .ok_or_else(|| format!("Env var frame '{}' has no content hash", frame_id))?;
-
-                let content = store
-                    .cas_read(hash)
-                    .await
-                    .map_err(|e| format!("Failed to read env var content: {}", e))?;
-
-                let content = String::from_utf8(content)
-                    .map_err(|e| format!("Env var content is not valid UTF-8: {}", e))?;
-
-                engine = engine.with_env_vars([(var_name.clone(), content)])?;
             }
         }
 
