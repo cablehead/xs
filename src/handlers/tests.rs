@@ -134,7 +134,7 @@ async fn test_register_invalid_closure() {
         recver.recv().await.unwrap(), {
         topic: "invalid.unregistered",
         handler: frame_handler,
-        error: "Closure must accept 1 or 2 arguments",
+        error: "Closure must accept exactly one frame argument, found 0",
     });
 
     assert_no_more_frames(&mut recver).await;
@@ -326,108 +326,6 @@ async fn test_unregister_on_error() {
         trigger: &frame_trigger,
         error: "nothing doesn't support cell paths",
     });
-
-    assert_no_more_frames(&mut recver).await;
-}
-
-#[tokio::test]
-async fn test_state() {
-    let (store, _temp_dir) = setup_test_environment().await;
-
-    let handler_proto = Frame::with_topic("counter.register")
-        .hash(
-            store
-                .cas_insert(
-                    r#"{|frame, state|
-                            if $frame.topic != "count.me" { return }
-                            mut state = $state
-                            $state.count += 1
-                            # note that the return value here is ignored
-                            $state | .append counter.state
-                           }"#,
-                )
-                .await
-                .unwrap(),
-        )
-        .meta(serde_json::json!({
-            "initial_state": { "count": 0 },
-            "start": {"cursor": "counter.state"}
-        }))
-        .build();
-
-    let frame_handler = store.append(handler_proto.clone());
-
-    let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
-
-    assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
-    assert_eq!(recver.recv().await.unwrap().topic, "counter.registered");
-
-    let _ = store.append(Frame::with_topic("topic1").build());
-    let frame_count1 = store.append(Frame::with_topic("count.me").build());
-    assert_eq!(recver.recv().await.unwrap().topic, "topic1".to_string());
-    assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
-
-    let frame_state_1 = recver.recv().await.unwrap();
-    validate_handler_output_frame!(
-        frame_state_1.clone(),
-        "counter.state",
-        frame_handler,
-        frame_count1,
-        None
-    );
-    let content = store
-        .cas_read(&frame_state_1.clone().hash.unwrap())
-        .await
-        .unwrap();
-    let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
-    assert_eq!(value, serde_json::json!({"count": 1}));
-
-    let frame_count2 = store.append(Frame::with_topic("count.me").build());
-    assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
-
-    let frame_state_2 = recver.recv().await.unwrap();
-    validate_handler_output_frame!(
-        frame_state_2.clone(),
-        "counter.state",
-        frame_handler,
-        frame_count2,
-        Some(&frame_state_1)
-    );
-    let content = store
-        .cas_read(&frame_state_2.clone().hash.unwrap())
-        .await
-        .unwrap();
-    let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
-    assert_eq!(value, serde_json::json!({"count": 2}));
-
-    // Unregister the handler
-    store.append(Frame::with_topic("counter.unregister").build());
-    assert_eq!(recver.recv().await.unwrap().topic, "counter.unregister");
-    assert_eq!(recver.recv().await.unwrap().topic, "counter.unregistered");
-
-    // Re-register the handler
-    let frame_handler2 = store.append(handler_proto.clone());
-
-    assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "counter.registered");
-
-    // Send another count.me frame
-    let frame_count3 = store.append(Frame::with_topic("count.me").build());
-    assert_eq!(recver.recv().await.unwrap().topic, "count.me".to_string());
-
-    let frame_state_3 = recver.recv().await.unwrap();
-    validate_handler_output_frame!(
-        frame_state_3.clone(),
-        "counter.state",
-        frame_handler2,
-        frame_count3,
-        Some(&frame_state_2)
-    );
-    let content = store.cas_read(&frame_state_3.hash.unwrap()).await.unwrap();
-    let value = serde_json::from_slice::<serde_json::Value>(&content).unwrap();
-    assert_eq!(value, serde_json::json!({"count": 3}));
 
     assert_no_more_frames(&mut recver).await;
 }

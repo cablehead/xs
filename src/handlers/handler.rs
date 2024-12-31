@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use tokio::io::AsyncReadExt;
 
-use nu_protocol::{Span as NuSpan, Value};
+use nu_protocol::Value;
 
 use scru128::Scru128Id;
 
@@ -21,7 +21,6 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Meta {
-    pub initial_state: Option<serde_json::Value>,
     pub pulse: Option<u64>,
     #[serde(default)]
     pub start: StartFrom,
@@ -55,9 +54,6 @@ pub struct Handler {
     pub id: Scru128Id,
     pub topic: String,
     pub meta: Meta,
-    pub stateful: bool,
-    pub state: Option<Value>,
-    pub state_frame_id: Option<Scru128Id>,
     engine_worker: Arc<EngineWorker>,
     output: Arc<Mutex<Vec<Frame>>>,
 }
@@ -144,17 +140,16 @@ impl Handler {
         let closure = engine.parse_closure(&expression)?;
         let block = engine.state.get_block(closure.block_id);
 
-        // Validate closure has 1 or 2 args and set stateful
+        // Validate closure has exactly one arg
         let arg_count = block.signature.required_positional.len();
-        let stateful = match arg_count {
-            1 => false,
-            2 => true,
-            _ => {
-                return Err(
-                    format!("Closure must accept 1 or 2 arguments, found {}", arg_count).into(),
-                )
-            }
-        };
+
+        if arg_count != 1 {
+            return Err(format!(
+                "Closure must accept exactly one frame argument, found {}",
+                arg_count
+            )
+            .into());
+        }
 
         let engine_worker = Arc::new(EngineWorker::new(engine, closure));
 
@@ -162,20 +157,13 @@ impl Handler {
             id,
             topic,
             meta: meta.clone(),
-            stateful,
-            state: meta
-                .initial_state
-                .map(|state| crate::nu::util::json_to_value(&state, NuSpan::unknown())),
-            state_frame_id: None,
             engine_worker,
             output,
         })
     }
 
     pub async fn eval_in_thread(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
-        self.engine_worker
-            .eval(frame.clone(), self.state.clone())
-            .await
+        self.engine_worker.eval(frame.clone()).await
     }
 
     #[instrument(
@@ -236,27 +224,7 @@ impl Handler {
                 serde_json::Value::String(frame.id.to_string()),
             );
 
-            if self.stateful {
-                if let Some(state_id) = self.state_frame_id {
-                    meta_obj.insert(
-                        "state_id".to_string(),
-                        serde_json::Value::String(state_id.to_string()),
-                    );
-                }
-            }
-
-            let output_frame = store.append(output_frame);
-
-            // Update state if the appended frame is a state frame
-            if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
-                if let Some(hash) = &output_frame.hash {
-                    let content = store.cas_read(hash).await.unwrap();
-                    let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
-                    let new_state = crate::nu::util::json_to_value(&json_value, NuSpan::unknown());
-                    self.state = Some(new_state);
-                    self.state_frame_id = Some(output_frame.id);
-                }
-            }
+            let _ = store.append(output_frame);
         }
 
         Ok(())
@@ -386,7 +354,7 @@ impl Handler {
             .await
             .map_err(|e| format!("Failed to read expression: {}", e))?;
 
-        let mut handler = Handler::new(
+        let handler = Handler::new(
             frame.id,
             topic.to_string(),
             meta,
@@ -395,20 +363,6 @@ impl Handler {
             store.clone(),
         )
         .await?;
-
-        if handler.stateful {
-            if let Some(existing_state) = store.head(&format!("{}.state", topic)) {
-                if let Some(hash) = &existing_state.hash {
-                    let content = store.cas_read(hash).await?;
-                    let json_value: serde_json::Value = serde_json::from_slice(&content)?;
-                    handler.state = Some(crate::nu::util::json_to_value(
-                        &json_value,
-                        NuSpan::unknown(),
-                    ));
-                    handler.state_frame_id = Some(existing_state.id);
-                }
-            }
-        }
 
         Ok(handler)
     }
@@ -468,7 +422,6 @@ pub struct EngineWorker {
 
 struct WorkItem {
     frame: Frame,
-    state: Option<Value>,
     resp_tx: oneshot::Sender<Result<Value, Error>>,
 }
 
@@ -479,12 +432,7 @@ impl EngineWorker {
         std::thread::spawn(move || {
             let mut engine = engine;
 
-            while let Some(WorkItem {
-                frame,
-                state,
-                resp_tx,
-            }) = work_rx.blocking_recv()
-            {
+            while let Some(WorkItem { frame, resp_tx }) = work_rx.blocking_recv() {
                 let mut stack = nu_protocol::engine::Stack::new();
                 let block = engine.state.get_block(closure.block_id);
 
@@ -493,14 +441,6 @@ impl EngineWorker {
                     frame_var_id,
                     crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown()),
                 );
-
-                if block.signature.required_positional.len() > 1 {
-                    let state_var_id = block.signature.required_positional[1].var_id.unwrap();
-                    stack.add_var(
-                        state_var_id,
-                        state.unwrap_or_else(|| Value::nothing(nu_protocol::Span::unknown())),
-                    );
-                }
 
                 let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
 
@@ -534,13 +474,9 @@ impl EngineWorker {
         Self { work_tx }
     }
 
-    pub async fn eval(&self, frame: Frame, state: Option<Value>) -> Result<Value, Error> {
+    pub async fn eval(&self, frame: Frame) -> Result<Value, Error> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        let work_item = WorkItem {
-            frame,
-            state,
-            resp_tx,
-        };
+        let work_item = WorkItem { frame, resp_tx };
 
         self.work_tx
             .send(work_item)
