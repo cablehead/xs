@@ -45,7 +45,6 @@ use xs.nu *
 open examples/discord-bot/handler-heartbeat.nu |
     .append "discord.heartbeat.register" --meta (
         open examples/discord-bot/handler-heartbeat.nuon
-            | insert with_env {BOT_TOKEN: (.head discord.ws.token).id}
 )
 
 # add the discord.nu module for working with discord's REST API
@@ -56,7 +55,6 @@ http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu 
 # for example, to enable a `./roll <n>d<m>` command
 open examples/discord-bot/handler-roller.nu | .append "discord.roller.register" --meta {
     modules: {discord: (.head discord.nu).id},
-    with_env: {BOT_TOKEN: (.head discord.ws.token).id},
 }
 ```
 

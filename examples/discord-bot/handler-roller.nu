@@ -29,6 +29,8 @@ def run-roll [] {
   $content
 }
 
+$env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
+
 {|frame|
   if $frame.topic != "discord.ws.recv" { return }
 

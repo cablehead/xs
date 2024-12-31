@@ -1,17 +1,9 @@
 {
-  initial_state: {
-    s: null,
-    heartbeat_interval: 0,
-    last_sent: null,
-    last_ack: null,
-    authing: null,
-    session_id: null,
-    resume_gateway_url: null
-  },
   pulse: 1000,
+
   start: {after: "discord.ws.start"}
+
   return_options: {
-      suffix: ".state"
       ttl: "ephemeral"
   }
 }
