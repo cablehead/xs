@@ -1,5 +1,0 @@
-{
-  return_options: {
-      ttl: "ephemeral"
-  }
-}

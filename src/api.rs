@@ -3,8 +3,6 @@ use std::str::FromStr;
 
 use scru128::Scru128Id;
 
-use tracing::instrument;
-
 use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
@@ -19,7 +17,6 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use crate::handlers::{Handler, Meta};
 use crate::listener::Listener;
 use crate::nu;
 use crate::store::{self, Frame, ReadOptions, Store, TTL};
@@ -250,46 +247,6 @@ async fn handle_stream_append(
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(full(serde_json::to_string(&frame).unwrap()))?)
-}
-
-#[instrument(
-   level = "info",
-   skip(store, engine, body),
-   fields(
-       frame_id = %id,
-   )
-)]
-async fn handle_process_post(
-    store: &mut Store,
-    engine: nu::Engine,
-    id: Scru128Id,
-    body: hyper::body::Incoming,
-) -> HTTPResult {
-    let bytes = body.collect().await?.to_bytes();
-    let script = std::str::from_utf8(&bytes)?.to_string();
-
-    if let Some(frame) = store.get(&id) {
-        let handler = Handler::new(
-            id,
-            "process".to_string(),
-            Meta::default(),
-            engine.clone(),
-            script,
-            store.clone(),
-        )
-        .await?;
-
-        let value = handler.eval_in_thread(&frame).await?;
-
-        let json = nu::value_to_json(&value);
-        let bytes = serde_json::to_vec(&json)?;
-
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .body(full(bytes))?)
-    } else {
-        response_404()
-    }
 }
 
 async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> HTTPResult {

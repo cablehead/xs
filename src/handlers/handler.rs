@@ -20,12 +20,6 @@ use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct Meta {
-    #[serde(default)]
-    pub return_options: Option<ReturnOptions>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ReturnOptions {
     pub suffix: Option<String>,
     pub ttl: Option<TTL>,
@@ -35,7 +29,6 @@ pub struct ReturnOptions {
 pub struct Handler {
     pub id: Scru128Id,
     pub topic: String,
-    pub meta: Meta,
     config: HandlerConfig,
     engine_worker: Arc<EngineWorker>,
     output: Arc<Mutex<Vec<Frame>>>,
@@ -46,6 +39,7 @@ struct HandlerConfig {
     resume_from: ResumeFrom,
     modules: HashMap<String, String>,
     pulse: Option<u64>,
+    return_options: Option<ReturnOptions>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,7 +60,6 @@ impl Handler {
     pub async fn new(
         id: Scru128Id,
         topic: String,
-        meta: Meta,
         mut engine: nu::Engine,
         expression: String,
         store: Store,
@@ -87,6 +80,7 @@ impl Handler {
                     .add_module(name, content)
                     .map_err(|e| format!("Failed to load module '{}': {}", name, e))?;
             }
+
             // we need to re-parse the expression after loading modules, so that the closure has access
             // to the additional modules: not the best, but I can't see a better way
             (process, config) = parse_handler_configuration_script(&mut engine, &expression)?;
@@ -106,7 +100,6 @@ impl Handler {
         Ok(Self {
             id,
             topic,
-            meta,
             config,
             engine_worker,
             output,
@@ -135,7 +128,7 @@ impl Handler {
         let additional_frame = if !is_value_an_append_frame_from_handler(&value, &self.id)
             && !matches!(value, Value::Nothing { .. })
         {
-            let return_options = self.meta.return_options.as_ref();
+            let return_options = self.config.return_options.as_ref();
             let suffix = return_options
                 .and_then(|ro| ro.suffix.as_deref())
                 .unwrap_or(".out");
@@ -271,13 +264,6 @@ impl Handler {
             .strip_suffix(".register")
             .ok_or("Frame topic must end with .register")?;
 
-        // Parse meta if present, otherwise use default
-        let meta = match &frame.meta {
-            Some(meta_value) => serde_json::from_value::<Meta>(meta_value.clone())
-                .map_err(|e| Error::from(format!("Failed to parse meta: {}", e)))?,
-            None => Meta::default(),
-        };
-
         // Get hash and read expression
         let hash = frame.hash.as_ref().ok_or("Missing hash field")?;
         let mut reader = store
@@ -294,7 +280,6 @@ impl Handler {
         let handler = Handler::new(
             frame.id,
             topic.to_string(),
-            meta,
             engine,
             expression,
             store.clone(),
@@ -475,13 +460,35 @@ fn parse_handler_configuration_script(
         None => HashMap::new(),
     };
 
-    engine.state.merge_env(&mut stack)?;
-
     let pulse = config
         .get_data_by_key("pulse")
         .map(|v| v.as_int().map_err(|_| "pulse must be an integer"))
         .transpose()?
         .map(|n| n as u64);
+
+    let return_options = if let Some(return_config) = config.get_data_by_key("return_options") {
+        let record = return_config
+            .as_record()
+            .map_err(|_| "return must be a record")?;
+
+        let suffix = record
+            .get("suffix")
+            .map(|v| v.as_str().map_err(|_| "suffix must be a string"))
+            .transpose()?
+            .map(String::from);
+
+        let ttl = record
+            .get("ttl")
+            .map(|v| serde_json::from_str(&value_to_json(v).to_string()))
+            .transpose()
+            .map_err(|e| format!("invalid TTL: {}", e))?;
+
+        Some(ReturnOptions { suffix, ttl })
+    } else {
+        None
+    };
+
+    engine.state.merge_env(&mut stack)?;
 
     Ok((
         process,
@@ -489,6 +496,7 @@ fn parse_handler_configuration_script(
             resume_from,
             modules,
             pulse,
+            return_options,
         },
     ))
 }

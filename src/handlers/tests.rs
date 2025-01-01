@@ -343,20 +343,21 @@ async fn test_return_options() {
         .hash(
             store
                 .cas_insert(
-                    r#"{process: {|frame|
+                    r#"{
+                      return_options: {
+                        suffix: ".warble"
+                        ttl: "head:1"
+                      }
+
+                      process: {|frame|
                         if $frame.topic != "ping" { return }
                         "pong"
-                    }}"#,
+                      }
+                    }"#,
                 )
                 .await
                 .unwrap(),
         )
-        .meta(serde_json::json!({
-            "return_options": {
-                "suffix": ".warble",
-                "ttl": "head:1"
-            }
-        }))
         .build();
 
     let frame_handler = store.append(handler_proto);
