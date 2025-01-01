@@ -366,10 +366,6 @@ impl Handler {
     }
 }
 
-// use crate::error::Error;
-// use crate::nu;
-// use crate::store::Frame;
-// use nu_protocol::Value;
 use tokio::sync::{mpsc, oneshot};
 
 pub struct EngineWorker {
