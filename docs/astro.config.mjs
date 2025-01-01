@@ -7,9 +7,10 @@ export default defineConfig({
     base: '/xs/',
 	integrations: [
 		starlight({
-			title: 'cross.stream',
+			title: 'xs',
 			social: {
 				github: 'https://github.com/cablehead/xs',
+				discord: 'https://discord.com/invite/YNbScHBHrh',
 			},
 			sidebar: [
 				{

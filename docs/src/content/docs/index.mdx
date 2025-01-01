@@ -1,36 +1,50 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
+title: "cross-stream"
+description: xs is an event stream store for personal, local-first use. Think of it like sqlite, but specializing in the event sourcing use case.
 template: splash
 hero:
-  tagline: Congrats on setting up a new Starlight project!
-  image:
-    file: ../../assets/houston.webp
+  tagline: "`xs` is an event stream store for personal, local-first use"
   actions:
-    - text: Example Guide
+    - text: Jump to the docs
       link: guides/example/
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
-      icon: external
-      variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Next steps
+<Tabs syncKey="shell">
 
-<CardGrid stagger>
-	<Card title="Update content" icon="pencil">
-		Edit `src/content/docs/index.mdx` to see this page change.
-	</Card>
-	<Card title="Add new content" icon="add-document">
-		Add Markdown or MDX files to `src/content/docs` to create new pages.
-	</Card>
-	<Card title="Configure your site" icon="setting">
-		Edit your `sidebar` and other config in `astro.config.mjs`.
-	</Card>
-	<Card title="Read the docs" icon="open-book">
-		Learn more in [the Starlight Docs](https://starlight.astro.build/).
-	</Card>
-</CardGrid>
+<TabItem label="nushell">
+```nushell
+cargo install cross-stream --locked
+use xs.nu *
+xs serve ./store
+```
+
+![nushell .cat output](../../assets/01-nu.png)
+
+```nushell
+"a quick note" | .append notes
+.cat
+.cat | last | .cas  # retrieve the last note
+```
+
+![nushell output](../../assets/02-nu.png)
+</TabItem>
+
+<TabItem label="bash">
+```sh
+cargo install cross-stream --locked
+xs serve ./store
+```
+
+![bash output](../../assets/01-bash.png)
+
+```sh
+echo "a quick note" | xs append ./store notes
+xs cat ./store
+xs cat ./store | tail -n 1 | jq -r .hash | xargs xs cas ./store  # retrieve the last note
+```
+![bash output](../../assets/02-bash.png)
+</TabItem>
+</Tabs>
