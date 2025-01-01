@@ -24,7 +24,6 @@ pub struct Meta {
     pub pulse: Option<u64>,
     #[serde(default)]
     pub return_options: Option<ReturnOptions>,
-    pub modules: Option<HashMap<String, String>>, // module_name -> frame_id
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -38,9 +37,15 @@ pub struct Handler {
     pub id: Scru128Id,
     pub topic: String,
     pub meta: Meta,
-    resume_from: ResumeFrom,
+    config: HandlerConfig,
     engine_worker: Arc<EngineWorker>,
     output: Arc<Mutex<Vec<Frame>>>,
+}
+
+#[derive(Clone, Debug)]
+struct HandlerConfig {
+    resume_from: ResumeFrom,
+    modules: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -71,35 +76,23 @@ impl Handler {
             commands::append_command_buffered::AppendCommand::new(store.clone(), output.clone()),
         )])?;
 
-        // Handle modules first if specified
-        if let Some(modules) = &meta.modules {
-            for (name, frame_id) in modules {
-                // Module loading code remains unchanged
-                tracing::debug!("Loading module '{}' from frame {}", name, frame_id);
-                let id = Scru128Id::from_str(frame_id)
-                    .map_err(|e| format!("Invalid module frame ID '{}': {}", frame_id, e))?;
-                let module_frame = store
-                    .get(&id)
-                    .ok_or_else(|| format!("Module frame '{}' not found", frame_id))?;
-                let hash = module_frame
-                    .hash
-                    .as_ref()
-                    .ok_or_else(|| format!("Module frame '{}' has no content hash", frame_id))?;
-                let content = store
-                    .cas_read(hash)
-                    .await
-                    .map_err(|e| format!("Failed to read module content: {}", e))?;
-                let content = String::from_utf8(content)
-                    .map_err(|e| format!("Module content is not valid UTF-8: {}", e))?;
+        let (mut process, mut config) =
+            parse_handler_configuration_script(&mut engine, &expression)?;
+
+        // Load modules and reparse if needed
+        if !config.modules.is_empty() {
+            for (name, content) in &config.modules {
+                tracing::debug!("Loading module '{}'", name);
                 engine
-                    .add_module(name, &content)
+                    .add_module(name, content)
                     .map_err(|e| format!("Failed to load module '{}': {}", name, e))?;
             }
+            // we need to re-parse the expression after loading modules, so that the closure has access
+            // to the additional modules: not the best, but I can't see a better way
+            (process, config) = parse_handler_configuration_script(&mut engine, &expression)?;
         }
 
-        let (closure, resume_from) = parse_handler_configuration_script(&mut engine, &expression)?;
-
-        let block = engine.state.get_block(closure.block_id);
+        let block = engine.state.get_block(process.block_id);
         if block.signature.required_positional.len() != 1 {
             return Err(format!(
                 "Closure must accept exactly one frame argument, found {}",
@@ -108,13 +101,13 @@ impl Handler {
             .into());
         }
 
-        let engine_worker = Arc::new(EngineWorker::new(engine, closure));
+        let engine_worker = Arc::new(EngineWorker::new(engine, process));
 
         Ok(Self {
             id,
             topic,
             meta,
-            resume_from,
+            config,
             engine_worker,
             output,
         })
@@ -313,7 +306,7 @@ impl Handler {
 
     async fn configure_read_options(&self) -> ReadOptions {
         // Determine last_id and tail flag based on ResumeFrom
-        let (last_id, is_tail) = match &self.resume_from {
+        let (last_id, is_tail) = match &self.config.resume_from {
             ResumeFrom::Head => (None, false),
             ResumeFrom::Tail => (None, true),
             ResumeFrom::After(id) => (Some(*id), false),
@@ -431,7 +424,7 @@ use nu_protocol::PipelineData;
 fn parse_handler_configuration_script(
     engine: &mut nu::Engine,
     script: &str,
-) -> Result<(Closure, ResumeFrom), Error> {
+) -> Result<(Closure, HandlerConfig), Error> {
     let mut working_set = StateWorkingSet::new(&engine.state);
     let block = parse(&mut working_set, None, script.as_bytes(), false);
     engine.state.merge_delta(working_set.render())?;
@@ -454,7 +447,6 @@ fn parse_handler_configuration_script(
     let resume_from = match config.get_data_by_key("resume_from") {
         Some(val) => {
             let resume_str = val.as_str().map_err(|_| "resume_from must be a string")?;
-
             match resume_str {
                 "head" => ResumeFrom::Head,
                 "tail" => ResumeFrom::Tail,
@@ -467,7 +459,29 @@ fn parse_handler_configuration_script(
         None => ResumeFrom::default(),
     };
 
+    let modules = match config.get_data_by_key("modules") {
+        Some(val) => {
+            let record = val.as_record().map_err(|_| "modules must be a record")?;
+            record
+                .iter()
+                .map(|(name, content)| {
+                    let content = content
+                        .as_str()
+                        .map_err(|_| format!("module '{}' content must be a string", name))?;
+                    Ok((name.to_string(), content.to_string()))
+                })
+                .collect::<Result<HashMap<_, _>, Error>>()?
+        }
+        None => HashMap::new(),
+    };
+
     engine.state.merge_env(&mut stack)?;
 
-    Ok((process, resume_from))
+    Ok((
+        process,
+        HandlerConfig {
+            resume_from,
+            modules,
+        },
+    ))
 }

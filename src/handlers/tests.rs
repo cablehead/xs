@@ -522,7 +522,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // First create our module that exports a function
-    let module_frame = store.append(
+    let _ = store.append(
         Frame::with_topic("mymod.nu")
             .hash(
                 store
@@ -547,6 +547,10 @@ async fn test_handler_with_module() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
+                            modules: {
+                                mymod: (.head mymod.nu | .cas $in.hash)
+                            }
+
                             process: {|frame|
                                 if $frame.topic != "trigger" { return }
                                 mymod add_nums 40 2
@@ -555,11 +559,6 @@ async fn test_handler_with_module() -> Result<(), Error> {
                     )
                     .await?,
             )
-            .meta(serde_json::json!({
-                "modules": {
-                    "mymod": module_frame.id.to_string()
-                }
-            }))
             .build(),
     );
 
