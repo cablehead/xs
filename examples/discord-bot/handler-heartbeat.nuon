@@ -1,6 +1,4 @@
 {
-  pulse: 1000,
-
   return_options: {
       ttl: "ephemeral"
   }

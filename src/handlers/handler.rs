@@ -21,7 +21,6 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Meta {
-    pub pulse: Option<u64>,
     #[serde(default)]
     pub return_options: Option<ReturnOptions>,
 }
@@ -46,6 +45,7 @@ pub struct Handler {
 struct HandlerConfig {
     resume_from: ResumeFrom,
     modules: HashMap<String, String>,
+    pulse: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -314,7 +314,7 @@ impl Handler {
 
         // Configure follow option based on pulse setting
         let follow_option = self
-            .meta
+            .config
             .pulse
             .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
             .unwrap_or(FollowOption::On);
@@ -477,11 +477,18 @@ fn parse_handler_configuration_script(
 
     engine.state.merge_env(&mut stack)?;
 
+    let pulse = config
+        .get_data_by_key("pulse")
+        .map(|v| v.as_int().map_err(|_| "pulse must be an integer"))
+        .transpose()?
+        .map(|n| n as u64);
+
     Ok((
         process,
         HandlerConfig {
             resume_from,
             modules,
+            pulse,
         },
     ))
 }

@@ -71,6 +71,7 @@ $env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
 
 {
   resume_from: (.head discord.ws.start | if ($in | is-not-empty) { get id })
+  pulse: 1000
 
   process: {|frame|
     # https://discord.com/developers/docs/topics/gateway#list-of-intents
