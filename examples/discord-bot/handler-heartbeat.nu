@@ -70,6 +70,8 @@ $env.state = {
 $env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
 
 {
+  resume_from: (.head discord.ws.start | if ($in | is-not-empty) { get id })
+
   process: {|frame|
     # https://discord.com/developers/docs/topics/gateway#list-of-intents
     # GUILDS, GUILD_MEMBERS, GUILD_MESSAGES, GUILD_MESSAGE_REACTIONS, MESSAGE_CONTENT

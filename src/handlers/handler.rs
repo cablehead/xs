@@ -23,7 +23,6 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 pub struct Meta {
     pub pulse: Option<u64>,
     #[serde(default)]
-    pub start: StartFrom,
     pub return_options: Option<ReturnOptions>,
     pub modules: Option<HashMap<String, String>>, // module_name -> frame_id
 }
@@ -34,27 +33,28 @@ pub struct ReturnOptions {
     pub ttl: Option<TTL>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum StartFrom {
-    /// Only process new frames
-    #[default]
-    Tail,
-    /// Process from the beginning of the stream
-    Root,
-    /// Batch process using a given topic as a cursor which points to the last frame processed
-    Cursor(String),
-    /// Begin processing after a specific topic, or from the tail if the topic is not found
-    After(String),
-}
-
 #[derive(Clone)]
 pub struct Handler {
     pub id: Scru128Id,
     pub topic: String,
     pub meta: Meta,
+    resume_from: ResumeFrom,
     engine_worker: Arc<EngineWorker>,
     output: Arc<Mutex<Vec<Frame>>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ResumeFrom {
+    Head,
+    Tail,
+    After(Scru128Id),
+}
+
+impl Default for ResumeFrom {
+    fn default() -> Self {
+        Self::Tail
+    }
 }
 
 impl Handler {
@@ -71,52 +71,39 @@ impl Handler {
             commands::append_command_buffered::AppendCommand::new(store.clone(), output.clone()),
         )])?;
 
-        // Handle any modules first if specified
+        // Handle modules first if specified
         if let Some(modules) = &meta.modules {
             for (name, frame_id) in modules {
+                // Module loading code remains unchanged
                 tracing::debug!("Loading module '{}' from frame {}", name, frame_id);
-
-                // Parse frame ID
                 let id = Scru128Id::from_str(frame_id)
                     .map_err(|e| format!("Invalid module frame ID '{}': {}", frame_id, e))?;
-
-                // Get frame
                 let module_frame = store
                     .get(&id)
                     .ok_or_else(|| format!("Module frame '{}' not found", frame_id))?;
-
-                // Get module content from CAS
                 let hash = module_frame
                     .hash
                     .as_ref()
                     .ok_or_else(|| format!("Module frame '{}' has no content hash", frame_id))?;
-
                 let content = store
                     .cas_read(hash)
                     .await
                     .map_err(|e| format!("Failed to read module content: {}", e))?;
-
                 let content = String::from_utf8(content)
                     .map_err(|e| format!("Module content is not valid UTF-8: {}", e))?;
-
-                // Configure engine with module
                 engine
                     .add_module(name, &content)
                     .map_err(|e| format!("Failed to load module '{}': {}", name, e))?;
             }
         }
 
-        let closure = parse_handler_configuration_script(&mut engine, &expression)?;
+        let (closure, resume_from) = parse_handler_configuration_script(&mut engine, &expression)?;
 
         let block = engine.state.get_block(closure.block_id);
-
-        // Validate closure has exactly one arg
-        let arg_count = block.signature.required_positional.len();
-
-        if arg_count != 1 {
+        if block.signature.required_positional.len() != 1 {
             return Err(format!(
                 "Closure must accept exactly one frame argument, found {}",
-                arg_count
+                block.signature.required_positional.len()
             )
             .into());
         }
@@ -126,7 +113,8 @@ impl Handler {
         Ok(Self {
             id,
             topic,
-            meta: meta.clone(),
+            meta,
+            resume_from,
             engine_worker,
             output,
         })
@@ -255,7 +243,7 @@ impl Handler {
     }
 
     pub async fn spawn(&self, store: Store) -> Result<(), Error> {
-        let options = self.configure_read_options(&store).await;
+        let options = self.configure_read_options().await;
 
         {
             let store = store.clone();
@@ -323,32 +311,12 @@ impl Handler {
         Ok(handler)
     }
 
-    pub async fn configure_read_options(&self, store: &Store) -> ReadOptions {
-        // Determine last_id based on StartFrom
-        let (last_id, is_tail) = match &self.meta.start {
-            StartFrom::Root => (None, false),
-            StartFrom::Tail => (None, true),
-
-            StartFrom::Cursor(topic) => store
-                .head(topic)
-                .and_then(|frame| {
-                    frame
-                        .meta
-                        .as_ref()
-                        .and_then(|meta| meta.get("frame_id"))
-                        .and_then(|id| id.as_str())
-                        .map(|frame_id_str| {
-                            Scru128Id::from_str(frame_id_str)
-                                .unwrap_or_else(|err| panic!("Invalid frame_id format: {}", err))
-                        })
-                        .or_else(|| panic!("frame_id not present in frame.meta"))
-                })
-                .map_or((None, false), |frame_id| (Some(frame_id), false)),
-
-            StartFrom::After(topic) => store
-                .head(topic)
-                .map(|frame| (Some(frame.id), false))
-                .unwrap_or((None, true)),
+    async fn configure_read_options(&self) -> ReadOptions {
+        // Determine last_id and tail flag based on ResumeFrom
+        let (last_id, is_tail) = match &self.resume_from {
+            ResumeFrom::Head => (None, false),
+            ResumeFrom::Tail => (None, true),
+            ResumeFrom::After(id) => (Some(*id), false),
         };
 
         // Configure follow option based on pulse setting
@@ -463,7 +431,7 @@ use nu_protocol::PipelineData;
 fn parse_handler_configuration_script(
     engine: &mut nu::Engine,
     script: &str,
-) -> Result<Closure, Error> {
+) -> Result<(Closure, ResumeFrom), Error> {
     let mut working_set = StateWorkingSet::new(&engine.state);
     let block = parse(&mut working_set, None, script.as_bytes(), false);
     engine.state.merge_delta(working_set.render())?;
@@ -477,13 +445,29 @@ fn parse_handler_configuration_script(
     )?;
 
     let config = result.into_value(nu_protocol::Span::unknown())?;
+
     let process = config
         .get_data_by_key("process")
         .ok_or("No 'process' field found in handler configuration")?
         .into_closure()?;
-    // let meta = // TODO: Parse other config fields into Meta struct
+
+    let resume_from = match config.get_data_by_key("resume_from") {
+        Some(val) => {
+            let resume_str = val.as_str().map_err(|_| "resume_from must be a string")?;
+
+            match resume_str {
+                "head" => ResumeFrom::Head,
+                "tail" => ResumeFrom::Tail,
+                id => ResumeFrom::After(
+                    Scru128Id::from_str(id)
+                        .map_err(|_| "resume_from must be 'head', 'tail' or valid scru128")?,
+                ),
+            }
+        }
+        None => ResumeFrom::default(),
+    };
 
     engine.state.merge_env(&mut stack)?;
 
-    Ok(process)
+    Ok((process, resume_from))
 }

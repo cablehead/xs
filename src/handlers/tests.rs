@@ -213,14 +213,13 @@ async fn test_essentials() {
                         if $frame.topic != "pew" { return }
                         "processed"
                       }
+
+                      resume_from: (.head "action.out" | get meta.frame_id)
                     }"#,
                 )
                 .await
                 .unwrap(),
         )
-        .meta(serde_json::json!({
-            "start": {"cursor": "action.out"}
-        }))
         .build();
 
     // Start handler
@@ -302,17 +301,18 @@ async fn test_unregister_on_error() {
             .hash(
                 store
                     .cas_insert(
-                        r#"{process: {|frame|
-                               let x = {"foo": null}
-                               $x.foo.bar  # Will error at runtime - null access
-                           }}"#,
+                        r#"{
+                          process: {|frame|
+                            let x = {"foo": null}
+                            $x.foo.bar  # Will error at runtime - null access
+                          }
+
+                          resume_from: "head"
+                         }"#,
                     )
                     .await
                     .unwrap(),
             )
-            .meta(serde_json::json!({
-                "start": {"cursor": "root"}
-            }))
             .build(),
     );
     assert_eq!(recver.recv().await.unwrap().topic, "error.register");
