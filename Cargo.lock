@@ -1188,9 +1188,9 @@ dependencies = [
 
 [[package]]
 name = "fjall"
-version = "2.4.0"
+version = "2.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e33c3128fbd83d9d70ebcf093f3f91d8c20016af0aac545f80afbadd9dcd098"
+checksum = "9cd1bb382d52e527f10f5ed3f126bb4a87c77fbf878a1432010820a71aaa6322"
 dependencies = [
  "byteorder",
  "dashmap",
