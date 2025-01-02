@@ -89,6 +89,8 @@ impl Engine {
         )?;
         let closure = result.into_value(Span::unknown())?.into_closure()?;
 
+        self.state.merge_env(&mut stack)?;
+
         Ok(closure)
     }
 

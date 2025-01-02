@@ -7,7 +7,6 @@ use tokio::io::AsyncWriteExt;
 
 use xs::nu;
 use xs::store::{parse_ttl, Store};
-use xs::thread_pool::ThreadPool;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -34,8 +33,6 @@ enum Command {
     Head(CommandHead),
     /// Get a frame by ID
     Get(CommandGet),
-    /// Process content through a handler
-    Process(CommandProcess),
     /// Import a frame directly into the store
     Import(CommandImport),
     /// Get the version of the server
@@ -172,7 +169,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Remove(args) => remove(args).await,
         Command::Head(args) => head(args).await,
         Command::Get(args) => get(args).await,
-        Command::Process(args) => process(args).await,
         Command::Import(args) => import(args).await,
         Command::Version(args) => version(args).await,
     };
@@ -189,7 +185,6 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     tracing::trace!("Starting server with path: {:?}", args.path);
 
     let store = Store::new(args.path);
-    let pool = ThreadPool::new(10);
     let engine = nu::Engine::new()?;
 
     {
@@ -210,9 +205,8 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     {
         let store = store.clone();
         let engine = engine.clone();
-        let pool = pool.clone();
         tokio::spawn(async move {
-            let _ = xs::handlers::serve(store, engine, pool).await;
+            let _ = xs::handlers::serve(store, engine).await;
         });
     }
 
@@ -224,8 +218,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     }
 
     // TODO: graceful shutdown
-    xs::api::serve(store, engine.clone(), pool.clone(), args.expose).await?;
-    pool.wait_for_completion();
+    xs::api::serve(store, engine.clone(), args.expose).await?;
 
     Ok(())
 }
@@ -312,29 +305,6 @@ async fn head(args: CommandHead) -> Result<(), Box<dyn std::error::Error + Send 
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let response = xs::client::get(&args.addr, &args.id).await?;
-    tokio::io::stdout().write_all(&response).await?;
-    Ok(())
-}
-
-#[derive(Parser, Debug)]
-struct CommandProcess {
-    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
-    #[clap(value_parser)]
-    addr: String,
-
-    /// Frame ID to process
-    #[clap(value_parser)]
-    id: String,
-}
-
-async fn process(args: CommandProcess) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let input = if !std::io::stdin().is_terminal() {
-        Box::new(stdin()) as Box<dyn AsyncRead + Unpin + Send>
-    } else {
-        Box::new(tokio::io::empty()) as Box<dyn AsyncRead + Unpin + Send>
-    };
-
-    let response = xs::client::process(&args.addr, &args.id, input).await?;
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }

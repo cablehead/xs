@@ -29,19 +29,25 @@ def run-roll [] {
   $content
 }
 
-{|frame|
-  if $frame.topic != "discord.ws.recv" { return }
+$env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
 
-  # TODO: .cas should also be able to take a record, to match xs2.nu's usage
-  let message = $frame | .cas $in.hash | from json
+{
+  modules: {discord: (.head discord.nu | .cas $in.hash)}
 
-  if $message.op != 0 { return }
-  if $message.t != "MESSAGE_CREATE" { return }
+  process: {|frame|
+    if $frame.topic != "discord.ws.recv" { return }
 
-  $message.d.content | parse-roller | & {
-    {
-      content: ($in | run-roll)
-      message_reference: { message_id: $message.d.id }
-    } | discord channel message create $message.d.channel_id
+    # TODO: .cas should also be able to take a record, to match xs2.nu's usage
+    let message = $frame | .cas $in.hash | from json
+
+    if $message.op != 0 { return }
+    if $message.t != "MESSAGE_CREATE" { return }
+
+    $message.d.content | parse-roller | & {
+      {
+        content: ($in | run-roll)
+        message_reference: { message_id: $message.d.id }
+      } | discord channel message create $message.d.channel_id
+    }
   }
 }

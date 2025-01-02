@@ -3,8 +3,6 @@ use std::str::FromStr;
 
 use scru128::Scru128Id;
 
-use tracing::instrument;
-
 use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
@@ -19,11 +17,9 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use crate::handlers::{Handler, Meta};
 use crate::listener::Listener;
 use crate::nu;
 use crate::store::{self, Frame, ReadOptions, Store, TTL};
-use crate::thread_pool::ThreadPool;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -41,7 +37,6 @@ enum Routes {
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
-    ProcessPost(Scru128Id),
     HeadGet(String),
     Import,
     Version,
@@ -58,15 +53,6 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
                 _ => AcceptType::Ndjson,
             };
             Routes::StreamCat(accept_type)
-        }
-
-        (&Method::POST, p) if p.starts_with("/process/") => {
-            if let Some(id_str) = p.strip_prefix("/process/") {
-                if let Ok(id) = Scru128Id::from_str(id_str) {
-                    return Routes::ProcessPost(id);
-                }
-            }
-            Routes::NotFound
         }
 
         (&Method::GET, p) if p.starts_with("/head/") => {
@@ -116,8 +102,7 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 
 async fn handle(
     mut store: Store,
-    engine: nu::Engine,
-    pool: ThreadPool,
+    _engine: nu::Engine, // TODO: potentially vestigial, will .process come back?
     req: Request<hyper::body::Incoming>,
 ) -> HTTPResult {
     let method = req.method();
@@ -156,10 +141,6 @@ async fn handle(
         Routes::StreamItemGet(id) => response_frame_or_404(store.get(&id)),
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
-
-        Routes::ProcessPost(id) => {
-            handle_process_post(&mut store, engine, pool.clone(), id, req.into_body()).await
-        }
 
         Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
 
@@ -268,47 +249,6 @@ async fn handle_stream_append(
         .body(full(serde_json::to_string(&frame).unwrap()))?)
 }
 
-#[instrument(
-   level = "info",
-   skip(store, engine, pool, body),
-   fields(
-       frame_id = %id,
-   )
-)]
-async fn handle_process_post(
-    store: &mut Store,
-    engine: nu::Engine,
-    pool: ThreadPool,
-    id: Scru128Id,
-    body: hyper::body::Incoming,
-) -> HTTPResult {
-    let bytes = body.collect().await?.to_bytes();
-    let script = std::str::from_utf8(&bytes)?.to_string();
-
-    if let Some(frame) = store.get(&id) {
-        let handler = Handler::new(
-            id,
-            "process".to_string(),
-            Meta::default(),
-            engine.clone(),
-            script,
-            store.clone(),
-        )
-        .await?;
-
-        let value = handler.eval_in_thread(&pool, &frame).await?;
-
-        let json = nu::value_to_json(&value);
-        let bytes = serde_json::to_vec(&json)?;
-
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .body(full(bytes))?)
-    } else {
-        response_404()
-    }
-}
-
 async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> HTTPResult {
     let hash = {
         let mut writer = store.cas_writer().await?;
@@ -346,7 +286,6 @@ async fn handle_version() -> HTTPResult {
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
-    pool: ThreadPool,
     expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = store.append(
@@ -368,8 +307,7 @@ pub async fn serve(
     for listener in listeners {
         let store = store.clone();
         let engine = engine.clone();
-        let pool = pool.clone();
-        let task = tokio::spawn(async move { listener_loop(listener, store, engine, pool).await });
+        let task = tokio::spawn(async move { listener_loop(listener, store, engine).await });
         tasks.push(task);
     }
 
@@ -386,19 +324,17 @@ async fn listener_loop(
     mut listener: Listener,
     store: Store,
     engine: nu::Engine,
-    pool: ThreadPool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let store = store.clone();
         let engine = engine.clone();
-        let pool = pool.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_fn(move |req| handle(store.clone(), engine.clone(), pool.clone(), req)),
+                    service_fn(move |req| handle(store.clone(), engine.clone(), req)),
                 )
                 .await
             {

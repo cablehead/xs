@@ -9,33 +9,15 @@ use serde::{Deserialize, Serialize};
 
 use tokio::io::AsyncReadExt;
 
-use nu_engine::eval_block_with_early_return;
-use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::Stack;
-use nu_protocol::engine::StateWorkingSet;
-use nu_protocol::PipelineData;
-use nu_protocol::{Span as NuSpan, Value};
+use nu_protocol::Value;
 
 use scru128::Scru128Id;
 
 use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
-use crate::nu::frame_to_value;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
-use crate::thread_pool::ThreadPool;
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct Meta {
-    pub initial_state: Option<serde_json::Value>,
-    pub pulse: Option<u64>,
-    #[serde(default)]
-    pub start: StartFrom,
-    pub return_options: Option<ReturnOptions>,
-    pub modules: Option<HashMap<String, String>>, // module_name -> frame_id
-    pub with_env: Option<HashMap<String, String>>, // env_var -> frame_id
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ReturnOptions {
@@ -43,38 +25,41 @@ pub struct ReturnOptions {
     pub ttl: Option<TTL>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum StartFrom {
-    /// Only process new frames
-    #[default]
-    Tail,
-    /// Process from the beginning of the stream
-    Root,
-    /// Batch process using a given topic as a cursor which points to the last frame processed
-    Cursor(String),
-    /// Begin processing after a specific topic, or from the tail if the topic is not found
-    After(String),
-}
-
 #[derive(Clone)]
 pub struct Handler {
     pub id: Scru128Id,
     pub topic: String,
-    pub meta: Meta,
-    pub engine: nu::Engine,
-    pub closure: nu_protocol::engine::Closure,
-    pub stateful: bool,
-    pub state: Option<Value>,
-    pub state_frame_id: Option<Scru128Id>,
+    config: HandlerConfig,
+    engine_worker: Arc<EngineWorker>,
     output: Arc<Mutex<Vec<Frame>>>,
+}
+
+#[derive(Clone, Debug)]
+struct HandlerConfig {
+    resume_from: ResumeFrom,
+    modules: HashMap<String, String>,
+    pulse: Option<u64>,
+    return_options: Option<ReturnOptions>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ResumeFrom {
+    Head,
+    Tail,
+    After(Scru128Id),
+}
+
+impl Default for ResumeFrom {
+    fn default() -> Self {
+        Self::Tail
+    }
 }
 
 impl Handler {
     pub async fn new(
         id: Scru128Id,
         topic: String,
-        meta: Meta,
         mut engine: nu::Engine,
         expression: String,
         store: Store,
@@ -84,227 +69,80 @@ impl Handler {
             commands::append_command_buffered::AppendCommand::new(store.clone(), output.clone()),
         )])?;
 
-        // Handle any modules first if specified
-        if let Some(modules) = &meta.modules {
-            for (name, frame_id) in modules {
-                tracing::debug!("Loading module '{}' from frame {}", name, frame_id);
+        let (mut process, mut config) =
+            parse_handler_configuration_script(&mut engine, &expression)?;
 
-                // Parse frame ID
-                let id = Scru128Id::from_str(frame_id)
-                    .map_err(|e| format!("Invalid module frame ID '{}': {}", frame_id, e))?;
-
-                // Get frame
-                let module_frame = store
-                    .get(&id)
-                    .ok_or_else(|| format!("Module frame '{}' not found", frame_id))?;
-
-                // Get module content from CAS
-                let hash = module_frame
-                    .hash
-                    .as_ref()
-                    .ok_or_else(|| format!("Module frame '{}' has no content hash", frame_id))?;
-
-                let content = store
-                    .cas_read(hash)
-                    .await
-                    .map_err(|e| format!("Failed to read module content: {}", e))?;
-
-                let content = String::from_utf8(content)
-                    .map_err(|e| format!("Module content is not valid UTF-8: {}", e))?;
-
-                // Configure engine with module
+        // Load modules and reparse if needed
+        if !config.modules.is_empty() {
+            for (name, content) in &config.modules {
+                tracing::debug!("Loading module '{}'", name);
                 engine
-                    .add_module(name, &content)
+                    .add_module(name, content)
                     .map_err(|e| format!("Failed to load module '{}': {}", name, e))?;
             }
+
+            // we need to re-parse the expression after loading modules, so that the closure has access
+            // to the additional modules: not the best, but I can't see a better way
+            (process, config) = parse_handler_configuration_script(&mut engine, &expression)?;
         }
 
-        // Handle environment variables if specified
-        if let Some(env_vars) = &meta.with_env {
-            for (var_name, frame_id) in env_vars {
-                // Parse frame ID
-                let id = Scru128Id::from_str(frame_id)
-                    .map_err(|e| format!("Invalid env var frame ID '{}': {}", frame_id, e))?;
-
-                // Get frame
-                let env_frame = store
-                    .get(&id)
-                    .ok_or_else(|| format!("Env var frame '{}' not found", frame_id))?;
-
-                // Get content from CAS
-                let hash = env_frame
-                    .hash
-                    .as_ref()
-                    .ok_or_else(|| format!("Env var frame '{}' has no content hash", frame_id))?;
-
-                let content = store
-                    .cas_read(hash)
-                    .await
-                    .map_err(|e| format!("Failed to read env var content: {}", e))?;
-
-                let content = String::from_utf8(content)
-                    .map_err(|e| format!("Env var content is not valid UTF-8: {}", e))?;
-
-                engine = engine.with_env_vars([(var_name.clone(), content)])?;
-            }
+        let block = engine.state.get_block(process.block_id);
+        if block.signature.required_positional.len() != 1 {
+            return Err(format!(
+                "Closure must accept exactly one frame argument, found {}",
+                block.signature.required_positional.len()
+            )
+            .into());
         }
 
-        let closure = engine.parse_closure(&expression)?;
-        let block = engine.state.get_block(closure.block_id);
-
-        // Validate closure has 1 or 2 args and set stateful
-        let arg_count = block.signature.required_positional.len();
-        let stateful = match arg_count {
-            1 => false,
-            2 => true,
-            _ => {
-                return Err(
-                    format!("Closure must accept 1 or 2 arguments, found {}", arg_count).into(),
-                )
-            }
-        };
+        let engine_worker = Arc::new(EngineWorker::new(engine, process));
 
         Ok(Self {
             id,
             topic,
-            meta: meta.clone(),
-            engine,
-            closure,
-            stateful,
-            state: meta
-                .initial_state
-                .map(|state| crate::nu::util::json_to_value(&state, NuSpan::unknown())),
-            state_frame_id: None,
+            config,
+            engine_worker,
             output,
         })
     }
 
-    pub async fn from_frame(
-        frame: &Frame,
-        store: &Store,
-        engine: nu::Engine,
-    ) -> Result<Self, Error> {
-        let topic = frame
-            .topic
-            .strip_suffix(".register")
-            .ok_or("Frame topic must end with .register")?;
-
-        // Parse meta if present, otherwise use default
-        let meta = match &frame.meta {
-            Some(meta_value) => serde_json::from_value::<Meta>(meta_value.clone())
-                .map_err(|e| Error::from(format!("Failed to parse meta: {}", e)))?,
-            None => Meta::default(),
-        };
-
-        // Get hash and read expression
-        let hash = frame.hash.as_ref().ok_or("Missing hash field")?;
-        let mut reader = store
-            .cas_reader(hash.clone())
-            .await
-            .map_err(|e| format!("Failed to get cas reader: {}", e))?;
-
-        let mut expression = String::new();
-        reader
-            .read_to_string(&mut expression)
-            .await
-            .map_err(|e| format!("Failed to read expression: {}", e))?;
-
-        let mut handler = Handler::new(
-            frame.id,
-            topic.to_string(),
-            meta,
-            engine,
-            expression,
-            store.clone(),
-        )
-        .await?;
-
-        if handler.stateful {
-            if let Some(existing_state) = store.head(&format!("{}.state", topic)) {
-                if let Some(hash) = &existing_state.hash {
-                    let content = store.cas_read(hash).await?;
-                    let json_value: serde_json::Value = serde_json::from_slice(&content)?;
-                    handler.state = Some(crate::nu::util::json_to_value(
-                        &json_value,
-                        NuSpan::unknown(),
-                    ));
-                    handler.state_frame_id = Some(existing_state.id);
-                }
-            }
-        }
-
-        Ok(handler)
-    }
-
-    pub async fn eval_in_thread(
-        &self,
-        pool: &ThreadPool,
-        frame: &crate::store::Frame,
-    ) -> Result<Value, Error> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let handler = self.clone();
-        let frame = frame.clone();
-
-        pool.execute(move || {
-            let result = handler.eval(&frame);
-            let _ = tx.send(result);
-        });
-
-        rx.await.unwrap()
-    }
-
-    fn is_value_an_append_frame(&self, value: &Value) -> bool {
-        value
-            .as_record()
-            .ok()
-            // Ensure required fields exist
-            .filter(|record| record.get("id").is_some() && record.get("topic").is_some())
-            // Chain through meta field and handler_id check
-            .and_then(|record| record.get("meta"))
-            .and_then(|meta| meta.as_record().ok())
-            .and_then(|meta_record| meta_record.get("handler_id"))
-            .and_then(|id| id.as_str().ok())
-            .filter(|id| *id == self.id.to_string())
-            .is_some()
+    pub async fn eval_in_thread(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
+        self.engine_worker.eval(frame.clone()).await
     }
 
     #[instrument(
         level = "info",
-        skip(self, frame, store, pool),
+        skip(self, frame, store),
         fields(
             message = %format!(
                 "handler={}:{} frame={}:{}",
                 self.id, self.topic, frame.id, frame.topic)
         )
     )]
-    async fn process_frame(
-        &mut self,
-        frame: &Frame,
-        store: &Store,
-        pool: &ThreadPool,
-    ) -> Result<(), Error> {
+    async fn process_frame(&mut self, frame: &Frame, store: &Store) -> Result<(), Error> {
         let frame_clone = frame.clone();
 
-        let value = self.eval_in_thread(pool, &frame_clone).await?;
+        let value = self.eval_in_thread(&frame_clone).await?;
 
         // Check if the evaluated value is an append frame
-        let additional_frame =
-            if !self.is_value_an_append_frame(&value) && !matches!(value, Value::Nothing { .. }) {
-                let return_options = self.meta.return_options.as_ref();
-                let suffix = return_options
-                    .and_then(|ro| ro.suffix.as_deref())
-                    .unwrap_or(".out");
+        let additional_frame = if !is_value_an_append_frame_from_handler(&value, &self.id)
+            && !matches!(value, Value::Nothing { .. })
+        {
+            let return_options = self.config.return_options.as_ref();
+            let suffix = return_options
+                .and_then(|ro| ro.suffix.as_deref())
+                .unwrap_or(".out");
 
-                let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
-                Some(
-                    Frame::with_topic(format!("{}{}", self.topic, suffix))
-                        .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
-                        .maybe_hash(Some(hash))
-                        .build(),
-                )
-            } else {
-                None
-            };
+            let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
+            Some(
+                Frame::with_topic(format!("{}{}", self.topic, suffix))
+                    .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
+                    .maybe_hash(Some(hash))
+                    .build(),
+            )
+        } else {
+            None
+        };
 
         // Process buffered appends and the additional frame
         let output_to_process: Vec<_> = {
@@ -315,8 +153,6 @@ impl Handler {
                 .collect()
         };
 
-        // TODO: we should put these appends into a single batch
-        // /cc @marvin_j97 for thoughts
         for mut output_frame in output_to_process {
             let meta_obj = output_frame
                 .meta
@@ -333,59 +169,13 @@ impl Handler {
                 serde_json::Value::String(frame.id.to_string()),
             );
 
-            if self.stateful {
-                if let Some(state_id) = self.state_frame_id {
-                    meta_obj.insert(
-                        "state_id".to_string(),
-                        serde_json::Value::String(state_id.to_string()),
-                    );
-                }
-            }
-
-            let output_frame = store.append(output_frame);
-
-            // Update state if the appended frame is a state frame
-            if self.stateful && output_frame.topic == format!("{}.state", self.topic) {
-                if let Some(hash) = &output_frame.hash {
-                    let content = store.cas_read(hash).await.unwrap();
-                    let json_value: serde_json::Value = serde_json::from_slice(&content).unwrap();
-                    let new_state = crate::nu::util::json_to_value(&json_value, NuSpan::unknown());
-                    self.state = Some(new_state);
-                    self.state_frame_id = Some(output_frame.id);
-                }
-            }
+            let _ = store.append(output_frame);
         }
 
         Ok(())
     }
 
-    pub async fn spawn(&self, store: Store, pool: ThreadPool) -> Result<(), Error> {
-        let options = self.configure_read_options(&store).await;
-
-        {
-            let store = store.clone();
-            let options = options.clone();
-            let mut handler = self.clone();
-
-            tokio::spawn(async move {
-                handler.serve(&store, &pool, options).await;
-            });
-        }
-
-        let _ = store.append(
-            Frame::with_topic(format!("{}.registered", &self.topic))
-                .meta(serde_json::json!({
-                    "handler_id": self.id.to_string(),
-                    "tail": options.tail,
-                    "last_id": options.last_id.map(|id| id.to_string()),
-                }))
-                .build(),
-        );
-
-        Ok(())
-    }
-
-    async fn serve(&mut self, store: &Store, pool: &ThreadPool, options: ReadOptions) {
+    async fn serve(&mut self, store: &Store, options: ReadOptions) {
         let mut recver = store.read(options).await;
 
         while let Some(frame) = recver.recv().await {
@@ -423,7 +213,7 @@ impl Handler {
                 continue;
             }
 
-            if let Err(err) = self.process_frame(&frame, store, pool).await {
+            if let Err(err) = self.process_frame(&frame, store).await {
                 let _ = store.append(
                     Frame::with_topic(format!("{}.unregistered", self.topic))
                         .meta(serde_json::json!({
@@ -438,74 +228,78 @@ impl Handler {
         }
     }
 
-    fn eval(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
-        // assert output is empty as a sanity check
-        assert!(self.output.lock().unwrap().is_empty());
+    pub async fn spawn(&self, store: Store) -> Result<(), Error> {
+        let options = self.configure_read_options().await;
 
-        let mut stack = Stack::new();
-        let block = self.engine.state.get_block(self.closure.block_id);
+        {
+            let store = store.clone();
+            let options = options.clone();
+            let mut handler = self.clone();
 
-        // First arg is always frame
-        let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
-        stack.add_var(frame_var_id, frame_to_value(frame, NuSpan::unknown()));
-
-        // Second arg is state if stateful
-        if self.stateful {
-            let state_var_id = block.signature.required_positional[1].var_id.unwrap();
-            stack.add_var(
-                state_var_id,
-                self.state
-                    .clone()
-                    .unwrap_or(Value::nothing(NuSpan::unknown())),
-            );
+            tokio::spawn(async move {
+                handler.serve(&store, options).await;
+            });
         }
 
-        let output = eval_block_with_early_return::<WithoutDebug>(
-            &self.engine.state,
-            &mut stack,
-            block,
-            PipelineData::empty(), // no pipeline input, using args
+        let _ = store.append(
+            Frame::with_topic(format!("{}.registered", &self.topic))
+                .meta(serde_json::json!({
+                    "handler_id": self.id.to_string(),
+                    "tail": options.tail,
+                    "last_id": options.last_id.map(|id| id.to_string()),
+                }))
+                .build(),
         );
 
-        Ok(output
-            .map_err(|err| {
-                let working_set = StateWorkingSet::new(&self.engine.state);
-                nu_protocol::format_shell_error(&working_set, &err)
-            })?
-            .into_value(NuSpan::unknown())?)
+        Ok(())
     }
 
-    pub async fn configure_read_options(&self, store: &Store) -> ReadOptions {
-        // Determine last_id based on StartFrom
-        let (last_id, is_tail) = match &self.meta.start {
-            StartFrom::Root => (None, false),
-            StartFrom::Tail => (None, true),
+    pub async fn from_frame(
+        frame: &Frame,
+        store: &Store,
+        engine: nu::Engine,
+    ) -> Result<Self, Error> {
+        let topic = frame
+            .topic
+            .strip_suffix(".register")
+            .ok_or("Frame topic must end with .register")?;
 
-            StartFrom::Cursor(topic) => store
-                .head(topic)
-                .and_then(|frame| {
-                    frame
-                        .meta
-                        .as_ref()
-                        .and_then(|meta| meta.get("frame_id"))
-                        .and_then(|id| id.as_str())
-                        .map(|frame_id_str| {
-                            Scru128Id::from_str(frame_id_str)
-                                .unwrap_or_else(|err| panic!("Invalid frame_id format: {}", err))
-                        })
-                        .or_else(|| panic!("frame_id not present in frame.meta"))
-                })
-                .map_or((None, false), |frame_id| (Some(frame_id), false)),
+        // Get hash and read expression
+        let hash = frame.hash.as_ref().ok_or("Missing hash field")?;
+        let mut reader = store
+            .cas_reader(hash.clone())
+            .await
+            .map_err(|e| format!("Failed to get cas reader: {}", e))?;
 
-            StartFrom::After(topic) => store
-                .head(topic)
-                .map(|frame| (Some(frame.id), false))
-                .unwrap_or((None, true)),
+        let mut expression = String::new();
+        reader
+            .read_to_string(&mut expression)
+            .await
+            .map_err(|e| format!("Failed to read expression: {}", e))?;
+
+        let handler = Handler::new(
+            frame.id,
+            topic.to_string(),
+            engine,
+            expression,
+            store.clone(),
+        )
+        .await?;
+
+        Ok(handler)
+    }
+
+    async fn configure_read_options(&self) -> ReadOptions {
+        // Determine last_id and tail flag based on ResumeFrom
+        let (last_id, is_tail) = match &self.config.resume_from {
+            ResumeFrom::Head => (None, false),
+            ResumeFrom::Tail => (None, true),
+            ResumeFrom::After(id) => (Some(*id), false),
         };
 
         // Configure follow option based on pulse setting
         let follow_option = self
-            .meta
+            .config
             .pulse
             .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
             .unwrap_or(FollowOption::On);
@@ -516,4 +310,193 @@ impl Handler {
             .maybe_last_id(last_id)
             .build()
     }
+}
+
+use tokio::sync::{mpsc, oneshot};
+
+pub struct EngineWorker {
+    work_tx: mpsc::Sender<WorkItem>,
+}
+
+struct WorkItem {
+    frame: Frame,
+    resp_tx: oneshot::Sender<Result<Value, Error>>,
+}
+
+impl EngineWorker {
+    pub fn new(engine: nu::Engine, closure: nu_protocol::engine::Closure) -> Self {
+        let (work_tx, mut work_rx) = mpsc::channel(32);
+
+        std::thread::spawn(move || {
+            let mut engine = engine;
+
+            while let Some(WorkItem { frame, resp_tx }) = work_rx.blocking_recv() {
+                let mut stack = nu_protocol::engine::Stack::new();
+                let block = engine.state.get_block(closure.block_id);
+
+                let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
+                stack.add_var(
+                    frame_var_id,
+                    crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown()),
+                );
+
+                let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+
+                let result =
+                    nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
+                        &engine.state,
+                        &mut stack,
+                        block,
+                        nu_protocol::PipelineData::empty(),
+                    );
+
+                let delta = working_set.render();
+                let _ = engine.state.merge_delta(delta);
+                let _ = engine.state.merge_env(&mut stack);
+
+                let output = result
+                    .map_err(|err| {
+                        let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+                        Error::from(nu_protocol::format_shell_error(&working_set, &err))
+                    })
+                    .and_then(|pipeline_data| {
+                        pipeline_data
+                            .into_value(nu_protocol::Span::unknown())
+                            .map_err(Error::from)
+                    });
+
+                let _ = resp_tx.send(output);
+            }
+        });
+
+        Self { work_tx }
+    }
+
+    pub async fn eval(&self, frame: Frame) -> Result<Value, Error> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let work_item = WorkItem { frame, resp_tx };
+
+        self.work_tx
+            .send(work_item)
+            .await
+            .map_err(|_| Error::from("Engine worker thread has terminated"))?;
+
+        resp_rx
+            .await
+            .map_err(|_| Error::from("Engine worker thread has terminated"))?
+    }
+}
+
+fn is_value_an_append_frame_from_handler(value: &Value, handler_id: &Scru128Id) -> bool {
+    value
+        .as_record()
+        .ok()
+        .filter(|record| record.get("id").is_some() && record.get("topic").is_some())
+        .and_then(|record| record.get("meta"))
+        .and_then(|meta| meta.as_record().ok())
+        .and_then(|meta_record| meta_record.get("handler_id"))
+        .and_then(|id| id.as_str().ok())
+        .filter(|id| *id == handler_id.to_string())
+        .is_some()
+}
+
+use nu_engine::eval_block_with_early_return;
+use nu_parser::parse;
+use nu_protocol::debugger::WithoutDebug;
+use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
+use nu_protocol::PipelineData;
+
+fn parse_handler_configuration_script(
+    engine: &mut nu::Engine,
+    script: &str,
+) -> Result<(Closure, HandlerConfig), Error> {
+    let mut working_set = StateWorkingSet::new(&engine.state);
+    let block = parse(&mut working_set, None, script.as_bytes(), false);
+    engine.state.merge_delta(working_set.render())?;
+
+    let mut stack = Stack::new();
+    let result = eval_block_with_early_return::<WithoutDebug>(
+        &engine.state,
+        &mut stack,
+        &block,
+        PipelineData::empty(),
+    )?;
+
+    let config = result.into_value(nu_protocol::Span::unknown())?;
+
+    let process = config
+        .get_data_by_key("process")
+        .ok_or("No 'process' field found in handler configuration")?
+        .into_closure()?;
+
+    let resume_from = match config.get_data_by_key("resume_from") {
+        Some(val) => {
+            let resume_str = val.as_str().map_err(|_| "resume_from must be a string")?;
+            match resume_str {
+                "head" => ResumeFrom::Head,
+                "tail" => ResumeFrom::Tail,
+                id => ResumeFrom::After(
+                    Scru128Id::from_str(id)
+                        .map_err(|_| "resume_from must be 'head', 'tail' or valid scru128")?,
+                ),
+            }
+        }
+        None => ResumeFrom::default(),
+    };
+
+    let modules = match config.get_data_by_key("modules") {
+        Some(val) => {
+            let record = val.as_record().map_err(|_| "modules must be a record")?;
+            record
+                .iter()
+                .map(|(name, content)| {
+                    let content = content
+                        .as_str()
+                        .map_err(|_| format!("module '{}' content must be a string", name))?;
+                    Ok((name.to_string(), content.to_string()))
+                })
+                .collect::<Result<HashMap<_, _>, Error>>()?
+        }
+        None => HashMap::new(),
+    };
+
+    let pulse = config
+        .get_data_by_key("pulse")
+        .map(|v| v.as_int().map_err(|_| "pulse must be an integer"))
+        .transpose()?
+        .map(|n| n as u64);
+
+    let return_options = if let Some(return_config) = config.get_data_by_key("return_options") {
+        let record = return_config
+            .as_record()
+            .map_err(|_| "return must be a record")?;
+
+        let suffix = record
+            .get("suffix")
+            .map(|v| v.as_str().map_err(|_| "suffix must be a string"))
+            .transpose()?
+            .map(String::from);
+
+        let ttl = record
+            .get("ttl")
+            .map(|v| serde_json::from_str(&value_to_json(v).to_string()))
+            .transpose()
+            .map_err(|e| format!("invalid TTL: {}", e))?;
+
+        Some(ReturnOptions { suffix, ttl })
+    } else {
+        None
+    };
+
+    engine.state.merge_env(&mut stack)?;
+
+    Ok((
+        process,
+        HandlerConfig {
+            resume_from,
+            modules,
+            pulse,
+            return_options,
+        },
+    ))
 }
