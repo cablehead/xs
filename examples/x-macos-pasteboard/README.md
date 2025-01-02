@@ -8,7 +8,7 @@ To install:
 brew install cablehead/tap/x-macos-pasteboard
 ```
 
-You can use it as a [generator](../../docs/generators.md) for `xs` to append the
+You can use it as a [generator](../../notes/generators.md) for `xs` to append the
 contents of your pasteboard to an event stream.
 
 ```nushell

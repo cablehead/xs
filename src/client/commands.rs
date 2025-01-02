@@ -171,37 +171,6 @@ where
     Ok(body)
 }
 
-pub async fn process<R>(
-    addr: &str,
-    id: &str,
-    data: R,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
-where
-    R: AsyncRead + Unpin + Send + 'static,
-{
-    // Setup stream from data
-    let reader_stream = ReaderStream::new(data);
-    let mapped_stream = reader_stream.map(|result| {
-        result
-            .map(hyper::body::Frame::data)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-    });
-    let body = StreamBody::new(mapped_stream);
-
-    let res = request::request(
-        addr,
-        Method::POST,
-        &format!("process/{}", id),
-        None,
-        body,
-        None,
-    )
-    .await?;
-
-    let body = res.collect().await?.to_bytes();
-    Ok(body)
-}
-
 pub async fn get(addr: &str, id: &str) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
     let res = request::request(addr, Method::GET, id, None, empty(), None).await?;
     let body = res.collect().await?.to_bytes();
