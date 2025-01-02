@@ -22,7 +22,7 @@ path = "src/main.rs"
 bytes = "1.6.0"
 cacache = { version = "13", default-features = false, features = ["tokio-runtime", "mmap"] }
 clap = { version = "4", features = ["derive"] }
-fjall = "2.4"
+fjall = "2.4.4"
 futures = "0.3.31"
 scru128 = { version = "3", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
