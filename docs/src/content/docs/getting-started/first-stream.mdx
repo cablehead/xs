@@ -1,0 +1,246 @@
+---
+title: Your First Stream
+description: Create and interact with your first event stream
+sidebar:
+  order: 2
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+import { Link } from '../../../utils/links';
+
+Let's create your first event stream.
+
+## Serve
+
+Unlike `sqlite`, which operates directly on the file system, `xs` requires a
+running process to manage access to the local store. This enables features like
+subscribing to real-time updates from the event stream.
+
+Start an `xs` store in a dedicated window:
+
+```bash withOutput
+> xs serve ./store
+13:35:16.868 TRACE         event src/main.rs:185 Starting server with path: "./store                                                                    xs:185
+13:35:16.957  INFO         read options=ReadOptions { follow: On, tail: false, last_id: None, limit: None }                                      xs::store:174
+13:35:16.957  INFO         read options=ReadOptions { follow: On, tail: true, last_id: None, limit: None }                                       xs::store:174
+13:35:16.963  INFO     5ms insert_frame frame=Frame { id: "03d4por2p16i05i81fjy0fx8u", topic: "xs.start", hash: None, meta: None, ttl: None }    xs::store:410
+13:35:16.963 0fx8u xs.start
+13:35:16.968  INFO         read options=ReadOptions { follow: On, tail: false, last_id: None, limit: None }                                      xs::store:174
+```
+
+## Client
+
+### `append` command
+
+OK! Let's append our first event:
+
+<Tabs syncKey="shell">
+
+<TabItem label="nushell">
+
+```nushell withOutput
+> "a quick note" | .append notes
+───────┬─────────────────────────────────────────────────────
+ topic │ notes
+ id    │ 03d4q1qhbiv09ovtuhokw5yxv
+ hash  │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY=
+ meta  │
+ ttl   │ forever
+───────┴─────────────────────────────────────────────────────
+```
+
+</TabItem>
+
+<TabItem label="bash">
+
+```bash withOutput
+> echo "a quick note" | xs append ./store notes
+{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":"sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=","meta":null,"ttl":"forever"}
+```
+
+</TabItem>
+
+</Tabs>
+
+### `cat` and `cas` commands
+
+and then `cat` the stream:
+
+<Tabs syncKey="shell">
+
+<TabItem label="nushell">
+
+```nushell withOutput
+> .cat
+─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬─meta─┬───ttl───
+ 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │                                                     │      │
+ 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
+───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
+```
+
+These are the raw `frames` on the stream. The actually content is stored
+separately in the `Content-Addressable Storage` (CAS). You can read more about
+that [here](../../reference/architecture/).
+
+We have the full expressiveness of Nushell available to us—for example, we can
+get the content hash of the last frame on the stream using:
+
+```nushell withOutput
+> .cat | last | $in.hash
+sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY=
+```
+
+and then use the `.cas` command to retrieve the content:
+
+```nushell withOutput
+> .cat | last | .cas $in.hash
+a quick note
+```
+
+We can also retrieve the content for a frame by piping it in its entirety
+directly to `.cas`:
+
+```nushell withOutput
+> .cat | last | .cas
+a quick note
+```
+
+</TabItem>
+
+<TabItem label="bash">
+
+```bash withOutput
+> xs cat ./store
+{"topic":"xs.start","id":"03d4qiab9g5vagrlrvxa2vjw0","hash":null,"meta":null,"ttl":null}
+{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":"sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=","meta":null,"ttl":"forever"}
+```
+
+These are the raw `frames` on the stream. The actually content is stored
+separately in the `Content-Addressable Storage` (CAS). You can read more about
+that [here](../../reference/architecture/).
+
+We can retrieve the content for a frame using its content hash:
+
+```bash withOutput
+> xs cat ./store | tail -n1 | jq -r .hash
+sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=
+```
+
+```bash withOutput
+> xs cas ./store sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=
+a quick note
+```
+
+</TabItem>
+
+</Tabs>
+
+### `head` command
+
+Let's submit another note:
+
+<Tabs syncKey="shell">
+
+<TabItem label="nushell">
+
+```nushell withOutput
+> "submit TPS report" | .append notes
+> .cat
+─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬─meta─┬───ttl───
+ 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │                                                     │      │
+ 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
+ 2 │ notes    │ 03d4qbrxizqgav09m7hicksb0 │ sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c= │      │ forever
+───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
+```
+
+We can get the most recent note on the stream using the `.head` command:
+
+```nushell withOutput
+> .head notes
+───────┬─────────────────────────────────────────────────────
+ topic │ notes
+ id    │ 03d4qbrxizqgav09m7hicksb0
+ hash  │ sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c=
+ meta  │
+ ttl   │ forever
+───────┴─────────────────────────────────────────────────────
+```
+
+```nushell withOutput
+> .head notes | .cas
+submit TPS report
+```
+
+</TabItem>
+
+<TabItem label="bash">
+
+```bash withOutput
+> echo "submit TPS report" | xs append ./store notes
+> xs cat ./store
+{"topic":"xs.start","id":"03d4qiab9g5vagrlrvxa2vjw0","hash":null,"meta":null,"ttl":null}
+{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":"sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=","meta":null,"ttl":"forever"}
+{"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":"sha256-pwB4w9N1v99Uu/96KsKKaIgDMm18QDMOZJsEwCxBtsA=","meta":null,"ttl":"forever"}
+```
+
+We can get the most recent note on the stream using the `head` command:
+
+```bash withOutput
+> xs head ./store notes
+{"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":"sha256-pwB4w9N1v99Uu/96KsKKaIgDMm18QDMOZJsEwCxBtsA=","meta":null,"ttl":"forever"}
+```
+
+```bash withOutput
+> xs head ./store notes | jq -r .hash | xargs xs cas ./store
+submit TPS report
+```
+
+</TabItem>
+
+</Tabs>
+
+### riffing
+
+Finally, let's pull a list of all our notes.
+
+<Tabs syncKey="shell">
+
+<TabItem label="nushell">
+
+We can use `where` to filter the stream for only the `notes` topic, and then use
+the `each` command to pull out the content of each note:
+
+```nushell withOutput
+> .cat | where topic == "notes" | each {.cas}
+───┬───────────────────
+ 0 │ a quick note
+ 1 │ submit TPS report
+───┴───────────────────
+```
+
+Fun! 🎉
+
+</TabItem>
+
+<TabItem label="bash">
+
+```bash withOutput
+> xs cat ./store | jq -r 'select(.topic == "notes") | .hash' | xargs -I{} xs cas ./store {}
+a quick note
+submit TPS report
+```
+
+Fun! 🎉
+
+<Aside type="tip">
+
+About now, I'd encourage you to checkout the <Link to="nu" /> version of this
+tutorial, the tab over. You might be reconsidering a bunch of life choices right
+now. 🤣 No stress though: check out the <Link to="nu" /> site and give it a try!
+
+</Aside>
+
+</TabItem>
+
+</Tabs>

@@ -3,6 +3,7 @@ import { defineConfig } from "astro/config";
 
 import starlight from "@astrojs/starlight";
 
+import { pluginCodeOutput } from "./src/utils/custom-code-output-plugin";
 import { rehypeMermaid } from "@beoe/rehype-mermaid";
 import solid from "@astrojs/solid-js";
 
@@ -31,18 +32,19 @@ export default defineConfig({
           autogenerate: { directory: "getting-started" },
         },
         {
-          label: "Guides",
-          autogenerate: { directory: "guides" },
-        },
-        {
           label: "Reference",
           autogenerate: { directory: "reference" },
         },
       ],
 
       expressiveCode: {
+        styleOverrides: { borderRadius: "0.25rem" },
         themes: ["dracula", "rose-pine-dawn"],
+        plugins: [pluginCodeOutput()],
       },
+
+      lastUpdated: true,
+      credits: true,
     }),
   ],
 

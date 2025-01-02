@@ -2,6 +2,7 @@
 
 const links = [
   ["fjall", "fjall", "https://github.com/fjall-rs/fjall"],
+  ["nu", "Nushell", "https://www.nushell.sh"],
 ];
 
 const linkMap = new Map(links.map(([short, desc, link]) => [
@@ -20,7 +21,7 @@ export const Link = ({ to }) => {
       rel="noopener noreferrer"
       title={link.desc}
     >
-      {link.desc}
+      <code>{link.desc}</code>
     </a>
   );
 };
