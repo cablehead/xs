@@ -9,7 +9,6 @@ cross.stream is built on a decoupled architecture that separates event metadata 
 
 ## Core Components
 
-
 ```mermaid
 flowchart TD
     subgraph Clients[Clients]
@@ -67,7 +66,7 @@ A server process sits between clients and the store, enabling:
 
 ### Writing Events
 
-1. When appending an event:
+When appending an event:
    - If content is provided, it's written to CAS first, generating a hash
    - A frame is created with metadata and the content hash
    - The frame is appended to the <Link to="fjall" /> index
@@ -76,14 +75,12 @@ A server process sits between clients and the store, enabling:
 
 ### Reading Events
 
-1. When reading the stream (`cat`):
-
+When reading the stream (`cat`):
    - Only frame metadata is retrieved from <Link to="fjall" />
    - Content remains in CAS until specifically requested
    - The stream can be read efficiently without pulling content
 
-2. Content retrieval (`cas`):
-
+Content retrieval (`cas`):
    - Content is fetched from CAS using the hash from a frame
    - This is a separate operation from stream reading
    - Content is retrieved only when needed
