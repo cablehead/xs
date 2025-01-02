@@ -5,17 +5,23 @@ sidebar:
   order: 1
 ---
 
-## Using Cargo
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+<Tabs syncKey="installer">
+
+<TabItem label="cargo">
 ```sh
 cargo install cross-stream --locked
 ```
+</TabItem>
 
-## Using Homebrew
-
+<TabItem label="brew">
 ```sh
 brew install cablehead/tap/cross-stream
 ```
+</TabItem>
+
+</Tabs>
 
 ## Verifying Installation
 
@@ -25,6 +31,4 @@ xs --version
 
 ## Troubleshooting
 
-- For cargo install failures: Update Rust toolchain
-- For Homebrew issues: Run `brew update` first
 - Need help? Join our [Discord](https://discord.com/invite/YNbScHBHrh)
