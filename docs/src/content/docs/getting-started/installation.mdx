@@ -5,7 +5,9 @@ sidebar:
   order: 1
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+import { Link } from '../../../utils/links';
 
 <Tabs syncKey="installer">
 
@@ -27,6 +29,30 @@ brew install cablehead/tap/cross-stream
 
 ```sh
 xs --version
+```
+
+## Import `xs.nu`
+
+<Aside title="optional">
+
+`xs` is designed to be orchestrated with <Link to="nu" />, but it also works
+great with a any POSIX shell, so this step is optional.
+
+</Aside>
+
+If you've never used <Link to="nu" /> before, you're in for a treat. If you're
+ready to give it a try, visit their site and install it.
+
+You'll then want to import `xs.nu`.
+
+This will add some `.command` conveniences to your session. The commands
+default to working with a `./store` in your current directory. You can
+customize this by setting `$env.XS_ADDR`.
+
+(TODO: add a reference for `Nushell` and `xs.nu`).
+
+```nushell
+use xs.nu *
 ```
 
 ## Troubleshooting
