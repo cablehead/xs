@@ -1,0 +1,72 @@
+---
+title: Generators
+description: TBD
+sidebar:
+  order: 2
+---
+
+import { Link } from '../../../utils/links';
+
+cross.stream generators use <Link to="nu" /> expressions to create streams of
+data that are emitted as frames into the store.
+
+## Basic Usage
+
+To create a generator, append a Nushell expression with the topic
+`<topic>.spawn`:
+
+```nushell
+"tail -F http.log | lines" | .append log.spawn
+```
+
+The generator will:
+
+- Execute the provided Nushell expression
+- Each line written to `http.log` will be emitted as a frame with topic
+  `log.recv`
+- Automatically restarts if it exits
+
+## Lifecycle Events
+
+Generators emit lifecycle events to track their state:
+
+| Event                 | Description                             |
+| --------------------- | --------------------------------------- |
+| `<topic>.start`       | Generator has started processing        |
+| `<topic>.recv`        | Output value from the generator         |
+| `<topic>.stop`        | Generator has stopped                   |
+| `<topic>.spawn.error` | Error occurred while spawning generator |
+
+All events include `source_id` which is the ID of the generator instance.
+
+## Configuration Options
+
+| Option   | Type    | Default | Description                                                         |
+| -------- | ------- | ------- | ------------------------------------------------------------------- |
+| `duplex` | boolean | false   | Enable sending input to the generator's pipeline via `<topic>.send` |
+
+## Bi-directional Communication
+
+When `duplex` is enabled, you can send data into the generator's input pipeline
+via `<topic>.send` frames:
+
+```nushell
+# Create a websocket connection
+"websocat wss://echo.websocket.org" | .append echo.spawn --meta {duplex: true}
+
+# Send input to the websocket
+"hello" | .append echo.send
+```
+
+When running this generator:
+
+- Lines received from the websocket server are emitted as `<topic>.recv` frames
+- Content from `<topic>.send` frames is sent to the websocket server
+
+## Error Handling
+
+If a generator encounters an error during spawning a `<topic>.spawn.error` frame
+is emitted with:
+
+- `source_id`: ID of the failed spawn attempt
+- `reason`: Error message describing what went wrong
