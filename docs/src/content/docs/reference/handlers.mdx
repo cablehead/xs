@@ -15,9 +15,9 @@ to process and act on incoming frames as they are appended to the store.
 
 ```nushell
 {
-  process: { |frame|
+  process: {|frame|
     if $frame.topic == "ping" {
-      "pong"  # Will be appended to handler.out
+      "pong" # Will be appended to handler.out
     }
   }
 }
@@ -39,28 +39,28 @@ handler's behavior:
 ```nushell
 {
   # Required: Handler closure
-  process: { |frame|
+  process: {|frame|
     if $frame.topic == "ping" {
-      "pong"  # Will be appended to handler.out
+      "pong" # Will be appended to handler.out
     }
-  },
+  }
 
   # Optional: Where to resume processing from
   # "tail" (default), "head", or scru128 ID
-  resume_from: "tail",
+  resume_from: "tail"
 
   # Optional: Module definitions
   modules: {
     "my-math": "def double [x] { $x * 2 }"
-  },
+  }
 
   # Optional: Heartbeat interval in ms
-  pulse: 1000,
+  pulse: 1000
 
   # Optional: Control output frame behavior
   return_options: {
-    suffix: ".response",   # Output topic suffix
-    ttl: "head:1"         # Keep only most recent frame
+    suffix: ".response" # Output topic suffix
+    ttl: "head:1" # Keep only most recent frame
   }
 } | .append echo.register
 ```
@@ -95,9 +95,9 @@ The `modules` option allows handlers to use custom Nushell modules:
 
 ```nushell
 {
-  process: { |frame|
-    my-math double 8  # Use module command
-  },
+  process: {|frame|
+    my-math double 8 # Use module command
+  }
   modules: {
     "my-math": "export def double [x] { $x * 2 }"
   }
@@ -111,7 +111,7 @@ calls:
 
 ```nushell
 {
-  process: { |frame|
+  process: {|frame|
     # Initialize or increment counter
     let env.count = ($env | get -i count | default 0) + 1
     $"Processed ($env.count) frames"
@@ -128,21 +128,21 @@ Handlers can produce output in two ways:
    return_options.suffix)
 
 ```nushell
-{ |frame|
-    if $frame.topic == "ping" {
-        "pong"  # Automatically appended to handler.out
-    }
+{|frame|
+  if $frame.topic == "ping" {
+    "pong" # Automatically appended to handler.out
+  }
 }
 ```
 
 2. **Explicit Appends**: Use the `.append` command to create frames on any topic
 
 ```nushell
-{ |frame|
-    if $frame.topic == "ping" {
-        "pong" | .append response.topic --meta {"type": "response"}
-        "logged" | .append audit.topic
-    }
+{|frame|
+  if $frame.topic == "ping" {
+    "pong" | .append response.topic --meta { "type": "response" }
+    "logged" | .append audit.topic
+  }
 }
 ```
 
