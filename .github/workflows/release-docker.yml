@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - v* # Match version tags like v1.0.0
   workflow_dispatch:
 
 env:
@@ -13,33 +15,47 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
+    # Step 1: Checkout the repository
     - uses: actions/checkout@v4
 
-    # Install Rust and cross-compile the binary in release mode
+    # Step 2: Set up Rust
     - name: Set up Rust
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
         toolchain: stable
 
+    # Step 3: Build the binary in release mode
     - name: Build in release mode
       run: cargo build --release --verbose
 
+    # Step 4: Install scru128-cli from GitHub
     - name: Install scru128-cli from GitHub
       run: |
         cargo install --git https://github.com/cablehead/scru128-cli --branch main
         mv ~/.cargo/bin/scru128 target/release/scru128
 
-    # Create a Docker image, using the Dockerfile from the .github/workflows directory
+    # Step 5: Determine Docker image tag based on ref type
+    - name: Determine image tag
+      id: image_tag
+      run: |
+        if [[ "${{ github.ref_type }}" == "tag" ]]; then
+          echo "IMAGE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
+        else
+          echo "IMAGE_TAG=latest" >> $GITHUB_ENV
+        fi
+
+    # Step 6: Build Docker image
     - name: Build Docker image
       run: |
-        docker build -t $IMAGE_NAME:latest -f .github/workflows/Dockerfile.release-docker .
+        docker build -t $IMAGE_NAME:$IMAGE_TAG -f .github/workflows/Dockerfile.release-docker .
 
-    # Log in to the GitHub Container Registry (GHCR)
+    # Step 7: Log in to GitHub Container Registry
     - name: Log in to GitHub Container Registry
       run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-    # Push the Docker image to GHCR
+    # Step 8: Push Docker image to GHCR
     - name: Push Docker image
-      run: docker push $IMAGE_NAME:latest
+      run: docker push $IMAGE_NAME:$IMAGE_TAG

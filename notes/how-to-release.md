@@ -13,6 +13,7 @@ cargo publish
 cargo install cross-stream --locked
 
 rm ~/bin/xs
+brew uninstall cross-stream
 which xs # should be /Users/andy/.cargo/bin/xs
 # test the new version
 
@@ -29,7 +30,6 @@ shasum -a 256 $tarball
 
 # update: git@github.com:cablehead/homebrew-tap.git
 
-brew uninstall cross-stream
 brew install cablehead/tap/cross-stream
 which xs # should be /opt/homebrew/bin/xs
 # test the new version
