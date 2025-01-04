@@ -41,9 +41,13 @@ jobs:
     - name: Determine image tag
       id: image_tag
       run: |
-        if [[ "${{ github.ref_type }}" == "tag" ]]; then
+        echo "GITHUB_REF: ${{ github.ref }}"
+        echo "GITHUB_REF_NAME: ${{ github.ref_name }}"
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          echo "This is a tag push."
           echo "IMAGE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
         else
+          echo "This is a branch push."
           echo "IMAGE_TAG=latest" >> $GITHUB_ENV
         fi
 
