@@ -1,0 +1,36 @@
+```nushell
+# update version in Cargo.toml
+let PREVIOUS_RELEASE = "0.1.0"
+$env.RELEASE = open Cargo.toml  | get package.version
+
+# grab the raw commit messages between the previous release and now
+git log --format=%s $"v($PREVIOUS_RELEASE)..HEAD" | vipe | save $"changes/($env.RELEASE).md"
+
+git commit -a -m "chore: release $env.RELEASE"
+git push
+
+cargo publish
+cargo install cross-stream --locked
+
+rm ~/bin/xs
+which xs # should be /Users/andy/.cargo/bin/xs
+# test the new version
+
+let pkgdir = $"cross-stream-($env.RELEASE)"
+let tarball = $"cross-stream-($env.RELEASE)-macos.tar.gz"
+
+mkdir $pkgdir
+cp /Users/andy/.cargo/bin/xs $pkgdir
+tar -czvf $tarball -C $pkgdir xs 
+
+gh release create $"v($env.RELEASE)" -F $"changes/($env.RELEASE).md" $tarball
+
+shasum -a 256 $tarball
+
+# update: git@github.com:cablehead/homebrew-tap.git
+
+brew uninstall cross-stream
+brew install cablehead/tap/cross-stream
+which xs # should be /opt/homebrew/bin/xs
+# test the new version
+```

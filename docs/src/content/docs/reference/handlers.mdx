@@ -37,7 +37,7 @@ To register a handler, append a registration script with the topic
 handler's behavior:
 
 ```nushell
-{
+r###'{
   # Required: Handler closure
   process: {|frame|
     if $frame.topic == "ping" {
@@ -62,7 +62,7 @@ handler's behavior:
     suffix: ".response" # Output topic suffix
     ttl: "head:1" # Keep only most recent frame
   }
-} | .append echo.register
+}'### | .append echo.register
 ```
 
 The registration script is stored in CAS and evaluated to obtain the handler's
@@ -94,14 +94,14 @@ The `return_options` field controls how return values are handled:
 The `modules` option allows handlers to use custom Nushell modules:
 
 ```nushell
-{
+r###'{
   process: {|frame|
     my-math double 8 # Use module command
   }
   modules: {
     "my-math": "export def double [x] { $x * 2 }"
   }
-} | .append processor.register
+}'### | .append processor.register
 ```
 
 ## State and Environment
