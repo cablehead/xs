@@ -192,4 +192,33 @@ mod tests {
         assert!(store.get(&frame.id).is_none());
         Ok(())
     }
+
+    #[test]
+    fn test_get_command() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::get_command::GetCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        let frame = store.append(
+            Frame::with_topic("topic")
+                .hash(store.cas_insert_sync("test")?)
+                .build(),
+        );
+
+        let retrieved_frame = nu_eval(&engine, PipelineData::empty(), format!(".get {}", frame.id));
+
+        assert_eq!(
+            retrieved_frame
+                .get_data_by_key("id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            frame.id.to_string()
+        );
+
+        Ok(())
+    }
 }
