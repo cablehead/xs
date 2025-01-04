@@ -23,7 +23,7 @@ mkdir $pkgdir
 cp /Users/andy/.cargo/bin/xs $pkgdir
 tar -czvf $tarball -C $pkgdir xs 
 
-gh release create $"v($env.RELEASE) -F $"changes/($env.RELEASE).md" $tarball
+gh release create $"v($env.RELEASE)" -F $"changes/($env.RELEASE).md" $tarball
 
 shasum -a 256 $tarball
 
