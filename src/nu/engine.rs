@@ -127,6 +127,18 @@ impl Engine {
         // Merge changes into engine state
         self.state.merge_delta(working_set.render())?;
 
+        // Create a temporary stack and evaluate the module
+        let mut stack = Stack::new();
+        let _ = eval_block_with_early_return::<WithoutDebug>(
+            &self.state,
+            &mut stack,
+            &_block,
+            PipelineData::empty(),
+        )?;
+
+        // Merge environment variables into engine state
+        self.state.merge_env(&mut stack)?;
+
         Ok(())
     }
 
