@@ -99,6 +99,20 @@ fn test_add_multiple_modules() {
 }
 
 #[test]
+fn test_add_module_env_var_persistence() {
+    let (_store, mut engine) = setup_test_env();
+
+    // Add a module that sets an environment variable
+    engine
+        .add_module("testmod", r#"export-env { $env.MY_VAR = 'hello' }"#)
+        .unwrap();
+
+    // Verify the environment variable persists
+    let result = eval_to_value(&engine, "$env.MY_VAR");
+    assert_eq!(result.as_str().unwrap(), "hello");
+}
+
+#[test]
 fn test_engine_env_vars() {
     let (_store, engine) = setup_test_env();
 
