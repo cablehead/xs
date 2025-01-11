@@ -598,6 +598,13 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     );
     assert_eq!(recver.recv().await.unwrap().topic, "abc.init");
 
+    let _ = store.append(
+        Frame::with_topic("abc.delta")
+            .hash(store.cas_insert(r#"2"#).await.unwrap())
+            .build(),
+    );
+    assert_eq!(recver.recv().await.unwrap().topic, "abc.delta");
+
     let frame_handler = store.append(
         Frame::with_topic("test.register")
             .hash(store.cas_insert_sync(
@@ -605,10 +612,9 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
                     $env.abc = .head abc.init | .cas $in.hash | from json
 
                     def --env inc-abc [] {
-                        $env.abc = $env.abc + 1
+                        $env.abc = $env.abc + (.head abc.delta | .cas $in.hash | from json)
                         $env.abc
                     }
-
 
                     {
                         process: {|frame|
@@ -636,7 +642,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     // Verify output content shows the env var value
     let content = store.cas_read(&output.hash.unwrap()).await?;
     let result = String::from_utf8(content)?;
-    assert_eq!(result, "43");
+    assert_eq!(result, "44");
 
     // Send trigger frame
     let trigger = store.append(Frame::with_topic("trigger").build());
@@ -649,7 +655,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     // Verify output content shows the env var value
     let content = store.cas_read(&output.hash.unwrap()).await?;
     let result = String::from_utf8(content)?;
-    assert_eq!(result, "44");
+    assert_eq!(result, "46");
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
