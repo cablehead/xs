@@ -412,6 +412,7 @@ fn parse_handler_configuration_script(
 ) -> Result<(Closure, HandlerConfig), Error> {
     let mut working_set = StateWorkingSet::new(&engine.state);
     let block = parse(&mut working_set, None, script.as_bytes(), false);
+
     engine.state.merge_delta(working_set.render())?;
 
     let mut stack = Stack::new();
@@ -420,7 +421,11 @@ fn parse_handler_configuration_script(
         &mut stack,
         &block,
         PipelineData::empty(),
-    )?;
+    )
+    .map_err(|err| {
+        let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+        Error::from(nu_protocol::format_shell_error(&working_set, &err))
+    })?;
 
     let config = result.into_value(nu_protocol::Span::unknown())?;
 
