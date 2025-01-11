@@ -603,11 +603,17 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
             .hash(store.cas_insert_sync(
                 r#"
                     $env.abc = .head abc.init | .cas $in.hash | from json
+
+                    def --env inc-abc [] {
+                        $env.abc = $env.abc + 1
+                        $env.abc
+                    }
+
+
                     {
                         process: {|frame|
                             if $frame.topic != "trigger" { return }
-                            $env.abc = $env | default 0 abc | get abc | $in + 1
-                            $env.abc
+                            inc-abc
                         }
                     }
                     "#,
