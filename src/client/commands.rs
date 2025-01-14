@@ -126,27 +126,43 @@ pub async fn cas_get<W>(
 where
     W: AsyncWrite + Unpin,
 {
-    let res = request::request(
-        addr,
-        Method::GET,
-        &format!("cas/{}", integrity),
-        None,
-        empty(),
-        None,
-    )
-    .await?;
+    let parts = super::types::RequestParts::parse(addr, &format!("cas/{}", integrity), None)?;
 
-    let mut body = res.into_body();
+    match parts.connection {
+        super::types::ConnectionKind::Unix(path) => {
+            // Direct CAS access for local path
+            let store_path = path.parent().unwrap_or(&path).to_path_buf();
+            let cas_path = store_path.join("cacache");
 
-    while let Some(frame) = body.frame().await {
-        let frame = frame?;
-        if let Ok(chunk) = frame.into_data() {
-            writer.write_all(&chunk).await?;
+            let mut reader = cacache::Reader::open_hash(&cas_path, integrity).await?;
+            tokio::io::copy(&mut reader, writer).await?;
+            writer.flush().await?;
+            Ok(())
+        }
+        _ => {
+            // Remote HTTP access
+            let res = request::request(
+                addr,
+                Method::GET,
+                &format!("cas/{}", integrity),
+                None,
+                empty(),
+                None,
+            )
+            .await?;
+            let mut body = res.into_body();
+
+            while let Some(frame) = body.frame().await {
+                let frame = frame?;
+                if let Ok(chunk) = frame.into_data() {
+                    writer.write_all(&chunk).await?;
+                }
+            }
+
+            writer.flush().await?;
+            Ok(())
         }
     }
-
-    writer.flush().await?;
-    Ok(())
 }
 
 pub async fn cas_post<R>(
