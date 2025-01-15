@@ -52,10 +52,11 @@ via `<topic>.send` frames:
 
 ```nushell
 # Create a websocket connection
-"websocat wss://echo.websocket.org" | .append echo.spawn --meta {duplex: true}
+"websocat wss://echo.websocket.org | lines" | .append echo.spawn --meta {duplex: true}
 
-# Send input to the websocket
-"hello" | .append echo.send
+# Send input to the websocket: note the "\n", wss://echo.websocket.org won't
+# reply until it sees a complete line
+"hello\n" | .append echo.send
 ```
 
 When running this generator:
