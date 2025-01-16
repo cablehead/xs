@@ -1,0 +1,142 @@
+---
+title: HTTP API
+description: "Complete reference for the cross.stream supervisor's HTTP API"
+sidebar:
+  order: 6
+---
+
+The supervisor exposes a HTTP API for interacting with the store. By default, it
+listens on a Unix domain socket at `./store/sock`.
+
+## Endpoints
+
+### `GET /`
+
+Cat the stream
+
+```sh
+# Cat all frames
+curl --unix-socket ./store/sock http://localhost/
+
+# Long poll for new frames
+curl --unix-socket ./store/sock -H "Accept: text/event-stream" \
+    "http://localhost/?follow=true"
+```
+
+Query Parameters:
+
+- `follow` - Long poll for new frames
+- `tail` - Begin reading from end of stream
+- `last_id` - Start reading from specific frame ID
+- `limit` - Maximum number of frames to return
+
+Response: newline-delimited JSON frames or SSE stream, based on Accept header.
+Use `"Accept: text/event-stream"` for SSE.
+
+### `POST /{topic}`
+
+Append frame to topic
+
+```sh
+curl --unix-socket ./store/sock \
+    -H "xs-meta: {\"key\":\"value\"}" \
+    -X POST --data "content" \
+    "http://localhost/topic?ttl=forever"
+```
+
+Query Parameters:
+
+- `ttl` - Time-to-live for frame:
+  - `forever` - Never expire
+  - `ephemeral` - Remove after reading
+  - `time:<ms>` - Expire after duration
+  - `head:<n>` - Keep only N most recent frames
+
+Headers:
+
+- `xs-meta` - Optional JSON metadata
+
+Response: Frame JSON
+
+### `GET /{id}`
+
+Get frame by id
+
+```sh
+curl --unix-socket ./store/sock http://localhost/03BCPN2DNQ529QRQKBQCZ4JV4
+```
+
+Response: Frame JSON or 404 if not found
+
+### `DELETE /{id}`
+
+Remove frame
+
+```sh
+curl --unix-socket ./store/sock -X DELETE \
+    http://localhost/03BCPN2DNQ529QRQKBQCZ4JV4
+```
+
+Response: 204 on success
+
+### `GET /head/{topic}`
+
+Get most recent frame for topic
+
+```sh
+curl --unix-socket ./store/sock http://localhost/head/topic
+```
+
+Response: Most recent frame for topic or 404 if not found
+
+### `POST /cas`
+
+Store content in CAS
+
+```sh
+curl --unix-socket ./store/sock \
+    -X POST --data "content" http://localhost/cas
+```
+
+Response: Content hash
+
+### `GET /cas/{hash}`
+
+Get content from CAS
+
+```sh
+curl --unix-socket ./store/sock http://localhost/cas/sha256-hash
+```
+
+Response: Raw content or 404 if not found
+
+### `POST /import`
+
+Import frame as-is
+
+```sh
+curl --unix-socket ./store/sock \
+    -H "Content-Type: application/json" \
+    -X POST --data '{"topic":"test","id":"03BCPN2DNQ529QRQKBQCZ4JV4"}' \
+    http://localhost/import
+```
+
+Response: Imported frame JSON
+
+### `GET /version`
+
+Get version info
+
+```sh
+curl --unix-socket ./store/sock http://localhost/version
+```
+
+Response: Version information JSON
+
+## Status Codes
+
+- 200 - Success
+- 204 - Success (no content)
+- 400 - Bad request
+- 404 - Not found
+- 500 - Internal server error
