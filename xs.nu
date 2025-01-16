@@ -86,7 +86,7 @@ export def .remove [id: string] {
 
 export alias .rm = .remove
 
-export def .dump [path: string] {
+export def .export [path: string] {
   if ($path | path exists) {
     print "path exists"
     return
@@ -96,7 +96,6 @@ export def .dump [path: string] {
   xs cat (store-addr) | save ($path | path join "frames.jsonl")
 
   open ($path | path join "frames.jsonl") | lines | each {from json | get hash} | uniq | each {|hash|
-    # if ($hash | is-empty) { return }
     let hash_64 = $hash | encode base64
     let out_path = $"($path)/cas/($hash_64)"
     print $out_path
@@ -104,7 +103,7 @@ export def .dump [path: string] {
   }
 }
 
-export def .load [path: string] {
+export def .import [path: string] {
   glob ([$path "cas"] | path join "*") | each {|x|
     let want = ($x | path basename | decode base64 | decode)
     let got = cat $x | xs cas-post (store-addr)
