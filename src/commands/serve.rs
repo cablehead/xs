@@ -1,6 +1,6 @@
+use scru128::Scru128Id;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use scru128::Scru128Id;
 use tracing::instrument;
 
 use crate::error::Error;
@@ -20,9 +20,9 @@ pub async fn serve(
     mut base_engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Add core commands to base engine
-    base_engine.add_commands(vec![
-        Box::new(commands::append_command::AppendCommand::new(store.clone())),
-    ])?;
+    base_engine.add_commands(vec![Box::new(
+        commands::append_command::AppendCommand::new(store.clone()),
+    )])?;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -87,11 +87,7 @@ async fn register_command(
         )
     )
 )]
-async fn execute_command(
-    command: Command,
-    frame: Frame,
-    store: &Store,
-) -> Result<(), Error> {
+async fn execute_command(command: Command, frame: Frame, store: &Store) -> Result<(), Error> {
     // Get input from CAS if present
     let input = if let Some(hash) = frame.hash.as_ref() {
         let content = store.cas_read(hash).await?;
@@ -102,7 +98,8 @@ async fn execute_command(
     };
 
     // Get args from meta
-    let args = frame.meta
+    let args = frame
+        .meta
         .as_ref()
         .and_then(|m| m.get("args"))
         .cloned()
@@ -113,10 +110,14 @@ async fn execute_command(
     // Spawn thread to run command
     let topic = frame.topic.clone();
     let store = store.clone();
-    
+
     tokio::task::spawn_blocking(move || {
-        let Command { engine, closure, id: command_id } = command;
-        
+        let Command {
+            engine,
+            closure,
+            id: command_id,
+        } = command;
+
         match run_command(engine, closure, input, args) {
             Ok(pipeline_data) => {
                 // Stream each value as a .recv event
@@ -166,13 +167,13 @@ fn run_command(
 ) -> Result<Vec<nu_protocol::Value>, Error> {
     // Set up engine state
     let mut stack = nu_protocol::engine::Stack::new();
-    
+
     // Convert input and args to Nu values and add to stack
     let input_value = crate::nu::json_to_value(&input)?;
     let args_value = crate::nu::json_to_value(&args)?;
-    
+
     stack.add_var("in".into(), input_value);
-    
+
     let block = engine.state.get_block(closure.block_id);
     let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
     stack.add_var(frame_var_id, args_value);
