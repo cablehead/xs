@@ -19,29 +19,33 @@ To create a command, append a definition string with the topic
 
 ```nushell
 r#"{
-  process: {|args|
-    # $in is implicitly available
-    # $args comes from closure parameter
-    http post --stream $args.url $in | parse lines
+  process: {|frame|
+    # frame.topic - always <command>.call
+    # frame.hash - contains input content if present
+    # frame.meta.args - contains call arguments
+    let input = if ($frame.hash != null) { .cas $frame.hash } else { null }
+    let n = $frame.meta.args.n
+    1..($n) | each {$"($in): ($input)"}
   }
-}"# | .append stream.define
+}"# | .append repeat.define
 ```
 
 The command definition requires:
 
-- `process`: A closure that receives arguments and has access to input via `$in`
+- `process`: A closure that receives the call frame and can return a pipeline of
+  results
 
 Each value in the closure's output pipeline becomes a `.recv` event
 automatically.
 
 ## Calling Commands
 
-Commands are called by appending to `<command-name>.call` with arguments in
-metadata:
+Commands are called by appending to `<command-name>.call` with input content and
+arguments:
 
 ```nushell
-# Post $in to URL and stream SSE response
-$in | .append stream.call --meta {args: {url: "https://api.example.com/events"}}
+# Call the repeat command with input and args
+"foo" | .append repeat.call --meta {args: {n: 3}}
 ```
 
 ## Lifecycle Events
