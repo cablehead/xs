@@ -68,7 +68,7 @@ async fn register_command(
 
     // Parse definition and extract closure
     let mut engine = base_engine.clone();
-    let (closure, _config) = parse_command_definition(&mut engine, &definition)?;
+    let closure = parse_command_definition(&mut engine, &definition)?;
 
     Ok(Command {
         id: frame.id,
@@ -92,6 +92,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
 
     // Spawn thread to run command
     let topic = frame.topic.clone();
+    let frame_id = frame.id;
     let store = store.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -105,7 +106,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
             Ok(pipeline_data) => {
                 // Stream each value as a .recv event
                 for value in pipeline_data {
-                    if let Err(_) = tx.blocking_send((command_id, frame.id.clone(), value)) {
+                    if let Err(_) = tx.blocking_send((command_id, frame_id, value)) {
                         break;
                     }
                 }
@@ -134,7 +135,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
         Frame::with_topic(format!("{}.complete", topic.strip_suffix(".call").unwrap()))
             .meta(serde_json::json!({
                 "command_id": command.id.to_string(),
-                "frame_id": frame.id.to_string(),
+                "frame_id": frame_id.to_string(),
             }))
             .build(),
     );
@@ -143,7 +144,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
 }
 
 fn run_command(
-    mut engine: nu::Engine,
+    engine: nu::Engine,
     closure: nu_protocol::engine::Closure,
     frame: &Frame,
 ) -> Result<nu_protocol::PipelineData, Error> {
@@ -169,7 +170,7 @@ fn run_command(
 fn parse_command_definition(
     engine: &mut nu::Engine,
     script: &str,
-) -> Result<(nu_protocol::engine::Closure, serde_json::Value), Error> {
+) -> Result<nu_protocol::engine::Closure, Error> {
     let mut working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
     let block = nu_parser::parse(&mut working_set, None, script.as_bytes(), false);
 
@@ -192,5 +193,5 @@ fn parse_command_definition(
 
     engine.state.merge_env(&mut stack)?;
 
-    Ok((process, config))
+    Ok(process)
 }
