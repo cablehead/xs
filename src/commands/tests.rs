@@ -34,7 +34,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     // Call the command
     let frame_call = store.append(
         Frame::with_topic("echo.call")
-            .hash(store.cas_insert(r#""foo""#).await?)
+            .hash(store.cas_insert(r#"foo"#).await?)
             .meta(serde_json::json!({"args": {"n": 3}}))
             .build(),
     );
@@ -52,7 +52,10 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
         // Verify content
         let content = store.cas_read(&frame.hash.unwrap()).await?;
         let content_str = String::from_utf8(content)?;
-        assert_eq!(content_str, format!("\"{}\"", expected_content));
+        assert_eq!(
+            content_str,
+            serde_json::to_string(expected_content).unwrap()
+        );
     }
 
     // Should get completion event

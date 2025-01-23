@@ -20,9 +20,14 @@ pub async fn serve(
     mut base_engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Add core commands to base engine
-    base_engine.add_commands(vec![Box::new(
-        commands::append_command::AppendCommand::new(store.clone()),
-    )])?;
+    base_engine.add_commands(vec![
+        Box::new(commands::cas_command::CasCommand::new(store.clone())),
+        Box::new(commands::cat_command::CatCommand::new(store.clone())),
+        Box::new(commands::get_command::GetCommand::new(store.clone())),
+        Box::new(commands::head_command::HeadCommand::new(store.clone())),
+        Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
+        Box::new(commands::append_command::AppendCommand::new(store.clone())),
+    ])?;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
