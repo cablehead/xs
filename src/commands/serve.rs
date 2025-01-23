@@ -1,6 +1,5 @@
 use scru128::Scru128Id;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
 use tracing::instrument;
 
 use crate::error::Error;
@@ -88,9 +87,6 @@ async fn register_command(
     )
 )]
 async fn execute_command(command: Command, frame: Frame, store: &Store) -> Result<(), Error> {
-    let (tx, mut rx) = mpsc::channel(32);
-
-    // Spawn thread to run command
     let topic = frame.topic.clone();
     let frame_id = frame.id;
     let store = store.clone();
@@ -102,43 +98,38 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
             id: command_id,
         } = command;
 
+        // Run command and process pipeline
         match run_command(engine, closure, &frame) {
             Ok(pipeline_data) => {
-                // Stream each value as a .recv event
+                // Process each value as a .recv event
                 for value in pipeline_data {
-                    if let Err(_) = tx.blocking_send((command_id, frame_id, value)) {
-                        break;
-                    }
+                    let hash = store.cas_insert_sync(&value_to_json(&value).to_string())?;
+                    let _ = store.append(
+                        Frame::with_topic(format!("{}.recv", topic.strip_suffix(".call").unwrap()))
+                            .hash(hash)
+                            .meta(serde_json::json!({
+                                "command_id": command_id.to_string(),
+                                "frame_id": frame_id.to_string(),
+                            }))
+                            .build(),
+                    );
                 }
+
+                // Emit completion event
+                let _ = store.append(
+                    Frame::with_topic(format!("{}.complete", topic.strip_suffix(".call").unwrap()))
+                        .meta(serde_json::json!({
+                            "command_id": command_id.to_string(),
+                            "frame_id": frame_id.to_string(),
+                        }))
+                        .build(),
+                );
                 Ok(())
             }
             Err(err) => Err(err),
         }
-    });
-
-    // Process output stream
-    while let Some((command_id, frame_id, value)) = rx.recv().await {
-        let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
-        let _ = store.append(
-            Frame::with_topic(format!("{}.recv", topic.strip_suffix(".call").unwrap()))
-                .hash(hash)
-                .meta(serde_json::json!({
-                    "command_id": command_id.to_string(),
-                    "frame_id": frame_id.to_string(),
-                }))
-                .build(),
-        );
-    }
-
-    // Emit completion event
-    let _ = store.append(
-        Frame::with_topic(format!("{}.complete", topic.strip_suffix(".call").unwrap()))
-            .meta(serde_json::json!({
-                "command_id": command.id.to_string(),
-                "frame_id": frame_id.to_string(),
-            }))
-            .build(),
-    );
+    })
+    .await??;
 
     Ok(())
 }
