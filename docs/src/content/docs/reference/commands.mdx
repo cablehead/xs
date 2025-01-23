@@ -1,0 +1,82 @@
+---
+title: Commands
+description: TBD
+sidebar:
+  order: 4
+---
+
+import { Link } from '../../../utils/links';
+
+cross.stream commands use <Link to="nu" /> expressions to define reusable
+operations that can be called on-demand with arguments. Unlike handlers which
+maintain state between invocations, or generators which run continuously,
+commands are stateless and execute independently each time they are called.
+
+## Defining Commands
+
+To create a command, append a definition string with the topic
+`<command-name>.define`:
+
+```nushell
+r#"{
+  process: {|args|
+    # $in is implicitly available
+    # $args comes from closure parameter
+    http post --stream $args.url $in | parse lines
+  }
+}"# | .append stream.define
+```
+
+The command definition requires:
+
+- `process`: A closure that receives arguments and has access to input via `$in`
+
+Each value in the closure's output pipeline becomes a `.recv` event
+automatically.
+
+## Calling Commands
+
+Commands are called by appending to `<command-name>.call` with arguments in
+metadata:
+
+```nushell
+# Post $in to URL and stream SSE response
+$in | .append stream.call --meta {args: {url: "https://api.example.com/events"}}
+```
+
+## Lifecycle Events
+
+Commands emit events to track their execution:
+
+| Event                | Description                              |
+| -------------------- | ---------------------------------------- |
+| `<command>.recv`     | Output value from the command's pipeline |
+| `<command>.complete` | Command execution finished successfully  |
+| `<command>.error`    | Error occurred during command execution  |
+
+All events include:
+
+- `command_id`: ID of the command definition
+- `frame_id`: ID of this specific invocation
+
+## Error Handling
+
+If a command encounters an error during execution, it will:
+
+1. Emit a `<command>.error` frame with:
+   - The error message
+   - Reference to both command_id and frame_id
+2. Stop processing the current invocation
+
+Unlike generators, commands do not automatically restart on error - each
+invocation is independent.
+
+## Key Differences
+
+| Feature        | Commands                | Handlers               | Generators      |
+| -------------- | ----------------------- | ---------------------- | --------------- |
+| State          | Stateless               | Stateful between calls | Stateless       |
+| Execution      | On-demand               | Event-driven           | Continuous      |
+| Results        | Streamed immediately    | Batched on completion  | Streamed        |
+| Parallelism    | Multiple parallel calls | Sequential processing  | Single instance |
+| Error Handling | Per-invocation          | Unregisters handler    | Auto-restarts   |
