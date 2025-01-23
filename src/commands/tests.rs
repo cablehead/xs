@@ -18,9 +18,10 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
-                            process: {|args|
-                                let s = $in
-                                1..($args.n) | each {$"($in): ($s)"}
+                            process: {|frame|
+                                let input = if ($frame.hash != null) { .cas $frame.hash } else { null }
+                                let n = $frame.meta.args.n
+                                1..($n) | each {$"($in): ($input)"}
                             }
                         }"#,
                     )
@@ -72,15 +73,15 @@ async fn test_command_error_handling() -> Result<(), Error> {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Define command that will error with invalid args
+    // Define command that will error with invalid access
     let frame_command = store.append(
         Frame::with_topic("will_error.define")
             .hash(
                 store
                     .cas_insert(
                         r#"{
-                            process: {|args|
-                                1..($args.not_exists) # This will error
+                            process: {|frame|
+                                $frame.meta.args.not_exists # This will error
                             }
                         }"#,
                     )
@@ -132,7 +133,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     {
         let store = store.clone();
         let _ = tokio::spawn(async move {
-            crate::serve(store, engine).await.unwrap();
+            crate::commands::serve::serve(store, engine).await.unwrap();
         });
     }
 

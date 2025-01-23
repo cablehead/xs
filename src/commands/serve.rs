@@ -31,7 +31,7 @@ pub async fn serve(
 
     while let Some(frame) = recver.recv().await {
         if let Some(name) = frame.topic.strip_suffix(".define") {
-            match register_command(&frame, &base_engine, name, &store).await {
+            match register_command(&frame, &base_engine, &store).await {
                 Ok(command) => {
                     commands.insert(name.to_string(), command);
                 }
@@ -59,7 +59,6 @@ pub async fn serve(
 async fn register_command(
     frame: &Frame,
     base_engine: &nu::Engine,
-    name: &str,
     store: &Store,
 ) -> Result<Command, Error> {
     // Get definition from CAS
@@ -89,23 +88,6 @@ async fn register_command(
     )
 )]
 async fn execute_command(command: Command, frame: Frame, store: &Store) -> Result<(), Error> {
-    // Get input from CAS if present
-    let input = if let Some(hash) = frame.hash.as_ref() {
-        let content = store.cas_read(hash).await?;
-        let content = String::from_utf8(content)?;
-        serde_json::from_str(&content)?
-    } else {
-        serde_json::Value::Null
-    };
-
-    // Get args from meta
-    let args = frame
-        .meta
-        .as_ref()
-        .and_then(|m| m.get("args"))
-        .cloned()
-        .unwrap_or(serde_json::Value::Object(Default::default()));
-
     let (tx, mut rx) = mpsc::channel(32);
 
     // Spawn thread to run command
@@ -119,7 +101,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
             id: command_id,
         } = command;
 
-        match run_command(engine, closure, input, args) {
+        match run_command(engine, closure, &frame) {
             Ok(pipeline_data) => {
                 // Stream each value as a .recv event
                 for value in pipeline_data {
@@ -163,26 +145,16 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
 fn run_command(
     mut engine: nu::Engine,
     closure: nu_protocol::engine::Closure,
-    input: serde_json::Value,
-    args: serde_json::Value,
+    frame: &Frame,
 ) -> Result<nu_protocol::PipelineData, Error> {
     let mut stack = nu_protocol::engine::Stack::new();
 
-    // Convert input and args to Nu values and add to stack
-    let input_value = nu_protocol::Value::String {
-        val: serde_json::to_string(&input)?,
-        span: nu_protocol::Span::unknown(),
-    };
-    let args_value = nu_protocol::Value::String {
-        val: serde_json::to_string(&args)?,
-        span: nu_protocol::Span::unknown(),
-    };
-
-    stack.add_var("in".into(), input_value);
-
     let block = engine.state.get_block(closure.block_id);
     let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
-    stack.add_var(frame_var_id, args_value);
+
+    // Convert frame to Nu value
+    let frame_value = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown());
+    stack.add_var(frame_var_id, frame_value);
 
     // Execute closure and return pipeline directly
     nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
@@ -194,12 +166,31 @@ fn run_command(
     .map_err(Error::from)
 }
 
-// Helper to parse command definition similar to handlers
 fn parse_command_definition(
     engine: &mut nu::Engine,
     script: &str,
 ) -> Result<(nu_protocol::engine::Closure, serde_json::Value), Error> {
-    // Similar to parse_handler_configuration_script but simpler
-    // Just need to get the closure from the process field
-    todo!()
+    let mut working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+    let block = nu_parser::parse(&mut working_set, None, script.as_bytes(), false);
+
+    engine.state.merge_delta(working_set.render())?;
+
+    let mut stack = nu_protocol::engine::Stack::new();
+    let result = nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
+        &engine.state,
+        &mut stack,
+        &block,
+        nu_protocol::PipelineData::empty(),
+    )?;
+
+    let config = result.into_value(nu_protocol::Span::unknown())?;
+
+    let process = config
+        .get_data_by_key("process")
+        .ok_or("No 'process' field found in command configuration")?
+        .into_closure()?;
+
+    engine.state.merge_env(&mut stack)?;
+
+    Ok((process, config))
 }
