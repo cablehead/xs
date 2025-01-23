@@ -9,6 +9,7 @@ use crate::nu::commands;
 use crate::nu::util::value_to_json;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
+#[derive(Clone)]
 struct Command {
     id: Scru128Id,
     engine: nu::Engine,
@@ -164,13 +165,18 @@ fn run_command(
     closure: nu_protocol::engine::Closure,
     input: serde_json::Value,
     args: serde_json::Value,
-) -> Result<Vec<nu_protocol::Value>, Error> {
-    // Set up engine state
+) -> Result<nu_protocol::PipelineData, Error> {
     let mut stack = nu_protocol::engine::Stack::new();
 
     // Convert input and args to Nu values and add to stack
-    let input_value = crate::nu::json_to_value(&input)?;
-    let args_value = crate::nu::json_to_value(&args)?;
+    let input_value = nu_protocol::Value::String {
+        val: serde_json::to_string(&input)?,
+        span: nu_protocol::Span::unknown(),
+    };
+    let args_value = nu_protocol::Value::String {
+        val: serde_json::to_string(&args)?,
+        span: nu_protocol::Span::unknown(),
+    };
 
     stack.add_var("in".into(), input_value);
 
@@ -178,21 +184,14 @@ fn run_command(
     let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
     stack.add_var(frame_var_id, args_value);
 
-    // Execute closure
-    let result = nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
+    // Execute closure and return pipeline directly
+    nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
         &engine.state,
         &mut stack,
         block,
         nu_protocol::PipelineData::empty(),
-    )?;
-
-    // Collect all values from pipeline
-    let mut values = Vec::new();
-    for value in result.into_iter() {
-        values.push(value);
-    }
-
-    Ok(values)
+    )
+    .map_err(Error::from)
 }
 
 // Helper to parse command definition similar to handlers
