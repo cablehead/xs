@@ -1,8 +1,8 @@
 use tempfile::TempDir;
 
 use crate::error::Error;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use crate::nu;
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[tokio::test]
 async fn test_command_with_pipeline() -> Result<(), Error> {
@@ -18,7 +18,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
-                            process: {|args| 
+                            process: {|args|
                                 let s = $in
                                 1..($args.n) | each {$"($in): ($s)"}
                             }
@@ -47,7 +47,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
         let meta = frame.meta.as_ref().expect("Meta should be present");
         assert_eq!(meta["command_id"], frame_command.id.to_string());
         assert_eq!(meta["frame_id"], frame_call.id.to_string());
-        
+
         // Verify content
         let content = store.cas_read(&frame.hash.unwrap()).await?;
         let content_str = String::from_utf8(content)?;
@@ -79,7 +79,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
-                            process: {|args| 
+                            process: {|args|
                                 1..($args.not_exists) # This will error
                             }
                         }"#,
