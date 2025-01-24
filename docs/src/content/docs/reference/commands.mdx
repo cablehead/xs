@@ -18,7 +18,7 @@ To create a command, append a definition string with the topic
 `<command-name>.define`:
 
 ```nushell
-r#"{
+r#'{
   process: {|frame|
     # frame.topic - always <command>.call
     # frame.hash - contains input content if present
@@ -27,7 +27,7 @@ r#"{
     let n = $frame.meta.args.n
     1..($n) | each {$"($in): ($input)"}
   }
-}"# | .append repeat.define
+}'# | .append repeat.define
 ```
 
 The command definition requires:
