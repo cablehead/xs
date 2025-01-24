@@ -129,9 +129,21 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                         }))
                         .build(),
                 );
-                Ok(())
+                Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
             }
-            Err(err) => Err(err),
+            Err(err) => {
+                // Emit error event instead of propagating
+                let _ = store.append(
+                    Frame::with_topic(format!("{}.error", topic.strip_suffix(".call").unwrap()))
+                        .meta(serde_json::json!({
+                            "command_id": command_id.to_string(),
+                            "frame_id": frame_id.to_string(),
+                            "error": err.to_string(),
+                        }))
+                        .build(),
+                );
+                Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
+            }
         }
     })
     .await??;
