@@ -27,7 +27,7 @@ cat handler.nu | .append todo.handler.register
 cat index.html | .append index.html
 ```
 
-3. Visit `http://localhost:5007` in your browser
+3. Visit: http://localhost:5007 in your browser
 
 ## Event Structure
 
