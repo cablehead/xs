@@ -126,7 +126,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
         } = command;
 
         // Run command and process pipeline
-        match run_command(engine, closure, &frame) {
+        match run_command(&engine, closure, &frame) {
             Ok(pipeline_data) => {
                 // Process each value as a .recv event
                 for value in pipeline_data {
@@ -155,15 +155,17 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
             }
             Err(err) => {
                 // Emit error event instead of propagating
+                let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
                 let _ = store.append(
                     Frame::with_topic(format!("{}.error", topic.strip_suffix(".call").unwrap()))
                         .meta(serde_json::json!({
                             "command_id": command_id.to_string(),
                             "frame_id": frame_id.to_string(),
-                            "error": err.to_string(),
+                            "error": nu_protocol::format_shell_error(&working_set, &err)
                         }))
                         .build(),
                 );
+
                 Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
             }
         }
@@ -174,27 +176,24 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
 }
 
 fn run_command(
-    engine: nu::Engine,
+    engine: &nu::Engine,
     closure: nu_protocol::engine::Closure,
     frame: &Frame,
-) -> Result<nu_protocol::PipelineData, Error> {
+) -> Result<nu_protocol::PipelineData, nu_protocol::ShellError> {
     let mut stack = nu_protocol::engine::Stack::new();
 
     let block = engine.state.get_block(closure.block_id);
     let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
 
-    // Convert frame to Nu value
     let frame_value = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown());
     stack.add_var(frame_var_id, frame_value);
 
-    // Execute closure and return pipeline directly
     nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
         &engine.state,
         &mut stack,
         block,
         nu_protocol::PipelineData::empty(),
     )
-    .map_err(Error::from)
 }
 
 fn parse_command_definition(
