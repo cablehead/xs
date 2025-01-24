@@ -406,12 +406,40 @@ use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
 use nu_protocol::PipelineData;
 
+use nu_protocol::format_shell_error;
+use nu_protocol::ShellError;
+
 fn parse_handler_configuration_script(
     engine: &mut nu::Engine,
     script: &str,
 ) -> Result<(Closure, HandlerConfig), Error> {
     let mut working_set = StateWorkingSet::new(&engine.state);
+
     let block = parse(&mut working_set, None, script.as_bytes(), false);
+
+    // Handle parse errors
+    if let Some(err) = working_set.parse_errors.first() {
+        let shell_error = ShellError::GenericError {
+            error: "Parse error".into(),
+            msg: format!("{:?}", err),
+            span: Some(err.span()),
+            help: None,
+            inner: vec![],
+        };
+        return Err(Error::from(format_shell_error(&working_set, &shell_error)));
+    }
+
+    // Handle compile errors
+    if let Some(err) = working_set.compile_errors.first() {
+        let shell_error = ShellError::GenericError {
+            error: "Compile error".into(),
+            msg: format!("{:?}", err),
+            span: None,
+            help: None,
+            inner: vec![],
+        };
+        return Err(Error::from(format_shell_error(&working_set, &shell_error)));
+    }
 
     engine.state.merge_delta(working_set.render())?;
 

@@ -141,6 +141,54 @@ async fn test_register_invalid_closure() {
 }
 
 #[tokio::test]
+async fn test_register_parse_error() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.threshold".to_string()
+    );
+
+    // Attempt to register a closure which should fail to parse
+    let frame_handler = store.append(
+        Frame::with_topic("invalid.register")
+            .hash(
+                store
+                    .cas_insert(
+                        r#"
+                        {
+                          process: {|frame|
+                            .head index.html | .cas
+                          }
+                        }
+                        "#,
+                    )
+                    .await
+                    .unwrap(),
+            )
+            .build(),
+    );
+
+    // Ensure the register frame is processed
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "invalid.register".to_string()
+    );
+
+    // Expect an unregistered frame to be appended
+    validate_frame!(
+        recver.recv().await.unwrap(), {
+        topic: "invalid.unregistered",
+        handler: frame_handler,
+        error: "MissingPositional",
+    });
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
 // This test is to ensure that a handler does not process its own output
 async fn test_no_self_loop() {
     let (store, _temp_dir) = setup_test_environment().await;
