@@ -15,6 +15,30 @@ struct Command {
     closure: nu_protocol::engine::Closure,
 }
 
+async fn handle_define(
+    frame: &Frame,
+    name: &str,
+    base_engine: &nu::Engine,
+    store: &Store,
+    commands: &mut HashMap<String, Command>,
+) {
+    match register_command(frame, base_engine, store).await {
+        Ok(command) => {
+            commands.insert(name.to_string(), command);
+        }
+        Err(err) => {
+            let _ = store.append(
+                Frame::with_topic(format!("{}.error", name))
+                    .meta(serde_json::json!({
+                        "command_id": frame.id.to_string(),
+                        "error": err.to_string(),
+                    }))
+                    .build(),
+            );
+        }
+    }
+}
+
 pub async fn serve(
     store: Store,
     mut base_engine: nu::Engine,
@@ -29,27 +53,25 @@ pub async fn serve(
         Box::new(commands::append_command::AppendCommand::new(store.clone())),
     ])?;
 
+    let mut commands = HashMap::new();
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
-    let mut commands = HashMap::new();
 
+    // Process frames up to threshold, registering only .define frames
+    while let Some(frame) = recver.recv().await {
+        if frame.topic == "xs.threshold" {
+            break;
+        }
+
+        if let Some(name) = frame.topic.strip_suffix(".define") {
+            handle_define(&frame, name, &base_engine, &store, &mut commands).await;
+        }
+    }
+
+    // Continue processing new frames
     while let Some(frame) = recver.recv().await {
         if let Some(name) = frame.topic.strip_suffix(".define") {
-            match register_command(&frame, &base_engine, &store).await {
-                Ok(command) => {
-                    commands.insert(name.to_string(), command);
-                }
-                Err(err) => {
-                    let _ = store.append(
-                        Frame::with_topic(format!("{}.error", name))
-                            .meta(serde_json::json!({
-                                "command_id": frame.id.to_string(),
-                                "error": err.to_string(),
-                            }))
-                            .build(),
-                    );
-                }
-            }
+            handle_define(&frame, name, &base_engine, &store, &mut commands).await;
         } else if let Some(name) = frame.topic.strip_suffix(".call") {
             if let Some(command) = commands.get(name) {
                 execute_command(command.clone(), frame, &store).await?;
