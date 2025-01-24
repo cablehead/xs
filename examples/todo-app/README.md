@@ -2,6 +2,8 @@
 
 A simple todo list application demonstrating how to build a web application using cross-stream's [built-in HTTP server](https://cablehead.github.io/xs/reference/http-server/).
 
+<img width="726" alt="image" src="https://github.com/user-attachments/assets/ccfcaa62-436e-4a85-95df-29a142a426cd" />
+
 ## Features
 
 - Add new todos
