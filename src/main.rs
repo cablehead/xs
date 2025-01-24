@@ -210,6 +210,14 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
         });
     }
 
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            let _ = xs::commands::serve(store, engine).await;
+        });
+    }
+
     if let Some(addr) = args.http {
         let store = store.clone();
         tokio::spawn(async move {
