@@ -5,10 +5,10 @@ sidebar:
   order: 3
 ---
 
-cross.stream is built around three fundamental concepts that work together to
+cross.stream is built around four fundamental concepts that work together to
 create a powerful and flexible event streaming system: the event store,
-generators, and handlers. Let's explore how these components interact and
-complement each other.
+generators, handlers, and commands. Let's explore how these components interact
+and complement each other.
 
 ## Event Store: The Foundation
 
@@ -30,7 +30,9 @@ This design makes the event store particularly good at maintaining an accurate
 history of what happened and when, while still being efficient to query and
 process.
 
-## Generators: The Producers
+## Processing Components
+
+### Generators: The Producers
 
 Generators are like automated watchers that produce new events into the stream.
 They run as background processes, monitoring for specific conditions or changes
@@ -42,75 +44,80 @@ For example, a generator might:
 - Monitor a websocket connection and turn incoming messages into events
 - Periodically check a system's status and emit health events
 
-What makes generators powerful is their ability to:
+### Handlers: The Reactors
 
-- Run continuously in the background
-- Automatically restart if they encounter issues
-- Handle bi-directional communication when needed (with the `duplex` option)
-- Emit standardized lifecycle events (start, stop, error)
+Handlers provide a way to react to and process events in the stream. They are
+like event-driven functions that wake up when new events arrive, process them
+according to rules you define, and optionally produce new events in response.
 
-Think of generators as the sensors of your system - they watch, listen, and
-report what they observe into the event stream.
-
-## Handlers: The Reactors
-
-Handlers complete the picture by providing a way to react to and process events
-in the stream. They are like event-driven functions that wake up when new events
-arrive, process them according to rules you define, and optionally produce new
-events in response.
-
-Key characteristics of handlers include:
-
-- They process events using Nushell expressions
-- They can maintain state between executions
-- They can emit new events into the stream
-- They automatically track which events they've processed
-
-Handlers turn your event store from a passive recording system into an active
-processing pipeline. They can:
+A handler might:
 
 - Transform events into new formats
 - Trigger external actions in response to events
 - Aggregate or analyze event data
 - Create chains of event processing
 
-## How They Work Together
+### Commands: The On-demand Processors
 
-These three concepts form a powerful event processing system:
+Commands are reusable operations that can be called on-demand with input data.
+Unlike generators which run continuously, or handlers which maintain state,
+commands are stateless and execute independently each time they are called.
 
-1. The **event store** provides the reliable foundation, ensuring events are
-   durably stored and efficiently retrievable
-2. **Generators** feed the system with events from external sources
-3. **Handlers** process those events, potentially generating new events that
-   feed back into the system
+A command might:
 
-This creates a flexible architecture where:
+- Make an HTTP request and stream back SSE responses
+- Transform input data in a complex way
+- Interact with external services
 
-- Multiple generators can feed events into the system
-- Multiple handlers can process the same events in different ways
-- The event store ensures everything is reliably recorded and retrievable
+## Component Comparison
+
+| Aspect           | Generators                           | Handlers                      | Commands                     |
+| ---------------- | ------------------------------------ | ----------------------------- | ---------------------------- |
+| Purpose          | Produce events from external sources | Process existing events       | Perform on-demand operations |
+| Execution        | Continuous background process        | Event-driven                  | Called on-demand             |
+| State            | Stateless                            | Maintains state between calls | Stateless                    |
+| Output           | Immediate streaming                  | Buffered until completion     | Immediate streaming          |
+| Error Handling   | Auto-restarts                        | Unregisters                   | Per-invocation               |
+| Typical Use Case | Watch external sources               | Transform/react to events     | Reusable operations          |
+
+## Incremental Adoption
+
+One of the strengths of cross.stream's design is that you can start simple and
+gradually add complexity as needed:
+
+1. **Start with the Event Store**
+   - Begin by just using the store to record and query events
+   - Get comfortable with the basic append/read operations
+   - Use it like a specialized database
+
+2. **Add Generators**
+   - When you need to automatically capture events from external sources
+   - Start with simple file watchers or API monitors
+   - Let generators feed your event stream
+
+3. **Introduce Handlers**
+   - As you need to process or react to events
+   - Start with simple transformations
+   - Build up to more complex event processing chains
+
+4. **Define Commands**
+   - When you need reusable, on-demand operations
+   - Encapsulate common operations
+   - Use for streaming interactions with external services
+
+## Working Together
+
+These components create a flexible architecture where:
+
+1. **Generators** feed events into the system from external sources
+2. **Handlers** process those events, maintaining state if needed
+3. **Commands** provide reusable operations that can be called on-demand
+4. The **event store** ensures everything is reliably recorded and retrievable
 
 For example, you might have:
 
-- A generator watching a log file
-- A handler that filters for error events and creates alerts
-- Another handler that aggregates statistics
-- A third handler that archives old events
-
-Each component focuses on its specific role while working together to create a
-complete event processing system.
-
-## Choosing the Right Approach
-
-When working with cross.stream, consider:
-
-- Use the **event store directly** when you need to manually record events or
-  query the history
-- Use **generators** when you need to automatically produce events from external
-  sources
-- Use **handlers** when you need to process, transform, or react to events in
-  the stream
-
-The beauty of this design is that you can start simple - perhaps just using the
-event store directly - and gradually add generators and handlers as your needs
-grow more complex.
+- A generator watching system metrics
+- A handler that processes those metrics and detects anomalies
+- A command that can be called to fetch additional data when an anomaly is
+  detected
+- The event store maintaining the complete history of metrics and analysis
