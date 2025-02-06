@@ -19,7 +19,7 @@ use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
 use crate::nu;
-use crate::store::{self, Frame, ReadOptions, Store, TTL};
+use crate::store::{self, FollowOption, Frame, ReadOptions, Store, TTL};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -37,13 +37,18 @@ enum Routes {
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
-    HeadGet(String),
+    HeadGet(String, bool), // topic, follow
     Import,
     Version,
     NotFound,
 }
 
-fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Routes {
+fn match_route(
+    method: &Method,
+    path: &str,
+    headers: &hyper::HeaderMap,
+    query: Option<&str>,
+) -> Routes {
     match (method, path) {
         (&Method::GET, "/version") => Routes::Version,
 
@@ -57,9 +62,12 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 
         (&Method::GET, p) if p.starts_with("/head/") => {
             if let Some(topic) = p.strip_prefix("/head/") {
-                return Routes::HeadGet(topic.to_string());
+                let follow = url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
+                    .any(|(key, _)| key == "follow");
+                Routes::HeadGet(topic.to_string(), follow)
+            } else {
+                Routes::NotFound
             }
-            Routes::NotFound
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
@@ -108,8 +116,9 @@ async fn handle(
     let method = req.method();
     let path = req.uri().path();
     let headers = req.headers().clone();
+    let query = req.uri().query();
 
-    let res = match match_route(method, path, &headers) {
+    let res = match match_route(method, path, &headers, query) {
         Routes::Version => handle_version().await,
 
         Routes::StreamCat(accept_type) => {
@@ -142,7 +151,7 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
+        Routes::HeadGet(topic, follow) => handle_head_get(&store, &topic, follow).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -380,6 +389,47 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
+async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
+    let current_head = store.head(topic);
+
+    if !follow {
+        return response_frame_or_404(current_head);
+    }
+
+    let rx = store
+        .read(
+            ReadOptions::builder()
+                .follow(FollowOption::On)
+                .tail(true)
+                .maybe_last_id(current_head.as_ref().map(|f| f.id))
+                .build(),
+        )
+        .await;
+
+    let topic = topic.to_string();
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
+        .filter(move |frame| frame.topic == topic)
+        .map(|frame| {
+            let mut bytes = serde_json::to_vec(&frame).unwrap();
+            bytes.push(b'\n');
+            Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
+        });
+
+    let body = if let Some(frame) = current_head {
+        let mut head_bytes = serde_json::to_vec(&frame).unwrap();
+        head_bytes.push(b'\n');
+        let head_chunk = Ok(hyper::body::Frame::data(Bytes::from(head_bytes)));
+        StreamBody::new(futures::stream::once(async { head_chunk }).chain(stream)).boxed()
+    } else {
+        StreamBody::new(stream).boxed()
+    };
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/x-ndjson")
+        .body(body)?)
+}
+
 async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPResult {
     let bytes = body.collect().await?.to_bytes();
     let frame: Frame = match serde_json::from_slice(&bytes) {
@@ -427,4 +477,24 @@ fn empty() -> BoxBody<Bytes, BoxError> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_match_route_head_follow() {
+        let headers = hyper::HeaderMap::new();
+
+        assert!(matches!(
+            match_route(&Method::GET, "/head/test", &headers, None),
+            Routes::HeadGet(topic, false) if topic == "test"
+        ));
+
+        assert!(matches!(
+            match_route(&Method::GET, "/head/test", &headers, Some("follow=true")),
+            Routes::HeadGet(topic, true) if topic == "test"
+        ));
+    }
 }
