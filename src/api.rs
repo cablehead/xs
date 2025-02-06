@@ -405,14 +405,7 @@ async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult
 
     let topic = topic.to_string();
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
-        .filter(move |frame| {
-            eprintln!(
-                "Got frame topic: '{}' looking for: '{}'",
-                frame.topic, topic
-            );
-
-            frame.topic == topic
-        })
+        .filter(move |frame| frame.topic == topic)
         .map(|frame| {
             let mut bytes = serde_json::to_vec(&frame).unwrap();
             bytes.push(b'\n');

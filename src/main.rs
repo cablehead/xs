@@ -310,11 +310,7 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn head(args: CommandHead) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut stdout = tokio::io::stdout();
-    let response = xs::client::head(&args.addr, &args.topic, args.follow).await?;
-    stdout.write_all(&response).await?;
-    stdout.flush().await?;
-    Ok(())
+    xs::client::head(&args.addr, &args.topic, args.follow).await
 }
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
