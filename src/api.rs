@@ -19,7 +19,7 @@ use hyper_util::rt::TokioIo;
 
 use crate::listener::Listener;
 use crate::nu;
-use crate::store::{self, Frame, ReadOptions, Store, TTL};
+use crate::store::{self, FollowOption, Frame, ReadOptions, Store, TTL};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -37,7 +37,7 @@ enum Routes {
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
-    HeadGet(String),
+    HeadGet(String, bool), // topic, follow
     Import,
     Version,
     NotFound,
@@ -57,7 +57,11 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 
         (&Method::GET, p) if p.starts_with("/head/") => {
             if let Some(topic) = p.strip_prefix("/head/") {
-                return Routes::HeadGet(topic.to_string());
+                let follow =
+                    url::form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes())
+                        .find(|(key, _)| key == "follow")
+                        .is_some();
+                return Routes::HeadGet(topic.to_string(), follow);
             }
             Routes::NotFound
         }
@@ -380,9 +384,9 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_head_get(store: &Store, topic: String, follow: bool) -> HTTPResult {
+async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
     if !follow {
-        return response_frame_or_404(store.head(&topic));
+        return response_frame_or_404(store.head(topic));
     }
 
     let mut rx = store
@@ -394,18 +398,13 @@ async fn handle_head_get(store: &Store, topic: String, follow: bool) -> HTTPResu
         )
         .await;
 
-    let stream = async_stream::stream! {
-        let mut current_head: Option<Frame> = None;
-
-        while let Some(frame) = rx.recv().await {
-            if frame.topic == topic {
-                current_head = Some(frame.clone());
-                let mut bytes = serde_json::to_vec(&frame).unwrap();
-                bytes.push(b'\n');
-                yield Ok(hyper::body::Frame::data(Bytes::from(bytes)));
-            }
-        }
-    };
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
+        .filter(move |frame| frame.topic == topic)
+        .map(|frame| {
+            let mut bytes = serde_json::to_vec(&frame).unwrap();
+            bytes.push(b'\n');
+            Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
+        });
 
     let body = StreamBody::new(stream).boxed();
 
