@@ -43,7 +43,12 @@ enum Routes {
     NotFound,
 }
 
-fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Routes {
+fn match_route(
+    method: &Method,
+    path: &str,
+    headers: &hyper::HeaderMap,
+    query: Option<&str>,
+) -> Routes {
     match (method, path) {
         (&Method::GET, "/version") => Routes::Version,
 
@@ -57,10 +62,13 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 
         (&Method::GET, p) if p.starts_with("/head/") => {
             if let Some(topic) = p.strip_prefix("/head/") {
-                let follow = headers.get("follow") == Some(&"true".parse().unwrap());
-                return Routes::HeadGet(topic.to_string(), follow);
+                let follow = url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
+                    .find(|(key, _)| key == "follow")
+                    .is_some();
+                Routes::HeadGet(topic.to_string(), follow)
+            } else {
+                Routes::NotFound
             }
-            Routes::NotFound
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
@@ -109,8 +117,9 @@ async fn handle(
     let method = req.method();
     let path = req.uri().path();
     let headers = req.headers().clone();
+    let query = req.uri().query();
 
-    let res = match match_route(method, path, &headers) {
+    let res = match match_route(method, path, &headers, query) {
         Routes::Version => handle_version().await,
 
         Routes::StreamCat(accept_type) => {
@@ -459,4 +468,24 @@ fn empty() -> BoxBody<Bytes, BoxError> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_match_route_head_follow() {
+        let headers = hyper::HeaderMap::new();
+
+        assert!(matches!(
+            match_route(&Method::GET, "/head/test", &headers, None),
+            Routes::HeadGet(topic, false) if topic == "test"
+        ));
+
+        assert!(matches!(
+            match_route(&Method::GET, "/head/test", &headers, Some("follow=true")),
+            Routes::HeadGet(topic, true) if topic == "test"
+        ));
+    }
 }
