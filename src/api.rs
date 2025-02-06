@@ -57,10 +57,7 @@ fn match_route(method: &Method, path: &str, headers: &hyper::HeaderMap) -> Route
 
         (&Method::GET, p) if p.starts_with("/head/") => {
             if let Some(topic) = p.strip_prefix("/head/") {
-                let follow =
-                    url::form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes())
-                        .find(|(key, _)| key == "follow")
-                        .is_some();
+                let follow = headers.get("follow") == Some(&"true".parse().unwrap());
                 return Routes::HeadGet(topic.to_string(), follow);
             }
             Routes::NotFound
@@ -384,12 +381,12 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
+async fn handle_head_get(store: &Store, topic: String, follow: bool) -> HTTPResult {
     if !follow {
-        return response_frame_or_404(store.head(topic));
+        return response_frame_or_404(store.head(&topic));
     }
 
-    let mut rx = store
+    let rx = store
         .read(
             ReadOptions::builder()
                 .follow(FollowOption::On)
@@ -398,6 +395,7 @@ async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult
         )
         .await;
 
+    let topic = topic.clone();
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
         .filter(move |frame| frame.topic == topic)
         .map(|frame| {
