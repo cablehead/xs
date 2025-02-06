@@ -202,9 +202,8 @@ pub async fn head(
     addr: &str,
     topic: &str,
     follow: bool,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let query = if follow { Some("follow=true") } else { None };
-
     let res = request::request(
         addr,
         Method::GET,
@@ -215,8 +214,17 @@ pub async fn head(
     )
     .await?;
 
-    let body = res.collect().await?.to_bytes();
-    Ok(body)
+    let mut body = res.into_body();
+    let mut stdout = tokio::io::stdout();
+
+    while let Some(frame) = body.frame().await {
+        let frame = frame?;
+        if let Ok(chunk) = frame.into_data() {
+            stdout.write_all(&chunk).await?;
+        }
+    }
+    stdout.flush().await?;
+    Ok(())
 }
 
 pub async fn import<R>(
