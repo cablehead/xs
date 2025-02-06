@@ -390,8 +390,10 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
 }
 
 async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
+    let current_head = store.head(topic);
+
     if !follow {
-        return response_frame_or_404(store.head(topic));
+        return response_frame_or_404(current_head);
     }
 
     let rx = store
@@ -399,6 +401,7 @@ async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult
             ReadOptions::builder()
                 .follow(FollowOption::On)
                 .tail(true)
+                .maybe_last_id(current_head.as_ref().map(|f| f.id))
                 .build(),
         )
         .await;
@@ -412,7 +415,14 @@ async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult
             Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
         });
 
-    let body = StreamBody::new(stream).boxed();
+    let body = if let Some(frame) = current_head {
+        let mut head_bytes = serde_json::to_vec(&frame).unwrap();
+        head_bytes.push(b'\n');
+        let head_chunk = Ok(hyper::body::Frame::data(Bytes::from(head_bytes)));
+        StreamBody::new(futures::stream::once(async { head_chunk }).chain(stream)).boxed()
+    } else {
+        StreamBody::new(stream).boxed()
+    };
 
     Ok(Response::builder()
         .status(StatusCode::OK)
