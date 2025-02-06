@@ -142,7 +142,7 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::HeadGet(topic) => response_frame_or_404(store.head(&topic)),
+        Routes::HeadGet(topic, follow) => handle_head_get(&store, &topic, follow).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -378,6 +378,41 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
                 .body(full("internal-error"))?)
         }
     }
+}
+
+async fn handle_head_get(store: &Store, topic: String, follow: bool) -> HTTPResult {
+    if !follow {
+        return response_frame_or_404(store.head(&topic));
+    }
+
+    let mut rx = store
+        .read(
+            ReadOptions::builder()
+                .follow(FollowOption::On)
+                .tail(true)
+                .build(),
+        )
+        .await;
+
+    let stream = async_stream::stream! {
+        let mut current_head: Option<Frame> = None;
+
+        while let Some(frame) = rx.recv().await {
+            if frame.topic == topic {
+                current_head = Some(frame.clone());
+                let mut bytes = serde_json::to_vec(&frame).unwrap();
+                bytes.push(b'\n');
+                yield Ok(hyper::body::Frame::data(Bytes::from(bytes)));
+            }
+        }
+    };
+
+    let body = StreamBody::new(stream).boxed();
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/x-ndjson")
+        .body(body)?)
 }
 
 async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPResult {

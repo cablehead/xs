@@ -201,12 +201,15 @@ pub async fn remove(addr: &str, id: &str) -> Result<(), Box<dyn std::error::Erro
 pub async fn head(
     addr: &str,
     topic: &str,
+    follow: bool,
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+    let query = if follow { Some("follow=true") } else { None };
+
     let res = request::request(
         addr,
         Method::GET,
         &format!("head/{}", topic),
-        None,
+        query,
         empty(),
         None,
     )
