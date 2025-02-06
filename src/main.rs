@@ -144,6 +144,10 @@ struct CommandHead {
     /// Topic to get the head frame for
     #[clap(value_parser)]
     topic: String,
+
+    /// Follow the head frame for updates
+    #[clap(long, short = 'f')]
+    follow: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -306,9 +310,7 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn head(args: CommandHead) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let response = xs::client::head(&args.addr, &args.topic).await?;
-    tokio::io::stdout().write_all(&response).await?;
-    Ok(())
+    xs::client::head(&args.addr, &args.topic, args.follow).await
 }
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
