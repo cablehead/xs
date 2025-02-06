@@ -381,9 +381,9 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_head_get(store: &Store, topic: String, follow: bool) -> HTTPResult {
+async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
     if !follow {
-        return response_frame_or_404(store.head(&topic));
+        return response_frame_or_404(store.head(topic));
     }
 
     let rx = store
@@ -395,7 +395,7 @@ async fn handle_head_get(store: &Store, topic: String, follow: bool) -> HTTPResu
         )
         .await;
 
-    let topic = topic.clone();
+    let topic = topic.to_string();
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
         .filter(move |frame| frame.topic == topic)
         .map(|frame| {
