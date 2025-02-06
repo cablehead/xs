@@ -63,8 +63,7 @@ fn match_route(
         (&Method::GET, p) if p.starts_with("/head/") => {
             if let Some(topic) = p.strip_prefix("/head/") {
                 let follow = url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
-                    .find(|(key, _)| key == "follow")
-                    .is_some();
+                    .any(|(key, _)| key == "follow");
                 Routes::HeadGet(topic.to_string(), follow)
             } else {
                 Routes::NotFound
