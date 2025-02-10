@@ -62,10 +62,11 @@ export def .head [
   topic: string # The topic to get the head frame for
   --follow (-f) # Follow the head frame for updates
 ] {
-  let params = [
-    (if $follow {"--follow"})
-  ] | compact
-  xs head (store-addr) $topic ...$params | lines | each {|x| $x | from json}
+  if $follow {
+    xs head (store-addr) $topic --follow | lines | each {|x| $x | from json}
+  } else {
+    xs head (store-addr) $topic | from json
+  }
 }
 
 # Append an event to the stream
