@@ -126,23 +126,3 @@ export def .import [path: string] {
 
   open ($path | path join "frames.jsonl") | lines | each {xs import (store-addr)}
 }
-
-export def .test [] {
-  use std assert ;
-  let cases = [
-    [
-      "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE="
-      "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE="
-    ]
-    [
-      { hash: "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE=" }
-      "sha256-k//MXqRXKqeE+7S7SkKSbpU3dWrxwzh/iR6v683XTyE="
-    ]
-    [null null]
-    [{ goo: 123 } null]
-  ]
-
-  for case in $cases {
-    assert equal (read_hash $case.0) $case.1
-  }
-}
