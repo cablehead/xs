@@ -8,7 +8,7 @@ repository = "https://github.com/cablehead/xs"
 homepage = "https://github.com/cablehead/xs"
 documentation = "https://cablehead.github.io/xs/"
 readme = "README.md"
-keywords = ["cli", "queue", "embedded", "eventstore"]
+keywords = ["nu", "cli", "queue", "embedded", "eventstore"]
 categories = ["command-line-utilities", "embedded", "database"]
 
 [lib]
