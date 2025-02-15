@@ -49,11 +49,6 @@ struct CommandServe {
     /// Can be [HOST]:PORT for TCP or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     expose: Option<String>,
-
-    /// Enables a HTTP endpoint.
-    /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
-    #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
-    http: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -219,13 +214,6 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
         let engine = engine.clone();
         tokio::spawn(async move {
             let _ = xs::commands::serve(store, engine).await;
-        });
-    }
-
-    if let Some(addr) = args.http {
-        let store = store.clone();
-        tokio::spawn(async move {
-            let _ = xs::http::serve(store, &addr).await;
         });
     }
 

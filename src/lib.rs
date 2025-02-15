@@ -3,7 +3,6 @@ pub mod client;
 pub mod commands;
 pub mod error;
 pub mod handlers;
-pub mod http;
 pub mod listener;
 pub mod nu;
 pub mod store;
