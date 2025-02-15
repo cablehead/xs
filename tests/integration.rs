@@ -1,9 +1,11 @@
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use assert_cmd::cargo::cargo_bin;
 use duct::cmd;
 use tempfile::TempDir;
+use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 use xs::store::Frame;
 
