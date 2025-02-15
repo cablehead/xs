@@ -130,9 +130,15 @@ async fn test_integration() {
     // Verify routing - should timeout waiting for default context
     assert!(timeout(Duration::from_secs(1), default_rx.recv()).await.is_err());
 
-    // Should receive in new context
+    // Should receive in default context
+    let frame = timeout(Duration::from_secs(1), default_rx.recv()).await.unwrap().unwrap();
+    assert_eq!(frame.topic, "note");
+    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
+
+    // Should receive in new context with different context ID
     let frame = timeout(Duration::from_secs(1), new_rx.recv()).await.unwrap().unwrap();
     assert_eq!(frame.topic, "note");
+    assert_eq!(frame.context_id.to_string(), context_frame.id.to_string());
 
     // Clean up
     default_handle.abort();
