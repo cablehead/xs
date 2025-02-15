@@ -1,13 +1,9 @@
-use std::time::Duration;
-
 use assert_cmd::cargo::cargo_bin;
 use duct::cmd;
+use std::time::Duration;
 use tempfile::TempDir;
-use tokio::io::AsyncBufReadExt;
-use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-
 use xs::store::Frame;
 
 #[tokio::test]
@@ -18,153 +14,141 @@ async fn test_integration() {
     let mut cli_process = tokio::process::Command::new(cargo_bin("xs"))
         .arg("serve")
         .arg(store_path)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .expect("Failed to start CLI binary");
 
-    // wait for the listen socket to be created
+    // Wait for socket
     let sock_path = store_path.join("sock");
     let start = std::time::Instant::now();
-    loop {
-        if sock_path.exists() {
-            break;
-        }
-
+    while !sock_path.exists() {
         if start.elapsed() > Duration::from_secs(5) {
-            panic!("Timeout waiting for sock file to be created");
+            panic!("Timeout waiting for sock file");
         }
-
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-
-    // Give the server a moment to start up
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Verify xs.start exists in default context
-    let command = format!("{} cat {}", cargo_bin("xs").display(), store_path.display());
-    let output = cmd!("sh", "-c", command).read().unwrap();
-    let frame: Frame = serde_json::from_str(&output).unwrap();
-    assert_eq!(frame.topic, "xs.start");
+    // Verify xs.start in default context
+    let output = cmd!("xs", "cat", store_path).read().unwrap();
+    let start_frame: Frame = serde_json::from_str(&output).unwrap();
+    assert_eq!(start_frame.topic, "xs.start");
 
-    // Write a note to the default context
-    let command = format!(
-        "echo default note | {} append {} note",
-        cargo_bin("xs").display(),
-        store_path.display()
-    );
-    cmd!("sh", "-c", command).run().unwrap();
+    // Try append to xs.start's context before registering (should fail)
+    let result = cmd!(
+        "xs",
+        "append",
+        store_path,
+        "note",
+        "-c",
+        start_frame.id.to_string()
+    )
+    .stdin_bytes(b"test")
+    .run();
+    assert!(result.is_err());
 
     // Set up channels for context monitoring
     let (default_tx, mut default_rx) = mpsc::channel(10);
     let (new_tx, mut new_rx) = mpsc::channel(10);
 
-    // Spawn default context follower
+    // Start default context follower
     let store_path_clone = store_path.to_path_buf();
-    let default_handle = tokio::spawn(async move {
-        let mut cmd = tokio::process::Command::new(cargo_bin("xs"));
-        cmd.arg("cat")
-            .arg(&store_path_clone)
-            .arg("-f")
-            .stdout(std::process::Stdio::piped());
+    tokio::spawn(async move {
+        let output = cmd!("xs", "cat", &store_path_clone, "-f")
+            .stderr_null()
+            .stdout_capture()
+            .reader()
+            .unwrap();
 
-        let mut child = cmd.spawn().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let mut reader = tokio::io::BufReader::new(tokio::io::BufReader::new(stdout));
-        let mut line = String::new();
-
-        while let Ok(n) = reader.read_line(&mut line).await {
-            if n == 0 {
+        let reader = std::io::BufReader::new(output);
+        for line in reader.lines() {
+            let frame: Frame = serde_json::from_str(&line.unwrap()).unwrap();
+            if default_tx.send(frame).await.is_err() {
                 break;
             }
-            if let Ok(frame) = serde_json::from_str::<Frame>(&line) {
-                let _ = default_tx.send(frame).await;
-            }
-            line.clear();
         }
     });
 
     // Register new context
-    let command = format!(
-        "{} append {} xs.context",
-        cargo_bin("xs").display(),
-        store_path.display()
-    );
-    let context_output = cmd!("sh", "-c", command).read().unwrap();
+    let context_output = cmd!("xs", "append", store_path, "xs.context")
+        .read()
+        .unwrap();
     let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
-
-    // Spawn new context follower after context creation
-    let store_path_clone = store_path.to_path_buf();
     let context_id = context_frame.id.to_string();
-    let new_handle = tokio::spawn(async move {
-        let mut cmd = tokio::process::Command::new(cargo_bin("xs"));
-        cmd.arg("cat")
-            .arg(&store_path_clone)
-            .arg("-f")
-            .arg("-c")
-            .arg(&context_id)
-            .stdout(std::process::Stdio::piped());
 
-        let mut child = cmd.spawn().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let mut reader = tokio::io::BufReader::new(tokio::io::BufReader::new(stdout));
-        let mut line = String::new();
+    // Start new context follower
+    let store_path_clone = store_path.to_path_buf();
+    tokio::spawn(async move {
+        let child = cmd!("xs", "cat", &store_path_clone, "-f", "-c", &context_id)
+            .stdout_pipe()
+            .stderr_null()
+            .start()
+            .unwrap();
 
-        while let Ok(n) = reader.read_line(&mut line).await {
-            if n == 0 {
+        let stdout = child.stdout.unwrap();
+        let reader = std::io::BufReader::new(stdout);
+        for line in reader.lines() {
+            let frame: Frame = serde_json::from_str(&line.unwrap()).unwrap();
+            if new_tx.send(frame).await.is_err() {
                 break;
             }
-            if let Ok(frame) = serde_json::from_str::<Frame>(&line) {
-                let _ = new_tx.send(frame).await;
-            }
-            line.clear();
         }
     });
 
-    // Give a moment for followers to start up
     tokio::time::sleep(Duration::from_millis(500)).await;
 
+    // Write to default context
+    cmd!("xs", "append", store_path, "note")
+        .stdin_bytes(b"default note")
+        .run()
+        .unwrap();
+
+    // Verify received in default only
+    let frame = timeout(Duration::from_secs(1), default_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(frame.topic, "note");
+    assert!(timeout(Duration::from_millis(100), new_rx.recv())
+        .await
+        .is_err());
+
     // Write to new context
-    let command = format!(
-        "echo test note | {} append {} note -c {}",
-        cargo_bin("xs").display(),
-        store_path.display(),
-        context_frame.id
-    );
-    cmd!("sh", "-c", command).run().unwrap();
-
-    // Should receive initial note in default context
-    let frame = timeout(Duration::from_secs(1), default_rx.recv())
-        .await
-        .unwrap()
+    cmd!("xs", "append", store_path, "note", "-c", &context_id)
+        .stdin_bytes(b"context note")
+        .run()
         .unwrap();
-    assert_eq!(frame.topic, "note");
-    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
 
-    // Should receive xs.context frame
-    let frame = timeout(Duration::from_secs(1), default_rx.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(frame.topic, "xs.context");
-    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
-
-    // Should receive the test note in new context
-    let frame = timeout(Duration::from_secs(1), default_rx.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(frame.topic, "note");
-    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
-
-    // Should also receive in new context
+    // Verify received in new context only
     let frame = timeout(Duration::from_secs(1), new_rx.recv())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(frame.topic, "note");
-    assert_eq!(frame.context_id.to_string(), context_frame.id.to_string());
+    assert_eq!(frame.context_id.to_string(), context_id);
+
+    // Verify separate .cat results
+    let default_notes = cmd!("xs", "cat", store_path).read().unwrap();
+    let frames: Vec<Frame> = default_notes
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert!(frames
+        .iter()
+        .all(|f| f.context_id.to_string() == "0000000000000000000000000"));
+
+    let context_notes = cmd!("xs", "cat", store_path, "-c", &context_id)
+        .read()
+        .unwrap();
+    let frames: Vec<Frame> = context_notes
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert!(frames
+        .iter()
+        .all(|f| f.context_id.to_string() == context_id));
 
     // Clean up
-    default_handle.abort();
-    new_handle.abort();
-    let _ = cli_process.kill();
+    cli_process.kill().await.unwrap();
 }
