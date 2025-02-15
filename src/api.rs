@@ -430,23 +430,6 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-fn parse_context_from_query(query: Option<&str>) -> Result<scru128::Scru128Id, String> {
-    match query {
-        None => Ok(crate::store::ZERO_CONTEXT),
-        Some(q) => {
-            let params: HashMap<String, String> = url::form_urlencoded::parse(q.as_bytes())
-                .into_owned()
-                .collect();
-            match params.get("context") {
-                None => Ok(crate::store::ZERO_CONTEXT),
-                Some(ctx) => ctx
-                    .parse()
-                    .map_err(|e| format!("Invalid context ID: {}", e)),
-            }
-        }
-    }
-}
-
 async fn handle_head_get(
     store: &Store,
     topic: &str,
