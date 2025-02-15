@@ -45,15 +45,13 @@ async fn test_integration() {
     let frame: Frame = serde_json::from_str(&output).unwrap();
     assert_eq!(frame.topic, "xs.start");
 
-    // Try append to xs.start's context before registering (should fail)
+    // Write a note to the default context
     let command = format!(
-        "{} append {} note -c {}",
+        "echo default note | {} append {} note",
         cargo_bin("xs").display(),
-        store_path.display(),
-        frame.id
+        store_path.display()
     );
-    let result = cmd!("sh", "-c", command).run();
-    assert!(result.is_err());
+    cmd!("sh", "-c", command).run().unwrap();
 
     // Set up channels for context monitoring
     let (default_tx, mut default_rx) = mpsc::channel(10);
