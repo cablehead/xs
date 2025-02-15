@@ -32,16 +32,37 @@ enum AcceptType {
 }
 
 enum Routes {
-    StreamCat(AcceptType),
-    StreamAppend(String),
+    StreamCat {
+        accept_type: AcceptType,
+        options: ReadOptions,
+    },
+    StreamAppend {
+        topic: String,
+        ttl: Option<TTL>,
+        context_id: Scru128Id,
+    },
+    HeadGet {
+        topic: String,
+        follow: bool,
+        context_id: Scru128Id,
+    },
     StreamItemGet(Scru128Id),
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
-    HeadGet(String, bool), // topic, follow
     Import,
     Version,
     NotFound,
+    BadRequest(String),
+}
+
+fn parse_context_from_query(params: &HashMap<String, String>) -> Result<Scru128Id, String> {
+    match params.get("context") {
+        None => Ok(crate::store::ZERO_CONTEXT),
+        Some(ctx) => ctx
+            .parse()
+            .map_err(|e| format!("Invalid context ID: {}", e)),
+    }
 }
 
 fn match_route(
@@ -50,6 +71,11 @@ fn match_route(
     headers: &hyper::HeaderMap,
     query: Option<&str>,
 ) -> Routes {
+    let params: HashMap<String, String> =
+        url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
+            .into_owned()
+            .collect();
+
     match (method, path) {
         (&Method::GET, "/version") => Routes::Version,
 
@@ -58,51 +84,63 @@ fn match_route(
                 Some(accept) if accept == "text/event-stream" => AcceptType::EventStream,
                 _ => AcceptType::Ndjson,
             };
-            Routes::StreamCat(accept_type)
+            match ReadOptions::from_query(query) {
+                Ok(options) => Routes::StreamCat {
+                    accept_type,
+                    options,
+                },
+                Err(e) => Routes::BadRequest(e.to_string()),
+            }
         }
 
         (&Method::GET, p) if p.starts_with("/head/") => {
-            if let Some(topic) = p.strip_prefix("/head/") {
-                let follow = url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
-                    .any(|(key, _)| key == "follow");
-                Routes::HeadGet(topic.to_string(), follow)
-            } else {
-                Routes::NotFound
+            let topic = p.strip_prefix("/head/").unwrap().to_string();
+            let follow = params.contains_key("follow");
+            match parse_context_from_query(&params) {
+                Ok(context_id) => Routes::HeadGet {
+                    topic,
+                    follow,
+                    context_id,
+                },
+                Err(e) => Routes::BadRequest(e),
             }
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
             if let Some(hash) = p.strip_prefix("/cas/") {
-                if let Ok(integrity) = ssri::Integrity::from_str(hash) {
-                    return Routes::CasGet(integrity);
+                match ssri::Integrity::from_str(hash) {
+                    Ok(integrity) => Routes::CasGet(integrity),
+                    Err(e) => Routes::BadRequest(format!("Invalid CAS hash: {}", e)),
                 }
+            } else {
+                Routes::NotFound
             }
-            Routes::NotFound
         }
 
         (&Method::POST, "/cas") => Routes::CasPost,
-
         (&Method::POST, "/import") => Routes::Import,
 
-        (&Method::GET, p) => {
-            if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
-                Routes::StreamItemGet(id)
-            } else {
-                Routes::NotFound
-            }
-        }
+        (&Method::GET, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
+            Ok(id) => Routes::StreamItemGet(id),
+            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {}", e)),
+        },
 
-        (&Method::DELETE, p) => {
-            if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
-                Routes::StreamItemRemove(id)
-            } else {
-                Routes::NotFound
-            }
-        }
+        (&Method::DELETE, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
+            Ok(id) => Routes::StreamItemRemove(id),
+            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {}", e)),
+        },
 
         (&Method::POST, path) if path.starts_with('/') => {
-            let topic = path.trim_start_matches('/');
-            Routes::StreamAppend(topic.to_string())
+            let topic = path.trim_start_matches('/').to_string();
+            match (TTL::from_query(query), parse_context_from_query(&params)) {
+                (Ok(ttl), Ok(context_id)) => Routes::StreamAppend {
+                    topic,
+                    ttl,
+                    context_id,
+                },
+                (Err(e), _) => Routes::BadRequest(e.to_string()),
+                (_, Err(e)) => Routes::BadRequest(e),
+            }
         }
 
         _ => Routes::NotFound,
