@@ -94,6 +94,37 @@ async fn test_integration() {
     let context_output = cmd!("sh", "-c", command).read().unwrap();
     let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
 
+    // Spawn new context follower after context creation
+    let store_path_clone = store_path.to_path_buf();
+    let context_id = context_frame.id.to_string();
+    let new_handle = tokio::spawn(async move {
+        let mut cmd = Command::new(cargo_bin("xs"));
+        cmd.arg("cat")
+           .arg(&store_path_clone)
+           .arg("-f")
+           .arg("-c")
+           .arg(&context_id);
+        
+        let mut child = cmd.stdout(std::process::Stdio::piped())
+                          .spawn()
+                          .unwrap();
+        
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+
+        while let Ok(n) = reader.read_line(&mut line).await {
+            if n == 0 { break; }
+            if let Ok(frame) = serde_json::from_str::<Frame>(&line) {
+                let _ = new_tx.send(frame).await;
+            }
+            line.clear();
+        }
+    });
+
+    // Give a moment for followers to start up
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
     // Write to new context
     let command = format!(
         "echo test note | {} append {} note -c {}",
