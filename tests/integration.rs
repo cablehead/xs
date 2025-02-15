@@ -62,17 +62,19 @@ async fn test_integration() {
     let default_handle = tokio::spawn(async move {
         let mut cmd = tokio::process::Command::new(cargo_bin("xs"));
         cmd.arg("cat")
-           .arg(&store_path_clone)
-           .arg("-f")
-           .stdout(std::process::Stdio::piped());
-        
+            .arg(&store_path_clone)
+            .arg("-f")
+            .stdout(std::process::Stdio::piped());
+
         let mut child = cmd.spawn().unwrap();
         let stdout = child.stdout.take().unwrap();
         let mut reader = tokio::io::BufReader::new(tokio::io::BufReader::new(stdout));
         let mut line = String::new();
 
         while let Ok(n) = reader.read_line(&mut line).await {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             if let Ok(frame) = serde_json::from_str::<Frame>(&line) {
                 let _ = default_tx.send(frame).await;
             }
@@ -95,19 +97,21 @@ async fn test_integration() {
     let new_handle = tokio::spawn(async move {
         let mut cmd = tokio::process::Command::new(cargo_bin("xs"));
         cmd.arg("cat")
-           .arg(&store_path_clone)
-           .arg("-f")
-           .arg("-c")
-           .arg(&context_id)
-           .stdout(std::process::Stdio::piped());
-        
+            .arg(&store_path_clone)
+            .arg("-f")
+            .arg("-c")
+            .arg(&context_id)
+            .stdout(std::process::Stdio::piped());
+
         let mut child = cmd.spawn().unwrap();
         let stdout = child.stdout.take().unwrap();
         let mut reader = tokio::io::BufReader::new(tokio::io::BufReader::new(stdout));
         let mut line = String::new();
 
         while let Ok(n) = reader.read_line(&mut line).await {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             if let Ok(frame) = serde_json::from_str::<Frame>(&line) {
                 let _ = new_tx.send(frame).await;
             }
@@ -128,22 +132,34 @@ async fn test_integration() {
     cmd!("sh", "-c", command).run().unwrap();
 
     // Should receive initial note in default context
-    let frame = timeout(Duration::from_secs(1), default_rx.recv()).await.unwrap().unwrap();
+    let frame = timeout(Duration::from_secs(1), default_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(frame.topic, "note");
     assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
 
-    // Should receive xs.context frame 
-    let frame = timeout(Duration::from_secs(1), default_rx.recv()).await.unwrap().unwrap();
+    // Should receive xs.context frame
+    let frame = timeout(Duration::from_secs(1), default_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(frame.topic, "xs.context");
     assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
 
     // Should receive the test note in new context
-    let frame = timeout(Duration::from_secs(1), default_rx.recv()).await.unwrap().unwrap();
+    let frame = timeout(Duration::from_secs(1), default_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(frame.topic, "note");
     assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
 
-    // Should also receive in new context 
-    let frame = timeout(Duration::from_secs(1), new_rx.recv()).await.unwrap().unwrap();
+    // Should also receive in new context
+    let frame = timeout(Duration::from_secs(1), new_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(frame.topic, "note");
     assert_eq!(frame.context_id.to_string(), context_frame.id.to_string());
 
