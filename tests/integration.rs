@@ -38,27 +38,91 @@ async fn test_integration() {
     // Give the server a moment to start up
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Append data using xs CLI
+    // Verify xs.start exists in default context
+    let command = format!("{} cat {}", cargo_bin("xs").display(), store_path.display());
+    let output = cmd!("sh", "-c", command).read().unwrap();
+    let frame: Frame = serde_json::from_str(&output).unwrap();
+    assert_eq!(frame.topic, "xs.start");
+
+    // Try append to xs.start's context before registering (should fail)
     let command = format!(
-        "echo 123 | {} append {} cross/pasteboard --meta '{{\"foo\":\"bar\"}}'",
+        "{} append {} note -c {}",
+        cargo_bin("xs").display(),
+        store_path.display(),
+        frame.id
+    );
+    let result = cmd!("sh", "-c", command).run();
+    assert!(result.is_err());
+
+    // Set up channels for context monitoring
+    let (default_tx, mut default_rx) = mpsc::channel(10);
+    let (new_tx, mut new_rx) = mpsc::channel(10);
+
+    // Spawn default context follower
+    let store_path_clone = store_path.to_path_buf();
+    let default_handle = tokio::spawn(async move {
+        let command = format!(
+            "{} cat {} -f",
+            cargo_bin("xs").display(),
+            store_path_clone.display()
+        );
+        let output = cmd!("sh", "-c", command).stdout_capture().start().unwrap();
+        let mut reader = std::io::BufReader::new(output.stdout.unwrap());
+        let mut line = String::new();
+        while let Ok(n) = reader.read_line(&mut line) {
+            if n == 0 { break; }
+            let frame: Frame = serde_json::from_str(&line).unwrap();
+            default_tx.send(frame).await.unwrap();
+            line.clear();
+        }
+    });
+
+    // Spawn new context follower (will be set up after context creation)
+    let store_path_clone = store_path.to_path_buf();
+    let new_handle = tokio::spawn(async move {
+        let command = format!(
+            "{} cat {} -f",
+            cargo_bin("xs").display(), 
+            store_path_clone.display()
+        );
+        let output = cmd!("sh", "-c", command).stdout_capture().start().unwrap();
+        let mut reader = std::io::BufReader::new(output.stdout.unwrap());
+        let mut line = String::new();
+        while let Ok(n) = reader.read_line(&mut line) {
+            if n == 0 { break; }
+            let frame: Frame = serde_json::from_str(&line).unwrap();
+            new_tx.send(frame).await.unwrap();
+            line.clear();
+        }
+    });
+
+    // Register new context
+    let command = format!(
+        "{} append {} xs.context",
         cargo_bin("xs").display(),
         store_path.display()
     );
-    let output = cmd!("sh", "-c", command).read().unwrap();
-    let frame: Frame = serde_json::from_str(&output)
-        .unwrap_or_else(|_| panic!("Failed to parse JSON into Frame: {}", output));
+    let context_output = cmd!("sh", "-c", command).read().unwrap();
+    let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
 
-    // Retrieve data using xs cas command
+    // Write to new context
     let command = format!(
-        "{} cas {} {}",
+        "echo test note | {} append {} note -c {}",
         cargo_bin("xs").display(),
         store_path.display(),
-        frame.hash.unwrap().to_string()
+        context_frame.id
     );
-    let output = cmd!("sh", "-c", command).read().unwrap();
+    cmd!("sh", "-c", command).run().unwrap();
 
-    assert_eq!("123", &output);
+    // Verify routing - should timeout waiting for default context
+    assert!(timeout(Duration::from_secs(1), default_rx.recv()).await.is_err());
+
+    // Should receive in new context
+    let frame = timeout(Duration::from_secs(1), new_rx.recv()).await.unwrap().unwrap();
+    assert_eq!(frame.topic, "note");
 
     // Clean up
+    default_handle.abort();
+    new_handle.abort();
     let _ = cli_process.kill();
 }
