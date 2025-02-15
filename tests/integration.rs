@@ -15,7 +15,7 @@ async fn test_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
-    let mut cli_process = Command::new(cargo_bin("xs"))
+    let mut cli_process = tokio::process::Command::new(cargo_bin("xs"))
         .arg("serve")
         .arg(store_path)
         .spawn()
