@@ -4,8 +4,8 @@ use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{Closure, Command, EngineState, Stack, StateWorkingSet};
-use nu_protocol::{PipelineData, ShellError, Span};
+use nu_protocol::engine::{Closure, Command, EngineState, Redirection, Stack, StateWorkingSet};
+use nu_protocol::{OutDest, PipelineData, ShellError, Span};
 
 use crate::error::Error;
 
@@ -57,7 +57,6 @@ impl Engine {
         let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, expression.as_bytes(), false);
 
-        // Check for parse errors
         if !working_set.parse_errors.is_empty() {
             let first_error = &working_set.parse_errors[0];
             return Err(ShellError::GenericError {
@@ -71,7 +70,10 @@ impl Engine {
 
         let mut engine_state = self.state.clone();
         engine_state.merge_delta(working_set.render())?;
+
         let mut stack = Stack::new();
+        let mut stack = stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
+
         eval_block_with_early_return::<WithoutDebug>(&engine_state, &mut stack, &block, input)
     }
 

@@ -64,11 +64,13 @@ async fn try_start_task(
             "reason": e.to_string()
         });
 
-        let _ = store.append(
+        if let Err(e) = store.append(
             Frame::with_topic(format!("{}.spawn.error", topic))
                 .meta(meta)
                 .build(),
-        );
+        ) {
+            tracing::error!("Error appending error frame: {}", e);
+        }
     }
 }
 
@@ -179,11 +181,13 @@ pub async fn serve(
                     "reason": e.to_string()
                 });
 
-                let _ = store.append(
+                if let Err(e) = store.append(
                     Frame::with_topic(format!("{}.spawn.error", topic))
                         .meta(meta)
                         .build(),
-                );
+                ) {
+                    tracing::error!("Error appending error frame: {}", e);
+                }
             }
         }
     }
@@ -213,7 +217,7 @@ async fn append(
             .maybe_hash(hash)
             .meta(meta)
             .build(),
-    );
+    )?;
     Ok(frame)
 }
 
@@ -338,18 +342,18 @@ mod tests {
             });
         }
 
-        let frame_generator = store.append(
-            Frame::with_topic("toml.spawn")
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
-                .build(),
-        );
-
-        eprintln!("frame_generator: {:?}", frame_generator);
+        let frame_generator = store
+            .append(
+                Frame::with_topic("toml.spawn")
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
+            )
+            .unwrap();
 
         let options = ReadOptions::builder()
             .follow(FollowOption::On)
@@ -391,12 +395,14 @@ mod tests {
             });
         }
 
-        let frame_generator = store.append(
-            Frame::with_topic("greeter.spawn".to_string())
-                .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
-                .meta(serde_json::json!({"duplex": true}))
-                .build(),
-        );
+        let frame_generator = store
+            .append(
+                Frame::with_topic("greeter.spawn".to_string())
+                    .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
+                    .meta(serde_json::json!({"duplex": true}))
+                    .build(),
+            )
+            .unwrap();
 
         let options = ReadOptions::builder()
             .follow(FollowOption::On)
@@ -407,11 +413,13 @@ mod tests {
         let frame = recver.recv().await.unwrap();
         assert_eq!(frame.topic, "greeter.start".to_string());
 
-        let _ = store.append(
-            Frame::with_topic("greeter.send")
-                .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
-                .build(),
-        );
+        let _ = store
+            .append(
+                Frame::with_topic("greeter.send")
+                    .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
+                    .build(),
+            )
+            .unwrap();
         assert_eq!(
             recver.recv().await.unwrap().topic,
             "greeter.send".to_string()
@@ -432,28 +440,32 @@ mod tests {
         let store = Store::new(temp_dir.into_path());
         let engine = nu::Engine::new().unwrap();
 
-        let _ = store.append(
-            Frame::with_topic("toml.spawn")
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
-                .build(),
-        );
+        let _ = store
+            .append(
+                Frame::with_topic("toml.spawn")
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
+            )
+            .unwrap();
 
         // replaces the previous generator
-        let frame_generator = store.append(
-            Frame::with_topic("toml.spawn")
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
-                .build(),
-        );
+        let frame_generator = store
+            .append(
+                Frame::with_topic("toml.spawn")
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
+            )
+            .unwrap();
 
         let options = ReadOptions::builder()
             .follow(FollowOption::On)

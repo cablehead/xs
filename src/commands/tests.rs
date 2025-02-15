@@ -28,7 +28,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
                     .await?,
             )
             .build(),
-    );
+    )?;
     assert_eq!(recver.recv().await.unwrap().topic, "echo.define");
 
     // Call the command
@@ -37,7 +37,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
             .hash(store.cas_insert(r#"foo"#).await?)
             .meta(serde_json::json!({"args": {"n": 3}}))
             .build(),
-    );
+    )?;
     assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
 
     // Validate the output events
@@ -77,30 +77,34 @@ async fn test_command_error_handling() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define command that will error with invalid access
-    let frame_command = store.append(
-        Frame::with_topic("will_error.define")
-            .hash(
-                store
-                    .cas_insert(
-                        r#"{
+    let frame_command = store
+        .append(
+            Frame::with_topic("will_error.define")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
                             process: {|frame|
                                 $frame.meta.args.not_exists # This will error
                             }
                         }"#,
-                    )
-                    .await?,
-            )
-            .build(),
-    );
+                        )
+                        .await?,
+                )
+                .build(),
+        )
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.define");
 
     // Call the command
-    let frame_call = store.append(
-        Frame::with_topic("will_error.call")
-            .hash(store.cas_insert(r#""input""#).await?)
-            .meta(serde_json::json!({"args": {}}))
-            .build(),
-    );
+    let frame_call = store
+        .append(
+            Frame::with_topic("will_error.call")
+                .hash(store.cas_insert(r#""input""#).await?)
+                .meta(serde_json::json!({"args": {}}))
+                .build(),
+        )
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.call");
 
     // Should get error event

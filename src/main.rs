@@ -80,6 +80,10 @@ struct CommandCat {
     /// Use Server-Sent Events format
     #[clap(long)]
     sse: bool,
+
+    /// Context ID (defaults to system context)
+    #[clap(long, short = 'c')]
+    context: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -99,6 +103,10 @@ struct CommandAppend {
     /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<milliseconds>, head:<n>
     #[clap(long)]
     ttl: Option<String>,
+
+    /// Context ID (defaults to system context)
+    #[clap(long, short = 'c')]
+    context: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -143,6 +151,10 @@ struct CommandHead {
     /// Follow the head frame for updates
     #[clap(long, short = 'f')]
     follow: bool,
+
+    /// Context ID (defaults to system context)
+    #[clap(long, short = 'c')]
+    context: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -232,6 +244,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         args.last_id.clone(),
         args.limit,
         args.sse,
+        args.context.as_deref(),
     )
     .await?;
     let mut stdout = tokio::io::stdout();
@@ -266,7 +279,15 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
         Box::new(tokio::io::empty())
     };
 
-    let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref(), ttl).await?;
+    let response = xs::client::append(
+        &args.addr,
+        &args.topic,
+        input,
+        meta.as_ref(),
+        ttl,
+        args.context.as_deref(),
+    )
+    .await?;
 
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
@@ -298,7 +319,13 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn head(args: CommandHead) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    xs::client::head(&args.addr, &args.topic, args.follow).await
+    xs::client::head(
+        &args.addr,
+        &args.topic,
+        args.follow,
+        args.context.as_deref(),
+    )
+    .await
 }
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

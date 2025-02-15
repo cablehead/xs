@@ -37,6 +37,12 @@ impl Command for AppendCommand {
                 r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'"#,
                 None,
             )
+            .named(
+                "context",
+                SyntaxShape::String,
+                "context ID (defaults to system context)",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -71,13 +77,28 @@ impl Command for AppendCommand {
         };
 
         let hash = util::write_pipeline_to_cas(input, &store, span)?;
+        let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
+        let context_id = if let Some(ctx) = context_str {
+            ctx.parse::<scru128::Scru128Id>()
+                .map_err(|e| ShellError::GenericError {
+                    error: "Invalid context ID".into(),
+                    msg: e.to_string(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?
+        } else {
+            crate::store::ZERO_CONTEXT
+        };
+
         let frame = store.append(
             Frame::with_topic(topic)
                 .maybe_hash(hash)
                 .maybe_meta(meta)
                 .maybe_ttl(ttl)
+                .context_id(context_id)
                 .build(),
-        );
+        )?;
 
         Ok(PipelineData::Value(
             util::frame_to_value(&frame, span),

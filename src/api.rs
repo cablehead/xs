@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
 
@@ -151,7 +152,7 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::HeadGet(topic, follow) => handle_head_get(&store, &topic, follow).await,
+        Routes::HeadGet(topic, follow) => handle_head_get(&store, &topic, follow, &req).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -250,7 +251,7 @@ async fn handle_stream_append(
             .maybe_meta(meta)
             .ttl(ttl)
             .build(),
-    );
+    )?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -297,11 +298,13 @@ pub async fn serve(
     engine: nu::Engine,
     expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _ = store.append(
+    if let Err(e) = store.append(
         Frame::with_topic("xs.start")
             .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
             .build(),
-    );
+    ) {
+        tracing::error!("Failed to append xs.start frame: {}", e);
+    }
 
     let path = store.path.join("sock").to_string_lossy().to_string();
     let listener = Listener::bind(&path).await?;
@@ -389,8 +392,34 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
-    let current_head = store.head(topic);
+fn parse_context_from_query(query: Option<&str>) -> Result<scru128::Scru128Id, String> {
+    match query {
+        None => Ok(crate::store::ZERO_CONTEXT),
+        Some(q) => {
+            let params: HashMap<String, String> = url::form_urlencoded::parse(q.as_bytes())
+                .into_owned()
+                .collect();
+            match params.get("context") {
+                None => Ok(crate::store::ZERO_CONTEXT),
+                Some(ctx) => ctx
+                    .parse()
+                    .map_err(|e| format!("Invalid context ID: {}", e)),
+            }
+        }
+    }
+}
+
+async fn handle_head_get(
+    store: &Store,
+    topic: &str,
+    follow: bool,
+    req: &Request<hyper::body::Incoming>,
+) -> HTTPResult {
+    let context_id = match parse_context_from_query(req.uri().query()) {
+        Ok(ctx) => ctx,
+        Err(e) => return response_400(e),
+    };
+    let current_head = store.head(topic, context_id);
 
     if !follow {
         return response_frame_or_404(current_head);

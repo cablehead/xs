@@ -10,15 +10,16 @@ use xs::store::Frame;
 #[tokio::test]
 async fn test_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
 
     let mut cli_process = Command::new(cargo_bin("xs"))
         .arg("serve")
-        .arg(temp_dir.path())
+        .arg(store_path)
         .spawn()
         .expect("Failed to start CLI binary");
 
     // wait for the listen socket to be created
-    let sock_path = temp_dir.path().join("sock");
+    let sock_path = store_path.join("sock");
     let start = std::time::Instant::now();
     loop {
         if sock_path.exists() {
@@ -35,25 +36,24 @@ async fn test_integration() {
     // Give the server a moment to start up
     tokio::time::sleep(Duration::from_millis(500)).await;
 
+    // Append data using xs CLI
     let command = format!(
-        "echo 123 | curl -s -X POST -T - --unix-socket {}/sock 'localhost/stream/cross/pasteboard?foo=bar'",
-        temp_dir.path().display()
+        "echo 123 | {} append {} cross/pasteboard --meta '{{\"foo\":\"bar\"}}'",
+        cargo_bin("xs").display(),
+        store_path.display()
     );
     let output = cmd!("sh", "-c", command).read().unwrap();
     let frame: Frame = serde_json::from_str(&output)
         .unwrap_or_else(|_| panic!("Failed to parse JSON into Frame: {}", output));
 
-    let output = cmd!(
-        "sh",
-        "-c",
-        format!(
-            "curl -s --unix-socket {}/sock 'localhost/cas/{}'",
-            temp_dir.path().display(),
-            frame.hash.unwrap().to_string(),
-        )
-    )
-    .read()
-    .unwrap();
+    // Retrieve data using xs cas command
+    let command = format!(
+        "{} cas {} {}",
+        cargo_bin("xs").display(),
+        store_path.display(),
+        frame.hash.unwrap().to_string()
+    );
+    let output = cmd!("sh", "-c", command).read().unwrap();
 
     assert_eq!("123", &output);
 

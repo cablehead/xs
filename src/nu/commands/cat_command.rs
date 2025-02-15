@@ -60,7 +60,7 @@ impl Command for CatCommand {
 
         let frames = self
             .store
-            .read_sync(options.last_id.as_ref(), options.limit)
+            .read_sync(options.last_id.as_ref(), options.limit, options.context_id)
             .collect::<Vec<_>>();
 
         use nu_protocol::Value;

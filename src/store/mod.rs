@@ -11,11 +11,17 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
+
 use scru128::Scru128Id;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, Slice};
+
+// Context with all bits set to zero for system operations
+pub const ZERO_CONTEXT: Scru128Id = Scru128Id::from_bytes([0; 16]);
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 #[builder(start_fn = with_topic)]
@@ -24,6 +30,8 @@ pub struct Frame {
     pub topic: String,
     #[builder(default)]
     pub id: Scru128Id,
+    #[builder(default = ZERO_CONTEXT)]
+    pub context_id: Scru128Id,
     pub hash: Option<ssri::Integrity>,
     pub meta: Option<serde_json::Value>,
     pub ttl: Option<TTL>,
@@ -35,6 +43,7 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Frame")
             .field("id", &format!("{}", self.id))
+            .field("context_id", &format!("{}", self.context_id))
             .field("topic", &self.topic)
             .field("hash", &self.hash.as_ref().map(|x| format!("{}", x)))
             .field("meta", &self.meta)
@@ -85,6 +94,13 @@ pub struct ReadOptions {
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
     pub limit: Option<usize>,
+    #[serde(default = "default_context")]
+    #[builder(default = ZERO_CONTEXT)]
+    pub context_id: Scru128Id,
+}
+
+fn default_context() -> Scru128Id {
+    ZERO_CONTEXT
 }
 
 impl ReadOptions {
@@ -116,7 +132,11 @@ where
 #[derive(Debug)]
 enum GCTask {
     Remove(Scru128Id),
-    CheckHeadTTL { topic: String, keep: u32 },
+    CheckHeadTTL {
+        context_id: Scru128Id,
+        topic: String,
+        keep: u32,
+    },
     Drain(tokio::sync::oneshot::Sender<()>),
 }
 
@@ -126,6 +146,8 @@ pub struct Store {
     keyspace: Keyspace,
     frame_partition: PartitionHandle,
     topic_index: PartitionHandle,
+    context_index: PartitionHandle,
+    contexts: Arc<RwLock<HashSet<Scru128Id>>>,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
 }
@@ -147,14 +169,37 @@ impl Store {
             .open_partition("idx_topic", PartitionCreateOptions::default())
             .unwrap();
 
+        let context_index = keyspace
+            .open_partition("idx_context", PartitionCreateOptions::default())
+            .unwrap();
+
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
+
+        // Initialize contexts set
+        let mut contexts = HashSet::new();
+        contexts.insert(ZERO_CONTEXT); // System context is always valid
+
+        // Scan for context registrations
+        let context_prefix = "xs.context".as_bytes();
+        let mut prefix = Vec::with_capacity(context_prefix.len() + 1);
+        prefix.extend(context_prefix);
+        prefix.push(0xFF);
+
+        for kv in topic_index.prefix(&prefix) {
+            let (k, _) = kv.unwrap();
+            let (_topic, frame_id) = split_once(&k, |&c| c == 0xFF).unwrap();
+            let bytes: [u8; 16] = frame_id.try_into().unwrap();
+            contexts.insert(Scru128Id::from_bytes(bytes));
+        }
 
         let store = Store {
             path: path.clone(),
             keyspace: keyspace.clone(),
             frame_partition: frame_partition.clone(),
             topic_index: topic_index.clone(),
+            context_index: context_index.clone(),
+            contexts: Arc::new(RwLock::new(contexts)),
             broadcast_tx,
             gc_tx,
         };
@@ -312,23 +357,40 @@ impl Store {
         &self,
         last_id: Option<&Scru128Id>,
         limit: Option<usize>,
+        context_id: Scru128Id,
     ) -> impl Iterator<Item = Frame> + '_ {
-        let range = get_range(last_id);
+        // Get range for context index
+        let mut start_key = Vec::with_capacity(32);
+        start_key.extend(context_id.as_bytes());
+        if let Some(last_id) = last_id {
+            start_key.extend(last_id.as_bytes());
+        }
 
-        self.frame_partition
+        let range = match last_id {
+            Some(_) => (Bound::Excluded(start_key), Bound::Unbounded),
+            None => (
+                Bound::Included(context_id.as_bytes().to_vec()),
+                Bound::Excluded(get_next_context_prefix(context_id)),
+            ),
+        };
+
+        self.context_index
             .range(range)
             .filter_map(move |record| {
-                let frame = deserialize_frame(record.ok()?);
-
+                let (key, _) = record.ok()?;
+                let frame_id_bytes = &key[16..]; // Skip context_id
+                let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().ok()?);
+                self.get(&frame_id)
+            })
+            .filter(move |frame| {
                 // Filter out expired frames
                 if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                     if is_expired(&frame.id, ttl) {
                         let _ = self.gc_tx.send(GCTask::Remove(frame.id));
-                        return None;
+                        return false;
                     }
                 }
-
-                Some(frame)
+                true
             })
             .take(limit.unwrap_or(usize::MAX))
     }
@@ -339,9 +401,10 @@ impl Store {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn head(&self, topic: &str) -> Option<Frame> {
-        let mut prefix = Vec::with_capacity(topic.len() + 1);
-        prefix.extend(topic.as_bytes());
+    pub fn head(&self, topic: &str, context_id: Scru128Id) -> Option<Frame> {
+        let key = format!("{}/{}", context_id, topic);
+        let mut prefix = Vec::with_capacity(key.len() + 1);
+        prefix.extend(key.as_bytes());
         prefix.push(0xFF);
 
         for kv in self.topic_index.prefix(prefix).rev() {
@@ -369,6 +432,13 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.as_bytes());
         batch.remove(&self.topic_index, topic_index_key_for_frame(&frame));
+        batch.remove(&self.context_index, context_index_key_for_frame(&frame));
+
+        // If this is a context frame, remove it from the contexts set
+        if frame.topic == "xs.context" {
+            self.contexts.write().unwrap().remove(&frame.id);
+        }
+
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
@@ -413,20 +483,37 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
         batch.insert(&self.topic_index, topic_index_key_for_frame(frame), b"");
+        batch.insert(&self.context_index, context_index_key_for_frame(frame), b"");
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
 
-    pub fn append(&self, mut frame: Frame) -> Frame {
+    pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
         frame.id = scru128::new();
+
+        // Special handling for xs.context registration
+        if frame.topic == "xs.context" {
+            if frame.context_id != ZERO_CONTEXT {
+                return Err("xs.context frames must be in zero context".into());
+            }
+            frame.ttl = Some(TTL::Forever);
+            self.contexts.write().unwrap().insert(frame.id);
+        } else {
+            // Validate context exists
+            let contexts = self.contexts.read().unwrap();
+            if !contexts.contains(&frame.context_id) {
+                return Err(format!("Invalid context: {}", frame.context_id).into());
+            }
+        }
 
         // only store the frame if it's not ephemeral
         if frame.ttl != Some(TTL::Ephemeral) {
-            self.insert_frame(&frame).unwrap();
+            self.insert_frame(&frame)?;
 
             // If this is a Head TTL, schedule a gc task
             if let Some(TTL::Head(n)) = frame.ttl {
                 let _ = self.gc_tx.send(GCTask::CheckHeadTTL {
+                    context_id: frame.context_id,
                     topic: frame.topic.clone(),
                     keep: n,
                 });
@@ -434,7 +521,7 @@ impl Store {
         }
 
         let _ = self.broadcast_tx.send(frame.clone());
-        frame
+        Ok(frame)
     }
 }
 
@@ -446,9 +533,14 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
                     let _ = store.remove(&id);
                 }
 
-                GCTask::CheckHeadTTL { topic, keep } => {
-                    let mut prefix = Vec::with_capacity(topic.len() + 1);
-                    prefix.extend(topic.as_bytes());
+                GCTask::CheckHeadTTL {
+                    context_id,
+                    topic,
+                    keep,
+                } => {
+                    let key = format!("{}/{}", context_id, topic);
+                    let mut prefix = Vec::with_capacity(key.len() + 1);
+                    prefix.extend(key.as_bytes());
                     prefix.push(0xFF);
 
                     let frames_to_remove: Vec<_> = store
@@ -509,9 +601,33 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
 fn topic_index_key_for_frame(frame: &Frame) -> Vec<u8> {
     // We use a 0xFF as delimiter, because
     // 0xFF cannot appear in a valid UTF-8 sequence
-    let mut v = Vec::with_capacity(frame.id.as_bytes().len() + 1 + frame.topic.len());
-    v.extend(frame.topic.as_bytes());
+    let key = format!("{}/{}", frame.context_id, frame.topic);
+    let mut v = Vec::with_capacity(frame.id.as_bytes().len() + 1 + key.len());
+    v.extend(key.as_bytes());
     v.push(0xFF);
     v.extend(frame.id.as_bytes());
     v
+}
+
+// Creates a key for the context index: <context_id><frame_id>
+fn context_index_key_for_frame(frame: &Frame) -> Vec<u8> {
+    let mut v = Vec::with_capacity(frame.context_id.as_bytes().len() + frame.id.as_bytes().len());
+    v.extend(frame.context_id.as_bytes());
+    v.extend(frame.id.as_bytes());
+    v
+}
+
+// Returns the key prefix for the next context after the given one
+fn get_next_context_prefix(context_id: Scru128Id) -> Vec<u8> {
+    let mut bytes = context_id.as_bytes().to_vec();
+    for i in (0..bytes.len()).rev() {
+        if bytes[i] == 0xFF {
+            bytes[i] = 0;
+        } else {
+            bytes[i] += 1;
+            return bytes;
+        }
+    }
+    bytes.push(0);
+    bytes
 }

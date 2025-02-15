@@ -113,17 +113,21 @@ mod tests {
             ))])
             .unwrap();
 
-        let _frame1 = store.append(
-            Frame::with_topic("topic")
-                .hash(store.cas_insert_sync("content1")?)
-                .build(),
-        );
+        let _frame1 = store
+            .append(
+                Frame::with_topic("topic")
+                    .hash(store.cas_insert_sync("content1")?)
+                    .build(),
+            )
+            .unwrap();
 
-        let frame2 = store.append(
-            Frame::with_topic("topic")
-                .hash(store.cas_insert_sync("content2")?)
-                .build(),
-        );
+        let frame2 = store
+            .append(
+                Frame::with_topic("topic")
+                    .hash(store.cas_insert_sync("content2")?)
+                    .build(),
+            )
+            .unwrap();
 
         let head_frame = nu_eval(&engine, PipelineData::empty(), ".head topic");
 
@@ -143,17 +147,21 @@ mod tests {
             ))])
             .unwrap();
 
-        let _frame1 = store.append(
-            Frame::with_topic("topic")
-                .hash(store.cas_insert_sync("content1")?)
-                .build(),
-        );
+        let _frame1 = store
+            .append(
+                Frame::with_topic("topic")
+                    .hash(store.cas_insert_sync("content1")?)
+                    .build(),
+            )
+            .unwrap();
 
-        let _frame2 = store.append(
-            Frame::with_topic("topic")
-                .hash(store.cas_insert_sync("content2")?)
-                .build(),
-        );
+        let _frame2 = store
+            .append(
+                Frame::with_topic("topic")
+                    .hash(store.cas_insert_sync("content2")?)
+                    .build(),
+            )
+            .unwrap();
 
         // Test basic .cat
         let value = nu_eval(&engine, PipelineData::empty(), ".cat");
@@ -177,11 +185,13 @@ mod tests {
             )])
             .unwrap();
 
-        let frame = store.append(
-            Frame::with_topic("topic")
-                .hash(store.cas_insert_sync("test")?)
-                .build(),
-        );
+        let frame = store
+            .append(
+                Frame::with_topic("topic")
+                    .hash(store.cas_insert_sync("test")?)
+                    .build(),
+            )
+            .unwrap();
 
         nu_eval(
             &engine,
@@ -202,11 +212,13 @@ mod tests {
             ))])
             .unwrap();
 
-        let frame = store.append(
-            Frame::with_topic("topic")
-                .hash(store.cas_insert_sync("test")?)
-                .build(),
-        );
+        let frame = store
+            .append(
+                Frame::with_topic("topic")
+                    .hash(store.cas_insert_sync("test")?)
+                    .build(),
+            )
+            .unwrap();
 
         let retrieved_frame = nu_eval(&engine, PipelineData::empty(), format!(".get {}", frame.id));
 

@@ -23,8 +23,8 @@ mod tests_read_options {
     }
 
     #[tokio::test]
-    async fn test_topic_index() -> Result<(), crate::error::Error> {
-        let folder = tempfile::tempdir()?;
+    async fn test_topic_index() {
+        let folder = tempfile::tempdir().unwrap();
 
         let store = Store::new(folder.path().to_path_buf());
 
@@ -33,19 +33,23 @@ mod tests_read_options {
             topic: "hello".to_owned(),
             ..Default::default()
         };
-        let frame1 = store.append(frame1);
+        let frame1 = store.append(frame1).unwrap();
 
         let frame2 = Frame {
             id: scru128::new(),
             topic: "hallo".to_owned(),
             ..Default::default()
         };
-        let frame2 = store.append(frame2);
+        let frame2 = store.append(frame2).unwrap();
 
-        assert_eq!(Some(frame1), store.head("hello"));
-        assert_eq!(Some(frame2), store.head("hallo"));
-
-        Ok(())
+        assert_eq!(
+            Some(frame1),
+            store.head("hello", crate::store::ZERO_CONTEXT)
+        );
+        assert_eq!(
+            Some(frame2),
+            store.head("hallo", crate::store::ZERO_CONTEXT)
+        );
     }
 
     #[test]
@@ -114,7 +118,9 @@ mod tests_store {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
         let meta = serde_json::json!({"key": "value"});
-        let frame = store.append(Frame::with_topic("stream").meta(meta).build());
+        let frame = store
+            .append(Frame::with_topic("stream").meta(meta).build())
+            .unwrap();
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);
     }
@@ -125,8 +131,8 @@ mod tests_store {
         let store = Store::new(temp_dir.into_path());
 
         // Append two initial clips
-        let f1 = store.append(Frame::with_topic("stream").build());
-        let f2 = store.append(Frame::with_topic("stream").build());
+        let f1 = store.append(Frame::with_topic("stream").build()).unwrap();
+        let f2 = store.append(Frame::with_topic("stream").build()).unwrap();
 
         // cat the full stream and follow new items with a heartbeat every 5ms
         let follow_options = ReadOptions::builder()
@@ -144,8 +150,8 @@ mod tests_store {
         );
 
         // Append two more clips
-        let f3 = store.append(Frame::with_topic("stream").build());
-        let f4 = store.append(Frame::with_topic("stream").build());
+        let f3 = store.append(Frame::with_topic("stream").build()).unwrap();
+        let f4 = store.append(Frame::with_topic("stream").build()).unwrap();
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
 
@@ -154,7 +160,6 @@ mod tests_store {
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
 
         // Assert we see some heartbeats
-
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
@@ -164,10 +169,13 @@ mod tests_store {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
 
-        let f1 = store.append(Frame::with_topic("/stream").build());
-        let f2 = store.append(Frame::with_topic("/stream").build());
+        let f1 = store.append(Frame::with_topic("/stream").build()).unwrap();
+        let f2 = store.append(Frame::with_topic("/stream").build()).unwrap();
 
-        assert_eq!(store.head("/stream"), Some(f2.clone()));
+        assert_eq!(
+            store.head("/stream", crate::store::ZERO_CONTEXT),
+            Some(f2.clone())
+        );
 
         let recver = store.read(ReadOptions::default()).await;
         assert_eq!(
@@ -194,9 +202,9 @@ mod tests_store {
         let store = Store::new(temp_dir.path().to_path_buf());
 
         // Add 3 items
-        let frame1 = store.append(Frame::with_topic("test").build());
-        let frame2 = store.append(Frame::with_topic("test").build());
-        let _ = store.append(Frame::with_topic("test").build());
+        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
+        let _ = store.append(Frame::with_topic("test").build()).unwrap();
 
         // Read with limit 2
         let options = ReadOptions::builder().limit(2).build();
@@ -216,7 +224,7 @@ mod tests_store {
         let store = Store::new(temp_dir.path().to_path_buf());
 
         // Add 1 item
-        let frame1 = store.append(Frame::with_topic("test").build());
+        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
 
         // Start read with limit 2 and follow
         let options = ReadOptions::builder()
@@ -234,8 +242,8 @@ mod tests_store {
             .is_err());
 
         // Add 2 more items
-        let frame2 = store.append(Frame::with_topic("test").build());
-        let _frame3 = store.append(Frame::with_topic("test").build());
+        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
+        let _frame3 = store.append(Frame::with_topic("test").build()).unwrap();
 
         // Assert we get one more item
         assert_eq!(Some(frame2), rx.recv().await);
@@ -250,11 +258,11 @@ mod tests_store {
         let store = Store::new(temp_dir.path().to_path_buf());
 
         // Create 5 records upfront
-        let frame1 = store.append(Frame::with_topic("test").build());
-        let frame2 = store.append(Frame::with_topic("test").build());
-        let frame3 = store.append(Frame::with_topic("test").build());
-        let _frame4 = store.append(Frame::with_topic("test").build());
-        let _frame5 = store.append(Frame::with_topic("test").build());
+        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame3 = store.append(Frame::with_topic("test").build()).unwrap();
+        let _frame4 = store.append(Frame::with_topic("test").build()).unwrap();
+        let _frame5 = store.append(Frame::with_topic("test").build()).unwrap();
 
         // Start read with limit 3 and follow enabled
         let options = ReadOptions::builder()
@@ -283,20 +291,26 @@ mod tests_store {
         let store = Store::new(temp_dir.into_path());
 
         // Append three frames
-        let frame1 = store.append(Frame::with_topic("test").build());
-        let frame2 = store.append(Frame::with_topic("test").build());
-        let frame3 = store.append(Frame::with_topic("test").build());
+        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame3 = store.append(Frame::with_topic("test").build()).unwrap();
 
         // Test reading all frames
-        let frames: Vec<Frame> = store.read_sync(None, None).collect();
+        let frames: Vec<Frame> = store
+            .read_sync(None, None, crate::store::ZERO_CONTEXT)
+            .collect();
         assert_eq!(vec![frame1.clone(), frame2.clone(), frame3.clone()], frames);
 
         // Test with last_id (passing Scru128Id directly)
-        let frames: Vec<Frame> = store.read_sync(Some(&frame1.id), None).collect();
+        let frames: Vec<Frame> = store
+            .read_sync(Some(&frame1.id), None, crate::store::ZERO_CONTEXT)
+            .collect();
         assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
 
         // Test with limit
-        let frames: Vec<Frame> = store.read_sync(None, Some(2)).collect();
+        let frames: Vec<Frame> = store
+            .read_sync(None, Some(2), crate::store::ZERO_CONTEXT)
+            .collect();
         assert_eq!(vec![frame1, frame2], frames);
     }
 }
@@ -403,6 +417,114 @@ mod tests_ttl {
     }
 }
 
+mod tests_context {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_context_operations() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        // Create a context
+        let context_frame = store
+            .append(
+                Frame::with_topic("xs.context")
+                    .context_id(ZERO_CONTEXT) // Context registration must be in zero context
+                    .build(),
+            )
+            .unwrap();
+        let context_id = context_frame.id;
+
+        // Try to use invalid context (should return error)
+        let invalid_context = scru128::new();
+        let result = store.append(
+            Frame::with_topic("test")
+                .context_id(invalid_context)
+                .build(),
+        );
+        assert!(result.is_err());
+
+        // Append frames to different contexts
+        let frame1 = store
+            .append(Frame::with_topic("test").context_id(context_id).build())
+            .unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+
+        // Test head in different contexts
+        assert_eq!(store.head("test", context_id), Some(frame1.clone()));
+        assert_eq!(store.head("test", ZERO_CONTEXT), Some(frame2.clone()));
+
+        // Test reading from specific context
+        let frames: Vec<_> = store.read_sync(None, None, context_id).collect();
+        assert_eq!(frames, vec![frame1.clone()]);
+
+        // Test reading from zero context
+        let frames: Vec<_> = store.read_sync(None, None, ZERO_CONTEXT).collect();
+        assert_eq!(frames, vec![context_frame.clone(), frame2.clone()]);
+    }
+
+    #[tokio::test]
+    async fn test_context_ttl() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        // Create a context
+        let context_frame = store
+            .append(
+                Frame::with_topic("xs.context")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
+        let context_id = context_frame.id;
+
+        // Add frames with head:1 TTL in different contexts
+        let _frame1 = store
+            .append(
+                Frame::with_topic("test")
+                    .context_id(context_id)
+                    .ttl(TTL::Head(1))
+                    .build(),
+            )
+            .unwrap();
+        let frame2 = store
+            .append(
+                Frame::with_topic("test")
+                    .context_id(context_id)
+                    .ttl(TTL::Head(1))
+                    .build(),
+            )
+            .unwrap();
+
+        let _frame3 = store
+            .append(
+                Frame::with_topic("test")
+                    .context_id(ZERO_CONTEXT)
+                    .ttl(TTL::Head(1))
+                    .build(),
+            )
+            .unwrap();
+        let frame4 = store
+            .append(
+                Frame::with_topic("test")
+                    .context_id(ZERO_CONTEXT)
+                    .ttl(TTL::Head(1))
+                    .build(),
+            )
+            .unwrap();
+
+        // Wait for GC
+        store.wait_for_gc().await;
+
+        // Verify each context keeps its own head:1
+        assert_eq!(store.head("test", context_id), Some(frame2.clone()));
+        assert_eq!(store.head("test", ZERO_CONTEXT), Some(frame4.clone()));
+    }
+}
+
 mod tests_ttl_expire {
     use super::*;
 
@@ -416,14 +538,16 @@ mod tests_ttl_expire {
         let store = Store::new(temp_dir.into_path());
 
         // Add permanent frame
-        let permanent_frame = store.append(Frame::with_topic("test").build());
+        let permanent_frame = store.append(Frame::with_topic("test").build()).unwrap();
 
         // Add frame with a TTL
-        let expiring_frame = store.append(
-            Frame::with_topic("test")
-                .ttl(TTL::Time(Duration::from_millis(20)))
-                .build(),
-        );
+        let expiring_frame = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Time(Duration::from_millis(20)))
+                    .build(),
+            )
+            .unwrap();
 
         // Immediate read should show both frames
         let recver = store.read(ReadOptions::default()).await;
@@ -457,48 +581,56 @@ mod tests_ttl_expire {
         let store = Store::new(temp_dir.into_path());
 
         // Add 4 frames to the same topic with Head(2) TTL
-        let _frame1 = store.append(
-            Frame::with_topic("test")
-                .ttl(TTL::Head(2))
-                .meta(serde_json::json!({"order": 1}))
-                .build(),
-        );
+        let _frame1 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 1}))
+                    .build(),
+            )
+            .unwrap();
 
-        let _frame2 = store.append(
-            Frame::with_topic("test")
-                .ttl(TTL::Head(2))
-                .meta(serde_json::json!({"order": 2}))
-                .build(),
-        );
+        let _frame2 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 2}))
+                    .build(),
+            )
+            .unwrap();
 
-        let frame3 = store.append(
-            Frame::with_topic("test")
-                .ttl(TTL::Head(2))
-                .meta(serde_json::json!({"order": 3}))
-                .build(),
-        );
+        let frame3 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 3}))
+                    .build(),
+            )
+            .unwrap();
 
-        let frame4 = store.append(
-            Frame::with_topic("test")
-                .ttl(TTL::Head(2))
-                .meta(serde_json::json!({"order": 4}))
-                .build(),
-        );
+        let frame4 = store
+            .append(
+                Frame::with_topic("test")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 4}))
+                    .build(),
+            )
+            .unwrap();
 
         // Add a frame to a different topic to ensure isolation
-        let other_frame = store.append(
-            Frame::with_topic("other")
-                .ttl(TTL::Head(2))
-                .meta(serde_json::json!({"order": 1}))
-                .build(),
-        );
+        let other_frame = store
+            .append(
+                Frame::with_topic("other")
+                    .ttl(TTL::Head(2))
+                    .meta(serde_json::json!({"order": 1}))
+                    .build(),
+            )
+            .unwrap();
 
         // Read all frames and assert exact expected set
         store.wait_for_gc().await;
-        let recver = store.read(ReadOptions::default()).await;
-        let frames = tokio_stream::wrappers::ReceiverStream::new(recver)
-            .collect::<Vec<Frame>>()
-            .await;
+        // Use read_sync with explicit ZERO_CONTEXT to verify frames
+        let frames: Vec<_> = store.read_sync(None, None, ZERO_CONTEXT).collect();
 
         assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
