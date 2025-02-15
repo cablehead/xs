@@ -2,6 +2,7 @@ use assert_cmd::cargo::cargo_bin;
 use duct::cmd;
 use std::time::Duration;
 use tempfile::TempDir;
+use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use xs::store::Frame;
@@ -19,7 +20,6 @@ async fn test_integration() {
         .spawn()
         .expect("Failed to start CLI binary");
 
-    // Wait for socket
     let sock_path = store_path.join("sock");
     let start = std::time::Instant::now();
     while !sock_path.exists() {
@@ -48,28 +48,6 @@ async fn test_integration() {
     .run();
     assert!(result.is_err());
 
-    // Set up channels for context monitoring
-    let (default_tx, mut default_rx) = mpsc::channel(10);
-    let (new_tx, mut new_rx) = mpsc::channel(10);
-
-    // Start default context follower
-    let store_path_clone = store_path.to_path_buf();
-    tokio::spawn(async move {
-        let output = cmd!("xs", "cat", &store_path_clone, "-f")
-            .stderr_null()
-            .stdout_capture()
-            .reader()
-            .unwrap();
-
-        let reader = std::io::BufReader::new(output);
-        for line in reader.lines() {
-            let frame: Frame = serde_json::from_str(&line.unwrap()).unwrap();
-            if default_tx.send(frame).await.is_err() {
-                break;
-            }
-        }
-    });
-
     // Register new context
     let context_output = cmd!("xs", "append", store_path, "xs.context")
         .read()
@@ -77,24 +55,9 @@ async fn test_integration() {
     let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
     let context_id = context_frame.id.to_string();
 
-    // Start new context follower
-    let store_path_clone = store_path.to_path_buf();
-    tokio::spawn(async move {
-        let child = cmd!("xs", "cat", &store_path_clone, "-f", "-c", &context_id)
-            .stdout_pipe()
-            .stderr_null()
-            .start()
-            .unwrap();
-
-        let stdout = child.stdout.unwrap();
-        let reader = std::io::BufReader::new(stdout);
-        for line in reader.lines() {
-            let frame: Frame = serde_json::from_str(&line.unwrap()).unwrap();
-            if new_tx.send(frame).await.is_err() {
-                break;
-            }
-        }
-    });
+    // Start followers
+    let mut default_rx = spawn_follower(store_path.to_path_buf(), None).await;
+    let mut new_rx = spawn_follower(store_path.to_path_buf(), Some(context_id.clone())).await;
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -151,4 +114,39 @@ async fn test_integration() {
 
     // Clean up
     cli_process.kill().await.unwrap();
+}
+
+async fn spawn_follower(
+    store_path: std::path::PathBuf, // Take owned PathBuf
+    context: Option<String>,
+) -> mpsc::Receiver<Frame> {
+    let (tx, rx) = mpsc::channel(10);
+
+    tokio::spawn(async move {
+        let mut cmd = tokio::process::Command::new(cargo_bin("xs"));
+        cmd.arg("cat").arg(&store_path).arg("-f");
+
+        if let Some(ctx) = context {
+            cmd.arg("-c").arg(ctx);
+        }
+
+        let mut child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+
+        let stdout = child.stdout.take().unwrap();
+        let reader = tokio::io::BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        while let Ok(Some(line)) = lines.next_line().await {
+            let frame: Frame = serde_json::from_str(&line).unwrap();
+            if tx.send(frame).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    rx
 }

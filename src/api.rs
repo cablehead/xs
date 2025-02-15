@@ -249,7 +249,7 @@ async fn handle_stream_append(
     req: Request<hyper::body::Incoming>,
     topic: String,
     ttl: Option<TTL>,
-    context_id: Scru128Id,
+    _context_id: Scru128Id,
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
