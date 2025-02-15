@@ -135,7 +135,7 @@ fn match_route(
             match (TTL::from_query(query), parse_context_from_query(&params)) {
                 (Ok(ttl), Ok(context_id)) => Routes::StreamAppend {
                     topic,
-                    ttl,
+                    ttl: Some(ttl),
                     context_id,
                 },
                 (Err(e), _) => Routes::BadRequest(e.to_string()),
@@ -199,6 +199,7 @@ async fn handle(
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
         Routes::NotFound => response_404(),
+        Routes::BadRequest(msg) => response_400(msg),
     };
 
     res.or_else(|e| response_500(e.to_string()))
@@ -247,14 +248,10 @@ async fn handle_stream_append(
     store: &mut Store,
     req: Request<hyper::body::Incoming>,
     topic: String,
+    ttl: Option<TTL>,
+    context_id: Scru128Id,
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
-
-    // Parse TTL from query parameters
-    let ttl = match TTL::from_query(parts.uri.query()) {
-        Ok(ttl) => ttl,
-        Err(e) => return response_400(e),
-    };
 
     let hash = {
         let mut writer = store.cas_writer().await?;
@@ -291,7 +288,7 @@ async fn handle_stream_append(
         Frame::with_topic(topic)
             .maybe_hash(hash)
             .maybe_meta(meta)
-            .ttl(ttl)
+            .maybe_ttl(ttl)
             .build(),
     )?;
 
@@ -438,12 +435,8 @@ async fn handle_head_get(
     store: &Store,
     topic: &str,
     follow: bool,
-    req: &Request<hyper::body::Incoming>,
+    context_id: Scru128Id,
 ) -> HTTPResult {
-    let context_id = match parse_context_from_query(req.uri().query()) {
-        Ok(ctx) => ctx,
-        Err(e) => return response_400(e),
-    };
     let current_head = store.head(topic, context_id);
 
     if !follow {
