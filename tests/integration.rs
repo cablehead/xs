@@ -31,13 +31,13 @@ async fn test_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Verify xs.start in default context
-    let output = cmd!("xs", "cat", store_path).read().unwrap();
+    let output = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
     let start_frame: Frame = serde_json::from_str(&output).unwrap();
     assert_eq!(start_frame.topic, "xs.start");
 
     // Try append to xs.start's context before registering (should fail)
     let result = cmd!(
-        "xs",
+        cargo_bin("xs"),
         "append",
         store_path,
         "note",
@@ -49,7 +49,7 @@ async fn test_integration() {
     assert!(result.is_err());
 
     // Register new context
-    let context_output = cmd!("xs", "append", store_path, "xs.context")
+    let context_output = cmd!(cargo_bin("xs"), "append", store_path, "xs.context")
         .read()
         .unwrap();
     let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
@@ -62,7 +62,7 @@ async fn test_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Write to default context
-    cmd!("xs", "append", store_path, "note")
+    cmd!(cargo_bin("xs"), "append", store_path, "note")
         .stdin_bytes(b"default note")
         .run()
         .unwrap();
@@ -78,7 +78,7 @@ async fn test_integration() {
         .is_err());
 
     // Write to new context
-    cmd!("xs", "append", store_path, "note", "-c", &context_id)
+    cmd!(cargo_bin("xs"), "append", store_path, "note", "-c", &context_id)
         .stdin_bytes(b"context note")
         .run()
         .unwrap();
@@ -92,7 +92,7 @@ async fn test_integration() {
     assert_eq!(frame.context_id.to_string(), context_id);
 
     // Verify separate .cat results
-    let default_notes = cmd!("xs", "cat", store_path).read().unwrap();
+    let default_notes = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
     let frames: Vec<Frame> = default_notes
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
@@ -101,7 +101,7 @@ async fn test_integration() {
         .iter()
         .all(|f| f.context_id.to_string() == "0000000000000000000000000"));
 
-    let context_notes = cmd!("xs", "cat", store_path, "-c", &context_id)
+    let context_notes = cmd!(cargo_bin("xs"), "cat", store_path, "-c", &context_id)
         .read()
         .unwrap();
     let frames: Vec<Frame> = context_notes
