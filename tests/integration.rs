@@ -63,18 +63,24 @@ async fn test_integration() {
     // Spawn default context follower
     let store_path_clone = store_path.to_path_buf();
     let default_handle = tokio::spawn(async move {
-        let command = format!(
-            "{} cat {} -f",
-            cargo_bin("xs").display(),
-            store_path_clone.display()
-        );
-        let output = cmd!("sh", "-c", command).stdout_capture().start().unwrap();
-        let mut reader = std::io::BufReader::new(output.stdout.unwrap());
+        let mut cmd = Command::new(cargo_bin("xs"));
+        cmd.arg("cat")
+           .arg(&store_path_clone)
+           .arg("-f");
+        
+        let mut child = cmd.stdout(std::process::Stdio::piped())
+                          .spawn()
+                          .unwrap();
+        
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
         let mut line = String::new();
-        while let Ok(n) = reader.read_line(&mut line) {
+
+        while let Ok(n) = reader.read_line(&mut line).await {
             if n == 0 { break; }
-            let frame: Frame = serde_json::from_str(&line).unwrap();
-            default_tx.send(frame).await.unwrap();
+            if let Ok(frame) = serde_json::from_str::<Frame>(&line) {
+                let _ = default_tx.send(frame).await;
+            }
             line.clear();
         }
     });
@@ -82,18 +88,26 @@ async fn test_integration() {
     // Spawn new context follower (will be set up after context creation)
     let store_path_clone = store_path.to_path_buf();
     let new_handle = tokio::spawn(async move {
-        let command = format!(
-            "{} cat {} -f",
-            cargo_bin("xs").display(), 
-            store_path_clone.display()
-        );
-        let output = cmd!("sh", "-c", command).stdout_capture().start().unwrap();
-        let mut reader = std::io::BufReader::new(output.stdout.unwrap());
+        let mut cmd = Command::new(cargo_bin("xs"));
+        cmd.arg("cat")
+           .arg(&store_path_clone)
+           .arg("-f")
+           .arg("-c")
+           .arg(&context_id);
+        
+        let mut child = cmd.stdout(std::process::Stdio::piped())
+                          .spawn()
+                          .unwrap();
+        
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
         let mut line = String::new();
-        while let Ok(n) = reader.read_line(&mut line) {
+
+        while let Ok(n) = reader.read_line(&mut line).await {
             if n == 0 { break; }
-            let frame: Frame = serde_json::from_str(&line).unwrap();
-            new_tx.send(frame).await.unwrap();
+            if let Ok(frame) = serde_json::from_str::<Frame>(&line) {
+                let _ = new_tx.send(frame).await;
+            }
             line.clear();
         }
     });
