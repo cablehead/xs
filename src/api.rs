@@ -160,16 +160,16 @@ async fn handle(
     let res = match match_route(method, path, &headers, query) {
         Routes::Version => handle_version().await,
 
-        Routes::StreamCat(accept_type) => {
-            let options = match ReadOptions::from_query(req.uri().query()) {
-                Ok(opts) => opts,
-                Err(err) => return response_400(err.to_string()),
-            };
+        Routes::StreamCat {
+            accept_type,
+            options,
+        } => handle_stream_cat(&mut store, options, accept_type).await,
 
-            handle_stream_cat(&mut store, options, accept_type).await
-        }
-
-        Routes::StreamAppend(topic) => handle_stream_append(&mut store, req, topic).await,
+        Routes::StreamAppend {
+            topic,
+            ttl,
+            context_id,
+        } => handle_stream_append(&mut store, req, topic, ttl, context_id).await,
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
@@ -190,7 +190,11 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::HeadGet(topic, follow) => handle_head_get(&store, &topic, follow, &req).await,
+        Routes::HeadGet {
+            topic,
+            follow,
+            context_id,
+        } => handle_head_get(&store, &topic, follow, context_id).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
