@@ -72,7 +72,8 @@ impl Engine {
         engine_state.merge_delta(working_set.render())?;
 
         let mut stack = Stack::new();
-        let mut stack = stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
+        let mut stack =
+            stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
 
         eval_block_with_early_return::<WithoutDebug>(&engine_state, &mut stack, &block, input)
     }
