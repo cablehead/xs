@@ -62,17 +62,15 @@ async fn test_integration() {
     // Spawn default context follower
     let store_path_clone = store_path.to_path_buf();
     let default_handle = tokio::spawn(async move {
-        let mut cmd = Command::new(cargo_bin("xs"));
+        let mut cmd = tokio::process::Command::new(cargo_bin("xs"));
         cmd.arg("cat")
            .arg(&store_path_clone)
-           .arg("-f");
+           .arg("-f")
+           .stdout(std::process::Stdio::piped());
         
-        let mut child = cmd.stdout(std::process::Stdio::piped())
-                          .spawn()
-                          .unwrap();
-        
+        let mut child = cmd.spawn().unwrap();
         let stdout = child.stdout.take().unwrap();
-        let mut reader = BufReader::new(stdout);
+        let mut reader = tokio::io::BufReader::new(tokio::io::BufReader::new(stdout));
         let mut line = String::new();
 
         while let Ok(n) = reader.read_line(&mut line).await {
