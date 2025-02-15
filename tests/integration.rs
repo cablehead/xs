@@ -1,11 +1,13 @@
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use assert_cmd::cargo::cargo_bin;
 use duct::cmd;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+use tokio::io::BufReader;
+use tokio::io::AsyncBufReadExt;
 
 use xs::store::Frame;
 
