@@ -536,12 +536,12 @@ mod tests {
 
         assert!(matches!(
             match_route(&Method::GET, "/head/test", &headers, None),
-            Routes::HeadGet(topic, false) if topic == "test"
+            Routes::HeadGet { topic, follow: false, context_id: _ } if topic == "test"
         ));
 
         assert!(matches!(
             match_route(&Method::GET, "/head/test", &headers, Some("follow=true")),
-            Routes::HeadGet(topic, true) if topic == "test"
+            Routes::HeadGet { topic, follow: true, context_id: _ } if topic == "test"
         ));
     }
 }
