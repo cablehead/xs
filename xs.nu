@@ -51,7 +51,7 @@ export def .cat [
   --detail (-d) # include all frame fields in the output
   --last-id (-l): string
   --limit: int
-  --context (-c): string
+  --context (-c): string # the context to read from
 ] {
   _cat {
     follow: $follow
@@ -97,6 +97,7 @@ export def .head [
 export def .append [
   topic: string # The topic to append the event to
   --meta: record # Optional metadata to include with the event, provided as a record
+  --context (-c): string # the context to append to
   --ttl: string # Optional Time-To-Live for the event. Supported formats:
   #   - "forever": The event is kept indefinitely.
   #   - "ephemeral": The event is not stored; only active subscribers can see it.
@@ -107,6 +108,7 @@ export def .append [
     [
       (if $meta != null { ["--meta" ($meta | to json -r)] })
       (if $ttl != null { ["--ttl" $ttl] })
+      (xs-context $context | and-then { ["--context" $in] })
     ] | compact | flatten
   ) | from json
 }
@@ -131,6 +133,10 @@ export def ".ctx list" [] {
 export def --env ".ctx switch" [id: string] {
   $env.XS_CONTEXT = $id
   .ctx
+}
+
+export def --env ".ctx new" [] {
+  .append "xs.context" -c $XS_CONTEXT_SYSTEM | .ctx switch $in.id
 }
 
 export def .export [path: string] {
