@@ -585,13 +585,23 @@ mod tests_context {
         let frames: Vec<_> = store.read_sync(None, None, Some(ZERO_CONTEXT)).collect();
         assert_eq!(
             frames,
-            vec![context1_frame, context2_frame, frame4],
+            vec![context1_frame.clone(), context2_frame.clone(), frame4.clone()],
             "Should only get frames from ZERO_CONTEXT"
         );
 
         // Test reading all frames using None for context_id
         let all_frames: Vec<_> = store.read_sync(None, None, None).collect();
-        assert_eq!(all_frames.len(), 7, "Should get all frames across contexts");
+        assert_eq!(
+            all_frames,
+            vec![
+                context1_frame,
+                context2_frame,
+                frame1,
+                frame2,
+                frame3,
+                frame4
+            ]
+        );
     }
 }
 
