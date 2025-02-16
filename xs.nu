@@ -22,7 +22,7 @@ export def xs-addr [] {
 }
 
 export def xs-context [selected?: string] {
-  $selected | describe
+  $selected | if ($in | is-empty) { $env | get XS_CONTEXT? } else { }
 }
 
 # update to use (xs-addr) and the xs cli
@@ -35,6 +35,7 @@ def _cat [options: record] {
 
     (if $options.limit? != null {["--limit" $options.limit]})
     (if $options.pulse? != null {["--pulse" $options.pulse]})
+    (if $options.context? != null {["--context" $options.context]})
   ] | compact | flatten
 
   xs cat (xs-addr) ...$params | lines | each {|x| $x | from json}
@@ -49,8 +50,14 @@ export def .cat [
   --limit: int
   --context (-c): string
 ] {
-  print (xs-context $context)
-  _cat { follow: $follow pulse: $pulse tail: $tail last_id: $last_id limit: $limit } | conditional-pipe (not $detail) { reject context_id ttl }
+  _cat {
+    follow: $follow
+    pulse: $pulse
+    tail: $tail
+    last_id: $last_id
+    limit: $limit
+    context: (xs-context $context)
+  } | conditional-pipe (not $detail) { reject context_id ttl }
 }
 
 def read_hash [hash?: any] {
@@ -106,6 +113,11 @@ export def .remove [id: string] {
 }
 
 export alias .rm = .remove
+
+
+export def ".ctx list" [] {
+  .cat -c 0000000000000000000000000 | where topic == "xs.context" | get id
+}
 
 export def .export [path: string] {
   if ($path | path exists) {
