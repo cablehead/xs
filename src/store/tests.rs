@@ -528,6 +528,71 @@ mod tests_context {
         assert_eq!(store.head("test", context_id), Some(frame2.clone()));
         assert_eq!(store.head("test", ZERO_CONTEXT), Some(frame4.clone()));
     }
+
+    #[test]
+    fn test_read_sync_with_contexts() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        // Create two contexts
+        let context1_frame = store
+            .append(
+                Frame::with_topic("xs.context")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
+        let context1_id = context1_frame.id;
+
+        let context2_frame = store
+            .append(
+                Frame::with_topic("xs.context")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
+        let context2_id = context2_frame.id;
+
+        // Add frames to different contexts
+        let frame1 = store
+            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(context2_id).build())
+            .unwrap();
+        let frame3 = store
+            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .unwrap();
+        let frame4 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+
+        // Test reading from specific contexts
+        let frames: Vec<_> = store.read_sync(None, None, Some(context1_id)).collect();
+        assert_eq!(
+            frames,
+            vec![frame1.clone(), frame3.clone()],
+            "Should only get frames from context1"
+        );
+
+        let frames: Vec<_> = store.read_sync(None, None, Some(context2_id)).collect();
+        assert_eq!(
+            frames,
+            vec![frame2.clone()],
+            "Should only get frames from context2"
+        );
+
+        let frames: Vec<_> = store.read_sync(None, None, Some(ZERO_CONTEXT)).collect();
+        assert_eq!(
+            frames,
+            vec![context1_frame, context2_frame, frame4],
+            "Should only get frames from ZERO_CONTEXT"
+        );
+
+        // Test reading all frames using None for context_id
+        let all_frames: Vec<_> = store.read_sync(None, None, None).collect();
+        assert_eq!(all_frames.len(), 7, "Should get all frames across contexts");
+    }
 }
 
 mod tests_ttl_expire {

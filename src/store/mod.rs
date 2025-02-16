@@ -438,33 +438,10 @@ impl Store {
         &self,
         last_id: Option<&Scru128Id>,
         limit: Option<usize>,
-        context_id: Scru128Id,
+        context_id: Option<Scru128Id>,
     ) -> impl Iterator<Item = Frame> + '_ {
-        // Get range for context index
-        let mut start_key = Vec::with_capacity(32);
-        start_key.extend(context_id.as_bytes());
-        if let Some(last_id) = last_id {
-            start_key.extend(last_id.as_bytes());
-        }
-
-        let range = match last_id {
-            Some(_) => (Bound::Excluded(start_key), Bound::Unbounded),
-            None => (
-                Bound::Included(context_id.as_bytes().to_vec()),
-                Bound::Excluded(get_next_context_prefix(context_id)),
-            ),
-        };
-
-        self.context_index
-            .range(range)
-            .filter_map(move |record| {
-                let (key, _) = record.ok()?;
-                let frame_id_bytes = &key[16..]; // Skip context_id
-                let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().ok()?);
-                self.get(&frame_id)
-            })
+        self.iter_frames(context_id, last_id)
             .filter(move |frame| {
-                // Filter out expired frames
                 if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                     if is_expired(&frame.id, ttl) {
                         let _ = self.gc_tx.send(GCTask::Remove(frame.id));
@@ -604,6 +581,42 @@ impl Store {
         let _ = self.broadcast_tx.send(frame.clone());
         Ok(frame)
     }
+
+    fn iter_frames(
+        &self,
+        context_id: Option<Scru128Id>,
+        last_id: Option<&Scru128Id>,
+    ) -> Box<dyn Iterator<Item = Frame> + '_> {
+        match context_id {
+            Some(ctx_id) => {
+                let mut start_key = Vec::with_capacity(32);
+                start_key.extend(ctx_id.as_bytes());
+                if let Some(last_id) = last_id {
+                    start_key.extend(last_id.as_bytes());
+                }
+
+                let range = match last_id {
+                    Some(_) => (Bound::Excluded(start_key), Bound::Unbounded),
+                    None => (
+                        Bound::Included(ctx_id.as_bytes().to_vec()),
+                        Bound::Excluded(get_next_context_prefix(ctx_id)),
+                    ),
+                };
+
+                Box::new(self.context_index.range(range).filter_map(move |r| {
+                    let (key, _) = r.ok()?;
+                    let frame_id_bytes = &key[16..];
+                    let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().ok()?);
+                    self.get(&frame_id)
+                }))
+            }
+            None => Box::new(
+                self.frame_partition
+                    .range::<Vec<u8>, _>(..)
+                    .map(|r| deserialize_frame(r.unwrap())),
+            ),
+        }
+    }
 }
 
 fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
@@ -693,4 +706,12 @@ fn get_next_context_prefix(context_id: Scru128Id) -> Vec<u8> {
     }
     bytes.push(0);
     bytes
+}
+
+fn deserialize_frame<B1: AsRef<[u8]>, B2: AsRef<[u8]>>(record: (B1, B2)) -> Frame {
+    serde_json::from_slice(record.1.as_ref()).unwrap_or_else(|e| {
+        let key = std::str::from_utf8(record.0.as_ref()).unwrap();
+        let value = std::str::from_utf8(record.1.as_ref()).unwrap();
+        panic!("Failed to deserialize frame: {} {} {}", e, key, value)
+    })
 }
