@@ -693,7 +693,7 @@ mod tests_context {
             ]
         );
 
-        // Test with subscribers
+        // Test reading with follow
         let mut rx1 = store
             .read(
                 ReadOptions::builder()
@@ -702,6 +702,12 @@ mod tests_context {
                     .build(),
             )
             .await;
+
+        assert_eq!(rx1.recv().await, Some(frame1.clone()));
+        assert_eq!(rx1.recv().await, Some(frame3.clone()));
+        assert_eq!(rx1.recv().await.unwrap().topic, "xs.threshold".to_string());
+        assert_no_more_frames(&mut rx1).await;
+
         let mut rx2 = store
             .read(
                 ReadOptions::builder()
@@ -710,6 +716,11 @@ mod tests_context {
                     .build(),
             )
             .await;
+
+        assert_eq!(rx2.recv().await, Some(frame2.clone()));
+        assert_eq!(rx2.recv().await.unwrap().topic, "xs.threshold".to_string());
+        assert_no_more_frames(&mut rx2).await;
+
         let mut rx3 = store
             .read(
                 ReadOptions::builder()
@@ -718,9 +729,28 @@ mod tests_context {
                     .build(),
             )
             .await;
+
+        assert_eq!(rx3.recv().await, Some(context1_frame.clone()));
+        assert_eq!(rx3.recv().await, Some(context2_frame.clone()));
+        assert_eq!(rx3.recv().await, Some(frame4.clone()));
+        assert_eq!(rx3.recv().await.unwrap().topic, "xs.threshold".to_string());
+        assert_no_more_frames(&mut rx3).await;
+
         let mut rx_all = store
             .read(ReadOptions::builder().follow(FollowOption::On).build())
             .await;
+
+        assert_eq!(rx_all.recv().await, Some(context1_frame.clone()));
+        assert_eq!(rx_all.recv().await, Some(context2_frame.clone()));
+        assert_eq!(rx_all.recv().await, Some(frame1.clone()));
+        assert_eq!(rx_all.recv().await, Some(frame2.clone()));
+        assert_eq!(rx_all.recv().await, Some(frame3.clone()));
+        assert_eq!(rx_all.recv().await, Some(frame4.clone()));
+        assert_eq!(
+            rx_all.recv().await.unwrap().topic,
+            "xs.threshold".to_string()
+        );
+        assert_no_more_frames(&mut rx_all).await;
 
         // Add new frame to each context
         let frame5 = store
@@ -734,16 +764,17 @@ mod tests_context {
             .unwrap();
 
         assert_eq!(rx1.recv().await, Some(frame5.clone()));
+        assert_no_more_frames(&mut rx1).await;
+
         assert_eq!(rx2.recv().await, Some(frame6.clone()));
+        assert_no_more_frames(&mut rx2).await;
+
         assert_eq!(rx3.recv().await, Some(frame7.clone()));
+        assert_no_more_frames(&mut rx3).await;
 
         assert_eq!(rx_all.recv().await, Some(frame5));
         assert_eq!(rx_all.recv().await, Some(frame6));
         assert_eq!(rx_all.recv().await, Some(frame7));
-
-        assert_no_more_frames(&mut rx1).await;
-        assert_no_more_frames(&mut rx2).await;
-        assert_no_more_frames(&mut rx3).await;
         assert_no_more_frames(&mut rx_all).await;
     }
 }

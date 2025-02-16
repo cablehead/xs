@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use tokio::io::AsyncWriteExt;
 
 use xs::nu;
-use xs::store::{parse_ttl, FollowOption, ReadOptions, Store};
+use xs::store::{parse_ttl, FollowOption, ReadOptions, Store, ZERO_CONTEXT};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -244,7 +244,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
             Err(_) => return Err(format!("Invalid context: {}", context).into()),
         }
     } else {
-        None
+        Some(ZERO_CONTEXT)
     };
 
     let last_id = if let Some(last_id) = &args.last_id {
