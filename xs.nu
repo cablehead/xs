@@ -4,7 +4,7 @@ export alias "h. post" = h. request post
 export const XS_CONTEXT_SYSTEM = "0000000000000000000000000"
 
 def and-then [next: closure --else: closure] {
-  if ($in | is-not-empty) {do $next} else {
+  if ($in | is-not-empty) { do $next } else {
     do $else
   }
 }
@@ -13,16 +13,15 @@ def or-else [or_else: closure] {
   if ($in | is-not-empty) { $in } else { do $or_else }
 }
 
-
 def conditional-pipe [
   condition: bool
   action: closure
 ] {
-  if $condition {do $action} else {$in}
+  if $condition { do $action } else { $in }
 }
 
 export def xs-addr [] {
-  $env | get XS_ADDR? | or-else {"./store"}
+  $env | get XS_ADDR? | or-else { "./store" }
 }
 
 export def xs-context [selected?: string] {
@@ -32,17 +31,17 @@ export def xs-context [selected?: string] {
 # update to use (xs-addr) and the xs cli
 def _cat [options: record] {
   let params = [
-    (if ($options | get follow? | default false) {"--follow"})
-    (if ($options | get tail? | default false) {"--tail"})
+    (if ($options | get follow? | default false) { "--follow" })
+    (if ($options | get tail? | default false) { "--tail" })
 
-    (if $options.last_id? != null {["--last-id" $options.last_id]})
+    (if $options.last_id? != null { ["--last-id" $options.last_id] })
 
-    (if $options.limit? != null {["--limit" $options.limit]})
-    (if $options.pulse? != null {["--pulse" $options.pulse]})
-    (if $options.context? != null {["--context" $options.context]})
+    (if $options.limit? != null { ["--limit" $options.limit] })
+    (if $options.pulse? != null { ["--pulse" $options.pulse] })
+    (if $options.context? != null { ["--context" $options.context] })
   ] | compact | flatten
 
-  xs cat (xs-addr) ...$params | lines | each {|x| $x | from json}
+  xs cat (xs-addr) ...$params | lines | each {|x| $x | from json }
 }
 
 export def .cat [
@@ -74,7 +73,7 @@ def read_hash [hash?: any] {
 
 export def .cas [hash?: any] {
   let alt = $in
-  let hash = read_hash (if $hash != null {$hash} else {$alt})
+  let hash = read_hash (if $hash != null { $hash } else { $alt })
   if $hash == null { return }
   xs cas (xs-addr) $hash
 }
@@ -88,7 +87,7 @@ export def .head [
   --follow (-f) # Follow the head frame for updates
 ] {
   if $follow {
-    xs head (xs-addr) $topic --follow | lines | each {|x| $x | from json}
+    xs head (xs-addr) $topic --follow | lines | each {|x| $x | from json }
   } else {
     xs head (xs-addr) $topic | from json
   }
@@ -106,8 +105,8 @@ export def .append [
 ] {
   xs append (xs-addr) $topic ...(
     [
-      (if $meta != null {["--meta" ($meta | to json -r)]})
-      (if $ttl != null {["--ttl" $ttl]})
+      (if $meta != null { ["--meta" ($meta | to json -r)] })
+      (if $ttl != null { ["--ttl" $ttl] })
     ] | compact | flatten
   ) | from json
 }
@@ -119,11 +118,14 @@ export def .remove [id: string] {
 export alias .rm = .remove
 
 export def ".ctx list" [] {
-  .cat -c $XS_CONTEXT_SYSTEM | where topic == "xs.context" | get id
+  let active = .ctx
+  .cat -c $XS_CONTEXT_SYSTEM | where topic == "xs.context" | get id | prepend $XS_CONTEXT_SYSTEM | each {|x|
+    {id: $x active: ($x == $active)}
+  }
 }
 
 export def ".ctx" [] {
-  xs-context | or-else { "foo" }
+  xs-context | or-else { $XS_CONTEXT_SYSTEM }
 }
 
 export def .export [path: string] {
@@ -135,7 +137,7 @@ export def .export [path: string] {
 
   xs cat (xs-addr) | save ($path | path join "frames.jsonl")
 
-  open ($path | path join "frames.jsonl") | lines | each {from json | get hash} | uniq | each {|hash|
+  open ($path | path join "frames.jsonl") | lines | each { from json | get hash } | uniq | each {|hash|
     let hash_64 = $hash | encode base64
     let out_path = $"($path)/cas/($hash_64)"
     print $out_path
@@ -157,5 +159,5 @@ export def .import [path: string] {
     $got
   }
 
-  open ($path | path join "frames.jsonl") | lines | each {xs import (xs-addr)}
+  open ($path | path join "frames.jsonl") | lines | each { xs import (xs-addr) }
 }
