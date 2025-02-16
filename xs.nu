@@ -117,6 +117,10 @@ export def .remove [id: string] {
 
 export alias .rm = .remove
 
+export def ".ctx" [] {
+  xs-context | or-else { $XS_CONTEXT_SYSTEM }
+}
+
 export def ".ctx list" [] {
   let active = .ctx
   .cat -c $XS_CONTEXT_SYSTEM | where topic == "xs.context" | get id | prepend $XS_CONTEXT_SYSTEM | each {|x|
@@ -124,8 +128,9 @@ export def ".ctx list" [] {
   }
 }
 
-export def ".ctx" [] {
-  xs-context | or-else { $XS_CONTEXT_SYSTEM }
+export def --env ".ctx switch" [id: string] {
+  $env.XS_CONTEXT = $id
+  .ctx
 }
 
 export def .export [path: string] {
