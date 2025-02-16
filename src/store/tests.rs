@@ -20,6 +20,7 @@ mod tests_read_options {
     struct TestCase<'a> {
         input: Option<&'a str>,
         expected: ReadOptions,
+        reencoded: Option<&'a str>,
     }
 
     #[tokio::test]
@@ -58,41 +59,56 @@ mod tests_read_options {
             TestCase {
                 input: None,
                 expected: ReadOptions::default(),
+                reencoded: None,
             },
             TestCase {
                 input: Some("foo=bar"),
                 expected: ReadOptions::default(),
+                reencoded: Some(""),
             },
             TestCase {
                 input: Some("follow"),
                 expected: ReadOptions::builder().follow(FollowOption::On).build(),
+                reencoded: Some("follow=true"),
             },
             TestCase {
                 input: Some("follow=1"),
                 expected: ReadOptions::builder()
                     .follow(FollowOption::WithHeartbeat(Duration::from_millis(1)))
                     .build(),
+                reencoded: None,
             },
             TestCase {
                 input: Some("follow=yes"),
                 expected: ReadOptions::builder().follow(FollowOption::On).build(),
+                reencoded: Some("follow=true"),
             },
             TestCase {
                 input: Some("follow=true"),
                 expected: ReadOptions::builder().follow(FollowOption::On).build(),
+                reencoded: None,
             },
             TestCase {
-                input: Some("last-id=03BIDZVKNOTGJPVUEW3K23G45"),
+                input: Some("last-id=03bidzvknotgjpvuew3k23g45"),
                 expected: ReadOptions::builder()
-                    .last_id("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap())
+                    .last_id("03bidzvknotgjpvuew3k23g45".parse().unwrap())
                     .build(),
+                reencoded: None,
             },
             TestCase {
-                input: Some("follow&last-id=03BIDZVKNOTGJPVUEW3K23G45"),
+                input: Some("follow&last-id=03bidzvknotgjpvuew3k23g45"),
                 expected: ReadOptions::builder()
                     .follow(FollowOption::On)
-                    .last_id("03BIDZVKNOTGJPVUEW3K23G45".parse().unwrap())
+                    .last_id("03bidzvknotgjpvuew3k23g45".parse().unwrap())
                     .build(),
+                reencoded: Some("follow=true&last-id=03bidzvknotgjpvuew3k23g45"),
+            },
+            TestCase {
+                input: Some("context-id=03d8tlkt4iw1gqqp703hlyfzl"),
+                expected: ReadOptions::builder()
+                    .context_id("03d8tlkt4iw1gqqp703hlyfzl".parse().unwrap())
+                    .build(),
+                reencoded: None,
             },
         ];
 
@@ -103,6 +119,16 @@ mod tests_read_options {
                 Some(&case.expected),
                 "case {:?}",
                 case.input
+            );
+
+            // assert we can re-encode the options faithfully
+            let query = options.unwrap().to_query_string();
+            assert_eq!(
+                query,
+                case.reencoded
+                    .unwrap_or_else(|| case.input.unwrap_or_default()),
+                "case {:?}",
+                case.input,
             );
         }
 

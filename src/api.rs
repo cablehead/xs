@@ -76,7 +76,9 @@ fn match_route(
                 _ => AcceptType::Ndjson,
             };
 
-            match ReadOptions::from_query(query) {
+            let options = ReadOptions::from_query(query);
+
+            match options {
                 Ok(options) => Routes::StreamCat {
                     accept_type,
                     options,

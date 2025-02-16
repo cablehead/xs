@@ -94,6 +94,7 @@ pub struct ReadOptions {
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
     pub limit: Option<usize>,
+    #[serde(rename = "context-id")]
     pub context_id: Option<Scru128Id>,
 }
 
@@ -118,7 +119,7 @@ impl ReadOptions {
         }
 
         if let Some(context_id) = self.context_id {
-            params.push(("context", context_id.to_string()));
+            params.push(("context-id", context_id.to_string()));
         }
 
         // Add tail if true

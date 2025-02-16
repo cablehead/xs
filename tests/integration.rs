@@ -172,14 +172,22 @@ async fn spawn_follower(
 
         let mut child = cmd
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
 
         let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        tokio::spawn(async move {
+            let mut stderr_reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = stderr_reader.next_line().await {
+                eprintln!("[XS STDERR] {}", line);
+            }
+        });
+
         let reader = tokio::io::BufReader::new(stdout);
         let mut lines = reader.lines();
-
         while let Ok(Some(line)) = lines.next_line().await {
             let frame: Frame = serde_json::from_str(&line).unwrap();
             if tx.send(frame).await.is_err() {
