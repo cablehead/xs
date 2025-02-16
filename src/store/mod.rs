@@ -104,9 +104,22 @@ fn default_context() -> Scru128Id {
 }
 
 impl ReadOptions {
-    pub fn from_query(query: Option<&str>) -> Result<Self, serde_urlencoded::de::Error> {
+    pub fn from_query(query: Option<&str>) -> Result<Self, BoxedError> {
         match query {
-            Some(q) => serde_urlencoded::from_str(q),
+            Some(q) => {
+                let params: HashMap<String, String> = url::form_urlencoded::parse(q.as_bytes())
+                    .into_owned()
+                    .collect();
+
+                let mut options = serde_urlencoded::from_str::<Self>(q)?;
+
+                // Parse context_id from query if present, otherwise use default
+                if let Some(ctx) = params.get("context") {
+                    options.context_id = ctx.parse().map_err(|e| format!("Invalid context ID: {}", e))?;
+                }
+
+                Ok(options)
+            }
             None => Ok(Self::default()),
         }
     }
