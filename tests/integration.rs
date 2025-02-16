@@ -80,15 +80,8 @@ async fn test_integration() {
         .unwrap();
 
     // Verify received in default only
-    let frame = timeout(Duration::from_secs(1), default_rx.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(frame.topic, "note");
-
-    assert!(timeout(Duration::from_millis(100), new_rx.recv())
-        .await
-        .is_err());
+    assert_frame_received!(&mut default_rx, Some("note"));
+    assert_frame_received!(&mut new_rx, None);
 
     // Write to new context
     cmd!(
@@ -104,12 +97,8 @@ async fn test_integration() {
     .unwrap();
 
     // Verify received in new context only
-    let frame = timeout(Duration::from_secs(1), new_rx.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(frame.topic, "note");
-    assert_eq!(frame.context_id.to_string(), context_id);
+    assert_frame_received!(&mut default_rx, None);
+    assert_frame_received!(&mut new_rx, Some("note"));
 
     // Verify separate .cat results
     let default_notes = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();

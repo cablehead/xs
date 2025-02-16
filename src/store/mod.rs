@@ -18,7 +18,7 @@ use scru128::Scru128Id;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, Slice};
+use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
 // Context with all bits set to zero for system operations
 pub const ZERO_CONTEXT: Scru128Id = Scru128Id::from_bytes([0; 16]);
@@ -591,24 +591,6 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
             }
         }
     });
-}
-
-fn get_range(last_id: Option<&Scru128Id>) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
-    match last_id {
-        Some(last_id) => (
-            Bound::Excluded(last_id.as_bytes().to_vec()),
-            Bound::Unbounded,
-        ),
-        None => (Bound::Unbounded, Bound::Unbounded),
-    }
-}
-
-fn deserialize_frame(record: (Slice, Slice)) -> Frame {
-    serde_json::from_slice(&record.1).unwrap_or_else(|e| {
-        let key = std::str::from_utf8(&record.0).unwrap();
-        let value = std::str::from_utf8(&record.1).unwrap();
-        panic!("Failed to deserialize frame: {} {} {}", e, key, value)
-    })
 }
 
 fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
