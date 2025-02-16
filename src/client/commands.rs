@@ -14,43 +14,14 @@ use crate::store::TTL;
 
 pub async fn cat(
     addr: &str,
-    follow: bool,
-    pulse: Option<u64>,
-    tail: bool,
-    last_id: Option<String>,
-    limit: Option<u64>,
+    mut options: ReadOptions,
     sse: bool,
-    context: Option<&str>,
 ) -> Result<Receiver<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut params = Vec::new();
-    if follow {
-        if let Some(pulse_value) = pulse {
-            params.push(("follow", pulse_value.to_string()));
-        } else {
-            params.push(("follow", "true".to_string()));
-        }
-    }
-    if tail {
-        params.push(("tail", "true".to_string()));
-    }
-    if let Some(last_id_value) = last_id {
-        params.push(("last-id", last_id_value));
-    }
-    if let Some(limit_value) = limit {
-        params.push(("limit", limit_value.to_string()));
-    }
-    if let Some(context_value) = context {
-        params.push(("context", context_value.to_string()));
-    }
-
-    let query = if !params.is_empty() {
-        Some(
-            form_urlencoded::Serializer::new(String::new())
-                .extend_pairs(params)
-                .finish(),
-        )
-    } else {
+    // Convert any usize limit to u64
+    let query = if options == ReadOptions::default() {
         None
+    } else {
+        Some(options.to_query_string())
     };
 
     let headers = if sse {
