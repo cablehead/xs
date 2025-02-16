@@ -128,10 +128,10 @@ impl ReadOptions {
 
     pub fn to_query_string(&self) -> String {
         let mut params = Vec::new();
-        
+
         // Add follow parameter with heartbeat if specified
         match self.follow {
-            FollowOption::Off => {},
+            FollowOption::Off => {}
             FollowOption::On => params.push(("follow", "true".to_string())),
             FollowOption::WithHeartbeat(duration) => {
                 params.push(("follow", duration.as_millis().to_string()));
