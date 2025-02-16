@@ -238,7 +238,7 @@ impl Store {
         let done_rx = if !options.tail {
             let (done_tx, done_rx) = tokio::sync::oneshot::channel();
             let tx_clone = tx.clone();
-            let partition = self.frame_partition.clone();
+            let store = self.clone(); // Clone the whole store
             let options_clone = options.clone();
             let should_follow_clone = should_follow;
             let gc_tx = self.gc_tx.clone();
