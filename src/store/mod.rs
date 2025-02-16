@@ -329,6 +329,11 @@ impl Store {
 
                     let mut broadcast_rx = broadcast_rx;
                     while let Ok(frame) = broadcast_rx.recv().await {
+                        // Skip frames that do not match the context_id
+                        if frame.context_id != options.context_id {
+                            continue;
+                        }
+
                         // Skip if we've already seen this frame during historical scan
                         if let Some(last_scanned_id) = last_id {
                             if frame.id <= last_scanned_id {
