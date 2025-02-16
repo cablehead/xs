@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 use scru128::Scru128Id;
@@ -94,34 +94,13 @@ pub struct ReadOptions {
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
     pub limit: Option<usize>,
-    #[serde(default = "default_context")]
-    #[builder(default = ZERO_CONTEXT)]
-    pub context_id: Scru128Id,
-}
-
-fn default_context() -> Scru128Id {
-    ZERO_CONTEXT
+    pub context_id: Option<Scru128Id>,
 }
 
 impl ReadOptions {
     pub fn from_query(query: Option<&str>) -> Result<Self, crate::error::Error> {
         match query {
-            Some(q) => {
-                let params: HashMap<String, String> = url::form_urlencoded::parse(q.as_bytes())
-                    .into_owned()
-                    .collect();
-
-                let mut options = serde_urlencoded::from_str::<Self>(q)?;
-
-                // Parse context_id from query if present, otherwise use default
-                if let Some(ctx) = params.get("context") {
-                    options.context_id = ctx
-                        .parse()
-                        .map_err(|e| format!("Invalid context ID: {}", e))?;
-                }
-
-                Ok(options)
-            }
+            Some(q) => Ok(serde_urlencoded::from_str(q)?),
             None => Ok(Self::default()),
         }
     }
@@ -138,9 +117,8 @@ impl ReadOptions {
             }
         }
 
-        // Add context if not default
-        if self.context_id != ZERO_CONTEXT {
-            params.push(("context", self.context_id.to_string()));
+        if let Some(context_id) = self.context_id {
+            params.push(("context", context_id.to_string()));
         }
 
         // Add tail if true
@@ -305,47 +283,28 @@ impl Store {
                 let mut last_id = None;
                 let mut count = 0;
 
-                let mut start_key = Vec::with_capacity(32);
-                start_key.extend(options_clone.context_id.as_bytes());
-                if let Some(last_id) = options_clone.last_id {
-                    start_key.extend(last_id.as_bytes());
-                }
-
-                let range = match options_clone.last_id {
-                    Some(_) => (Bound::Excluded(start_key), Bound::Unbounded),
-                    None => (
-                        Bound::Included(options_clone.context_id.as_bytes().to_vec()),
-                        Bound::Excluded(get_next_context_prefix(options_clone.context_id)),
-                    ),
-                };
-
-                // Use context_index instead of frame_partition
-                for record in store.context_index.range(range) {
-                    let (key, _) = record.unwrap();
-                    let frame_id_bytes = &key[16..]; // Skip context_id
-                    let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap());
-
-                    if let Some(frame) = store.get(&frame_id) {
-                        if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                            if is_expired(&frame.id, ttl) {
-                                let _ = gc_tx.send(GCTask::Remove(frame.id));
-                                continue;
-                            }
+                for frame in
+                    store.iter_frames(options_clone.context_id, options_clone.last_id.as_ref())
+                {
+                    if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
+                        if is_expired(&frame.id, ttl) {
+                            let _ = gc_tx.send(GCTask::Remove(frame.id));
+                            continue;
                         }
-
-                        last_id = Some(frame.id);
-
-                        if let Some(limit) = options_clone.limit {
-                            if count >= limit {
-                                return; // Exit early if limit reached
-                            }
-                        }
-
-                        if tx_clone.blocking_send(frame).is_err() {
-                            return;
-                        }
-                        count += 1;
                     }
+
+                    last_id = Some(frame.id);
+
+                    if let Some(limit) = options_clone.limit {
+                        if count >= limit {
+                            break;
+                        }
+                    }
+
+                    if tx_clone.blocking_send(frame).is_err() {
+                        break;
+                    }
+                    count += 1;
                 }
 
                 // Send threshold message if following and no limit
@@ -387,8 +346,10 @@ impl Store {
                     let mut broadcast_rx = broadcast_rx;
                     while let Ok(frame) = broadcast_rx.recv().await {
                         // Skip frames that do not match the context_id
-                        if frame.context_id != options.context_id {
-                            continue;
+                        if let Some(context_id) = options.context_id {
+                            if frame.context_id != context_id {
+                                continue;
+                            }
                         }
 
                         // Skip if we've already seen this frame during historical scan
