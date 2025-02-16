@@ -274,7 +274,7 @@ impl Store {
             let (done_tx, done_rx) = tokio::sync::oneshot::channel();
             let tx_clone = tx.clone();
             let store = self.clone(); // Clone the whole store
-            let options_clone = options.clone();
+            let options = options.clone();
             let should_follow_clone = should_follow;
             let gc_tx = self.gc_tx.clone();
 
@@ -283,9 +283,7 @@ impl Store {
                 let mut last_id = None;
                 let mut count = 0;
 
-                for frame in
-                    store.iter_frames(options_clone.context_id, options_clone.last_id.as_ref())
-                {
+                for frame in store.iter_frames(options.context_id, options.last_id.as_ref()) {
                     if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                         if is_expired(&frame.id, ttl) {
                             let _ = gc_tx.send(GCTask::Remove(frame.id));
@@ -295,7 +293,7 @@ impl Store {
 
                     last_id = Some(frame.id);
 
-                    if let Some(limit) = options_clone.limit {
+                    if let Some(limit) = options.limit {
                         if count >= limit {
                             return; // Exit early if limit reached
                         }
@@ -308,7 +306,7 @@ impl Store {
                 }
 
                 // Send threshold message if following and no limit
-                if should_follow_clone && options_clone.limit.is_none() {
+                if should_follow_clone && options.limit.is_none() {
                     let threshold = Frame::with_topic("xs.threshold")
                         .id(scru128::new())
                         .ttl(TTL::Ephemeral)
