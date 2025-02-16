@@ -130,13 +130,17 @@ export def ".ctx list" [] {
   }
 }
 
-export def --env ".ctx switch" [id: string] {
-  $env.XS_CONTEXT = $id
+export def --env ".ctx switch" [id?: string] {
+  $env.XS_CONTEXT = $id | or-else { .ctx select }
   .ctx
 }
 
 export def --env ".ctx new" [] {
   .append "xs.context" -c $XS_CONTEXT_SYSTEM | .ctx switch $in.id
+}
+
+export def --env ".ctx select" [] {
+  .ctx list | input list | get id
 }
 
 export def .export [path: string] {
