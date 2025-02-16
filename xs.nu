@@ -1,14 +1,18 @@
 export alias "h. get" = h. request get
 export alias "h. post" = h. request post
 
-alias ? = if ($in | is-not-empty) {$in}
-alias ?? = ? else { return }
+export const XS_CONTEXT_SYSTEM = "0000000000000000000000000"
 
 def and-then [next: closure --else: closure] {
   if ($in | is-not-empty) {do $next} else {
     do $else
   }
 }
+
+def or-else [or_else: closure] {
+  if ($in | is-not-empty) { $in } else { do $or_else }
+}
+
 
 def conditional-pipe [
   condition: bool
@@ -18,7 +22,7 @@ def conditional-pipe [
 }
 
 export def xs-addr [] {
-  $env | get XS_ADDR? | ? else {"./store"}
+  $env | get XS_ADDR? | or-else {"./store"}
 }
 
 export def xs-context [selected?: string] {
@@ -114,9 +118,12 @@ export def .remove [id: string] {
 
 export alias .rm = .remove
 
-
 export def ".ctx list" [] {
-  .cat -c 0000000000000000000000000 | where topic == "xs.context" | get id
+  .cat -c $XS_CONTEXT_SYSTEM | where topic == "xs.context" | get id
+}
+
+export def ".ctx" [] {
+  xs-context | or-else { "foo" }
 }
 
 export def .export [path: string] {
