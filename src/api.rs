@@ -56,15 +56,6 @@ enum Routes {
     BadRequest(String),
 }
 
-fn parse_context_from_query(params: &HashMap<String, String>) -> Result<Scru128Id, String> {
-    match params.get("context") {
-        None => Ok(crate::store::ZERO_CONTEXT),
-        Some(ctx) => ctx
-            .parse()
-            .map_err(|e| format!("Invalid context ID: {}", e)),
-    }
-}
-
 fn match_route(
     method: &Method,
     path: &str,
@@ -85,14 +76,8 @@ fn match_route(
                 _ => AcceptType::Ndjson,
             };
 
-            let context_id = match parse_context_from_query(&params) {
-                Ok(id) => id,
-                Err(e) => return Routes::BadRequest(e),
-            };
-
             match ReadOptions::from_query(query) {
-                Ok(mut options) => {
-                    options.context_id = context_id;
+                Ok(options) => {
                     Routes::StreamCat {
                         accept_type,
                         options,
