@@ -236,15 +236,41 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut options = ReadOptions::builder()
+        .tail(args.tail);
+
+    // Set follow option based on pulse or regular follow
+    if let Some(pulse) = args.pulse {
+        options = options.follow(FollowOption::WithHeartbeat(Duration::from_millis(pulse)));
+    } else if args.follow {
+        options = options.follow(FollowOption::On);
+    }
+
+    // Set remaining options
+    if let Some(last_id) = args.last_id {
+        if let Ok(id) = scru128::Scru128Id::from_str(&last_id) {
+            options = options.last_id(id);
+        } else {
+            return Err(format!("Invalid last-id: {}", last_id).into());
+        }
+    }
+
+    if let Some(limit) = args.limit {
+        options = options.limit(limit as usize);
+    }
+
+    if let Some(context) = &args.context {
+        if let Ok(id) = scru128::Scru128Id::from_str(context) {
+            options = options.context_id(id);
+        } else {
+            return Err(format!("Invalid context: {}", context).into());
+        }
+    }
+
     let mut receiver = xs::client::cat(
         &args.addr,
-        args.follow,
-        args.pulse,
-        args.tail,
-        args.last_id.clone(),
-        args.limit,
+        options.build(),
         args.sse,
-        args.context.as_deref(),
     )
     .await?;
     let mut stdout = tokio::io::stdout();
