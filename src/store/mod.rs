@@ -11,8 +11,10 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+
+type BoxedError = Box<dyn std::error::Error + Send + Sync>;
 
 use scru128::Scru128Id;
 
