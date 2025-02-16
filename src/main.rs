@@ -3,7 +3,6 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use scru128;
 
 use tokio::io::AsyncWriteExt;
 
