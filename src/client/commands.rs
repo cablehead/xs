@@ -10,7 +10,7 @@ use tokio_util::io::ReaderStream;
 use url::form_urlencoded;
 
 use super::request;
-use crate::store::TTL;
+use crate::store::{TTL, ReadOptions};
 
 pub async fn cat(
     addr: &str,
