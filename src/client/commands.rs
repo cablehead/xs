@@ -14,7 +14,7 @@ use crate::store::{ReadOptions, TTL};
 
 pub async fn cat(
     addr: &str,
-    mut options: ReadOptions,
+    options: ReadOptions,
     sse: bool,
 ) -> Result<Receiver<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
     // Convert any usize limit to u64
