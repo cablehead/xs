@@ -263,12 +263,12 @@ impl Store {
                 };
 
                 // Use context_index instead of frame_partition
-                for record in self.context_index.range(range) {
+                for record in store.context_index.range(range) {
                     let (key, _) = record.unwrap();
                     let frame_id_bytes = &key[16..]; // Skip context_id
                     let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap());
 
-                    if let Some(frame) = self.get(&frame_id) {
+                    if let Some(frame) = store.get(&frame_id) {
                         if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                             if is_expired(&frame.id, ttl) {
                                 let _ = gc_tx.send(GCTask::Remove(frame.id));
