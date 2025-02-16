@@ -10,11 +10,22 @@ def and-then [next: closure --else: closure] {
   }
 }
 
-export def store-addr [] {
+def conditional-pipe [
+  condition: bool
+  action: closure
+] {
+  if $condition {do $action} else {$in}
+}
+
+export def var-xs-store-path [] {
   $env | get XS_ADDR? | ? else {"./store"}
 }
 
-# update to use (store-addr) and the xs cli
+export def var-xs-context [] {
+  $env | get XS_CONTEXT?
+}
+
+# update to use (var-xs-store-path) and the xs cli
 def _cat [options: record] {
   let params = [
     (if ($options | get follow? | default false) {"--follow"})
@@ -26,17 +37,18 @@ def _cat [options: record] {
     (if $options.pulse? != null {["--pulse" $options.pulse]})
   ] | compact | flatten
 
-  xs cat (store-addr) ...$params | lines | each {|x| $x | from json}
+  xs cat (var-xs-store-path) ...$params | lines | each {|x| $x | from json}
 }
 
 export def .cat [
   --follow (-f) # long poll for new events
   --pulse (-p): int # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
   --tail (-t) # begin long after the end of the stream
+  --detail (-d) # include all frame fields in the output
   --last-id (-l): string
   --limit: int
 ] {
-  _cat { follow: $follow pulse: $pulse tail: $tail last_id: $last_id limit: $limit }
+  _cat { follow: $follow pulse: $pulse tail: $tail last_id: $last_id limit: $limit } | conditional-pipe (not $detail) { reject context_id ttl }
 }
 
 def read_hash [hash?: any] {
@@ -51,11 +63,11 @@ export def .cas [hash?: any] {
   let alt = $in
   let hash = read_hash (if $hash != null {$hash} else {$alt})
   if $hash == null { return }
-  xs cas (store-addr) $hash
+  xs cas (var-xs-store-path) $hash
 }
 
 export def .get [id: string] {
-  xs get (store-addr) $id | from json
+  xs get (var-xs-store-path) $id | from json
 }
 
 export def .head [
@@ -63,9 +75,9 @@ export def .head [
   --follow (-f) # Follow the head frame for updates
 ] {
   if $follow {
-    xs head (store-addr) $topic --follow | lines | each {|x| $x | from json}
+    xs head (var-xs-store-path) $topic --follow | lines | each {|x| $x | from json}
   } else {
-    xs head (store-addr) $topic | from json
+    xs head (var-xs-store-path) $topic | from json
   }
 }
 
@@ -79,7 +91,7 @@ export def .append [
   #   - "time:<milliseconds>": The event is kept for a custom duration in milliseconds.
   #   - "head:<n>": Retains only the last n events for the topic (n must be >= 1).
 ] {
-  xs append (store-addr) $topic ...(
+  xs append (var-xs-store-path) $topic ...(
     [
       (if $meta != null {["--meta" ($meta | to json -r)]})
       (if $ttl != null {["--ttl" $ttl]})
@@ -88,7 +100,7 @@ export def .append [
 }
 
 export def .remove [id: string] {
-  xs remove (store-addr) $id
+  xs remove (var-xs-store-path) $id
 }
 
 export alias .rm = .remove
@@ -100,7 +112,7 @@ export def .export [path: string] {
   }
   mkdir ($path | path join "cas")
 
-  xs cat (store-addr) | save ($path | path join "frames.jsonl")
+  xs cat (var-xs-store-path) | save ($path | path join "frames.jsonl")
 
   open ($path | path join "frames.jsonl") | lines | each {from json | get hash} | uniq | each {|hash|
     let hash_64 = $hash | encode base64
@@ -113,7 +125,7 @@ export def .export [path: string] {
 export def .import [path: string] {
   glob ([$path "cas"] | path join "*") | each {|x|
     let want = ($x | path basename | decode base64 | decode)
-    let got = cat $x | xs cas-post (store-addr)
+    let got = cat $x | xs cas-post (var-xs-store-path)
     if $got != $want {
       return (
         error make {
@@ -124,5 +136,5 @@ export def .import [path: string] {
     $got
   }
 
-  open ($path | path join "frames.jsonl") | lines | each {xs import (store-addr)}
+  open ($path | path join "frames.jsonl") | lines | each {xs import (var-xs-store-path)}
 }
