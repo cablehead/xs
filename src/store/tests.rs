@@ -273,6 +273,7 @@ mod tests_store {
         let options = ReadOptions::builder()
             .limit(3)
             .follow(FollowOption::On)
+            .context_id(crate::store::ZERO_CONTEXT)
             .build();
         let mut rx = store.read(options).await;
 

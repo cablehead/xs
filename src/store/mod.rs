@@ -297,7 +297,7 @@ impl Store {
 
                     if let Some(limit) = options_clone.limit {
                         if count >= limit {
-                            break;
+                            return; // Exit early if limit reached
                         }
                     }
 
