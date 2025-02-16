@@ -8,7 +8,7 @@ use scru128;
 use tokio::io::AsyncWriteExt;
 
 use xs::nu;
-use xs::store::{parse_ttl, Store, ReadOptions, FollowOption};
+use xs::store::{parse_ttl, FollowOption, ReadOptions, Store};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -238,8 +238,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut options = ReadOptions::builder()
-        .tail(args.tail);
+    let mut options = ReadOptions::builder().tail(args.tail);
 
     // Set follow option based on pulse or regular follow
     if let Some(pulse) = args.pulse {
@@ -269,12 +268,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         }
     }
 
-    let mut receiver = xs::client::cat(
-        &args.addr,
-        options.build(),
-        args.sse,
-    )
-    .await?;
+    let mut receiver = xs::client::cat(&args.addr, options.build(), args.sse).await?;
     let mut stdout = tokio::io::stdout();
     while let Some(bytes) = receiver.recv().await {
         stdout.write_all(&bytes).await?;
