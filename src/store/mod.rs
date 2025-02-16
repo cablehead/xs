@@ -248,28 +248,47 @@ impl Store {
                 let mut last_id = None;
                 let mut count = 0;
 
-                let range = get_range(options_clone.last_id.as_ref());
-                for record in partition.range(range) {
-                    let frame = deserialize_frame(record.unwrap());
+                let mut start_key = Vec::with_capacity(32);
+                start_key.extend(options_clone.context_id.as_bytes());
+                if let Some(last_id) = options_clone.last_id {
+                    start_key.extend(last_id.as_bytes());
+                }
 
-                    if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                        if is_expired(&frame.id, ttl) {
-                            let _ = gc_tx.send(GCTask::Remove(frame.id));
-                            continue;
+                let range = match options_clone.last_id {
+                    Some(_) => (Bound::Excluded(start_key), Bound::Unbounded),
+                    None => (
+                        Bound::Included(options_clone.context_id.as_bytes().to_vec()),
+                        Bound::Excluded(get_next_context_prefix(options_clone.context_id)),
+                    ),
+                };
+
+                // Use context_index instead of frame_partition
+                for record in self.context_index.range(range) {
+                    let (key, _) = record.unwrap();
+                    let frame_id_bytes = &key[16..]; // Skip context_id
+                    let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap());
+
+                    if let Some(frame) = self.get(&frame_id) {
+                        if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
+                            if is_expired(&frame.id, ttl) {
+                                let _ = gc_tx.send(GCTask::Remove(frame.id));
+                                continue;
+                            }
                         }
-                    }
 
-                    last_id = Some(frame.id);
+                        last_id = Some(frame.id);
 
-                    if let Some(limit) = options_clone.limit {
-                        if count >= limit {
-                            return; // Exit early if limit reached
+                        if let Some(limit) = options_clone.limit {
+                            if count >= limit {
+                                return; // Exit early if limit reached
+                            }
                         }
+
+                        if tx_clone.blocking_send(frame).is_err() {
+                            return;
+                        }
+                        count += 1;
                     }
-                    if tx_clone.blocking_send(frame).is_err() {
-                        return;
-                    }
-                    count += 1;
                 }
 
                 // Send threshold message if following and no limit
