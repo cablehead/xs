@@ -84,11 +84,20 @@ fn match_route(
                 Some(accept) if accept == "text/event-stream" => AcceptType::EventStream,
                 _ => AcceptType::Ndjson,
             };
+
+            let context_id = match parse_context_from_query(&params) {
+                Ok(id) => id,
+                Err(e) => return Routes::BadRequest(e),
+            };
+
             match ReadOptions::from_query(query) {
-                Ok(options) => Routes::StreamCat {
-                    accept_type,
-                    options,
-                },
+                Ok(mut options) => {
+                    options.context_id = context_id;
+                    Routes::StreamCat {
+                        accept_type,
+                        options,
+                    }
+                }
                 Err(e) => Routes::BadRequest(e.to_string()),
             }
         }

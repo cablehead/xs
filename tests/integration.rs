@@ -54,11 +54,14 @@ async fn test_integration() {
         .unwrap();
     let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
     let context_id = context_frame.id.to_string();
+
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Start followers
     let mut default_rx = spawn_follower(store_path.to_path_buf(), None).await;
     let mut new_rx = spawn_follower(store_path.to_path_buf(), Some(context_id.clone())).await;
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Verify default stream so far
     assert_frame_received!(&mut default_rx, Some("xs.start"));
@@ -67,6 +70,7 @@ async fn test_integration() {
     assert_frame_received!(&mut default_rx, None);
 
     // nothing in our custom partition yet
+    assert_frame_received!(&mut new_rx, Some("xs.threshold"));
     assert_frame_received!(&mut new_rx, None);
 
     // Write to default context
@@ -81,6 +85,7 @@ async fn test_integration() {
         .unwrap()
         .unwrap();
     assert_eq!(frame.topic, "note");
+
     assert!(timeout(Duration::from_millis(100), new_rx.recv())
         .await
         .is_err());
