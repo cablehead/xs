@@ -454,8 +454,10 @@ impl Store {
     }
 
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
-        let res = self.frame_partition.get(id.to_bytes()).unwrap();
-        res.map(|value| serde_json::from_slice(&value).unwrap())
+        self.frame_partition
+            .get(id.to_bytes())
+            .unwrap()
+            .map(|value| deserialize_frame((id.as_bytes(), value)))
     }
 
     #[tracing::instrument(skip(self))]
