@@ -90,14 +90,14 @@ fn match_route(
         (&Method::GET, p) if p.starts_with("/head/") => {
             let topic = p.strip_prefix("/head/").unwrap().to_string();
             let follow = params.contains_key("follow");
-            match parse_context_from_query(&params) {
-                Ok(context_id) => Routes::HeadGet {
-                    topic,
-                    follow,
-                    context_id,
+            let context_id = match params.get("context") {
+                None => crate::store::ZERO_CONTEXT,
+                Some(ctx) => match ctx.parse() {
+                    Ok(id) => id,
+                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {}", e)),
                 },
-                Err(e) => Routes::BadRequest(e),
-            }
+            };
+            Routes::HeadGet { topic, follow, context_id }
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
