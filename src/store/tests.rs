@@ -778,6 +778,41 @@ mod tests_context {
         assert_eq!(rx_all.recv().await, Some(frame7));
         assert_no_more_frames(&mut rx_all).await;
     }
+
+    #[test]
+    fn test_iter_frames_with_last_id() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        // Add frames to ZERO_CONTEXT
+        let _frame1 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let frame3 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+
+        // Test iter_frames with last_id in ZERO_CONTEXT
+        let frames: Vec<_> = store
+            .iter_frames(Some(ZERO_CONTEXT), Some(&frame2.id))
+            .collect();
+        assert_eq!(
+            frames,
+            vec![frame3.clone()],
+            "ZERO_CONTEXT with last_id failed"
+        );
+
+        // Test iter_frames with last_id and no context
+        let frames: Vec<_> = store.iter_frames(None, Some(&frame2.id)).collect();
+        assert_eq!(
+            frames,
+            vec![frame3.clone()],
+            "No context with last_id failed"
+        );
+    }
 }
 
 mod tests_ttl_expire {

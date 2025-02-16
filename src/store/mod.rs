@@ -571,11 +571,18 @@ impl Store {
                     self.get(&frame_id)
                 }))
             }
-            None => Box::new(
-                self.frame_partition
-                    .range::<Vec<u8>, _>(..)
-                    .map(|r| deserialize_frame(r.unwrap())),
-            ),
+            None => {
+                let range = match last_id {
+                    Some(id) => (Bound::Excluded(id.as_bytes().to_vec()), Bound::Unbounded),
+                    None => (Bound::Unbounded, Bound::Unbounded),
+                };
+
+                Box::new(
+                    self.frame_partition
+                        .range(range)
+                        .map(|r| deserialize_frame(r.unwrap())),
+                )
+            }
         }
     }
 }
