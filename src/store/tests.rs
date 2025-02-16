@@ -302,19 +302,19 @@ mod tests_store {
 
         // Test reading all frames
         let frames: Vec<Frame> = store
-            .read_sync(None, None, crate::store::ZERO_CONTEXT)
+            .read_sync(None, None, Some(crate::store::ZERO_CONTEXT))
             .collect();
         assert_eq!(vec![frame1.clone(), frame2.clone(), frame3.clone()], frames);
 
         // Test with last_id (passing Scru128Id directly)
         let frames: Vec<Frame> = store
-            .read_sync(Some(&frame1.id), None, crate::store::ZERO_CONTEXT)
+            .read_sync(Some(&frame1.id), None, Some(crate::store::ZERO_CONTEXT))
             .collect();
         assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
 
         // Test with limit
         let frames: Vec<Frame> = store
-            .read_sync(None, Some(2), crate::store::ZERO_CONTEXT)
+            .read_sync(None, Some(2), Some(crate::store::ZERO_CONTEXT))
             .collect();
         assert_eq!(vec![frame1, frame2], frames);
     }
@@ -463,11 +463,11 @@ mod tests_context {
         assert_eq!(store.head("test", ZERO_CONTEXT), Some(frame2.clone()));
 
         // Test reading from specific context
-        let frames: Vec<_> = store.read_sync(None, None, context_id).collect();
+        let frames: Vec<_> = store.read_sync(None, None, Some(context_id)).collect();
         assert_eq!(frames, vec![frame1.clone()]);
 
         // Test reading from zero context
-        let frames: Vec<_> = store.read_sync(None, None, ZERO_CONTEXT).collect();
+        let frames: Vec<_> = store.read_sync(None, None, Some(ZERO_CONTEXT)).collect();
         assert_eq!(frames, vec![context_frame.clone(), frame2.clone()]);
     }
 
@@ -700,7 +700,7 @@ mod tests_ttl_expire {
         // Read all frames and assert exact expected set
         store.wait_for_gc().await;
         // Use read_sync with explicit ZERO_CONTEXT to verify frames
-        let frames: Vec<_> = store.read_sync(None, None, ZERO_CONTEXT).collect();
+        let frames: Vec<_> = store.read_sync(None, None, Some(ZERO_CONTEXT)).collect();
 
         assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
