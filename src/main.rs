@@ -5,12 +5,10 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use scru128;
 
-use xs::store::{parse_ttl, Store, ReadOptions, FollowOption};
-
 use tokio::io::AsyncWriteExt;
 
 use xs::nu;
-use xs::store::{parse_ttl, Store};
+use xs::store::{parse_ttl, Store, ReadOptions, FollowOption};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
