@@ -491,6 +491,8 @@ impl Store {
     pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
         frame.id = scru128::new();
 
+        eprintln!("Appending frame: {:?}", frame);
+
         // Special handling for xs.context registration
         if frame.topic == "xs.context" {
             if frame.context_id != ZERO_CONTEXT {
@@ -501,6 +503,7 @@ impl Store {
         } else {
             // Validate context exists
             let contexts = self.contexts.read().unwrap();
+            eprintln!("Contexts: {:?} context_id: {:?}", contexts, frame.context_id);
             if !contexts.contains(&frame.context_id) {
                 return Err(format!("Invalid context: {}", frame.context_id).into());
             }

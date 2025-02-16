@@ -1,10 +1,15 @@
-use assert_cmd::cargo::cargo_bin;
-use duct::cmd;
 use std::time::Duration;
+
+use duct::cmd;
 use tempfile::TempDir;
-use tokio::io::AsyncBufReadExt;
+
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Child;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+
+use assert_cmd::cargo::cargo_bin;
+
 use xs::store::Frame;
 
 #[tokio::test]
@@ -12,13 +17,7 @@ async fn test_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
-    let mut cli_process = tokio::process::Command::new(cargo_bin("xs"))
-        .arg("serve")
-        .arg(store_path)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("Failed to start CLI binary");
+    let mut cli_process = spawn_xs_supervisor(store_path).await;
 
     let sock_path = store_path.join("sock");
     let start = std::time::Instant::now();
@@ -78,10 +77,17 @@ async fn test_integration() {
         .is_err());
 
     // Write to new context
-    cmd!(cargo_bin("xs"), "append", store_path, "note", "-c", &context_id)
-        .stdin_bytes(b"context note")
-        .run()
-        .unwrap();
+    cmd!(
+        cargo_bin("xs"),
+        "append",
+        store_path,
+        "note",
+        "-c",
+        &context_id
+    )
+    .stdin_bytes(b"context note")
+    .run()
+    .unwrap();
 
     // Verify received in new context only
     let frame = timeout(Duration::from_secs(1), new_rx.recv())
@@ -114,6 +120,37 @@ async fn test_integration() {
 
     // Clean up
     cli_process.kill().await.unwrap();
+}
+
+async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
+    let mut cli_process = tokio::process::Command::new(cargo_bin("xs"))
+        .arg("serve")
+        .arg(store_path)
+        .stdout(std::process::Stdio::piped()) // Capture stdout
+        .stderr(std::process::Stdio::piped()) // Capture stderr
+        .spawn()
+        .expect("Failed to start CLI binary");
+
+    let stdout = cli_process.stdout.take().unwrap();
+    let stderr = cli_process.stderr.take().unwrap();
+
+    let mut stdout_reader = BufReader::new(stdout).lines();
+    let mut stderr_reader = BufReader::new(stderr).lines();
+
+    // Spawn tasks to continuously read and print stdout/stderr
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stdout_reader.next_line().await {
+            eprintln!("[XS STDOUT] {}", line);
+        }
+    });
+
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stderr_reader.next_line().await {
+            eprintln!("[XS STDERR] {}", line);
+        }
+    });
+
+    cli_process
 }
 
 async fn spawn_follower(
