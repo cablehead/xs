@@ -34,7 +34,7 @@ async fn test_integration() {
     let start_frame: Frame = serde_json::from_str(&output).unwrap();
     assert_eq!(start_frame.topic, "xs.start");
 
-    // Try append to xs.start's context before registering (should fail)
+    // Try append to xs.start's id as the context (should fail)
     let result = cmd!(
         cargo_bin("xs"),
         "append",
@@ -53,12 +53,19 @@ async fn test_integration() {
         .unwrap();
     let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
     let context_id = context_frame.id.to_string();
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Start followers
     let mut default_rx = spawn_follower(store_path.to_path_buf(), None).await;
     let mut new_rx = spawn_follower(store_path.to_path_buf(), Some(context_id.clone())).await;
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Verify default stream so far
+    assert_frame_received(&mut default_rx, Some("xs.start")).await;
+    assert_frame_received(&mut default_rx, Some("xs.context")).await;
+    assert_frame_received(&mut default_rx, None).await;
+
+    // nothing in our custom partition yet
+    assert_frame_received(&mut new_rx, None).await;
 
     // Write to default context
     cmd!(cargo_bin("xs"), "append", store_path, "note")
@@ -186,4 +193,25 @@ async fn spawn_follower(
     });
 
     rx
+}
+
+async fn assert_frame_received(rx: &mut mpsc::Receiver<Frame>, expected_topic: Option<&str>) {
+    let timeout_duration = if expected_topic.is_some() {
+        Duration::from_secs(1) // Wait longer if we expect a frame
+    } else {
+        Duration::from_millis(100) // Short wait if we expect no frame
+    };
+
+    if let Some(topic) = expected_topic {
+        let frame = timeout(timeout_duration, rx.recv())
+            .await
+            .expect("Timed out waiting for frame")
+            .expect("Receiver closed unexpectedly");
+        assert_eq!(frame.topic, topic, "Unexpected frame topic");
+    } else {
+        assert!(
+            timeout(timeout_duration, rx.recv()).await.is_err(),
+            "Expected no frame, but received one"
+        );
+    }
 }
