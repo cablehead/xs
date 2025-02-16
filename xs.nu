@@ -83,13 +83,18 @@ export def .get [id: string] {
 }
 
 export def .head [
-  topic: string # The topic to get the head frame for
-  --follow (-f) # Follow the head frame for updates
+  topic: string
+  --follow (-f)
+  --context (-c): string
 ] {
+  let params = [
+    (xs-context $context | and-then { ["--context" $in] })
+  ] | compact | flatten
+
   if $follow {
-    xs head (xs-addr) $topic --follow | lines | each {|x| $x | from json }
+    xs head (xs-addr) $topic ...($params) --follow | lines | each {|x| $x | from json }
   } else {
-    xs head (xs-addr) $topic | from json
+    xs head (xs-addr) $topic ...($params) | from json
   }
 }
 
