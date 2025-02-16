@@ -77,12 +77,10 @@ fn match_route(
             };
 
             match ReadOptions::from_query(query) {
-                Ok(options) => {
-                    Routes::StreamCat {
-                        accept_type,
-                        options,
-                    }
-                }
+                Ok(options) => Routes::StreamCat {
+                    accept_type,
+                    options,
+                },
                 Err(e) => Routes::BadRequest(e.to_string()),
             }
         }
@@ -97,7 +95,11 @@ fn match_route(
                     Err(e) => return Routes::BadRequest(format!("Invalid context ID: {}", e)),
                 },
             };
-            Routes::HeadGet { topic, follow, context_id }
+            Routes::HeadGet {
+                topic,
+                follow,
+                context_id,
+            }
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {

@@ -98,7 +98,12 @@ mod tests_read_options {
 
         for case in &test_cases {
             let options = ReadOptions::from_query(case.input);
-            assert_eq!(options.as_ref().ok(), Some(&case.expected), "case {:?}", case.input);
+            assert_eq!(
+                options.as_ref().ok(),
+                Some(&case.expected),
+                "case {:?}",
+                case.input
+            );
         }
 
         assert!(ReadOptions::from_query(Some("last-id=123")).is_err());

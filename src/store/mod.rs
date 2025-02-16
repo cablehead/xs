@@ -117,7 +117,9 @@ impl ReadOptions {
 
                 // Parse context_id from query if present, otherwise use default
                 if let Some(ctx) = params.get("context") {
-                    options.context_id = ctx.parse().map_err(|e| format!("Invalid context ID: {}", e))?;
+                    options.context_id = ctx
+                        .parse()
+                        .map_err(|e| format!("Invalid context ID: {}", e))?;
                 }
 
                 Ok(options)
