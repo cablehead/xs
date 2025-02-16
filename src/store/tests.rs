@@ -585,7 +585,11 @@ mod tests_context {
         let frames: Vec<_> = store.read_sync(None, None, Some(ZERO_CONTEXT)).collect();
         assert_eq!(
             frames,
-            vec![context1_frame.clone(), context2_frame.clone(), frame4.clone()],
+            vec![
+                context1_frame.clone(),
+                context2_frame.clone(),
+                frame4.clone()
+            ],
             "Should only get frames from ZERO_CONTEXT"
         );
 
@@ -602,6 +606,145 @@ mod tests_context {
                 frame4
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn test_read_with_contexts() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        // Create contexts
+        let context1_frame = store
+            .append(
+                Frame::with_topic("xs.context")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
+        let context1_id = context1_frame.id;
+        let context2_frame = store
+            .append(
+                Frame::with_topic("xs.context")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
+        let context2_id = context2_frame.id;
+
+        // Add frames to different contexts
+        let frame1 = store
+            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(context2_id).build())
+            .unwrap();
+        let frame3 = store
+            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .unwrap();
+        let frame4 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+
+        // Test reading without follow
+        let rx1 = store
+            .read(ReadOptions::builder().context_id(context1_id).build())
+            .await;
+        let frames1: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx1))
+                .await;
+        assert_eq!(frames1, vec![frame1.clone(), frame3.clone()]);
+
+        let rx2 = store
+            .read(ReadOptions::builder().context_id(context2_id).build())
+            .await;
+        let frames2: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx2))
+                .await;
+        assert_eq!(frames2, vec![frame2.clone()]);
+
+        let rx3 = store
+            .read(ReadOptions::builder().context_id(ZERO_CONTEXT).build())
+            .await;
+        let frames3: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx3))
+                .await;
+        assert_eq!(
+            frames3,
+            vec![
+                context1_frame.clone(),
+                context2_frame.clone(),
+                frame4.clone()
+            ]
+        );
+
+        let rx_all = store.read(ReadOptions::default()).await;
+        let frames_all: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx_all))
+                .await;
+        assert_eq!(
+            frames_all,
+            vec![
+                context1_frame.clone(),
+                context2_frame.clone(),
+                frame1.clone(),
+                frame2.clone(),
+                frame3.clone(),
+                frame4.clone()
+            ]
+        );
+
+        // Test with subscribers
+        let mut rx1 = store
+            .read(
+                ReadOptions::builder()
+                    .context_id(context1_id)
+                    .follow(FollowOption::On)
+                    .build(),
+            )
+            .await;
+        let mut rx2 = store
+            .read(
+                ReadOptions::builder()
+                    .context_id(context2_id)
+                    .follow(FollowOption::On)
+                    .build(),
+            )
+            .await;
+        let mut rx3 = store
+            .read(
+                ReadOptions::builder()
+                    .context_id(ZERO_CONTEXT)
+                    .follow(FollowOption::On)
+                    .build(),
+            )
+            .await;
+        let mut rx_all = store
+            .read(ReadOptions::builder().follow(FollowOption::On).build())
+            .await;
+
+        // Add new frame to each context
+        let frame5 = store
+            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .unwrap();
+        let frame6 = store
+            .append(Frame::with_topic("test").context_id(context2_id).build())
+            .unwrap();
+        let frame7 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+
+        assert_eq!(rx1.recv().await, Some(frame5.clone()));
+        assert_eq!(rx2.recv().await, Some(frame6.clone()));
+        assert_eq!(rx3.recv().await, Some(frame7.clone()));
+
+        assert_eq!(rx_all.recv().await, Some(frame5));
+        assert_eq!(rx_all.recv().await, Some(frame6));
+        assert_eq!(rx_all.recv().await, Some(frame7));
+
+        assert_no_more_frames(&mut rx1).await;
+        assert_no_more_frames(&mut rx2).await;
+        assert_no_more_frames(&mut rx3).await;
+        assert_no_more_frames(&mut rx_all).await;
     }
 }
 
@@ -713,5 +856,18 @@ mod tests_ttl_expire {
         let frames: Vec<_> = store.read_sync(None, None, Some(ZERO_CONTEXT)).collect();
 
         assert_eq!(frames, vec![frame3, frame4, other_frame]);
+    }
+}
+
+async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
+    let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
+    tokio::pin!(timeout);
+    tokio::select! {
+        Some(frame) = recver.recv() => {
+            panic!("Unexpected frame processed: {:?}", frame);
+        }
+        _ = &mut timeout => {
+            // Success - no additional frames were processed
+        }
     }
 }
