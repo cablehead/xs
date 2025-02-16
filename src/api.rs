@@ -126,14 +126,21 @@ fn match_route(
 
         (&Method::POST, path) if path.starts_with('/') => {
             let topic = path.trim_start_matches('/').to_string();
-            match (TTL::from_query(query), parse_context_from_query(&params)) {
-                (Ok(ttl), Ok(context_id)) => Routes::StreamAppend {
+            let context_id = match params.get("context") {
+                None => crate::store::ZERO_CONTEXT,
+                Some(ctx) => match ctx.parse() {
+                    Ok(id) => id,
+                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {}", e)),
+                },
+            };
+
+            match TTL::from_query(query) {
+                Ok(ttl) => Routes::StreamAppend {
                     topic,
                     ttl: Some(ttl),
                     context_id,
                 },
-                (Err(e), _) => Routes::BadRequest(e.to_string()),
-                (_, Err(e)) => Routes::BadRequest(e),
+                Err(e) => Routes::BadRequest(e.to_string()),
             }
         }
 
