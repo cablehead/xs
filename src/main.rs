@@ -238,37 +238,41 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut options = ReadOptions::builder().tail(args.tail);
-
-    // Set follow option based on pulse or regular follow
-    if let Some(pulse) = args.pulse {
-        options = options.follow(FollowOption::WithHeartbeat(Duration::from_millis(pulse)));
-    } else if args.follow {
-        options = options.follow(FollowOption::On);
-    }
-
-    // Set remaining options
-    if let Some(last_id) = args.last_id {
-        if let Ok(id) = scru128::Scru128Id::from_str(&last_id) {
-            options = options.last_id(id);
-        } else {
-            return Err(format!("Invalid last-id: {}", last_id).into());
+    // Parse IDs first for early error detection
+    let context_id = if let Some(context) = &args.context {
+        match scru128::Scru128Id::from_str(context) {
+            Ok(id) => Some(id),
+            Err(_) => return Err(format!("Invalid context: {}", context).into()),
         }
-    }
+    } else {
+        None
+    };
 
-    if let Some(limit) = args.limit {
-        options = options.limit(limit as usize);
-    }
-
-    if let Some(context) = &args.context {
-        if let Ok(id) = scru128::Scru128Id::from_str(context) {
-            options = options.context_id(id);
-        } else {
-            return Err(format!("Invalid context: {}", context).into());
+    let last_id = if let Some(last_id) = &args.last_id {
+        match scru128::Scru128Id::from_str(last_id) {
+            Ok(id) => Some(id),
+            Err(_) => return Err(format!("Invalid last-id: {}", last_id).into()),
         }
-    }
+    } else {
+        None
+    };
 
-    let mut receiver = xs::client::cat(&args.addr, options.build(), args.sse).await?;
+    // Build options in one chain
+    let options = ReadOptions::builder()
+        .tail(args.tail)
+        .follow(if let Some(pulse) = args.pulse {
+            FollowOption::WithHeartbeat(Duration::from_millis(pulse))
+        } else if args.follow {
+            FollowOption::On
+        } else {
+            FollowOption::Off
+        })
+        .maybe_last_id(last_id)
+        .maybe_limit(args.limit.map(|l| l as usize))
+        .maybe_context_id(context_id)
+        .build();
+
+    let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
     let mut stdout = tokio::io::stdout();
     while let Some(bytes) = receiver.recv().await {
         stdout.write_all(&bytes).await?;
