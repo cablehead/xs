@@ -104,7 +104,7 @@ fn default_context() -> Scru128Id {
 }
 
 impl ReadOptions {
-    pub fn from_query(query: Option<&str>) -> Result<Self, BoxedError> {
+    pub fn from_query(query: Option<&str>) -> Result<Self, crate::error::Error> {
         match query {
             Some(q) => {
                 let params: HashMap<String, String> = url::form_urlencoded::parse(q.as_bytes())
