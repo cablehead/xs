@@ -125,6 +125,48 @@ impl ReadOptions {
             None => Ok(Self::default()),
         }
     }
+
+    pub fn to_query_string(&self) -> String {
+        let mut params = Vec::new();
+        
+        // Add follow parameter with heartbeat if specified
+        match self.follow {
+            FollowOption::Off => {},
+            FollowOption::On => params.push(("follow", "true".to_string())),
+            FollowOption::WithHeartbeat(duration) => {
+                params.push(("follow", duration.as_millis().to_string()));
+            }
+        }
+
+        // Add context if not default
+        if self.context_id != ZERO_CONTEXT {
+            params.push(("context", self.context_id.to_string()));
+        }
+
+        // Add tail if true
+        if self.tail {
+            params.push(("tail", "true".to_string()));
+        }
+
+        // Add last-id if present
+        if let Some(last_id) = self.last_id {
+            params.push(("last-id", last_id.to_string()));
+        }
+
+        // Add limit if present
+        if let Some(limit) = self.limit {
+            params.push(("limit", limit.to_string()));
+        }
+
+        // Return empty string if no params
+        if params.is_empty() {
+            String::new()
+        } else {
+            url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(params)
+                .finish()
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Clone, Debug)]
