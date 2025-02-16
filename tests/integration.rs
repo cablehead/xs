@@ -1,3 +1,4 @@
+use std::panic::Location;
 use std::time::Duration;
 
 use duct::cmd;
@@ -60,12 +61,13 @@ async fn test_integration() {
     let mut new_rx = spawn_follower(store_path.to_path_buf(), Some(context_id.clone())).await;
 
     // Verify default stream so far
-    assert_frame_received(&mut default_rx, Some("xs.start")).await;
-    assert_frame_received(&mut default_rx, Some("xs.context")).await;
-    assert_frame_received(&mut default_rx, None).await;
+    assert_frame_received!(&mut default_rx, Some("xs.start"));
+    assert_frame_received!(&mut default_rx, Some("xs.context"));
+    assert_frame_received!(&mut default_rx, Some("xs.threshold"));
+    assert_frame_received!(&mut default_rx, None);
 
     // nothing in our custom partition yet
-    assert_frame_received(&mut new_rx, None).await;
+    assert_frame_received!(&mut new_rx, None);
 
     // Write to default context
     cmd!(cargo_bin("xs"), "append", store_path, "note")
@@ -195,23 +197,66 @@ async fn spawn_follower(
     rx
 }
 
-async fn assert_frame_received(rx: &mut mpsc::Receiver<Frame>, expected_topic: Option<&str>) {
-    let timeout_duration = if expected_topic.is_some() {
-        Duration::from_secs(1) // Wait longer if we expect a frame
-    } else {
-        Duration::from_millis(100) // Short wait if we expect no frame
-    };
+/// Wrapper to capture caller location for better error reporting
+pub fn assert_frame_received_sync<'a>(
+    rx: &'a mut mpsc::Receiver<Frame>,
+    expected_topic: Option<&'a str>,
+    caller_location: &'static Location<'static>,
+) -> impl std::future::Future<Output = ()> + 'a {
+    async move {
+        let timeout_duration = if expected_topic.is_some() {
+            Duration::from_secs(1) // Wait longer if we expect a frame
+        } else {
+            Duration::from_millis(100) // Short wait if we expect no frame
+        };
 
-    if let Some(topic) = expected_topic {
-        let frame = timeout(timeout_duration, rx.recv())
-            .await
-            .expect("Timed out waiting for frame")
-            .expect("Receiver closed unexpectedly");
-        assert_eq!(frame.topic, topic, "Unexpected frame topic");
-    } else {
-        assert!(
-            timeout(timeout_duration, rx.recv()).await.is_err(),
-            "Expected no frame, but received one"
-        );
+        if let Some(expected) = expected_topic {
+            let frame = timeout(timeout_duration, rx.recv())
+                .await
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Timed out waiting for frame at {}:{}",
+                        caller_location.file(),
+                        caller_location.line()
+                    )
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Receiver closed unexpectedly at {}:{}",
+                        caller_location.file(),
+                        caller_location.line()
+                    )
+                });
+
+            assert_eq!(
+                frame.topic,
+                expected,
+                "Unexpected frame topic at {}:{}\nExpected: {}\nReceived: {}",
+                caller_location.file(),
+                caller_location.line(),
+                expected,
+                frame.topic
+            );
+        } else {
+            if let Ok(Some(frame)) = timeout(timeout_duration, rx.recv()).await {
+                panic!(
+                    "Expected no frame but received one at {}:{}\nReceived topic: {}",
+                    caller_location.file(),
+                    caller_location.line(),
+                    frame.topic
+                );
+            }
+        }
     }
+}
+
+/// Helper macro to capture location at the call site
+#[macro_export]
+macro_rules! assert_frame_received {
+    ($rx:expr, Some($topic:expr)) => {
+        $crate::assert_frame_received_sync($rx, Some($topic), std::panic::Location::caller()).await;
+    };
+    ($rx:expr, None) => {
+        $crate::assert_frame_received_sync($rx, None, std::panic::Location::caller()).await;
+    };
 }
