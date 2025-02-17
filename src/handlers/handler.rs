@@ -28,6 +28,7 @@ pub struct ReturnOptions {
 #[derive(Clone)]
 pub struct Handler {
     pub id: Scru128Id,
+    pub context_id: Scru128Id,
     pub topic: String,
     config: HandlerConfig,
     engine_worker: Arc<EngineWorker>,
@@ -59,6 +60,7 @@ impl Default for ResumeFrom {
 impl Handler {
     pub async fn new(
         id: Scru128Id,
+        context_id: Scru128Id,
         topic: String,
         mut engine: nu::Engine,
         expression: String,
@@ -99,6 +101,7 @@ impl Handler {
 
         Ok(Self {
             id,
+            context_id,
             topic,
             config,
             engine_worker,
@@ -169,6 +172,8 @@ impl Handler {
                 serde_json::Value::String(frame.id.to_string()),
             );
 
+            // scope the handler's output to the handler's context
+            output_frame.context_id = self.context_id;
             let _ = store.append(output_frame);
         }
 
@@ -248,6 +253,7 @@ impl Handler {
                     "tail": options.tail,
                     "last_id": options.last_id.map(|id| id.to_string()),
                 }))
+                .context_id(self.context_id)
                 .build(),
         );
 
@@ -279,6 +285,7 @@ impl Handler {
 
         let handler = Handler::new(
             frame.id,
+            frame.context_id,
             topic.to_string(),
             engine,
             expression,

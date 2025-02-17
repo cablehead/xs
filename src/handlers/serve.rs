@@ -102,6 +102,7 @@ pub async fn serve(
 
     // Continue processing new frames
     while let Some(frame) = recver.recv().await {
+        eprintln!("Received frame: {:?}", frame);
         if let Some(topic) = frame.topic.strip_suffix(".register") {
             start_handler(&frame, &store, &engine, topic).await?;
         }

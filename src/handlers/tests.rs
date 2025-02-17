@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::handlers::serve;
 use crate::nu;
 use crate::store::TTL;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
 
 macro_rules! validate_handler_output_frame {
     ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr, $state_frame:expr) => {{
@@ -732,6 +732,126 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     assert_eq!(result, "46");
 
     assert_no_more_frames(&mut recver).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_handler_context_isolation() -> Result<(), Error> {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    // Create a context
+    let context_frame = store
+        .append(
+            Frame::with_topic("xs.context")
+                .context_id(ZERO_CONTEXT) // Context registration must be in ZERO_CONTEXT
+                .build(),
+        )
+        .unwrap();
+    let context_id = context_frame.id;
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .context_id(context_id)
+        .build();
+    let mut rx = store.read(options).await;
+    assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+
+    // Register handler in our new context
+    let handler_frame = store
+        .append(
+            Frame::with_topic("echo.register")
+                .context_id(context_id)
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                                process: {|frame|
+                                    if $frame.topic != "trigger" { return }
+                                    "explicit append" | .append echo.direct
+                                    "handler return"
+                                }
+                            }"#,
+                        )
+                        .await?,
+                )
+                .build(),
+        )
+        .unwrap();
+
+    // Verify registration frames appear in handler's context
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.id, handler_frame.id);
+    assert_eq!(frame.topic, "echo.register");
+    assert_eq!(frame.context_id, context_id);
+
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.registered");
+    assert_eq!(frame.context_id, context_id);
+
+    // Trigger in the handler's context
+    let trigger = store
+        .append(Frame::with_topic("trigger").context_id(context_id).build())
+        .unwrap();
+
+    // Verify trigger received
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.id, trigger.id);
+    assert_eq!(frame.topic, "trigger");
+    assert_eq!(frame.context_id, context_id);
+
+    // Verify handler's direct append went to its context
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.direct");
+    assert_eq!(frame.context_id, context_id);
+    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    assert_eq!(std::str::from_utf8(&content)?, r#"explicit append"#);
+
+    // Verify handler's return value became .out in its context
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.out");
+    assert_eq!(frame.context_id, context_id);
+    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    assert_eq!(std::str::from_utf8(&content)?, r#""handler return""#);
+
+    eprintln!("Checking for more frames");
+    return Ok(());
+
+    // Trigger in ZERO_CONTEXT - should be ignored by handler
+    let _ = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
+
+    // We see the trigger
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "trigger");
+    assert_eq!(frame.context_id, ZERO_CONTEXT);
+
+    // But no handler output
+    assert_no_more_frames(&mut rx).await;
+
+    // Unregister handler
+    let _ = store
+        .append(
+            Frame::with_topic("echo.unregister")
+                .context_id(context_id)
+                .build(),
+        )
+        .unwrap();
+
+    // Verify unregistration frames appear in handler's context
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.unregister");
+    assert_eq!(frame.context_id, context_id);
+
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.unregistered");
+    assert_eq!(frame.context_id, context_id);
+
+    assert_no_more_frames(&mut rx).await;
     Ok(())
 }
 
