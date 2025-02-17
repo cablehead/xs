@@ -85,6 +85,10 @@ struct CommandCat {
     /// Context ID (defaults to system context)
     #[clap(long, short = 'c')]
     context: Option<String>,
+
+    /// Retrieve all frames, across contexts
+    #[clap(long, short = 'a')]
+    all: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -238,14 +242,11 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Parse IDs first for early error detection
-    let context_id = if let Some(context) = &args.context {
-        match scru128::Scru128Id::from_str(context) {
-            Ok(id) => Some(id),
-            Err(_) => return Err(format!("Invalid context: {}", context).into()),
-        }
-    } else {
-        Some(ZERO_CONTEXT)
-    };
+    let context_id = args
+        .context
+        .as_deref()
+        .and_then(|context| scru128::Scru128Id::from_str(context).ok())
+        .or_else(|| (!args.all).then_some(ZERO_CONTEXT));
 
     let last_id = if let Some(last_id) = &args.last_id {
         match scru128::Scru128Id::from_str(last_id) {

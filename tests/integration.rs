@@ -18,7 +18,7 @@ async fn test_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
-    let mut cli_process = spawn_xs_supervisor(store_path).await;
+    let mut child = spawn_xs_supervisor(store_path).await;
 
     let sock_path = store_path.join("sock");
     let start = std::time::Instant::now();
@@ -121,12 +121,36 @@ async fn test_integration() {
         .iter()
         .all(|f| f.context_id.to_string() == context_id));
 
+    // xs cat --all
+    let all_notes = cmd!(cargo_bin("xs"), "cat", store_path, "--all")
+        .read()
+        .unwrap();
+    let mut frames = all_notes
+        .lines()
+        .map(|l| serde_json::from_str::<Frame>(l).unwrap());
+
+    let frame = frames.next().unwrap();
+    assert_eq!(frame.topic, "xs.start");
+    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
+
+    let frame = frames.next().unwrap();
+    assert_eq!(frame.topic, "xs.context");
+    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
+
+    let frame = frames.next().unwrap();
+    assert_eq!(frame.topic, "note");
+    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
+
+    let frame = frames.next().unwrap();
+    assert_eq!(frame.topic, "note");
+    assert_eq!(frame.context_id.to_string(), context_id);
+
     // Clean up
-    cli_process.kill().await.unwrap();
+    child.kill().await.unwrap();
 }
 
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
-    let mut cli_process = tokio::process::Command::new(cargo_bin("xs"))
+    let mut child = tokio::process::Command::new(cargo_bin("xs"))
         .arg("serve")
         .arg(store_path)
         .stdout(std::process::Stdio::piped()) // Capture stdout
@@ -134,8 +158,8 @@ async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
         .spawn()
         .expect("Failed to start CLI binary");
 
-    let stdout = cli_process.stdout.take().unwrap();
-    let stderr = cli_process.stderr.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
 
     let mut stdout_reader = BufReader::new(stdout).lines();
     let mut stderr_reader = BufReader::new(stderr).lines();
@@ -153,7 +177,7 @@ async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
         }
     });
 
-    cli_process
+    child
 }
 
 async fn spawn_follower(
