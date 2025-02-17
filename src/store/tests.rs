@@ -732,7 +732,9 @@ mod tests_context {
 
         assert_eq!(rx1.recv().await, Some(frame1.clone()));
         assert_eq!(rx1.recv().await, Some(frame3.clone()));
-        assert_eq!(rx1.recv().await.unwrap().topic, "xs.threshold".to_string());
+        let frame = rx1.recv().await.unwrap();
+        assert_eq!(frame.topic, "xs.threshold".to_string());
+        assert_eq!(frame.context_id, context1_id);
         assert_no_more_frames(&mut rx1).await;
 
         let mut rx2 = store

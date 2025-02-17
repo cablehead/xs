@@ -309,6 +309,7 @@ impl Store {
                 // Send threshold message if following and no limit
                 if should_follow_clone && options.limit.is_none() {
                     let threshold = Frame::with_topic("xs.threshold")
+                        .context_id(options.context_id.unwrap_or(ZERO_CONTEXT))
                         .id(scru128::new())
                         .ttl(TTL::Ephemeral)
                         .build();
