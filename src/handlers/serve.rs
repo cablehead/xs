@@ -19,6 +19,7 @@ async fn start_handler(
         Err(err) => {
             let _ = store.append(
                 Frame::with_topic(format!("{}.unregistered", topic))
+                    .context_id(frame.context_id)
                     .meta(serde_json::json!({
                         "handler_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -102,7 +103,6 @@ pub async fn serve(
 
     // Continue processing new frames
     while let Some(frame) = recver.recv().await {
-        eprintln!("Received frame: {:?}", frame);
         if let Some(topic) = frame.topic.strip_suffix(".register") {
             start_handler(&frame, &store, &engine, topic).await?;
         }

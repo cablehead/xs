@@ -197,6 +197,7 @@ impl Handler {
             {
                 let _ = store.append(
                     Frame::with_topic(format!("{}.unregistered", &self.topic))
+                        .context_id(self.context_id)
                         .meta(serde_json::json!({
                             "handler_id": self.id.to_string(),
                             "frame_id": frame.id.to_string(),
@@ -315,6 +316,7 @@ impl Handler {
             .follow(follow_option)
             .tail(is_tail)
             .maybe_last_id(last_id)
+            .context_id(self.context_id)
             .build()
     }
 }

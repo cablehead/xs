@@ -739,38 +739,50 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
 async fn test_handler_context_isolation() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
 
-    // Create a context
-    let context_frame = store
+    // Create 2x contexts
+    let ctx_frame1 = store
         .append(
             Frame::with_topic("xs.context")
-                .context_id(ZERO_CONTEXT) // Context registration must be in ZERO_CONTEXT
+                .context_id(ZERO_CONTEXT)
                 .build(),
         )
         .unwrap();
-    let context_id = context_frame.id;
+    let ctx_id1 = ctx_frame1.id;
+
+    let ctx_frame2 = store
+        .append(
+            Frame::with_topic("xs.context")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
+    let ctx_id2 = ctx_frame2.id;
 
     let options = ReadOptions::builder()
         .follow(FollowOption::On)
-        .context_id(context_id)
+        .context_id(ctx_id1)
         .build();
-    let mut rx = store.read(options).await;
-    assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+    let mut rx1 = store.read(options).await;
+    assert_eq!(rx1.recv().await.unwrap().topic, "xs.threshold");
 
-    // Register handler in our new context
-    let handler_frame = store
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .context_id(ctx_id2)
+        .build();
+    let mut rx2 = store.read(options).await;
+    assert_eq!(rx2.recv().await.unwrap().topic, "xs.threshold");
+
+    // Register a malformed handler to assert unregister on error goes to the right context
+    let handler_should_error = store
         .append(
-            Frame::with_topic("echo.register")
-                .context_id(context_id)
+            Frame::with_topic("malformed.register")
+                .context_id(ctx_id1)
                 .hash(
                     store
                         .cas_insert(
                             r#"{
-                                process: {|frame|
-                                    if $frame.topic != "trigger" { return }
-                                    "explicit append" | .append echo.direct
-                                    "handler return"
-                                }
-                            }"#,
+                                process: "not a closure"
+                             }"#,
                         )
                         .await?,
                 )
@@ -778,46 +790,97 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
         )
         .unwrap();
 
+    let frame = rx1.recv().await.unwrap();
+    assert_eq!(frame.id, handler_should_error.id);
+    assert_eq!(frame.topic, "malformed.register");
+    assert_eq!(frame.context_id, ctx_id1);
+
+    let frame = rx1.recv().await.unwrap();
+    assert_eq!(frame.topic, "malformed.unregistered");
+    assert_eq!(frame.context_id, ctx_id1);
+
+    // Register the same handler in both contexts
+    let handler_hash = store
+        .cas_insert(
+            r#"{
+                process: {|frame|
+                    if $frame.topic != "trigger" { return }
+                    "explicit append" | .append echo.direct
+                    "handler return"
+                }
+            }"#,
+        )
+        .await?;
+
+    let handler_frame1 = store
+        .append(
+            Frame::with_topic("echo.register")
+                .context_id(ctx_id1)
+                .hash(handler_hash.clone())
+                .build(),
+        )
+        .unwrap();
+
+    let handler_frame2 = store
+        .append(
+            Frame::with_topic("echo.register")
+                .context_id(ctx_id2)
+                .hash(handler_hash)
+                .build(),
+        )
+        .unwrap();
+
     // Verify registration frames appear in handler's context
-    let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.id, handler_frame.id);
+    // context 2
+    let frame = rx1.recv().await.unwrap();
+    assert_eq!(frame.id, handler_frame1.id);
     assert_eq!(frame.topic, "echo.register");
-    assert_eq!(frame.context_id, context_id);
+    assert_eq!(frame.context_id, ctx_id1);
 
-    let frame = rx.recv().await.unwrap();
+    let frame = rx1.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.registered");
-    assert_eq!(frame.context_id, context_id);
+    assert_eq!(frame.context_id, ctx_id1);
 
-    // Trigger in the handler's context
+    // context 2
+    let frame = rx2.recv().await.unwrap();
+    assert_eq!(frame.id, handler_frame2.id);
+    assert_eq!(frame.topic, "echo.register");
+    assert_eq!(frame.context_id, ctx_id2);
+
+    let frame = rx2.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.registered");
+    assert_eq!(frame.context_id, ctx_id2);
+
+    // Trigger in the context 1's handler
     let trigger = store
-        .append(Frame::with_topic("trigger").context_id(context_id).build())
+        .append(Frame::with_topic("trigger").context_id(ctx_id1).build())
         .unwrap();
 
     // Verify trigger received
-    let frame = rx.recv().await.unwrap();
+    let frame = rx1.recv().await.unwrap();
     assert_eq!(frame.id, trigger.id);
     assert_eq!(frame.topic, "trigger");
-    assert_eq!(frame.context_id, context_id);
+    assert_eq!(frame.context_id, ctx_id1);
 
     // Verify handler's direct append went to its context
-    let frame = rx.recv().await.unwrap();
+    let frame = rx1.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.direct");
-    assert_eq!(frame.context_id, context_id);
+    assert_eq!(frame.context_id, ctx_id1);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
     assert_eq!(std::str::from_utf8(&content)?, r#"explicit append"#);
 
     // Verify handler's return value became .out in its context
-    let frame = rx.recv().await.unwrap();
+    let frame = rx1.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.out");
-    assert_eq!(frame.context_id, context_id);
+    assert_eq!(frame.context_id, ctx_id1);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
     assert_eq!(std::str::from_utf8(&content)?, r#""handler return""#);
 
-    eprintln!("Checking for more frames");
-    return Ok(());
+    assert_no_more_frames(&mut rx1).await;
+    assert_no_more_frames(&mut rx2).await;
 
-    // Trigger in ZERO_CONTEXT - should be ignored by handler
-    let _ = store
+    // Trigger in ZERO_CONTEXT - should be ignored by both handlers
+    let ignored_trigger = store
         .append(
             Frame::with_topic("trigger")
                 .context_id(ZERO_CONTEXT)
@@ -825,33 +888,68 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
         )
         .unwrap();
 
-    // We see the trigger
-    let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.topic, "trigger");
-    assert_eq!(frame.context_id, ZERO_CONTEXT);
+    assert_no_more_frames(&mut rx1).await;
+    assert_no_more_frames(&mut rx2).await;
 
-    // But no handler output
-    assert_no_more_frames(&mut rx).await;
-
-    // Unregister handler
+    // Unregister handler 1
     let _ = store
         .append(
             Frame::with_topic("echo.unregister")
-                .context_id(context_id)
+                .context_id(ctx_id1)
                 .build(),
         )
         .unwrap();
 
-    // Verify unregistration frames appear in handler's context
-    let frame = rx.recv().await.unwrap();
+    // Verify unregistration frames appear only in handler 1's context
+    let frame = rx1.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.unregister");
-    assert_eq!(frame.context_id, context_id);
+    assert_eq!(frame.context_id, ctx_id1);
 
-    let frame = rx.recv().await.unwrap();
+    let frame = rx1.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.unregistered");
-    assert_eq!(frame.context_id, context_id);
+    assert_eq!(frame.context_id, ctx_id1);
 
-    assert_no_more_frames(&mut rx).await;
+    assert_no_more_frames(&mut rx1).await;
+    assert_no_more_frames(&mut rx2).await;
+
+    // Trigger in the context 2's handler
+    let trigger = store
+        .append(Frame::with_topic("trigger").context_id(ctx_id2).build())
+        .unwrap();
+
+    // Verify trigger received
+    let frame = rx2.recv().await.unwrap();
+    assert_eq!(frame.id, trigger.id);
+    assert_eq!(frame.topic, "trigger");
+    assert_eq!(frame.context_id, ctx_id2);
+
+    // Verify handler's direct append went to its context
+    let frame = rx2.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.direct");
+    assert_eq!(frame.context_id, ctx_id2);
+    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    assert_eq!(std::str::from_utf8(&content)?, r#"explicit append"#);
+
+    // Verify handler's return value became .out in its context
+    let frame = rx2.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.out");
+    assert_eq!(frame.context_id, ctx_id2);
+    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    assert_eq!(std::str::from_utf8(&content)?, r#""handler return""#);
+
+    assert_no_more_frames(&mut rx1).await;
+    assert_no_more_frames(&mut rx2).await;
+
+    // assert ZERO_CONTEXT has been isolated
+    let frames: Vec<scru128::Scru128Id> = store
+        .read_sync(None, None, Some(crate::store::ZERO_CONTEXT))
+        .map(|f| f.id)
+        .collect();
+    assert_eq!(
+        frames,
+        vec![ctx_frame1.id, ctx_frame2.id, ignored_trigger.id]
+    );
+
     Ok(())
 }
 
