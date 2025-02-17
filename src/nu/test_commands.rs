@@ -6,13 +6,20 @@ mod tests {
     use crate::error::Error;
     use crate::nu::commands;
     use crate::nu::Engine;
-    use crate::store::{Frame, Store};
+    use crate::store::{Frame, Store, ZERO_CONTEXT};
 
-    fn setup_test_env() -> (Store, Engine) {
+    fn setup_test_env() -> (Store, Engine, Frame) {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
         let engine = Engine::new().unwrap();
-        (store, engine)
+        let ctx = store
+            .append(
+                Frame::with_topic("xs.context")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
+        (store, engine, ctx)
     }
 
     // Helper to run Nu eval in its own thread
@@ -32,7 +39,7 @@ mod tests {
 
     #[test]
     fn test_append_command() {
-        let (store, mut engine) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(store.clone()),
@@ -59,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_append_record() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(store.clone()),
@@ -89,7 +96,7 @@ mod tests {
 
     #[test]
     fn test_cas_command() {
-        let (store, mut engine) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
                 store.clone(),
@@ -106,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_head_command() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::head_command::HeadCommand::new(
                 store.clone(),
@@ -116,6 +123,7 @@ mod tests {
         let _frame1 = store
             .append(
                 Frame::with_topic("topic")
+                    .context_id(ctx.id)
                     .hash(store.cas_insert_sync("content1")?)
                     .build(),
             )
@@ -124,6 +132,7 @@ mod tests {
         let frame2 = store
             .append(
                 Frame::with_topic("topic")
+                    .context_id(ctx.id)
                     .hash(store.cas_insert_sync("content2")?)
                     .build(),
             )
@@ -140,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_cat_command() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
                 store.clone(),
@@ -150,6 +159,7 @@ mod tests {
         let _frame1 = store
             .append(
                 Frame::with_topic("topic")
+                    .context_id(ctx.id)
                     .hash(store.cas_insert_sync("content1")?)
                     .build(),
             )
@@ -158,6 +168,7 @@ mod tests {
         let _frame2 = store
             .append(
                 Frame::with_topic("topic")
+                    .context_id(ctx.id)
                     .hash(store.cas_insert_sync("content2")?)
                     .build(),
             )
@@ -178,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_remove_command() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::remove_command::RemoveCommand::new(store.clone()),
@@ -188,6 +199,7 @@ mod tests {
         let frame = store
             .append(
                 Frame::with_topic("topic")
+                    .context_id(ctx.id)
                     .hash(store.cas_insert_sync("test")?)
                     .build(),
             )
@@ -205,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_get_command() -> Result<(), Error> {
-        let (store, mut engine) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::get_command::GetCommand::new(
                 store.clone(),
@@ -215,6 +227,7 @@ mod tests {
         let frame = store
             .append(
                 Frame::with_topic("topic")
+                    .context_id(ctx.id)
                     .hash(store.cas_insert_sync("test")?)
                     .build(),
             )

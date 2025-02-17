@@ -24,13 +24,13 @@ use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 pub const ZERO_CONTEXT: Scru128Id = Scru128Id::from_bytes([0; 16]);
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
-#[builder(start_fn = with_topic)]
 pub struct Frame {
     #[builder(start_fn, into)]
     pub topic: String,
+    #[builder(start_fn)]
+    pub context_id: Scru128Id,
     #[builder(default)]
     pub id: Scru128Id,
-    pub context_id: Scru128Id,
     pub hash: Option<ssri::Integrity>,
     pub meta: Option<serde_json::Value>,
     pub ttl: Option<TTL>,
@@ -307,11 +307,11 @@ impl Store {
 
                 // Send threshold message if following and no limit
                 if should_follow_clone && options.limit.is_none() {
-                    let threshold = Frame::with_topic("xs.threshold")
-                        .context_id(options.context_id.unwrap_or(ZERO_CONTEXT))
-                        .id(scru128::new())
-                        .ttl(TTL::Ephemeral)
-                        .build();
+                    let threshold =
+                        Frame::builder("xs.threshold", options.context_id.unwrap_or(ZERO_CONTEXT))
+                            .id(scru128::new())
+                            .ttl(TTL::Ephemeral)
+                            .build();
                     if tx_clone.blocking_send(threshold).is_err() {
                         return;
                     }

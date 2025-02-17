@@ -150,7 +150,12 @@ mod tests_store {
         let store = Store::new(temp_dir.into_path());
         let meta = serde_json::json!({"key": "value"});
         let frame = store
-            .append(Frame::with_topic("stream").meta(meta).build())
+            .append(
+                Frame::with_topic("stream")
+                    .context_id(ZERO_CONTEXT)
+                    .meta(meta)
+                    .build(),
+            )
             .unwrap();
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);
@@ -162,8 +167,12 @@ mod tests_store {
         let store = Store::new(temp_dir.into_path());
 
         // Append two initial clips
-        let f1 = store.append(Frame::with_topic("stream").build()).unwrap();
-        let f2 = store.append(Frame::with_topic("stream").build()).unwrap();
+        let f1 = store
+            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let f2 = store
+            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .unwrap();
 
         // cat the full stream and follow new items with a heartbeat every 5ms
         let follow_options = ReadOptions::builder()
@@ -181,8 +190,12 @@ mod tests_store {
         );
 
         // Append two more clips
-        let f3 = store.append(Frame::with_topic("stream").build()).unwrap();
-        let f4 = store.append(Frame::with_topic("stream").build()).unwrap();
+        let f3 = store
+            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let f4 = store
+            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .unwrap();
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
 
@@ -200,8 +213,20 @@ mod tests_store {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
 
-        let f1 = store.append(Frame::with_topic("/stream").build()).unwrap();
-        let f2 = store.append(Frame::with_topic("/stream").build()).unwrap();
+        let f1 = store
+            .append(
+                Frame::with_topic("/stream")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
+        let f2 = store
+            .append(
+                Frame::with_topic("/stream")
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .unwrap();
 
         assert_eq!(
             store.head("/stream", crate::store::ZERO_CONTEXT),
@@ -233,9 +258,15 @@ mod tests_store {
         let store = Store::new(temp_dir.path().to_path_buf());
 
         // Add 3 items
-        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
-        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
-        let _ = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame1 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let _ = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
 
         // Read with limit 2
         let options = ReadOptions::builder().limit(2).build();
@@ -255,7 +286,9 @@ mod tests_store {
         let store = Store::new(temp_dir.path().to_path_buf());
 
         // Add 1 item
-        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame1 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
 
         // Start read with limit 2 and follow
         let options = ReadOptions::builder()
@@ -273,8 +306,12 @@ mod tests_store {
             .is_err());
 
         // Add 2 more items
-        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
-        let _frame3 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let _frame3 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
 
         // Assert we get one more item
         assert_eq!(Some(frame2), rx.recv().await);
@@ -289,11 +326,21 @@ mod tests_store {
         let store = Store::new(temp_dir.path().to_path_buf());
 
         // Create 5 records upfront
-        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
-        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
-        let frame3 = store.append(Frame::with_topic("test").build()).unwrap();
-        let _frame4 = store.append(Frame::with_topic("test").build()).unwrap();
-        let _frame5 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame1 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let frame3 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let _frame4 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let _frame5 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
 
         // Start read with limit 3 and follow enabled
         let options = ReadOptions::builder()
@@ -323,9 +370,15 @@ mod tests_store {
         let store = Store::new(temp_dir.into_path());
 
         // Append three frames
-        let frame1 = store.append(Frame::with_topic("test").build()).unwrap();
-        let frame2 = store.append(Frame::with_topic("test").build()).unwrap();
-        let frame3 = store.append(Frame::with_topic("test").build()).unwrap();
+        let frame1 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let frame2 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
+        let frame3 = store
+            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .unwrap();
 
         // Test reading all frames
         let frames: Vec<Frame> = store
