@@ -33,6 +33,7 @@ def _cat [options: record] {
   let params = [
     (if ($options | get follow? | default false) { "--follow" })
     (if ($options | get tail? | default false) { "--tail" })
+    (if ($options | get all? | default false) { "--all" })
 
     (if $options.last_id? != null { ["--last-id" $options.last_id] })
 
@@ -52,6 +53,7 @@ export def .cat [
   --last-id (-l): string
   --limit: int
   --context (-c): string # the context to read from
+  --all (-a) # cat across all contexts
 ] {
   _cat {
     follow: $follow
@@ -59,8 +61,9 @@ export def .cat [
     tail: $tail
     last_id: $last_id
     limit: $limit
-    context: (xs-context $context)
-  } | conditional-pipe (not $detail) { reject context_id ttl }
+    context: (if not $all { (xs-context $context) })
+    all: $all
+  } | conditional-pipe (not ($detail or $all)) { reject context_id ttl }
 }
 
 def read_hash [hash?: any] {
