@@ -30,7 +30,6 @@ pub struct Frame {
     pub topic: String,
     #[builder(default)]
     pub id: Scru128Id,
-    #[builder(default = ZERO_CONTEXT)]
     pub context_id: Scru128Id,
     pub hash: Option<ssri::Integrity>,
     pub meta: Option<serde_json::Value>,
@@ -380,6 +379,7 @@ impl Store {
                     loop {
                         tokio::time::sleep(duration).await;
                         let frame = Frame::with_topic("xs.pulse")
+                            .context_id(options.context_id.unwrap_or(ZERO_CONTEXT))
                             .id(scru128::new())
                             .ttl(TTL::Ephemeral)
                             .build();

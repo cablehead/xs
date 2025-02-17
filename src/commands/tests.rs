@@ -2,7 +2,7 @@ use tempfile::TempDir;
 
 use crate::error::Error;
 use crate::nu;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
 
 #[tokio::test]
 async fn test_command_with_pipeline() -> Result<(), Error> {
@@ -14,6 +14,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     // Define the command
     let frame_command = store.append(
         Frame::with_topic("echo.define")
+        .context_id(ZERO_CONTEXT)
             .hash(
                 store
                     .cas_insert(
@@ -34,6 +35,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     // Call the command
     let frame_call = store.append(
         Frame::with_topic("echo.call")
+            .context_id(ZERO_CONTEXT)
             .hash(store.cas_insert(r#"foo"#).await?)
             .meta(serde_json::json!({"args": {"n": 3}}))
             .build(),
@@ -80,6 +82,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     let frame_command = store
         .append(
             Frame::with_topic("will_error.define")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -100,6 +103,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     let frame_call = store
         .append(
             Frame::with_topic("will_error.call")
+                .context_id(ZERO_CONTEXT)
                 .hash(store.cas_insert(r#""input""#).await?)
                 .meta(serde_json::json!({"args": {}}))
                 .build(),

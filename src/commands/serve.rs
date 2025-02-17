@@ -29,6 +29,7 @@ async fn handle_define(
         Err(err) => {
             let _ = store.append(
                 Frame::with_topic(format!("{}.error", name))
+                    .context_id(frame.context_id)
                     .meta(serde_json::json!({
                         "command_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -114,8 +115,6 @@ async fn register_command(
     )
 )]
 async fn execute_command(command: Command, frame: Frame, store: &Store) -> Result<(), Error> {
-    let topic = frame.topic.clone();
-    let frame_id = frame.id;
     let store = store.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -132,24 +131,32 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                 for value in pipeline_data {
                     let hash = store.cas_insert_sync(&value_to_json(&value).to_string())?;
                     let _ = store.append(
-                        Frame::with_topic(format!("{}.recv", topic.strip_suffix(".call").unwrap()))
-                            .hash(hash)
-                            .meta(serde_json::json!({
-                                "command_id": command_id.to_string(),
-                                "frame_id": frame_id.to_string(),
-                            }))
-                            .build(),
+                        Frame::with_topic(format!(
+                            "{}.recv",
+                            frame.topic.strip_suffix(".call").unwrap()
+                        ))
+                        .context_id(frame.context_id)
+                        .hash(hash)
+                        .meta(serde_json::json!({
+                            "command_id": command_id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .build(),
                     );
                 }
 
                 // Emit completion event
                 let _ = store.append(
-                    Frame::with_topic(format!("{}.complete", topic.strip_suffix(".call").unwrap()))
-                        .meta(serde_json::json!({
-                            "command_id": command_id.to_string(),
-                            "frame_id": frame_id.to_string(),
-                        }))
-                        .build(),
+                    Frame::with_topic(format!(
+                        "{}.complete",
+                        frame.topic.strip_suffix(".call").unwrap()
+                    ))
+                    .context_id(frame.context_id)
+                    .meta(serde_json::json!({
+                        "command_id": command_id.to_string(),
+                        "frame_id": frame.id.to_string(),
+                    }))
+                    .build(),
                 );
                 Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
             }
@@ -157,13 +164,17 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                 // Emit error event instead of propagating
                 let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
                 let _ = store.append(
-                    Frame::with_topic(format!("{}.error", topic.strip_suffix(".call").unwrap()))
-                        .meta(serde_json::json!({
-                            "command_id": command_id.to_string(),
-                            "frame_id": frame_id.to_string(),
-                            "error": nu_protocol::format_shell_error(&working_set, &err)
-                        }))
-                        .build(),
+                    Frame::with_topic(format!(
+                        "{}.error",
+                        frame.topic.strip_suffix(".call").unwrap()
+                    ))
+                    .context_id(frame.context_id)
+                    .meta(serde_json::json!({
+                        "command_id": command_id.to_string(),
+                        "frame_id": frame.id.to_string(),
+                        "error": nu_protocol::format_shell_error(&working_set, &err)
+                    }))
+                    .build(),
                 );
 
                 Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>

@@ -139,6 +139,7 @@ impl Handler {
             let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
             Some(
                 Frame::with_topic(format!("{}{}", self.topic, suffix))
+                    .context_id(self.context_id)
                     .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
                     .maybe_hash(Some(hash))
                     .build(),
@@ -222,6 +223,7 @@ impl Handler {
             if let Err(err) = self.process_frame(&frame, store).await {
                 let _ = store.append(
                     Frame::with_topic(format!("{}.unregistered", self.topic))
+                        .context_id(self.context_id)
                         .meta(serde_json::json!({
                             "handler_id": self.id.to_string(),
                             "frame_id": frame.id.to_string(),

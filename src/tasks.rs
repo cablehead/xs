@@ -38,6 +38,7 @@ pub struct GeneratorMeta {
 #[derive(Clone, Debug)]
 struct GeneratorTask {
     id: Scru128Id,
+    context_id: Scru128Id,
     topic: String,
     meta: GeneratorMeta,
     expression: String,
@@ -66,6 +67,7 @@ async fn try_start_task(
 
         if let Err(e) = store.append(
             Frame::with_topic(format!("{}.spawn.error", topic))
+                .context_id(frame.context_id)
                 .meta(meta)
                 .build(),
         ) {
@@ -98,6 +100,7 @@ async fn handle_spawn_event(
 
     let task = GeneratorTask {
         id: frame.id,
+        context_id: frame.context_id,
         topic: topic.to_string(),
         meta: meta.clone(),
         expression: expression.clone(),
@@ -183,6 +186,7 @@ pub async fn serve(
 
                 if let Err(e) = store.append(
                     Frame::with_topic(format!("{}.spawn.error", topic))
+                        .context_id(frame.context_id)
                         .meta(meta)
                         .build(),
                 ) {
@@ -197,8 +201,7 @@ pub async fn serve(
 
 async fn append(
     store: Store,
-    source_id: Scru128Id,
-    topic: &str,
+    task: &GeneratorTask,
     suffix: &str,
     content: Option<String>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
@@ -209,11 +212,12 @@ async fn append(
     };
 
     let meta = serde_json::json!({
-        "source_id": source_id.to_string(),
+        "source_id": task.id.to_string(),
     });
 
     let frame = store.append(
-        Frame::with_topic(format!("{}.{}", topic, suffix))
+        Frame::with_topic(format!("{}.{}", task.topic, suffix))
+            .context_id(task.context_id)
             .maybe_hash(hash)
             .meta(meta)
             .build(),
@@ -222,9 +226,7 @@ async fn append(
 }
 
 async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
-    let start = append(store.clone(), task.id, &task.topic, "start", None)
-        .await
-        .unwrap();
+    let start = append(store.clone(), &task, "start", None).await.unwrap();
 
     use futures::StreamExt;
     use tokio_stream::wrappers::ReceiverStream;
@@ -292,9 +294,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
             PipelineData::Value(value, _) => {
                 if let Value::String { val, .. } = value {
                     handle
-                        .block_on(async {
-                            append(store.clone(), task.id, &task.topic, "recv", Some(val)).await
-                        })
+                        .block_on(async { append(store.clone(), &task, "recv", Some(val)).await })
                         .unwrap();
                 } else {
                     panic!("Unexpected Value type in PipelineData::Value");
@@ -305,7 +305,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
                     if let Value::String { val, .. } = value {
                         handle
                             .block_on(async {
-                                append(store.clone(), task.id, &task.topic, "recv", Some(val)).await
+                                append(store.clone(), &task, "recv", Some(val)).await
                             })
                             .unwrap();
                     } else {
@@ -319,7 +319,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
         }
 
         handle
-            .block_on(async { append(store.clone(), task.id, &task.topic, "stop", None).await })
+            .block_on(async { append(store.clone(), &task, "stop", None).await })
             .unwrap();
     });
 }

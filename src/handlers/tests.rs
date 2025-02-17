@@ -113,6 +113,7 @@ async fn test_register_invalid_closure() {
     let frame_handler = store
         .append(
             Frame::with_topic("invalid.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -157,6 +158,7 @@ async fn test_register_parse_error() {
     let frame_handler = store
         .append(
             Frame::with_topic("invalid.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -208,6 +210,7 @@ async fn test_no_self_loop() {
     store
         .append(
             Frame::with_topic("echo.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(r#"{process: {|frame| $frame}}"#)
@@ -224,7 +227,13 @@ async fn test_no_self_loop() {
     // note we don't see an echo of the echo.registered frame
 
     // Trigger the handler
-    store.append(Frame::with_topic("a-frame").build()).unwrap();
+    store
+        .append(
+            Frame::with_topic("a-frame")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     // we should see the trigger, and then a single echo
     assert_eq!(recver.recv().await.unwrap().topic, "a-frame");
     assert_eq!(recver.recv().await.unwrap().topic, "echo.out");
@@ -237,8 +246,12 @@ async fn test_essentials() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     // Create initial frames
-    let pew1 = store.append(Frame::with_topic("pew").build()).unwrap();
-    let pew2 = store.append(Frame::with_topic("pew").build()).unwrap();
+    let pew1 = store
+        .append(Frame::with_topic("pew").context_id(ZERO_CONTEXT).build())
+        .unwrap();
+    let pew2 = store
+        .append(Frame::with_topic("pew").context_id(ZERO_CONTEXT).build())
+        .unwrap();
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -251,6 +264,7 @@ async fn test_essentials() {
     let _pointer_frame = store
         .append(
             Frame::with_topic("action.out")
+                .context_id(ZERO_CONTEXT)
                 .meta(serde_json::json!({
                     "frame_id": pew1.id.to_string()
                 }))
@@ -260,6 +274,7 @@ async fn test_essentials() {
 
     // Register handler with start pointing to the content of action.out
     let handler_proto = Frame::with_topic("action.register")
+        .context_id(ZERO_CONTEXT)
         .hash(
             store
                 .cas_insert(
@@ -303,7 +318,11 @@ async fn test_essentials() {
 
     // Unregister handler and restart - should resume from cursor
     store
-        .append(Frame::with_topic("action.unregister").build())
+        .append(
+            Frame::with_topic("action.unregister")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.unregister");
     assert_eq!(recver.recv().await.unwrap().topic, "action.unregistered");
@@ -323,7 +342,9 @@ async fn test_essentials() {
     // The last_id should now be pew2
     assert_eq!(meta["last_id"], pew2.id.to_string());
 
-    let pew3 = store.append(Frame::with_topic("pew").build()).unwrap();
+    let pew3 = store
+        .append(Frame::with_topic("pew").context_id(ZERO_CONTEXT).build())
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "pew");
 
     // Should resume processing from pew3 on
@@ -345,18 +366,31 @@ async fn test_unregister_on_error() {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // This frame will trigger the error when the handler comes online
-    let frame_trigger = store.append(Frame::with_topic("trigger").build()).unwrap();
+    let frame_trigger = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
 
     // add an additional frame, which shouldn't be processed, as the handler should immediately
     // unregister
-    let _ = store.append(Frame::with_topic("trigger").build()).unwrap();
+    let _ = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
 
     // Start handler
     let frame_handler = store
         .append(
             Frame::with_topic("error.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -400,6 +434,7 @@ async fn test_return_options() {
 
     // Register handler with return_options
     let handler_proto = Frame::with_topic("echo.register")
+        .context_id(ZERO_CONTEXT)
         .hash(
             store
                 .cas_insert(
@@ -425,7 +460,9 @@ async fn test_return_options() {
     assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
 
     // Send first ping
-    let frame1 = store.append(Frame::with_topic("ping").build()).unwrap();
+    let frame1 = store
+        .append(Frame::with_topic("ping").context_id(ZERO_CONTEXT).build())
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "ping");
 
     // Check response has custom suffix and right meta
@@ -437,7 +474,9 @@ async fn test_return_options() {
     assert_eq!(meta["frame_id"], frame1.id.to_string());
 
     // Send second ping - should only see newest response due to Head(1)
-    let frame2 = store.append(Frame::with_topic("ping").build()).unwrap();
+    let frame2 = store
+        .append(Frame::with_topic("ping").context_id(ZERO_CONTEXT).build())
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "ping");
 
     let response2 = recver.recv().await.unwrap();
@@ -471,6 +510,7 @@ async fn test_custom_append() {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     let handler_proto = Frame::with_topic("action.register")
+        .context_id(ZERO_CONTEXT)
         .hash(
             store
                 .cas_insert(
@@ -493,7 +533,13 @@ async fn test_custom_append() {
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
     assert_eq!(recver.recv().await.unwrap().topic, "action.registered");
 
-    let trigger_frame = store.append(Frame::with_topic("trigger").build()).unwrap();
+    let trigger_frame = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
     validate_handler_output_frames!(
@@ -520,6 +566,7 @@ async fn test_handler_replacement() {
     let _ = store
         .append(
             Frame::with_topic("h.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -542,6 +589,7 @@ async fn test_handler_replacement() {
     let handler2 = store
         .append(
             Frame::with_topic("h.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -562,7 +610,13 @@ async fn test_handler_replacement() {
     assert_eq!(recver.recv().await.unwrap().topic, "h.registered");
 
     // Send trigger - should be handled by handler2
-    let trigger = store.append(Frame::with_topic("trigger").build()).unwrap();
+    let trigger = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
     // Verify handler2 processed it
@@ -590,6 +644,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
     let _ = store
         .append(
             Frame::with_topic("mymod.nu")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -611,6 +666,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
     let frame_handler = store
         .append(
             Frame::with_topic("test.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -636,7 +692,13 @@ async fn test_handler_with_module() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
 
     // Send trigger frame
-    let trigger = store.append(Frame::with_topic("trigger").build()).unwrap();
+    let trigger = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
     // Get handler output
@@ -662,6 +724,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     let _ = store
         .append(
             Frame::with_topic("abc.init")
+                .context_id(ZERO_CONTEXT)
                 .hash(store.cas_insert(r#"42"#).await.unwrap())
                 .build(),
         )
@@ -671,6 +734,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     let _ = store
         .append(
             Frame::with_topic("abc.delta")
+                .context_id(ZERO_CONTEXT)
                 .hash(store.cas_insert(r#"2"#).await.unwrap())
                 .build(),
         )
@@ -680,6 +744,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     let frame_handler = store
         .append(
             Frame::with_topic("test.register")
+                .context_id(ZERO_CONTEXT)
                 .hash(store.cas_insert_sync(
                     r#"
                     $env.abc = .head abc.init | .cas $in.hash | from json
@@ -706,7 +771,13 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
 
     // Send trigger frame
-    let trigger = store.append(Frame::with_topic("trigger").build()).unwrap();
+    let trigger = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
     // Get handler output
@@ -719,7 +790,13 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     assert_eq!(result, "44");
 
     // Send trigger frame
-    let trigger = store.append(Frame::with_topic("trigger").build()).unwrap();
+    let trigger = store
+        .append(
+            Frame::with_topic("trigger")
+                .context_id(ZERO_CONTEXT)
+                .build(),
+        )
+        .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
     // Get handler output

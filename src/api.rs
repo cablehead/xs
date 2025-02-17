@@ -345,6 +345,7 @@ pub async fn serve(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Err(e) = store.append(
         Frame::with_topic("xs.start")
+            .context_id(store::ZERO_CONTEXT)
             .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
             .build(),
     ) {
