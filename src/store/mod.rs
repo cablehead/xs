@@ -300,7 +300,7 @@ impl Store {
                     }
 
                     if tx_clone.blocking_send(frame).is_err() {
-                        break;
+                        return;
                     }
                     count += 1;
                 }
