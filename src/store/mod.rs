@@ -171,7 +171,7 @@ pub struct Store {
     pub path: PathBuf,
     keyspace: Keyspace,
     frame_partition: PartitionHandle,
-    topic_index: PartitionHandle,
+    idx_topic: PartitionHandle,
     context_index: PartitionHandle,
     contexts: Arc<RwLock<HashSet<Scru128Id>>>,
     broadcast_tx: broadcast::Sender<Frame>,
@@ -191,7 +191,7 @@ impl Store {
             .open_partition("stream", PartitionCreateOptions::default())
             .unwrap();
 
-        let topic_index = keyspace
+        let idx_topic = keyspace
             .open_partition("idx_topic", PartitionCreateOptions::default())
             .unwrap();
 
@@ -209,7 +209,7 @@ impl Store {
             path: path.clone(),
             keyspace: keyspace.clone(),
             frame_partition: frame_partition.clone(),
-            topic_index: topic_index.clone(),
+            idx_topic: idx_topic.clone(),
             context_index: context_index.clone(),
             contexts: Arc::new(RwLock::new(contexts)),
             broadcast_tx,
@@ -407,10 +407,10 @@ impl Store {
 
     #[tracing::instrument(skip(self))]
     pub fn head(&self, topic: &str, context_id: Scru128Id) -> Option<Frame> {
-        self.topic_index
-            .prefix(topic_prefix_key(context_id, topic))
+        self.idx_topic
+            .prefix(idx_topic_key_prefix(context_id, topic))
             .rev()
-            .find_map(|kv| self.get(&frame_id_from_topic_key(&kv.unwrap().0)))
+            .find_map(|kv| self.get(&idx_topic_frame_id_from_key(&kv.unwrap().0)))
     }
 
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
@@ -422,7 +422,7 @@ impl Store {
 
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.as_bytes());
-        batch.remove(&self.topic_index, topic_index_key_for_frame(&frame));
+        batch.remove(&self.idx_topic, idx_topic_key_from_frame(&frame));
         batch.remove(&self.context_index, context_index_key_for_frame(&frame));
 
         // If this is a context frame, remove it from the contexts set
@@ -473,7 +473,7 @@ impl Store {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
         let mut batch = self.keyspace.batch();
         batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
-        batch.insert(&self.topic_index, topic_index_key_for_frame(frame), b"");
+        batch.insert(&self.idx_topic, idx_topic_key_from_frame(frame), b"");
         batch.insert(&self.context_index, context_index_key_for_frame(frame), b"");
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)
@@ -572,14 +572,14 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
                     topic,
                     keep,
                 } => {
-                    let prefix = topic_prefix_key(context_id, &topic);
+                    let prefix = idx_topic_key_prefix(context_id, &topic);
                     let frames_to_remove: Vec<_> = store
-                        .topic_index
+                        .idx_topic
                         .prefix(&prefix)
                         .rev() // Scan from newest to oldest
                         .skip(keep as usize)
                         .map(|r| {
-                            Scru128Id::from_bytes(frame_id_from_topic_key(&r.unwrap().0).into())
+                            Scru128Id::from_bytes(idx_topic_frame_id_from_key(&r.unwrap().0).into())
                         })
                         .collect();
 
@@ -607,7 +607,7 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
     now_ms >= expires_ms
 }
 
-fn topic_prefix_key(context_id: Scru128Id, topic: &str) -> Vec<u8> {
+fn idx_topic_key_prefix(context_id: Scru128Id, topic: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(16 + topic.len() + 1); // context_id (16) + topic bytes + delimiter
     v.extend(context_id.as_bytes()); // binary context_id (16 bytes)
     v.extend(topic.as_bytes()); // topic string as UTF-8 bytes
@@ -615,13 +615,13 @@ fn topic_prefix_key(context_id: Scru128Id, topic: &str) -> Vec<u8> {
     v
 }
 
-fn topic_index_key_for_frame(frame: &Frame) -> Vec<u8> {
-    let mut v = topic_prefix_key(frame.context_id, &frame.topic);
+fn idx_topic_key_from_frame(frame: &Frame) -> Vec<u8> {
+    let mut v = idx_topic_key_prefix(frame.context_id, &frame.topic);
     v.extend(frame.id.as_bytes());
     v
 }
 
-fn frame_id_from_topic_key(key: &[u8]) -> Scru128Id {
+fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
     let frame_id_bytes = &key[key.len() - 16..];
     Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap())
 }
