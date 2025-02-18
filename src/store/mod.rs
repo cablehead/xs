@@ -172,7 +172,7 @@ pub struct Store {
     keyspace: Keyspace,
     frame_partition: PartitionHandle,
     idx_topic: PartitionHandle,
-    context_index: PartitionHandle,
+    idx_context: PartitionHandle,
     contexts: Arc<RwLock<HashSet<Scru128Id>>>,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
@@ -195,7 +195,7 @@ impl Store {
             .open_partition("idx_topic", PartitionCreateOptions::default())
             .unwrap();
 
-        let context_index = keyspace
+        let idx_context = keyspace
             .open_partition("idx_context", PartitionCreateOptions::default())
             .unwrap();
 
@@ -210,7 +210,7 @@ impl Store {
             keyspace: keyspace.clone(),
             frame_partition: frame_partition.clone(),
             idx_topic: idx_topic.clone(),
-            context_index: context_index.clone(),
+            idx_context: idx_context.clone(),
             contexts: Arc::new(RwLock::new(contexts)),
             broadcast_tx,
             gc_tx,
@@ -423,7 +423,7 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.as_bytes());
         batch.remove(&self.idx_topic, idx_topic_key_from_frame(&frame));
-        batch.remove(&self.context_index, context_index_key_for_frame(&frame));
+        batch.remove(&self.idx_context, idx_context_key_from_frame(&frame));
 
         // If this is a context frame, remove it from the contexts set
         if frame.topic == "xs.context" {
@@ -474,7 +474,7 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
         batch.insert(&self.idx_topic, idx_topic_key_from_frame(frame), b"");
-        batch.insert(&self.context_index, context_index_key_for_frame(frame), b"");
+        batch.insert(&self.idx_context, idx_context_key_from_frame(frame), b"");
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)
     }
@@ -532,11 +532,11 @@ impl Store {
                     Some(_) => (Bound::Excluded(start_key), Bound::Unbounded),
                     None => (
                         Bound::Included(ctx_id.as_bytes().to_vec()),
-                        Bound::Excluded(get_next_context_prefix(ctx_id)),
+                        Bound::Excluded(idx_context_key_range_end(ctx_id)),
                     ),
                 };
 
-                Box::new(self.context_index.range(range).filter_map(move |r| {
+                Box::new(self.idx_context.range(range).filter_map(move |r| {
                     let (key, _) = r.ok()?;
                     let frame_id_bytes = &key[16..];
                     let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().ok()?);
@@ -627,7 +627,7 @@ fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
 }
 
 // Creates a key for the context index: <context_id><frame_id>
-fn context_index_key_for_frame(frame: &Frame) -> Vec<u8> {
+fn idx_context_key_from_frame(frame: &Frame) -> Vec<u8> {
     let mut v = Vec::with_capacity(frame.context_id.as_bytes().len() + frame.id.as_bytes().len());
     v.extend(frame.context_id.as_bytes());
     v.extend(frame.id.as_bytes());
@@ -635,7 +635,7 @@ fn context_index_key_for_frame(frame: &Frame) -> Vec<u8> {
 }
 
 // Returns the key prefix for the next context after the given one
-fn get_next_context_prefix(context_id: Scru128Id) -> Vec<u8> {
+fn idx_context_key_range_end(context_id: Scru128Id) -> Vec<u8> {
     let mut bytes = context_id.as_bytes().to_vec();
     for i in (0..bytes.len()).rev() {
         if bytes[i] == 0xFF {
