@@ -151,8 +151,7 @@ mod tests_store {
         let meta = serde_json::json!({"key": "value"});
         let frame = store
             .append(
-                Frame::with_topic("stream")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("stream", ZERO_CONTEXT)
                     .meta(meta)
                     .build(),
             )
@@ -168,10 +167,10 @@ mod tests_store {
 
         // Append two initial clips
         let f1 = store
-            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("stream", ZERO_CONTEXT).build())
             .unwrap();
         let f2 = store
-            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("stream", ZERO_CONTEXT).build())
             .unwrap();
 
         // cat the full stream and follow new items with a heartbeat every 5ms
@@ -191,10 +190,10 @@ mod tests_store {
 
         // Append two more clips
         let f3 = store
-            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("stream", ZERO_CONTEXT).build())
             .unwrap();
         let f4 = store
-            .append(Frame::with_topic("stream").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("stream", ZERO_CONTEXT).build())
             .unwrap();
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
@@ -215,15 +214,13 @@ mod tests_store {
 
         let f1 = store
             .append(
-                Frame::with_topic("/stream")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("/stream", ZERO_CONTEXT)
                     .build(),
             )
             .unwrap();
         let f2 = store
             .append(
-                Frame::with_topic("/stream")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("/stream", ZERO_CONTEXT)
                     .build(),
             )
             .unwrap();
@@ -259,13 +256,13 @@ mod tests_store {
 
         // Add 3 items
         let frame1 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let _ = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Read with limit 2
@@ -287,7 +284,7 @@ mod tests_store {
 
         // Add 1 item
         let frame1 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Start read with limit 2 and follow
@@ -307,10 +304,10 @@ mod tests_store {
 
         // Add 2 more items
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let _frame3 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Assert we get one more item
@@ -327,19 +324,19 @@ mod tests_store {
 
         // Create 5 records upfront
         let frame1 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let frame3 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let _frame4 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let _frame5 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Start read with limit 3 and follow enabled
@@ -371,13 +368,13 @@ mod tests_store {
 
         // Append three frames
         let frame1 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let frame3 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Test reading all frames
@@ -514,8 +511,7 @@ mod tests_context {
         // Create a context
         let context_frame = store
             .append(
-                Frame::with_topic("xs.context")
-                    .context_id(ZERO_CONTEXT) // Context registration must be in zero context
+                Frame::builder("xs.context", ZERO_CONTEXT) // Context registration must be in zero context
                     .build(),
             )
             .unwrap();
@@ -524,18 +520,17 @@ mod tests_context {
         // Try to use invalid context (should return error)
         let invalid_context = scru128::new();
         let result = store.append(
-            Frame::with_topic("test")
-                .context_id(invalid_context)
+            Frame::builder("test", invalid_context)
                 .build(),
         );
         assert!(result.is_err());
 
         // Append frames to different contexts
         let frame1 = store
-            .append(Frame::with_topic("test").context_id(context_id).build())
+            .append(Frame::builder("test", context_id).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Test head in different contexts
@@ -559,8 +554,7 @@ mod tests_context {
         // Create a context
         let context_frame = store
             .append(
-                Frame::with_topic("xs.context")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("xs.context", ZERO_CONTEXT)
                     .build(),
             )
             .unwrap();
@@ -569,16 +563,14 @@ mod tests_context {
         // Add frames with head:1 TTL in different contexts
         let _frame1 = store
             .append(
-                Frame::with_topic("test")
-                    .context_id(context_id)
+                Frame::builder("test", context_id)
                     .ttl(TTL::Head(1))
                     .build(),
             )
             .unwrap();
         let frame2 = store
             .append(
-                Frame::with_topic("test")
-                    .context_id(context_id)
+                Frame::builder("test", context_id)
                     .ttl(TTL::Head(1))
                     .build(),
             )
@@ -586,16 +578,14 @@ mod tests_context {
 
         let _frame3 = store
             .append(
-                Frame::with_topic("test")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("test", ZERO_CONTEXT)
                     .ttl(TTL::Head(1))
                     .build(),
             )
             .unwrap();
         let frame4 = store
             .append(
-                Frame::with_topic("test")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("test", ZERO_CONTEXT)
                     .ttl(TTL::Head(1))
                     .build(),
             )
@@ -617,8 +607,7 @@ mod tests_context {
         // Create two contexts
         let context1_frame = store
             .append(
-                Frame::with_topic("xs.context")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("xs.context", ZERO_CONTEXT)
                     .build(),
             )
             .unwrap();
@@ -626,8 +615,7 @@ mod tests_context {
 
         let context2_frame = store
             .append(
-                Frame::with_topic("xs.context")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("xs.context", ZERO_CONTEXT)
                     .build(),
             )
             .unwrap();
@@ -635,16 +623,16 @@ mod tests_context {
 
         // Add frames to different contexts
         let frame1 = store
-            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .append(Frame::builder("test", context1_id).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(context2_id).build())
+            .append(Frame::builder("test", context2_id).build())
             .unwrap();
         let frame3 = store
-            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .append(Frame::builder("test", context1_id).build())
             .unwrap();
         let frame4 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Test reading from specific contexts
@@ -696,16 +684,14 @@ mod tests_context {
         // Create contexts
         let context1_frame = store
             .append(
-                Frame::with_topic("xs.context")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("xs.context", ZERO_CONTEXT)
                     .build(),
             )
             .unwrap();
         let context1_id = context1_frame.id;
         let context2_frame = store
             .append(
-                Frame::with_topic("xs.context")
-                    .context_id(ZERO_CONTEXT)
+                Frame::builder("xs.context", ZERO_CONTEXT)
                     .build(),
             )
             .unwrap();
@@ -713,16 +699,16 @@ mod tests_context {
 
         // Add frames to different contexts
         let frame1 = store
-            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .append(Frame::builder("test", context1_id).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(context2_id).build())
+            .append(Frame::builder("test", context2_id).build())
             .unwrap();
         let frame3 = store
-            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .append(Frame::builder("test", context1_id).build())
             .unwrap();
         let frame4 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Test reading without follow
@@ -836,13 +822,13 @@ mod tests_context {
 
         // Add new frame to each context
         let frame5 = store
-            .append(Frame::with_topic("test").context_id(context1_id).build())
+            .append(Frame::builder("test", context1_id).build())
             .unwrap();
         let frame6 = store
-            .append(Frame::with_topic("test").context_id(context2_id).build())
+            .append(Frame::builder("test", context2_id).build())
             .unwrap();
         let frame7 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         assert_eq!(rx1.recv().await, Some(frame5.clone()));
@@ -867,13 +853,13 @@ mod tests_context {
 
         // Add frames to ZERO_CONTEXT
         let _frame1 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
         let frame3 = store
-            .append(Frame::with_topic("test").context_id(ZERO_CONTEXT).build())
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
         // Test iter_frames with last_id in ZERO_CONTEXT
