@@ -6,14 +6,17 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
 
 #[tokio::test]
 async fn test_command_with_pipeline() -> Result<(), Error> {
-    let (store, _temp_dir) = setup_test_environment().await;
-    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let (store, ctx) = setup_test_environment().await;
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command
     let frame_command = store.append(
-        Frame::builder("echo.define", ZERO_CONTEXT)
+        Frame::builder("echo.define", ctx.id)
             .hash(
                 store
                     .cas_insert(
@@ -33,7 +36,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 
     // Call the command
     let frame_call = store.append(
-        Frame::builder("echo.call", ZERO_CONTEXT)
+        Frame::builder("echo.call", ctx.id)
             .hash(store.cas_insert(r#"foo"#).await?)
             .meta(serde_json::json!({"args": {"n": 3}}))
             .build(),
@@ -71,15 +74,18 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_error_handling() -> Result<(), Error> {
-    let (store, _temp_dir) = setup_test_environment().await;
-    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let (store, ctx) = setup_test_environment().await;
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define command that will error with invalid access
     let frame_command = store
         .append(
-            Frame::builder("will_error.define", ZERO_CONTEXT)
+            Frame::builder("will_error.define", ctx.id)
                 .hash(
                     store
                         .cas_insert(
@@ -99,7 +105,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     // Call the command
     let frame_call = store
         .append(
-            Frame::builder("will_error.call", ZERO_CONTEXT)
+            Frame::builder("will_error.call", ctx.id)
                 .hash(store.cas_insert(r#""input""#).await?)
                 .meta(serde_json::json!({"args": {}}))
                 .build(),
@@ -132,17 +138,22 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
     }
 }
 
-async fn setup_test_environment() -> (Store, TempDir) {
+async fn setup_test_environment() -> (Store, Frame) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
     let engine = nu::Engine::new().unwrap();
+    let ctx = store
+        .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .unwrap();
 
     {
         let store = store.clone();
         let _ = tokio::spawn(async move {
-            crate::commands::serve::serve(store, engine).await.unwrap();
+            crate::commands::serve::serve(store, engine.clone())
+                .await
+                .unwrap();
         });
     }
 
-    (store, temp_dir)
+    (store, ctx)
 }
