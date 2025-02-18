@@ -92,11 +92,10 @@ impl Command for AppendCommand {
         };
 
         let frame = store.append(
-            Frame::with_topic(topic)
+            Frame::builder(topic, context_id)
                 .maybe_hash(hash)
                 .maybe_meta(meta)
                 .maybe_ttl(ttl)
-                .context_id(context_id)
                 .build(),
         )?;
 

@@ -99,11 +99,10 @@ impl Command for AppendCommand {
             crate::store::ZERO_CONTEXT
         };
 
-        let frame = Frame::with_topic(topic)
+        let frame = Frame::builder(topic, context_id)
             .maybe_meta(meta.map(|v| value_to_json(&v)))
             .maybe_hash(hash)
             .maybe_ttl(ttl)
-            .context_id(context_id)
             .build();
 
         self.output.lock().unwrap().push(frame);

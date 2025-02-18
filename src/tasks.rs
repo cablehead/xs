@@ -66,8 +66,7 @@ async fn try_start_task(
         });
 
         if let Err(e) = store.append(
-            Frame::with_topic(format!("{}.spawn.error", topic))
-                .context_id(frame.context_id)
+            Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
                 .meta(meta)
                 .build(),
         ) {
@@ -185,8 +184,7 @@ pub async fn serve(
                 });
 
                 if let Err(e) = store.append(
-                    Frame::with_topic(format!("{}.spawn.error", topic))
-                        .context_id(frame.context_id)
+                    Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
                         .meta(meta)
                         .build(),
                 ) {
@@ -216,8 +214,7 @@ async fn append(
     });
 
     let frame = store.append(
-        Frame::with_topic(format!("{}.{}", task.topic, suffix))
-            .context_id(task.context_id)
+        Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
             .maybe_hash(hash)
             .meta(meta)
             .build(),

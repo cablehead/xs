@@ -28,8 +28,7 @@ async fn handle_define(
         }
         Err(err) => {
             let _ = store.append(
-                Frame::with_topic(format!("{}.error", name))
-                    .context_id(frame.context_id)
+                Frame::builder(format!("{}.error", name), frame.context_id)
                     .meta(serde_json::json!({
                         "command_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -131,11 +130,10 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                 for value in pipeline_data {
                     let hash = store.cas_insert_sync(&value_to_json(&value).to_string())?;
                     let _ = store.append(
-                        Frame::with_topic(format!(
-                            "{}.recv",
-                            frame.topic.strip_suffix(".call").unwrap()
-                        ))
-                        .context_id(frame.context_id)
+                        Frame::builder(
+                            format!("{}.recv", frame.topic.strip_suffix(".call").unwrap()),
+                            frame.context_id,
+                        )
                         .hash(hash)
                         .meta(serde_json::json!({
                             "command_id": command_id.to_string(),
@@ -147,11 +145,10 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
 
                 // Emit completion event
                 let _ = store.append(
-                    Frame::with_topic(format!(
-                        "{}.complete",
-                        frame.topic.strip_suffix(".call").unwrap()
-                    ))
-                    .context_id(frame.context_id)
+                    Frame::builder(
+                        format!("{}.complete", frame.topic.strip_suffix(".call").unwrap()),
+                        frame.context_id,
+                    )
                     .meta(serde_json::json!({
                         "command_id": command_id.to_string(),
                         "frame_id": frame.id.to_string(),
@@ -164,11 +161,10 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                 // Emit error event instead of propagating
                 let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
                 let _ = store.append(
-                    Frame::with_topic(format!(
-                        "{}.error",
-                        frame.topic.strip_suffix(".call").unwrap()
-                    ))
-                    .context_id(frame.context_id)
+                    Frame::builder(
+                        format!("{}.error", frame.topic.strip_suffix(".call").unwrap()),
+                        frame.context_id,
+                    )
                     .meta(serde_json::json!({
                         "command_id": command_id.to_string(),
                         "frame_id": frame.id.to_string(),

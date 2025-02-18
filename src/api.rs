@@ -290,11 +290,10 @@ async fn handle_stream_append(
     };
 
     let frame = store.append(
-        Frame::with_topic(topic)
+        Frame::builder(topic, context_id)
             .maybe_hash(hash)
             .maybe_meta(meta)
             .maybe_ttl(ttl)
-            .context_id(context_id)
             .build(),
     )?;
 
@@ -344,8 +343,7 @@ pub async fn serve(
     expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Err(e) = store.append(
-        Frame::with_topic("xs.start")
-            .context_id(store::ZERO_CONTEXT)
+        Frame::builder("xs.start", store::ZERO_CONTEXT)
             .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
             .build(),
     ) {

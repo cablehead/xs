@@ -13,11 +13,7 @@ mod tests {
         let store = Store::new(temp_dir.into_path());
         let engine = Engine::new().unwrap();
         let ctx = store
-            .append(
-                Frame::with_topic("xs.context")
-                    .context_id(ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
             .unwrap();
         (store, engine, ctx)
     }
@@ -122,8 +118,7 @@ mod tests {
 
         let _frame1 = store
             .append(
-                Frame::with_topic("topic")
-                    .context_id(ctx.id)
+                Frame::builder("topic", ctx.id)
                     .hash(store.cas_insert_sync("content1")?)
                     .build(),
             )
@@ -131,8 +126,7 @@ mod tests {
 
         let frame2 = store
             .append(
-                Frame::with_topic("topic")
-                    .context_id(ctx.id)
+                Frame::builder("topic", ctx.id)
                     .hash(store.cas_insert_sync("content2")?)
                     .build(),
             )
@@ -158,8 +152,7 @@ mod tests {
 
         let _frame1 = store
             .append(
-                Frame::with_topic("topic")
-                    .context_id(ctx.id)
+                Frame::builder("topic", ctx.id)
                     .hash(store.cas_insert_sync("content1")?)
                     .build(),
             )
@@ -167,8 +160,7 @@ mod tests {
 
         let _frame2 = store
             .append(
-                Frame::with_topic("topic")
-                    .context_id(ctx.id)
+                Frame::builder("topic", ctx.id)
                     .hash(store.cas_insert_sync("content2")?)
                     .build(),
             )
@@ -198,8 +190,7 @@ mod tests {
 
         let frame = store
             .append(
-                Frame::with_topic("topic")
-                    .context_id(ctx.id)
+                Frame::builder("topic", ctx.id)
                     .hash(store.cas_insert_sync("test")?)
                     .build(),
             )
@@ -226,8 +217,7 @@ mod tests {
 
         let frame = store
             .append(
-                Frame::with_topic("topic")
-                    .context_id(ctx.id)
+                Frame::builder("topic", ctx.id)
                     .hash(store.cas_insert_sync("test")?)
                     .build(),
             )

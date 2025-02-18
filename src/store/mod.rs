@@ -378,10 +378,11 @@ impl Store {
                 tokio::spawn(async move {
                     loop {
                         tokio::time::sleep(duration).await;
-                        let frame = Frame::builder("xs.pulse", options.context_id.unwrap_or(ZERO_CONTEXT))
-                            .id(scru128::new())
-                            .ttl(TTL::Ephemeral)
-                            .build();
+                        let frame =
+                            Frame::builder("xs.pulse", options.context_id.unwrap_or(ZERO_CONTEXT))
+                                .id(scru128::new())
+                                .ttl(TTL::Ephemeral)
+                                .build();
                         if heartbeat_tx.send(frame).await.is_err() {
                             break;
                         }
