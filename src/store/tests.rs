@@ -150,11 +150,7 @@ mod tests_store {
         let store = Store::new(temp_dir.into_path());
         let meta = serde_json::json!({"key": "value"});
         let frame = store
-            .append(
-                Frame::builder("stream", ZERO_CONTEXT)
-                    .meta(meta)
-                    .build(),
-            )
+            .append(Frame::builder("stream", ZERO_CONTEXT).meta(meta).build())
             .unwrap();
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);
@@ -213,16 +209,10 @@ mod tests_store {
         let store = Store::new(temp_dir.into_path());
 
         let f1 = store
-            .append(
-                Frame::builder("/stream", ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("/stream", ZERO_CONTEXT).build())
             .unwrap();
         let f2 = store
-            .append(
-                Frame::builder("/stream", ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("/stream", ZERO_CONTEXT).build())
             .unwrap();
 
         assert_eq!(
@@ -519,10 +509,7 @@ mod tests_context {
 
         // Try to use invalid context (should return error)
         let invalid_context = scru128::new();
-        let result = store.append(
-            Frame::builder("test", invalid_context)
-                .build(),
-        );
+        let result = store.append(Frame::builder("test", invalid_context).build());
         assert!(result.is_err());
 
         // Append frames to different contexts
@@ -553,27 +540,16 @@ mod tests_context {
 
         // Create a context
         let context_frame = store
-            .append(
-                Frame::builder("xs.context", ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
             .unwrap();
         let context_id = context_frame.id;
 
         // Add frames with head:1 TTL in different contexts
         let _frame1 = store
-            .append(
-                Frame::builder("test", context_id)
-                    .ttl(TTL::Head(1))
-                    .build(),
-            )
+            .append(Frame::builder("test", context_id).ttl(TTL::Head(1)).build())
             .unwrap();
         let frame2 = store
-            .append(
-                Frame::builder("test", context_id)
-                    .ttl(TTL::Head(1))
-                    .build(),
-            )
+            .append(Frame::builder("test", context_id).ttl(TTL::Head(1)).build())
             .unwrap();
 
         let _frame3 = store
@@ -606,18 +582,12 @@ mod tests_context {
 
         // Create two contexts
         let context1_frame = store
-            .append(
-                Frame::builder("xs.context", ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
             .unwrap();
         let context1_id = context1_frame.id;
 
         let context2_frame = store
-            .append(
-                Frame::builder("xs.context", ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
             .unwrap();
         let context2_id = context2_frame.id;
 
@@ -683,17 +653,11 @@ mod tests_context {
 
         // Create contexts
         let context1_frame = store
-            .append(
-                Frame::builder("xs.context", ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
             .unwrap();
         let context1_id = context1_frame.id;
         let context2_frame = store
-            .append(
-                Frame::builder("xs.context", ZERO_CONTEXT)
-                    .build(),
-            )
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
             .unwrap();
         let context2_id = context2_frame.id;
 
@@ -895,12 +859,14 @@ mod tests_ttl_expire {
         let store = Store::new(temp_dir.into_path());
 
         // Add permanent frame
-        let permanent_frame = store.append(Frame::with_topic("test").build()).unwrap();
+        let permanent_frame = store
+            .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .unwrap();
 
         // Add frame with a TTL
         let expiring_frame = store
             .append(
-                Frame::with_topic("test")
+                Frame::builder("test", ZERO_CONTEXT)
                     .ttl(TTL::Time(Duration::from_millis(20)))
                     .build(),
             )
@@ -940,7 +906,7 @@ mod tests_ttl_expire {
         // Add 4 frames to the same topic with Head(2) TTL
         let _frame1 = store
             .append(
-                Frame::with_topic("test")
+                Frame::builder("test", ZERO_CONTEXT)
                     .ttl(TTL::Head(2))
                     .meta(serde_json::json!({"order": 1}))
                     .build(),
@@ -949,7 +915,7 @@ mod tests_ttl_expire {
 
         let _frame2 = store
             .append(
-                Frame::with_topic("test")
+                Frame::builder("test", ZERO_CONTEXT)
                     .ttl(TTL::Head(2))
                     .meta(serde_json::json!({"order": 2}))
                     .build(),
@@ -958,7 +924,7 @@ mod tests_ttl_expire {
 
         let frame3 = store
             .append(
-                Frame::with_topic("test")
+                Frame::builder("test", ZERO_CONTEXT)
                     .ttl(TTL::Head(2))
                     .meta(serde_json::json!({"order": 3}))
                     .build(),
@@ -967,7 +933,7 @@ mod tests_ttl_expire {
 
         let frame4 = store
             .append(
-                Frame::with_topic("test")
+                Frame::builder("test", ZERO_CONTEXT)
                     .ttl(TTL::Head(2))
                     .meta(serde_json::json!({"order": 4}))
                     .build(),
@@ -977,7 +943,7 @@ mod tests_ttl_expire {
         // Add a frame to a different topic to ensure isolation
         let other_frame = store
             .append(
-                Frame::with_topic("other")
+                Frame::builder("other", ZERO_CONTEXT)
                     .ttl(TTL::Head(2))
                     .meta(serde_json::json!({"order": 1}))
                     .build(),

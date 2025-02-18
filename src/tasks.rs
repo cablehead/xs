@@ -326,6 +326,8 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    use crate::store::ZERO_CONTEXT;
+
     #[tokio::test]
     async fn test_serve_basic() {
         let temp_dir = TempDir::new().unwrap();
@@ -341,7 +343,7 @@ mod tests {
 
         let frame_generator = store
             .append(
-                Frame::with_topic("toml.spawn")
+                Frame::builder("toml.spawn", ZERO_CONTEXT)
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
@@ -394,7 +396,7 @@ mod tests {
 
         let frame_generator = store
             .append(
-                Frame::with_topic("greeter.spawn".to_string())
+                Frame::builder("greeter.spawn".to_string(), ZERO_CONTEXT)
                     .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
                     .meta(serde_json::json!({"duplex": true}))
                     .build(),
@@ -412,7 +414,7 @@ mod tests {
 
         let _ = store
             .append(
-                Frame::with_topic("greeter.send")
+                Frame::builder("greeter.send", ZERO_CONTEXT)
                     .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
                     .build(),
             )
@@ -439,7 +441,7 @@ mod tests {
 
         let _ = store
             .append(
-                Frame::with_topic("toml.spawn")
+                Frame::builder("toml.spawn", ZERO_CONTEXT)
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
@@ -453,7 +455,7 @@ mod tests {
         // replaces the previous generator
         let frame_generator = store
             .append(
-                Frame::with_topic("toml.spawn")
+                Frame::builder("toml.spawn", ZERO_CONTEXT)
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
