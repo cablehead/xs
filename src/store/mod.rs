@@ -378,8 +378,7 @@ impl Store {
                 tokio::spawn(async move {
                     loop {
                         tokio::time::sleep(duration).await;
-                        let frame = Frame::with_topic("xs.pulse")
-                            .context_id(options.context_id.unwrap_or(ZERO_CONTEXT))
+                        let frame = Frame::builder("xs.pulse", options.context_id.unwrap_or(ZERO_CONTEXT))
                             .id(scru128::new())
                             .ttl(TTL::Ephemeral)
                             .build();

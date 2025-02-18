@@ -13,8 +13,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 
     // Define the command
     let frame_command = store.append(
-        Frame::with_topic("echo.define")
-        .context_id(ZERO_CONTEXT)
+        Frame::builder("echo.define", ZERO_CONTEXT)
             .hash(
                 store
                     .cas_insert(
@@ -34,8 +33,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 
     // Call the command
     let frame_call = store.append(
-        Frame::with_topic("echo.call")
-            .context_id(ZERO_CONTEXT)
+        Frame::builder("echo.call", ZERO_CONTEXT)
             .hash(store.cas_insert(r#"foo"#).await?)
             .meta(serde_json::json!({"args": {"n": 3}}))
             .build(),
@@ -81,8 +79,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     // Define command that will error with invalid access
     let frame_command = store
         .append(
-            Frame::with_topic("will_error.define")
-                .context_id(ZERO_CONTEXT)
+            Frame::builder("will_error.define", ZERO_CONTEXT)
                 .hash(
                     store
                         .cas_insert(
@@ -102,8 +99,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     // Call the command
     let frame_call = store
         .append(
-            Frame::with_topic("will_error.call")
-                .context_id(ZERO_CONTEXT)
+            Frame::builder("will_error.call", ZERO_CONTEXT)
                 .hash(store.cas_insert(r#""input""#).await?)
                 .meta(serde_json::json!({"args": {}}))
                 .build(),
