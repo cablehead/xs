@@ -197,3 +197,86 @@ Sometimes you may want to see frames across all contexts:
 <Aside type="tip">
 Everything in cross.stream is scoped by context - including TTLs, head tracking, and other features. This makes it easy to maintain separate streams of events while keeping them organized in the same store.
 </Aside>
+
+## Managing Contexts with .ctx Commands
+
+When using the NuShell convenience module (`xs.nu`), you get access to
+additional context management commands under the `.ctx` namespace. These provide
+a more interactive way to work with contexts.
+
+### Listing Contexts
+
+View all available contexts and see which one is active:
+
+<Tabs syncKey="shell">
+<TabItem label="nushell">
+
+```nushell withOutput
+> .ctx list
+─#─┬───────────────id───────────────┬─active─┐
+ 0 │ 0000000000000000000000000       │ true   │
+ 1 │ 03d4qbrxizqgav09m7hicksb0       │ false  │
+───┴──────────────────────────────────┴────────┘
+```
+
+</TabItem>
+</Tabs>
+
+### Switching Contexts
+
+Change your active context:
+
+<Tabs syncKey="shell">
+<TabItem label="nushell">
+
+```nushell withOutput
+> .ctx switch 03d4qbrxizqgav09m7hicksb0
+03d4qbrxizqgav09m7hicksb0
+```
+
+You can also switch interactively:
+
+```nushell withOutput
+> .ctx switch
+# (shows interactive list to select from)
+03d4qbrxizqgav09m7hicksb0
+```
+
+</TabItem>
+</Tabs>
+
+### Creating a New Context
+
+Create and automatically switch to a new context:
+
+<Tabs syncKey="shell">
+<TabItem label="nushell">
+
+```nushell withOutput
+> .ctx new
+03d4qbrxizqgav09m7hicksb0
+```
+
+</TabItem>
+</Tabs>
+
+### Viewing Current Context
+
+Check your current context:
+
+<Tabs syncKey="shell">
+<TabItem label="nushell">
+
+```nushell withOutput
+> .ctx
+03d4qbrxizqgav09m7hicksb0
+```
+
+</TabItem>
+</Tabs>
+
+<Aside type="note">
+These `.ctx` commands modify the `$env.XS_CONTEXT` environment variable and
+provide a convenient wrapper around the basic context operations. They're only
+available when using NuShell with the xs.nu module loaded.
+</Aside>
