@@ -8,11 +8,12 @@ use crate::store::Store;
 #[derive(Clone)]
 pub struct HeadCommand {
     store: Store,
+    context_id: scru128::Scru128Id,
 }
 
 impl HeadCommand {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new(store: Store, context_id: scru128::Scru128Id) -> Self {
+        Self { store, context_id }
     }
 }
 
@@ -57,7 +58,7 @@ impl Command for HeadCommand {
                     inner: vec![],
                 })?
         } else {
-            crate::store::ZERO_CONTEXT
+            self.context_id
         };
         let span = call.head;
 

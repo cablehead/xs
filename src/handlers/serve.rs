@@ -43,7 +43,6 @@ pub async fn serve(
     engine.add_commands(vec![
         Box::new(commands::cas_command::CasCommand::new(store.clone())),
         Box::new(commands::get_command::GetCommand::new(store.clone())),
-        Box::new(commands::head_command::HeadCommand::new(store.clone())),
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
     ])?;
     engine.add_alias(".rm", ".remove")?;

@@ -47,7 +47,6 @@ pub async fn serve(
     base_engine.add_commands(vec![
         Box::new(commands::cas_command::CasCommand::new(store.clone())),
         Box::new(commands::get_command::GetCommand::new(store.clone())),
-        Box::new(commands::head_command::HeadCommand::new(store.clone())),
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
         Box::new(commands::append_command::AppendCommand::new(store.clone())),
     ])?;
@@ -94,10 +93,16 @@ async fn register_command(
     let mut engine = base_engine.clone();
 
     // Add addtional commands, scoped to this command's context
-    engine.add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
-        store.clone(),
-        frame.context_id,
-    ))])?;
+    engine.add_commands(vec![
+        Box::new(commands::cat_command::CatCommand::new(
+            store.clone(),
+            frame.context_id,
+        )),
+        Box::new(commands::head_command::HeadCommand::new(
+            store.clone(),
+            frame.context_id,
+        )),
+    ])?;
 
     // Parse definition and extract closure
     let closure = parse_command_definition(&mut engine, &definition)?;

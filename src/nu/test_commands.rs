@@ -113,6 +113,7 @@ mod tests {
         engine
             .add_commands(vec![Box::new(commands::head_command::HeadCommand::new(
                 store.clone(),
+                ctx.id,
             ))])
             .unwrap();
 

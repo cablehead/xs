@@ -72,6 +72,10 @@ impl Handler {
                 store.clone(),
                 context_id,
             )),
+            Box::new(commands::head_command::HeadCommand::new(
+                store.clone(),
+                context_id,
+            )),
             Box::new(commands::append_command_buffered::AppendCommand::new(
                 store.clone(),
                 output.clone(),
