@@ -1,4 +1,6 @@
 /// manages watching for tasks command events, and then the lifecycle of these tasks
+/// this module should be renamed to generators.rs
+/// https://cablehead.github.io/xs/reference/generators/
 use std::collections::HashMap;
 
 use scru128::Scru128Id;
@@ -328,11 +330,19 @@ mod tests {
 
     use crate::store::ZERO_CONTEXT;
 
-    #[tokio::test]
-    async fn test_serve_basic() {
+    fn setup_test_env() -> (Store, nu::Engine, Frame) {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
         let engine = nu::Engine::new().unwrap();
+        let ctx = store
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .unwrap();
+        (store, engine, ctx)
+    }
+
+    #[tokio::test]
+    async fn test_serve_basic() {
+        let (store, engine, ctx) = setup_test_env();
 
         {
             let store = store.clone();
@@ -343,7 +353,7 @@ mod tests {
 
         let frame_generator = store
             .append(
-                Frame::builder("toml.spawn", ZERO_CONTEXT)
+                Frame::builder("toml.spawn", ctx.id)
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
@@ -355,6 +365,7 @@ mod tests {
             .unwrap();
 
         let options = ReadOptions::builder()
+            .context_id(ctx.id)
             .follow(FollowOption::On)
             .tail(true)
             .build();
@@ -383,9 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_serve_duplex() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
-        let engine = nu::Engine::new().unwrap();
+        let (store, engine, ctx) = setup_test_env();
 
         {
             let store = store.clone();
@@ -396,7 +405,7 @@ mod tests {
 
         let frame_generator = store
             .append(
-                Frame::builder("greeter.spawn".to_string(), ZERO_CONTEXT)
+                Frame::builder("greeter.spawn".to_string(), ctx.id)
                     .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
                     .meta(serde_json::json!({"duplex": true}))
                     .build(),
@@ -414,7 +423,7 @@ mod tests {
 
         let _ = store
             .append(
-                Frame::builder("greeter.send", ZERO_CONTEXT)
+                Frame::builder("greeter.send", ctx.id)
                     .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
                     .build(),
             )
@@ -435,13 +444,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_serve_compact() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
-        let engine = nu::Engine::new().unwrap();
+        let (store, engine, ctx) = setup_test_env();
 
         let _ = store
             .append(
-                Frame::builder("toml.spawn", ZERO_CONTEXT)
+                Frame::builder("toml.spawn", ctx.id)
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
@@ -455,7 +462,7 @@ mod tests {
         // replaces the previous generator
         let frame_generator = store
             .append(
-                Frame::builder("toml.spawn", ZERO_CONTEXT)
+                Frame::builder("toml.spawn", ctx.id)
                     .maybe_hash(
                         store
                             .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
