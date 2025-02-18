@@ -155,15 +155,6 @@ pub enum FollowOption {
     WithHeartbeat(Duration),
 }
 
-// TODO: split_once is unstable as of 2024-11-28
-fn split_once<T, F>(slice: &[T], pred: F) -> Option<(&[T], &[T])>
-where
-    F: FnMut(&T) -> bool,
-{
-    let index = slice.iter().position(pred)?;
-    Some((&slice[..index], &slice[index + 1..]))
-}
-
 #[derive(Debug)]
 enum GCTask {
     Remove(Scru128Id),
@@ -211,22 +202,8 @@ impl Store {
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
 
-        // Initialize contexts set
         let mut contexts = HashSet::new();
         contexts.insert(ZERO_CONTEXT); // System context is always valid
-
-        // Scan for context registrations
-        let context_prefix = "xs.context".as_bytes();
-        let mut prefix = Vec::with_capacity(context_prefix.len() + 1);
-        prefix.extend(context_prefix);
-        prefix.push(0xFF);
-
-        for kv in topic_index.prefix(&prefix) {
-            let (k, _) = kv.unwrap();
-            let (_topic, frame_id) = split_once(&k, |&c| c == 0xFF).unwrap();
-            let bytes: [u8; 16] = frame_id.try_into().unwrap();
-            contexts.insert(Scru128Id::from_bytes(bytes));
-        }
 
         let store = Store {
             path: path.clone(),
@@ -238,6 +215,13 @@ impl Store {
             broadcast_tx,
             gc_tx,
         };
+
+        // Load context registrations
+        for frame in store.read_sync(None, None, Some(ZERO_CONTEXT)) {
+            if frame.topic == "xs.context" {
+                store.contexts.write().unwrap().insert(frame.id);
+            }
+        }
 
         // Spawn gc worker thread
         spawn_gc_worker(gc_rx, store.clone());
@@ -423,24 +407,10 @@ impl Store {
 
     #[tracing::instrument(skip(self))]
     pub fn head(&self, topic: &str, context_id: Scru128Id) -> Option<Frame> {
-        let key = format!("{}/{}", context_id, topic);
-        let mut prefix = Vec::with_capacity(key.len() + 1);
-        prefix.extend(key.as_bytes());
-        prefix.push(0xFF);
-
-        for kv in self.topic_index.prefix(prefix).rev() {
-            let (k, _) = kv.unwrap();
-
-            let (_topic, frame_id) = split_once(&k, |&c| c == 0xFF).unwrap();
-
-            // Join back to "primary index"
-            if let Some(value) = self.frame_partition.get(frame_id).unwrap() {
-                let frame: Frame = serde_json::from_slice(&value).unwrap();
-                return Some(frame);
-            };
-        }
-
-        None
+        self.topic_index
+            .prefix(topic_prefix_key(context_id, topic))
+            .rev()
+            .find_map(|kv| self.get(&frame_id_from_topic_key(&kv.unwrap().0)))
     }
 
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
@@ -602,21 +572,14 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
                     topic,
                     keep,
                 } => {
-                    let key = format!("{}/{}", context_id, topic);
-                    let mut prefix = Vec::with_capacity(key.len() + 1);
-                    prefix.extend(key.as_bytes());
-                    prefix.push(0xFF);
-
+                    let prefix = topic_prefix_key(context_id, &topic);
                     let frames_to_remove: Vec<_> = store
                         .topic_index
                         .prefix(&prefix)
                         .rev() // Scan from newest to oldest
                         .skip(keep as usize)
-                        .filter_map(|r| {
-                            let (key, _) = r.ok()?;
-                            let (_, frame_id_bytes) = split_once(&key, |&c| c == 0xFF)?;
-                            let bytes: [u8; 16] = frame_id_bytes.try_into().ok()?;
-                            Some(Scru128Id::from_bytes(bytes))
+                        .map(|r| {
+                            Scru128Id::from_bytes(frame_id_from_topic_key(&r.unwrap().0).into())
                         })
                         .collect();
 
@@ -644,15 +607,23 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
     now_ms >= expires_ms
 }
 
+fn topic_prefix_key(context_id: Scru128Id, topic: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(16 + topic.len() + 1); // context_id (16) + topic bytes + delimiter
+    v.extend(context_id.as_bytes()); // binary context_id (16 bytes)
+    v.extend(topic.as_bytes()); // topic string as UTF-8 bytes
+    v.push(0xFF); // delimiter
+    v
+}
+
 fn topic_index_key_for_frame(frame: &Frame) -> Vec<u8> {
-    // We use a 0xFF as delimiter, because
-    // 0xFF cannot appear in a valid UTF-8 sequence
-    let key = format!("{}/{}", frame.context_id, frame.topic);
-    let mut v = Vec::with_capacity(frame.id.as_bytes().len() + 1 + key.len());
-    v.extend(key.as_bytes());
-    v.push(0xFF);
+    let mut v = topic_prefix_key(frame.context_id, &frame.topic);
     v.extend(frame.id.as_bytes());
     v
+}
+
+fn frame_id_from_topic_key(key: &[u8]) -> Scru128Id {
+    let frame_id_bytes = &key[key.len() - 16..];
+    Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap())
 }
 
 // Creates a key for the context index: <context_id><frame_id>
