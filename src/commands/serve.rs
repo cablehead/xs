@@ -46,7 +46,6 @@ pub async fn serve(
     // Add core commands to base engine
     base_engine.add_commands(vec![
         Box::new(commands::cas_command::CasCommand::new(store.clone())),
-        Box::new(commands::cat_command::CatCommand::new(store.clone())),
         Box::new(commands::get_command::GetCommand::new(store.clone())),
         Box::new(commands::head_command::HeadCommand::new(store.clone())),
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
@@ -92,8 +91,15 @@ async fn register_command(
     let definition = store.cas_read(hash).await?;
     let definition = String::from_utf8(definition)?;
 
-    // Parse definition and extract closure
     let mut engine = base_engine.clone();
+
+    // Add addtional commands, scoped to this command's context
+    engine.add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
+        store.clone(),
+        frame.context_id,
+    ))])?;
+
+    // Parse definition and extract closure
     let closure = parse_command_definition(&mut engine, &definition)?;
 
     Ok(Command {

@@ -7,11 +7,12 @@ use crate::store::{ReadOptions, Store};
 #[derive(Clone)]
 pub struct CatCommand {
     store: Store,
+    context_id: scru128::Scru128Id,
 }
 
 impl CatCommand {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new(store: Store, context_id: scru128::Scru128Id) -> Self {
+        Self { store, context_id }
     }
 }
 
@@ -50,17 +51,15 @@ impl Command for CatCommand {
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let limit: Option<usize> = call.get_flag(engine_state, stack, "limit")?;
-        let last_id: Option<String> = call.get_flag(engine_state, stack, "last-id")?;
 
-        let options = ReadOptions {
-            limit,
-            last_id: last_id.as_deref().map(|s| s.parse().unwrap()),
-            ..Default::default()
-        };
+        let last_id: Option<String> = call.get_flag(engine_state, stack, "last-id")?;
+        let last_id: Option<scru128::Scru128Id> = last_id
+            .as_deref()
+            .map(|s| s.parse().expect("Failed to parse Scru128Id"));
 
         let frames = self
             .store
-            .read_sync(options.last_id.as_ref(), options.limit, options.context_id)
+            .read_sync(last_id.as_ref(), limit, Some(self.context_id))
             .collect::<Vec<_>>();
 
         use nu_protocol::Value;

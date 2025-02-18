@@ -67,9 +67,16 @@ impl Handler {
         store: Store,
     ) -> Result<Self, Error> {
         let output = Arc::new(Mutex::new(Vec::new()));
-        engine.add_commands(vec![Box::new(
-            commands::append_command_buffered::AppendCommand::new(store.clone(), output.clone()),
-        )])?;
+        engine.add_commands(vec![
+            Box::new(commands::cat_command::CatCommand::new(
+                store.clone(),
+                context_id,
+            )),
+            Box::new(commands::append_command_buffered::AppendCommand::new(
+                store.clone(),
+                output.clone(),
+            )),
+        ])?;
 
         let (mut process, mut config) =
             parse_handler_configuration_script(&mut engine, &expression)?;

@@ -35,7 +35,7 @@ mod tests {
 
     #[test]
     fn test_append_command() {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine, _ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(store.clone()),
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn test_append_record() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine, _ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(store.clone()),
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn test_cas_command() {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine, _ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
                 store.clone(),
@@ -147,6 +147,7 @@ mod tests {
         engine
             .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
                 store.clone(),
+                ctx.id,
             ))])
             .unwrap();
 
