@@ -2,7 +2,7 @@ use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type};
 
-use crate::store::{ReadOptions, Store};
+use crate::store::Store;
 
 #[derive(Clone)]
 pub struct CatCommand {
