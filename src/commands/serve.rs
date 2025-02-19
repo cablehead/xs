@@ -12,7 +12,7 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 struct Command {
     id: Scru128Id,
     engine: nu::Engine,
-    closure: nu_protocol::engine::Closure,
+    definition: String,
 }
 
 async fn handle_define(
@@ -48,7 +48,6 @@ pub async fn serve(
         Box::new(commands::cas_command::CasCommand::new(store.clone())),
         Box::new(commands::get_command::GetCommand::new(store.clone())),
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
-        Box::new(commands::append_command::AppendCommand::new(store.clone())),
     ])?;
 
     let mut commands = HashMap::new();
@@ -104,13 +103,10 @@ async fn register_command(
         )),
     ])?;
 
-    // Parse definition and extract closure
-    let closure = parse_command_definition(&mut engine, &definition)?;
-
     Ok(Command {
         id: frame.id,
         engine,
-        closure,
+        definition,
     })
 }
 
@@ -128,11 +124,22 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
     let store = store.clone();
 
     tokio::task::spawn_blocking(move || {
-        let Command {
-            engine,
-            closure,
-            id: command_id,
-        } = command;
+        let base_meta = serde_json::json!({
+            "command_id": command.id.to_string(),
+            "frame_id": frame.id.to_string()
+        });
+
+        let mut engine = command.engine;
+
+        engine.add_commands(vec![Box::new(
+            commands::append_command::AppendCommand::new(
+                store.clone(),
+                frame.context_id,
+                base_meta,
+            ),
+        )])?;
+
+        let closure = parse_command_definition(&mut engine, &command.definition)?;
 
         // Run command and process pipeline
         match run_command(&engine, closure, &frame) {
@@ -147,7 +154,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                         )
                         .hash(hash)
                         .meta(serde_json::json!({
-                            "command_id": command_id.to_string(),
+                            "command_id": command.id.to_string(),
                             "frame_id": frame.id.to_string(),
                         }))
                         .build(),
@@ -161,7 +168,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                         frame.context_id,
                     )
                     .meta(serde_json::json!({
-                        "command_id": command_id.to_string(),
+                        "command_id": command.id.to_string(),
                         "frame_id": frame.id.to_string(),
                     }))
                     .build(),
@@ -177,7 +184,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
                         frame.context_id,
                     )
                     .meta(serde_json::json!({
-                        "command_id": command_id.to_string(),
+                        "command_id": command.id.to_string(),
                         "frame_id": frame.id.to_string(),
                         "error": nu_protocol::format_shell_error(&working_set, &err)
                     }))
