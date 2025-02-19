@@ -125,6 +125,112 @@ async fn test_command_error_handling() -> Result<(), Error> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_command_single_value() -> Result<(), Error> {
+    let (store, ctx) = setup_test_environment().await;
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Define the command
+    let frame_command = store.append(
+        Frame::builder("single.define", ctx.id)
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{
+                            process: {|frame| "single value output"}
+                        }"#,
+                    )
+                    .await?,
+            )
+            .build(),
+    )?;
+    assert_eq!(recver.recv().await.unwrap().topic, "single.define");
+
+    // Call the command
+    let frame_call = store.append(Frame::builder("single.call", ctx.id).build())?;
+    assert_eq!(recver.recv().await.unwrap().topic, "single.call");
+
+    // Expect .recv with hash for the single value
+    let frame_recv = recver.recv().await.unwrap();
+    assert_eq!(frame_recv.topic, "single.recv");
+    let meta_recv = frame_recv.meta.as_ref().expect("Meta should be present");
+    assert_eq!(meta_recv["command_id"], frame_command.id.to_string());
+    assert_eq!(meta_recv["frame_id"], frame_call.id.to_string());
+
+    // Verify content of .recv
+    let hash = frame_recv.hash.as_ref().expect("Hash should be present");
+    let content = store.cas_read(hash).await?;
+    let content_str = String::from_utf8(content)?;
+    assert_eq!(
+        content_str,
+        serde_json::to_string("single value output").unwrap()
+    );
+
+    // Expect .complete with no hash
+    let frame_complete = recver.recv().await.unwrap();
+    assert_eq!(frame_complete.topic, "single.complete");
+    let meta_complete = frame_complete
+        .meta
+        .as_ref()
+        .expect("Meta should be present");
+    assert_eq!(meta_complete["command_id"], frame_command.id.to_string());
+    assert_eq!(meta_complete["frame_id"], frame_call.id.to_string());
+    assert!(
+        frame_complete.hash.is_none(),
+        "Complete event should have no hash"
+    );
+
+    assert_no_more_frames(&mut recver).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_command_empty_output() -> Result<(), Error> {
+    let (store, ctx) = setup_test_environment().await;
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Define the command
+    let frame_command = store.append(
+        Frame::builder("empty.define", ctx.id)
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{
+                            process: {|frame|}
+                        }"#,
+                    )
+                    .await?,
+            )
+            .build(),
+    )?;
+    assert_eq!(recver.recv().await.unwrap().topic, "empty.define");
+
+    // Call the command
+    let frame_call = store.append(Frame::builder("empty.call", ctx.id).build())?;
+    assert_eq!(recver.recv().await.unwrap().topic, "empty.call");
+
+    // Expect only .complete with no hash
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "empty.complete");
+    let meta = frame.meta.as_ref().expect("Meta should be present");
+    assert_eq!(meta["command_id"], frame_command.id.to_string());
+    assert_eq!(meta["frame_id"], frame_call.id.to_string());
+    assert!(frame.hash.is_none(), "Complete event should have no hash");
+
+    assert_no_more_frames(&mut recver).await;
+    Ok(())
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
