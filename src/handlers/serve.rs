@@ -18,7 +18,7 @@ async fn start_handler(
         }
         Err(err) => {
             let _ = store.append(
-                Frame::with_topic(format!("{}.unregistered", topic))
+                Frame::builder(format!("{}.unregistered", topic), frame.context_id)
                     .meta(serde_json::json!({
                         "handler_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -42,9 +42,7 @@ pub async fn serve(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     engine.add_commands(vec![
         Box::new(commands::cas_command::CasCommand::new(store.clone())),
-        Box::new(commands::cat_command::CatCommand::new(store.clone())),
         Box::new(commands::get_command::GetCommand::new(store.clone())),
-        Box::new(commands::head_command::HeadCommand::new(store.clone())),
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
     ])?;
     engine.add_alias(".rm", ".remove")?;

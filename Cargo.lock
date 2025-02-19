@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "cross-stream"
-version = "0.2.2-dev"
+version = "0.3.0-dev"
 dependencies = [
  "assert_cmd",
  "base64 0.22.1",

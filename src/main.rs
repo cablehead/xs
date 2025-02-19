@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
 use tokio::io::AsyncWriteExt;
 
 use xs::nu;
-use xs::store::{parse_ttl, Store};
+use xs::store::{parse_ttl, FollowOption, ReadOptions, Store, ZERO_CONTEXT};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -80,6 +81,14 @@ struct CommandCat {
     /// Use Server-Sent Events format
     #[clap(long)]
     sse: bool,
+
+    /// Context ID (defaults to system context)
+    #[clap(long, short = 'c')]
+    context: Option<String>,
+
+    /// Retrieve all frames, across contexts
+    #[clap(long, short = 'a')]
+    all: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -99,6 +108,10 @@ struct CommandAppend {
     /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<milliseconds>, head:<n>
     #[clap(long)]
     ttl: Option<String>,
+
+    /// Context ID (defaults to system context)
+    #[clap(long, short = 'c')]
+    context: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -143,6 +156,10 @@ struct CommandHead {
     /// Follow the head frame for updates
     #[clap(long, short = 'f')]
     follow: bool,
+
+    /// Context ID (defaults to system context)
+    #[clap(long, short = 'c')]
+    context: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -224,16 +241,38 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut receiver = xs::client::cat(
-        &args.addr,
-        args.follow,
-        args.pulse,
-        args.tail,
-        args.last_id.clone(),
-        args.limit,
-        args.sse,
-    )
-    .await?;
+    // Parse IDs first for early error detection
+    let context_id = args
+        .context
+        .as_deref()
+        .and_then(|context| scru128::Scru128Id::from_str(context).ok())
+        .or_else(|| (!args.all).then_some(ZERO_CONTEXT));
+
+    let last_id = if let Some(last_id) = &args.last_id {
+        match scru128::Scru128Id::from_str(last_id) {
+            Ok(id) => Some(id),
+            Err(_) => return Err(format!("Invalid last-id: {}", last_id).into()),
+        }
+    } else {
+        None
+    };
+
+    // Build options in one chain
+    let options = ReadOptions::builder()
+        .tail(args.tail)
+        .follow(if let Some(pulse) = args.pulse {
+            FollowOption::WithHeartbeat(Duration::from_millis(pulse))
+        } else if args.follow {
+            FollowOption::On
+        } else {
+            FollowOption::Off
+        })
+        .maybe_last_id(last_id)
+        .maybe_limit(args.limit.map(|l| l as usize))
+        .maybe_context_id(context_id)
+        .build();
+
+    let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
     let mut stdout = tokio::io::stdout();
     while let Some(bytes) = receiver.recv().await {
         stdout.write_all(&bytes).await?;
@@ -266,7 +305,15 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
         Box::new(tokio::io::empty())
     };
 
-    let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref(), ttl).await?;
+    let response = xs::client::append(
+        &args.addr,
+        &args.topic,
+        input,
+        meta.as_ref(),
+        ttl,
+        args.context.as_deref(),
+    )
+    .await?;
 
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
@@ -298,7 +345,13 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn head(args: CommandHead) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    xs::client::head(&args.addr, &args.topic, args.follow).await
+    xs::client::head(
+        &args.addr,
+        &args.topic,
+        args.follow,
+        args.context.as_deref(),
+    )
+    .await
 }
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

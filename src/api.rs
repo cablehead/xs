@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
 
@@ -31,16 +32,28 @@ enum AcceptType {
 }
 
 enum Routes {
-    StreamCat(AcceptType),
-    StreamAppend(String),
+    StreamCat {
+        accept_type: AcceptType,
+        options: ReadOptions,
+    },
+    StreamAppend {
+        topic: String,
+        ttl: Option<TTL>,
+        context_id: Scru128Id,
+    },
+    HeadGet {
+        topic: String,
+        follow: bool,
+        context_id: Scru128Id,
+    },
     StreamItemGet(Scru128Id),
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
-    HeadGet(String, bool), // topic, follow
     Import,
     Version,
     NotFound,
+    BadRequest(String),
 }
 
 fn match_route(
@@ -49,6 +62,11 @@ fn match_route(
     headers: &hyper::HeaderMap,
     query: Option<&str>,
 ) -> Routes {
+    let params: HashMap<String, String> =
+        url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
+            .into_owned()
+            .collect();
+
     match (method, path) {
         (&Method::GET, "/version") => Routes::Version,
 
@@ -57,51 +75,77 @@ fn match_route(
                 Some(accept) if accept == "text/event-stream" => AcceptType::EventStream,
                 _ => AcceptType::Ndjson,
             };
-            Routes::StreamCat(accept_type)
+
+            let options = ReadOptions::from_query(query);
+
+            match options {
+                Ok(options) => Routes::StreamCat {
+                    accept_type,
+                    options,
+                },
+                Err(e) => Routes::BadRequest(e.to_string()),
+            }
         }
 
         (&Method::GET, p) if p.starts_with("/head/") => {
-            if let Some(topic) = p.strip_prefix("/head/") {
-                let follow = url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
-                    .any(|(key, _)| key == "follow");
-                Routes::HeadGet(topic.to_string(), follow)
-            } else {
-                Routes::NotFound
+            let topic = p.strip_prefix("/head/").unwrap().to_string();
+            let follow = params.contains_key("follow");
+            let context_id = match params.get("context") {
+                None => crate::store::ZERO_CONTEXT,
+                Some(ctx) => match ctx.parse() {
+                    Ok(id) => id,
+                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {}", e)),
+                },
+            };
+            Routes::HeadGet {
+                topic,
+                follow,
+                context_id,
             }
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
             if let Some(hash) = p.strip_prefix("/cas/") {
-                if let Ok(integrity) = ssri::Integrity::from_str(hash) {
-                    return Routes::CasGet(integrity);
+                match ssri::Integrity::from_str(hash) {
+                    Ok(integrity) => Routes::CasGet(integrity),
+                    Err(e) => Routes::BadRequest(format!("Invalid CAS hash: {}", e)),
                 }
+            } else {
+                Routes::NotFound
             }
-            Routes::NotFound
         }
 
         (&Method::POST, "/cas") => Routes::CasPost,
-
         (&Method::POST, "/import") => Routes::Import,
 
-        (&Method::GET, p) => {
-            if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
-                Routes::StreamItemGet(id)
-            } else {
-                Routes::NotFound
-            }
-        }
+        (&Method::GET, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
+            Ok(id) => Routes::StreamItemGet(id),
+            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {}", e)),
+        },
 
-        (&Method::DELETE, p) => {
-            if let Ok(id) = Scru128Id::from_str(p.trim_start_matches('/')) {
-                Routes::StreamItemRemove(id)
-            } else {
-                Routes::NotFound
-            }
-        }
+        (&Method::DELETE, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
+            Ok(id) => Routes::StreamItemRemove(id),
+            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {}", e)),
+        },
 
         (&Method::POST, path) if path.starts_with('/') => {
-            let topic = path.trim_start_matches('/');
-            Routes::StreamAppend(topic.to_string())
+            let topic = path.trim_start_matches('/').to_string();
+            let context_id = match params.get("context") {
+                None => crate::store::ZERO_CONTEXT,
+                Some(ctx) => match ctx.parse() {
+                    Ok(id) => id,
+                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {}", e)),
+                },
+            };
+
+            match TTL::from_query(query) {
+                Ok(ttl) => Routes::StreamAppend {
+                    topic,
+                    ttl: Some(ttl),
+                    context_id,
+                },
+                Err(e) => Routes::BadRequest(e.to_string()),
+            }
         }
 
         _ => Routes::NotFound,
@@ -121,16 +165,16 @@ async fn handle(
     let res = match match_route(method, path, &headers, query) {
         Routes::Version => handle_version().await,
 
-        Routes::StreamCat(accept_type) => {
-            let options = match ReadOptions::from_query(req.uri().query()) {
-                Ok(opts) => opts,
-                Err(err) => return response_400(err.to_string()),
-            };
+        Routes::StreamCat {
+            accept_type,
+            options,
+        } => handle_stream_cat(&mut store, options, accept_type).await,
 
-            handle_stream_cat(&mut store, options, accept_type).await
-        }
-
-        Routes::StreamAppend(topic) => handle_stream_append(&mut store, req, topic).await,
+        Routes::StreamAppend {
+            topic,
+            ttl,
+            context_id,
+        } => handle_stream_append(&mut store, req, topic, ttl, context_id).await,
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
@@ -151,11 +195,16 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::HeadGet(topic, follow) => handle_head_get(&store, &topic, follow).await,
+        Routes::HeadGet {
+            topic,
+            follow,
+            context_id,
+        } => handle_head_get(&store, &topic, follow, context_id).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
         Routes::NotFound => response_404(),
+        Routes::BadRequest(msg) => response_400(msg),
     };
 
     res.or_else(|e| response_500(e.to_string()))
@@ -204,14 +253,10 @@ async fn handle_stream_append(
     store: &mut Store,
     req: Request<hyper::body::Incoming>,
     topic: String,
+    ttl: Option<TTL>,
+    context_id: Scru128Id,
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
-
-    // Parse TTL from query parameters
-    let ttl = match TTL::from_query(parts.uri.query()) {
-        Ok(ttl) => ttl,
-        Err(e) => return response_400(e),
-    };
 
     let hash = {
         let mut writer = store.cas_writer().await?;
@@ -245,12 +290,12 @@ async fn handle_stream_append(
     };
 
     let frame = store.append(
-        Frame::with_topic(topic)
+        Frame::builder(topic, context_id)
             .maybe_hash(hash)
             .maybe_meta(meta)
-            .ttl(ttl)
+            .maybe_ttl(ttl)
             .build(),
-    );
+    )?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -297,11 +342,13 @@ pub async fn serve(
     engine: nu::Engine,
     expose: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _ = store.append(
-        Frame::with_topic("xs.start")
+    if let Err(e) = store.append(
+        Frame::builder("xs.start", store::ZERO_CONTEXT)
             .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
             .build(),
-    );
+    ) {
+        tracing::error!("Failed to append xs.start frame: {}", e);
+    }
 
     let path = store.path.join("sock").to_string_lossy().to_string();
     let listener = Listener::bind(&path).await?;
@@ -389,8 +436,13 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_head_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
-    let current_head = store.head(topic);
+async fn handle_head_get(
+    store: &Store,
+    topic: &str,
+    follow: bool,
+    context_id: Scru128Id,
+) -> HTTPResult {
+    let current_head = store.head(topic, context_id);
 
     if !follow {
         return response_frame_or_404(current_head);
@@ -489,12 +541,12 @@ mod tests {
 
         assert!(matches!(
             match_route(&Method::GET, "/head/test", &headers, None),
-            Routes::HeadGet(topic, false) if topic == "test"
+            Routes::HeadGet { topic, follow: false, context_id: _ } if topic == "test"
         ));
 
         assert!(matches!(
             match_route(&Method::GET, "/head/test", &headers, Some("follow=true")),
-            Routes::HeadGet(topic, true) if topic == "test"
+            Routes::HeadGet { topic, follow: true, context_id: _ } if topic == "test"
         ));
     }
 }
