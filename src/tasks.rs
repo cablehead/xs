@@ -1,4 +1,6 @@
 /// manages watching for tasks command events, and then the lifecycle of these tasks
+/// this module should be renamed to generators.rs
+/// https://cablehead.github.io/xs/reference/generators/
 use std::collections::HashMap;
 
 use scru128::Scru128Id;
@@ -38,6 +40,7 @@ pub struct GeneratorMeta {
 #[derive(Clone, Debug)]
 struct GeneratorTask {
     id: Scru128Id,
+    context_id: Scru128Id,
     topic: String,
     meta: GeneratorMeta,
     expression: String,
@@ -64,11 +67,13 @@ async fn try_start_task(
             "reason": e.to_string()
         });
 
-        let _ = store.append(
-            Frame::with_topic(format!("{}.spawn.error", topic))
+        if let Err(e) = store.append(
+            Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
                 .meta(meta)
                 .build(),
-        );
+        ) {
+            tracing::error!("Error appending error frame: {}", e);
+        }
     }
 }
 
@@ -96,6 +101,7 @@ async fn handle_spawn_event(
 
     let task = GeneratorTask {
         id: frame.id,
+        context_id: frame.context_id,
         topic: topic.to_string(),
         meta: meta.clone(),
         expression: expression.clone(),
@@ -179,11 +185,13 @@ pub async fn serve(
                     "reason": e.to_string()
                 });
 
-                let _ = store.append(
-                    Frame::with_topic(format!("{}.spawn.error", topic))
+                if let Err(e) = store.append(
+                    Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
                         .meta(meta)
                         .build(),
-                );
+                ) {
+                    tracing::error!("Error appending error frame: {}", e);
+                }
             }
         }
     }
@@ -193,8 +201,7 @@ pub async fn serve(
 
 async fn append(
     store: Store,
-    source_id: Scru128Id,
-    topic: &str,
+    task: &GeneratorTask,
     suffix: &str,
     content: Option<String>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
@@ -205,22 +212,20 @@ async fn append(
     };
 
     let meta = serde_json::json!({
-        "source_id": source_id.to_string(),
+        "source_id": task.id.to_string(),
     });
 
     let frame = store.append(
-        Frame::with_topic(format!("{}.{}", topic, suffix))
+        Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
             .maybe_hash(hash)
             .meta(meta)
             .build(),
-    );
+    )?;
     Ok(frame)
 }
 
 async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
-    let start = append(store.clone(), task.id, &task.topic, "start", None)
-        .await
-        .unwrap();
+    let start = append(store.clone(), &task, "start", None).await.unwrap();
 
     use futures::StreamExt;
     use tokio_stream::wrappers::ReceiverStream;
@@ -288,9 +293,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
             PipelineData::Value(value, _) => {
                 if let Value::String { val, .. } = value {
                     handle
-                        .block_on(async {
-                            append(store.clone(), task.id, &task.topic, "recv", Some(val)).await
-                        })
+                        .block_on(async { append(store.clone(), &task, "recv", Some(val)).await })
                         .unwrap();
                 } else {
                     panic!("Unexpected Value type in PipelineData::Value");
@@ -301,7 +304,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
                     if let Value::String { val, .. } = value {
                         handle
                             .block_on(async {
-                                append(store.clone(), task.id, &task.topic, "recv", Some(val)).await
+                                append(store.clone(), &task, "recv", Some(val)).await
                             })
                             .unwrap();
                     } else {
@@ -315,7 +318,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
         }
 
         handle
-            .block_on(async { append(store.clone(), task.id, &task.topic, "stop", None).await })
+            .block_on(async { append(store.clone(), &task, "stop", None).await })
             .unwrap();
     });
 }
@@ -325,11 +328,21 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn test_serve_basic() {
+    use crate::store::ZERO_CONTEXT;
+
+    fn setup_test_env() -> (Store, nu::Engine, Frame) {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
         let engine = nu::Engine::new().unwrap();
+        let ctx = store
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .unwrap();
+        (store, engine, ctx)
+    }
+
+    #[tokio::test]
+    async fn test_serve_basic() {
+        let (store, engine, ctx) = setup_test_env();
 
         {
             let store = store.clone();
@@ -338,20 +351,21 @@ mod tests {
             });
         }
 
-        let frame_generator = store.append(
-            Frame::with_topic("toml.spawn")
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
-                .build(),
-        );
-
-        eprintln!("frame_generator: {:?}", frame_generator);
+        let frame_generator = store
+            .append(
+                Frame::builder("toml.spawn", ctx.id)
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
+            )
+            .unwrap();
 
         let options = ReadOptions::builder()
+            .context_id(ctx.id)
             .follow(FollowOption::On)
             .tail(true)
             .build();
@@ -380,9 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_serve_duplex() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
-        let engine = nu::Engine::new().unwrap();
+        let (store, engine, ctx) = setup_test_env();
 
         {
             let store = store.clone();
@@ -391,12 +403,14 @@ mod tests {
             });
         }
 
-        let frame_generator = store.append(
-            Frame::with_topic("greeter.spawn".to_string())
-                .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
-                .meta(serde_json::json!({"duplex": true}))
-                .build(),
-        );
+        let frame_generator = store
+            .append(
+                Frame::builder("greeter.spawn".to_string(), ctx.id)
+                    .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
+                    .meta(serde_json::json!({"duplex": true}))
+                    .build(),
+            )
+            .unwrap();
 
         let options = ReadOptions::builder()
             .follow(FollowOption::On)
@@ -407,11 +421,13 @@ mod tests {
         let frame = recver.recv().await.unwrap();
         assert_eq!(frame.topic, "greeter.start".to_string());
 
-        let _ = store.append(
-            Frame::with_topic("greeter.send")
-                .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
-                .build(),
-        );
+        let _ = store
+            .append(
+                Frame::builder("greeter.send", ctx.id)
+                    .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
+                    .build(),
+            )
+            .unwrap();
         assert_eq!(
             recver.recv().await.unwrap().topic,
             "greeter.send".to_string()
@@ -428,32 +444,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_serve_compact() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
-        let engine = nu::Engine::new().unwrap();
+        let (store, engine, ctx) = setup_test_env();
 
-        let _ = store.append(
-            Frame::with_topic("toml.spawn")
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
-                .build(),
-        );
+        let _ = store
+            .append(
+                Frame::builder("toml.spawn", ctx.id)
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
+            )
+            .unwrap();
 
         // replaces the previous generator
-        let frame_generator = store.append(
-            Frame::with_topic("toml.spawn")
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
-                .build(),
-        );
+        let frame_generator = store
+            .append(
+                Frame::builder("toml.spawn", ctx.id)
+                    .maybe_hash(
+                        store
+                            .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
+                            .await
+                            .ok(),
+                    )
+                    .build(),
+            )
+            .unwrap();
 
         let options = ReadOptions::builder()
             .follow(FollowOption::On)

@@ -1,50 +1,27 @@
 use futures::StreamExt;
-
 use ssri::Integrity;
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, StreamBody};
 use hyper::body::Bytes;
 use hyper::Method;
-
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::Receiver;
 use tokio_util::io::ReaderStream;
-
-use crate::store::TTL;
+use url::form_urlencoded;
 
 use super::request;
+use crate::store::{ReadOptions, TTL};
 
 pub async fn cat(
     addr: &str,
-    follow: bool,
-    pulse: Option<u64>,
-    tail: bool,
-    last_id: Option<String>,
-    limit: Option<u64>,
+    options: ReadOptions,
     sse: bool,
 ) -> Result<Receiver<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut params = Vec::new();
-    if follow {
-        if let Some(pulse_value) = pulse {
-            params.push(format!("follow={}", pulse_value));
-        } else {
-            params.push("follow=true".to_string());
-        }
-    }
-    if tail {
-        params.push("tail".to_string());
-    }
-    if let Some(ref last_id_value) = last_id {
-        params.push(format!("last-id={}", last_id_value));
-    }
-    if let Some(limit_value) = limit {
-        params.push(format!("limit={}", limit_value));
-    }
-
-    let query = if !params.is_empty() {
-        Some(params.join("&"))
-    } else {
+    // Convert any usize limit to u64
+    let query = if options == ReadOptions::default() {
         None
+    } else {
+        Some(options.to_query_string())
     };
 
     let headers = if sse {
@@ -88,14 +65,32 @@ pub async fn append<R>(
     data: R,
     meta: Option<&serde_json::Value>,
     ttl: Option<TTL>,
+    context: Option<&str>,
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    // Build query string if TTL is present
-    let query = ttl.map(|t| t.to_query());
+    let mut params = Vec::new();
+    if let Some(t) = ttl {
+        let ttl_query = t.to_query();
+        if let Some((k, v)) = ttl_query.split_once('=') {
+            params.push((k.to_string(), v.to_string()));
+        }
+    }
+    if let Some(c) = context {
+        params.push(("context".to_string(), c.to_string()));
+    }
 
-    // Setup stream from data
+    let query = if !params.is_empty() {
+        Some(
+            form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(params)
+                .finish(),
+        )
+    } else {
+        None
+    };
+
     let reader_stream = ReaderStream::new(data);
     let mapped_stream = reader_stream.map(|result| {
         result
@@ -104,7 +99,6 @@ where
     });
     let body = StreamBody::new(mapped_stream);
 
-    // Add meta header if present
     let headers = meta.map(|meta_value| {
         vec![(
             "xs-meta".to_string(),
@@ -113,7 +107,6 @@ where
     });
 
     let res = request::request(addr, Method::POST, topic, query.as_deref(), body, headers).await?;
-
     let body = res.collect().await?.to_bytes();
     Ok(body)
 }
@@ -133,7 +126,6 @@ where
             // Direct CAS access for local path
             let store_path = path.parent().unwrap_or(&path).to_path_buf();
             let cas_path = store_path.join("cacache");
-
             let mut reader = cacache::Reader::open_hash(&cas_path, integrity).await?;
             tokio::io::copy(&mut reader, writer).await?;
             writer.flush().await?;
@@ -172,7 +164,6 @@ pub async fn cas_post<R>(
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    // Setup stream from data
     let reader_stream = ReaderStream::new(data);
     let mapped_stream = reader_stream.map(|result| {
         result
@@ -182,7 +173,6 @@ where
     let body = StreamBody::new(mapped_stream);
 
     let res = request::request(addr, Method::POST, "cas", None, body, None).await?;
-
     let body = res.collect().await?.to_bytes();
     Ok(body)
 }
@@ -202,13 +192,31 @@ pub async fn head(
     addr: &str,
     topic: &str,
     follow: bool,
+    context: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let query = if follow { Some("follow=true") } else { None };
+    let mut params = Vec::new();
+    if follow {
+        params.push(("follow", "true".to_string()));
+    }
+    if let Some(c) = context {
+        params.push(("context", c.to_string()));
+    }
+
+    let query = if !params.is_empty() {
+        Some(
+            form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(params)
+                .finish(),
+        )
+    } else {
+        None
+    };
+
     let res = request::request(
         addr,
         Method::GET,
         &format!("head/{}", topic),
-        query,
+        query.as_deref(),
         empty(),
         None,
     )
@@ -258,7 +266,7 @@ pub async fn version(addr: &str) -> Result<Bytes, Box<dyn std::error::Error + Se
             if e.to_string().contains("404 Not Found") {
                 Ok(Bytes::from(r#"{"version":"0.0.9"}"#))
             } else {
-                Err(e) // Propagate other errors
+                Err(e)
             }
         }
     }

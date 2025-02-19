@@ -40,6 +40,12 @@ impl Command for AppendCommand {
                r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'"#,
                None,
            )
+           .named(
+               "context",
+               SyntaxShape::String,
+               "context ID (defaults to system context)",
+               None,
+           )
            .category(Category::Experimental)
     }
 
@@ -79,7 +85,21 @@ impl Command for AppendCommand {
             span,
         )?;
 
-        let frame = Frame::with_topic(topic)
+        let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
+        let context_id = if let Some(ctx) = context_str {
+            ctx.parse::<scru128::Scru128Id>()
+                .map_err(|e| ShellError::GenericError {
+                    error: "Invalid context ID".into(),
+                    msg: e.to_string(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?
+        } else {
+            crate::store::ZERO_CONTEXT
+        };
+
+        let frame = Frame::builder(topic, context_id)
             .maybe_meta(meta.map(|v| value_to_json(&v)))
             .maybe_hash(hash)
             .maybe_ttl(ttl)
