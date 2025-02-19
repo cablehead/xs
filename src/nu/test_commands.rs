@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
     use nu_protocol::{PipelineData, Span, Value};
+    use serde_json::json;
     use tempfile::TempDir;
 
     use crate::error::Error;
-    use crate::nu::commands;
-    use crate::nu::Engine;
+    use crate::nu::{commands, util, Engine};
     use crate::store::{Frame, Store, ZERO_CONTEXT};
 
     fn setup_test_env() -> (Store, Engine, Frame) {
@@ -33,53 +33,48 @@ mod tests {
         .unwrap()
     }
 
+    fn value_to_frame(value: Value) -> Frame {
+        let value = util::value_to_json(&value);
+        serde_json::from_value(value).expect("Failed to deserialize JSON into Frame")
+    }
+
     #[test]
     fn test_append_command() {
-        let (store, mut engine, _ctx) = setup_test_env();
+        let (store, mut engine, ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
-                commands::append_command::AppendCommand::new(store.clone()),
+                commands::append_command::AppendCommand::new(
+                    store.clone(),
+                    ctx.id,
+                    json!({"base": "meta"}),
+                ),
             )])
             .unwrap();
 
+        // Test piping a basic string to .append
         let frame = nu_eval(
             &engine,
             PipelineData::empty(),
             r#""test content" | .append topic"#,
         );
-
-        assert!(frame.get_data_by_key("id").is_some());
-        assert_eq!(
-            frame.get_data_by_key("topic").unwrap().as_str().unwrap(),
-            "topic"
-        );
-
-        let hash_value = frame.get_data_by_key("hash").unwrap();
-        let frame_hash = hash_value.as_str().unwrap();
-        let content = store.cas_read_sync(&frame_hash.parse().unwrap()).unwrap();
+        let frame = value_to_frame(frame);
+        assert_eq!(frame.context_id, ctx.id);
+        assert_eq!(frame.topic, "topic");
+        assert_eq!(frame.meta.unwrap(), json!({"base": "meta"}));
+        let content = store.cas_read_sync(&frame.hash.unwrap()).unwrap();
         assert_eq!(String::from_utf8(content).unwrap(), "test content");
-    }
 
-    #[test]
-    fn test_append_record() -> Result<(), Error> {
-        let (store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::append_command::AppendCommand::new(store.clone()),
-            )])
-            .unwrap();
-
+        // Test piping a record to .append
         let frame = nu_eval(
             &engine,
             PipelineData::empty(),
-            r#"{data: 123} | .append topic"#,
+            r#"{data: 123} | .append arecord"#,
         );
-
-        // Get the hash from the frame and verify the content
-        let hash_value = frame.get_data_by_key("hash").unwrap();
-        let frame_hash = hash_value.as_str().unwrap();
-        let content = store.cas_read_sync(&frame_hash.parse().unwrap()).unwrap();
-
+        let frame = value_to_frame(frame);
+        assert_eq!(frame.context_id, ctx.id);
+        assert_eq!(frame.topic, "arecord");
+        assert_eq!(frame.meta.unwrap(), json!({"base": "meta"}));
+        let content = store.cas_read_sync(&frame.hash.unwrap()).unwrap();
         // The content should be the JSON representation of our record
         let expected_json = serde_json::json!({"data": 123});
         assert_eq!(
@@ -87,7 +82,17 @@ mod tests {
             expected_json
         );
 
-        Ok(())
+        // Test custom meta is merged correctly
+        let frame = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            r#".append custom-meta --meta {foo: "bar"}"#,
+        );
+        let frame = value_to_frame(frame);
+        assert_eq!(frame.context_id, ctx.id);
+        assert_eq!(frame.topic, "custom-meta");
+        assert_eq!(frame.meta.unwrap(), json!({"base": "meta", "foo": "bar"}));
+        assert!(frame.hash.is_none());
     }
 
     #[test]

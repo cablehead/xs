@@ -1,5 +1,7 @@
 use tempfile::TempDir;
 
+use serde_json::json;
+
 use crate::error::Error;
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
@@ -38,7 +40,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     let frame_call = store.append(
         Frame::builder("echo.call", ctx.id)
             .hash(store.cas_insert(r#"foo"#).await?)
-            .meta(serde_json::json!({"args": {"n": 3}}))
+            .meta(json!({"args": {"n": 3}}))
             .build(),
     )?;
     assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
@@ -107,7 +109,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
         .append(
             Frame::builder("will_error.call", ctx.id)
                 .hash(store.cas_insert(r#""input""#).await?)
-                .meta(serde_json::json!({"args": {}}))
+                .meta(json!({"args": {}}))
                 .build(),
         )
         .unwrap();
@@ -225,6 +227,70 @@ async fn test_command_empty_output() -> Result<(), Error> {
     let meta = frame.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta["command_id"], frame_command.id.to_string());
     assert_eq!(meta["frame_id"], frame_call.id.to_string());
+    assert!(frame.hash.is_none(), "Complete event should have no hash");
+
+    assert_no_more_frames(&mut recver).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_command_tee_and_append() -> Result<(), Error> {
+    let (store, ctx) = setup_test_environment().await;
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Define the command that outputs a simple pipeline of 1, 2, 3
+    let frame_command = store.append(
+        Frame::builder("numbers.define", ctx.id)
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{
+                            process: {|frame|
+                                [1 2 3] | tee { collect { math sum } | to json -r | .append sum }
+                            }
+                        }"#,
+                    )
+                    .await?,
+            )
+            .build(),
+    )?;
+    assert_eq!(recver.recv().await.unwrap().topic, "numbers.define");
+
+    // Call the command
+    let frame_call = store.append(Frame::builder("numbers.call", ctx.id).build())?;
+    assert_eq!(recver.recv().await.unwrap().topic, "numbers.call");
+
+    let expected_meta = json!({"command_id": frame_command.id, "frame_id": frame_call.id});
+
+    // Validate the output events
+    let expected = vec!["1", "2", "3"];
+    for expected_content in expected {
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "numbers.recv");
+        assert_eq!(frame.meta.unwrap(), expected_meta);
+        // Verify content
+        let content = store.cas_read(&frame.hash.unwrap()).await?;
+        let content_str = String::from_utf8(content)?;
+        assert_eq!(content_str, expected_content);
+    }
+
+    // Should get sum event
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "sum");
+    assert_eq!(frame.meta.unwrap(), expected_meta);
+    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    let content_str = String::from_utf8(content)?;
+    assert_eq!(content_str, "6");
+
+    // Should get completion event
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "numbers.complete");
+    assert_eq!(frame.meta.unwrap(), expected_meta);
     assert!(frame.hash.is_none(), "Complete event should have no hash");
 
     assert_no_more_frames(&mut recver).await;

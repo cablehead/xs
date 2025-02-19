@@ -39,6 +39,7 @@ pub fn frame_to_value(frame: &Frame, span: Span) -> Value {
 
     record.push("id", Value::string(frame.id.to_string(), span));
     record.push("topic", Value::string(frame.topic.clone(), span));
+    record.push("context_id", Value::string(frame.context_id, span));
 
     if let Some(hash) = &frame.hash {
         record.push("hash", Value::string(hash.to_string(), span));

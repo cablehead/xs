@@ -2,17 +2,25 @@ use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
+use serde_json::Value as JsonValue;
+
 use crate::nu::util;
 use crate::store::{Frame, Store, TTL};
 
 #[derive(Clone)]
 pub struct AppendCommand {
     store: Store,
+    context_id: scru128::Scru128Id,
+    base_meta: JsonValue,
 }
 
 impl AppendCommand {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new(store: Store, context_id: scru128::Scru128Id, base_meta: JsonValue) -> Self {
+        Self {
+            store,
+            context_id,
+            base_meta,
+        }
     }
 }
 
@@ -62,8 +70,26 @@ impl Command for AppendCommand {
         let store = self.store.clone();
 
         let topic: String = call.req(engine_state, stack, 0)?;
-        let meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-        let meta = meta.map(|meta| util::value_to_json(&meta));
+
+        // Get user-supplied metadata and convert to JSON
+        let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
+        let mut final_meta = self.base_meta.clone(); // Start with base metadata
+
+        // Merge user metadata if provided
+        if let Some(user_value) = user_meta {
+            let user_json = util::value_to_json(&user_value);
+            if let JsonValue::Object(mut base_obj) = final_meta {
+                if let JsonValue::Object(user_obj) = user_json {
+                    base_obj.extend(user_obj); // Merge user metadata into base
+                    final_meta = JsonValue::Object(base_obj);
+                } else {
+                    return Err(ShellError::TypeMismatch {
+                        err_message: "Meta must be a record".to_string(),
+                        span: call.span(),
+                    });
+                }
+            }
+        }
 
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {
@@ -78,23 +104,22 @@ impl Command for AppendCommand {
 
         let hash = util::write_pipeline_to_cas(input, &store, span)?;
         let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
-        let context_id = if let Some(ctx) = context_str {
-            ctx.parse::<scru128::Scru128Id>()
-                .map_err(|e| ShellError::GenericError {
-                    error: "Invalid context ID".into(),
-                    msg: e.to_string(),
-                    span: Some(call.head),
-                    help: None,
-                    inner: vec![],
-                })?
-        } else {
-            crate::store::ZERO_CONTEXT
-        };
+        let context_id = context_str
+            .map(|ctx| ctx.parse::<scru128::Scru128Id>())
+            .transpose()
+            .map_err(|e| ShellError::GenericError {
+                error: "Invalid context ID".into(),
+                msg: e.to_string(),
+                span: Some(call.head),
+                help: None,
+                inner: vec![],
+            })?
+            .unwrap_or(self.context_id);
 
         let frame = store.append(
             Frame::builder(topic, context_id)
                 .maybe_hash(hash)
-                .maybe_meta(meta)
+                .meta(final_meta)
                 .maybe_ttl(ttl)
                 .build(),
         )?;
