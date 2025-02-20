@@ -182,5 +182,7 @@ export def .import [path: string] {
     $got
   }
 
-  open ($path | path join "frames.jsonl") | lines | each { xs import (xs-addr) }
+  open ($path | path join "frames.jsonl") | lines | each {
+    from json | default "0000000000000000000000000" context_id | to json -r | xs import (xs-addr)
+  }
 }
