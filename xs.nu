@@ -5,7 +5,7 @@ export const XS_CONTEXT_SYSTEM = "0000000000000000000000000"
 
 def and-then [next: closure --else: closure] {
   if ($in | is-not-empty) { do $next } else {
-    do $else
+    if $else != null { do $else }
   }
 }
 
