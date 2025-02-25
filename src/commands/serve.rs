@@ -146,7 +146,7 @@ async fn execute_command(command: Command, frame: Frame, store: &Store) -> Resul
             Ok(pipeline_data) => {
                 // Process each value as a .recv event
                 for value in pipeline_data {
-                    let hash = store.cas_insert_sync(&value_to_json(&value).to_string())?;
+                    let hash = store.cas_insert_sync(value_to_json(&value).to_string())?;
                     let _ = store.append(
                         Frame::builder(
                             format!("{}.recv", frame.topic.strip_suffix(".call").unwrap()),

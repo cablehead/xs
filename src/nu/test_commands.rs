@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cas_command() {
+    fn test_cas_command_string() {
         let (store, mut engine, _ctx) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
@@ -110,6 +110,27 @@ mod tests {
 
         let content = value.as_str().unwrap();
         assert_eq!(content, "test content");
+    }
+
+    #[test]
+    fn test_cas_command_binary() {
+        let (store, mut engine, _ctx) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        // Test binary data retrieval
+        let binary_data = vec![0, 159, 146, 150]; // Non-UTF8 bytes
+        let hash = store.cas_insert_sync(&binary_data).unwrap();
+
+        let value = nu_eval(&engine, PipelineData::empty(), format!(".cas {}", hash));
+
+        // The value should be returned as binary
+        assert!(matches!(value, Value::Binary { .. }));
+        let retrieved_data = value.as_binary().unwrap();
+        assert_eq!(retrieved_data, &binary_data);
     }
 
     #[test]
