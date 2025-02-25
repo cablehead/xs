@@ -452,11 +452,11 @@ impl Store {
         cacache::WriteOpts::new().open_hash_sync(self.path.join("cacache"))
     }
 
-    pub async fn cas_insert(&self, content: &str) -> cacache::Result<ssri::Integrity> {
+    pub async fn cas_insert(&self, content: impl AsRef<[u8]>) -> cacache::Result<ssri::Integrity> {
         cacache::write_hash(&self.path.join("cacache"), content).await
     }
 
-    pub fn cas_insert_sync(&self, content: &str) -> cacache::Result<ssri::Integrity> {
+    pub fn cas_insert_sync(&self, content: impl AsRef<[u8]>) -> cacache::Result<ssri::Integrity> {
         cacache::write_hash_sync(self.path.join("cacache"), content)
     }
 

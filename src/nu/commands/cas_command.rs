@@ -54,19 +54,24 @@ impl Command for CasCommand {
             .store
             .cas_reader_sync(hash)
             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+
         let mut contents = Vec::new();
         reader
             .read_to_end(&mut contents)
             .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
-        let contents =
-            String::from_utf8(contents).map_err(|e| ShellError::IOError { msg: e.to_string() })?;
 
-        Ok(PipelineData::Value(
-            Value::String {
+        // Try to convert to string if valid UTF-8, otherwise return as binary
+        let value = match String::from_utf8(contents.clone()) {
+            Ok(string) => Value::String {
+                val: string,
+                internal_span: span,
+            },
+            Err(_) => Value::Binary {
                 val: contents,
                 internal_span: span,
             },
-            None,
-        ))
+        };
+
+        Ok(PipelineData::Value(value, None))
     }
 }
