@@ -189,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Version(args) => version(args).await,
     };
     if let Err(err) = res {
-        eprintln!("{}", err);
+        eprintln!("command error: {:?}", err);
         std::process::exit(1);
     }
     Ok(())

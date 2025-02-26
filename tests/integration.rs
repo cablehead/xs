@@ -145,6 +145,38 @@ async fn test_integration() {
     assert_eq!(frame.topic, "note");
     assert_eq!(frame.context_id.to_string(), context_id);
 
+    // assert unicode support
+    let unicode_output = cmd!(
+        cargo_bin("xs"),
+        "append",
+        store_path,
+        "unicode",
+        "--meta",
+        r#"{"name": "Información"}"#
+    )
+    .stdin_bytes("contenido en español".as_bytes())
+    .read()
+    .unwrap();
+
+    let unicode_frame: Frame = serde_json::from_str(&unicode_output).unwrap();
+
+    // Verify it can be retrieved correctly
+    let retrieved = cmd!(
+        cargo_bin("xs"),
+        "get",
+        store_path,
+        &unicode_frame.id.to_string()
+    )
+    .read()
+    .unwrap();
+    let retrieved_frame: Frame = serde_json::from_str(&retrieved).unwrap();
+
+    assert_eq!(retrieved_frame.topic, "unicode");
+    assert_eq!(
+        retrieved_frame.meta.unwrap().get("name").unwrap(),
+        "Información"
+    );
+
     // Clean up
     child.kill().await.unwrap();
 }

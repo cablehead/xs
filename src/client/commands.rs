@@ -1,5 +1,8 @@
 use futures::StreamExt;
+
+use base64::Engine;
 use ssri::Integrity;
+use url::form_urlencoded;
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, StreamBody};
 use hyper::body::Bytes;
@@ -7,7 +10,6 @@ use hyper::Method;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::Receiver;
 use tokio_util::io::ReaderStream;
-use url::form_urlencoded;
 
 use super::request;
 use crate::store::{ReadOptions, TTL};
@@ -100,10 +102,9 @@ where
     let body = StreamBody::new(mapped_stream);
 
     let headers = meta.map(|meta_value| {
-        vec![(
-            "xs-meta".to_string(),
-            serde_json::to_string(meta_value).unwrap(),
-        )]
+        let json_string = serde_json::to_string(meta_value).unwrap();
+        let encoded = base64::prelude::BASE64_STANDARD.encode(json_string);
+        vec![("xs-meta".to_string(), encoded)]
     });
 
     let res = request::request(addr, Method::POST, topic, query.as_deref(), body, headers).await?;
