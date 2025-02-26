@@ -4,6 +4,8 @@ use std::str::FromStr;
 
 use scru128::Scru128Id;
 
+use base64::Engine;
+
 use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
@@ -282,7 +284,22 @@ async fn handle_stream_append(
         .map(|x| x.to_str())
         .transpose()
         .unwrap()
-        .map(|s| serde_json::from_str(s).map_err(|_| format!("xs-meta isn't valid JSON: {}", s)))
+        .map(|s| {
+            // First decode the Base64-encoded string
+            base64::prelude::BASE64_STANDARD
+                .decode(s)
+                .map_err(|e| format!("xs-meta isn't valid Base64: {}", e))
+                .and_then(|decoded| {
+                    // Then parse the decoded bytes as UTF-8 string
+                    String::from_utf8(decoded)
+                        .map_err(|e| format!("xs-meta isn't valid UTF-8: {}", e))
+                        .and_then(|json_str| {
+                            // Finally parse the UTF-8 string as JSON
+                            serde_json::from_str(&json_str)
+                                .map_err(|e| format!("xs-meta isn't valid JSON: {}", e))
+                        })
+                })
+        })
         .transpose()
     {
         Ok(meta) => meta,

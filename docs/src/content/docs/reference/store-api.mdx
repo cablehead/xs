@@ -39,7 +39,7 @@ Append frame to topic
 
 ```sh
 curl --unix-socket ./store/sock \
-    -H "xs-meta: {\"key\":\"value\"}" \
+    -H "xs-meta: $(echo -n '{\"key\":\"value\"}' | base64)" \
     -X POST --data "content" \
     "http://localhost/topic?ttl=forever"
 ```
@@ -54,7 +54,7 @@ Query Parameters:
 
 Headers:
 
-- `xs-meta` - Optional JSON metadata
+- `xs-meta` - Optional Base64-encoded JSON metadata. Must be encoded using standard Base64 to support Unicode characters.
 
 Response: Frame JSON
 
