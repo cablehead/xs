@@ -24,11 +24,34 @@ export def xs-addr [] {
   $env | get XS_ADDR? | or-else { "./store" }
 }
 
-export def xs-context [selected?: string] {
-  $selected | if ($in | is-empty) { $env | get XS_CONTEXT? } else { }
+export def xs-context-collect [] {
+  _cat {context: $XS_CONTEXT_SYSTEM} | where topic == "xs.context" | each {
+    {
+      id: $in.id
+      name: $in.meta?.name?
+    }
+  } | prepend {
+    id: $XS_CONTEXT_SYSTEM
+    name: "system"
+  }
 }
 
-# update to use (xs-addr) and the xs cli
+export def xs-context [selected?: string] {
+
+  if $selected == null {
+    return $env | get XS_CONTEXT?
+  }
+
+  let span = (metadata $selected).span;
+
+  xs-context-collect | where id == $selected or name == $selected | try { first | get id } catch {
+    error make {
+      msg: $"context not found: ($selected)"
+      label: {text: "provided context" span: $span}
+    }
+  }
+}
+
 def _cat [options: record] {
   let params = [
     (if ($options | get follow? | default false) { "--follow" })
@@ -133,18 +156,20 @@ export def ".ctx" [] {
 
 export def ".ctx list" [] {
   let active = .ctx
-  .cat -c $XS_CONTEXT_SYSTEM | where topic == "xs.context" | get id | prepend $XS_CONTEXT_SYSTEM | each {|x|
-    {id: $x active: ($x == $active)}
+  xs-context-collect | insert active {
+    $in.id == $active
   }
 }
+
+export alias ".ctx ls" = .ctx list
 
 export def --env ".ctx switch" [id?: string] {
   $env.XS_CONTEXT = $id | or-else { .ctx select }
   .ctx
 }
 
-export def --env ".ctx new" [] {
-  .append "xs.context" -c $XS_CONTEXT_SYSTEM | .ctx switch $in.id
+export def --env ".ctx new" [name: string] {
+  .append "xs.context" -c $XS_CONTEXT_SYSTEM --meta {name: $name} | .ctx switch $in.id
 }
 
 export def --env ".ctx select" [] {
