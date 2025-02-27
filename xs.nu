@@ -42,12 +42,12 @@ export def xs-context-collect [] {
   }
 }
 
-export def xs-context [selected?: string] {
+export def xs-context [selected?: string span?] {
+  let span = $span | or-else { (metadata $selected).span }
+
   if $selected == null {
     return ($env | get XS_CONTEXT?)
   }
-
-  let span = (metadata $selected).span;
 
   xs-context-collect | where id == $selected or name == $selected | try { first | get id } catch {
     error make {
@@ -89,7 +89,7 @@ export def .cat [
     tail: $tail
     last_id: $last_id
     limit: $limit
-    context: (if not $all { (xs-context $context) })
+    context: (if not $all { (xs-context $context (metadata $context).span) })
     all: $all
   } | conditional-pipe (not ($detail or $all)) { reject context_id ttl }
 }
@@ -119,7 +119,7 @@ export def .head [
   --context (-c): string
 ] {
   let params = [
-    (xs-context $context | and-then { ["--context" $in] })
+    (xs-context $context (metadata $context).span | and-then { ["--context" $in] })
   ] | compact | flatten
 
   if $follow {
@@ -144,7 +144,7 @@ export def .append [
     [
       (if $meta != null { ["--meta" ($meta | to json -r)] })
       (if $ttl != null { ["--ttl" $ttl] })
-      (xs-context $context | and-then { ["--context" $in] })
+      (xs-context $context (metadata $context).span | and-then { ["--context" $in] })
     ] | compact | flatten
   ) | from json
 }
@@ -178,17 +178,9 @@ export def --env ".ctx new" [name: string] {
 }
 
 export def --env ".ctx rename" [id: string name: string] {
-  let span = (metadata $id).span;
-  xs-context $id | and-then {
-    .append "xs.annotate" -c $XS_CONTEXT_SYSTEM --meta {
-      updates: $id
-      name: $name
-    }
-  } --else {
-    error make {
-      msg: "context not found"
-      label: {text: "provided context" span: $span}
-    }
+  .append "xs.annotate" -c $XS_CONTEXT_SYSTEM --meta {
+    updates: (xs-context $id (metadata $id).span)
+    name: $name
   }
 }
 
