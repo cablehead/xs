@@ -63,6 +63,16 @@ Switch between contexts using either their names or IDs:
 
 You can also switch interactively by running `.ctx switch` without arguments.
 
+## Renaming Contexts
+
+You can rename contexts using the context ID:
+
+```nushell withOutput
+> .ctx rename 03d4qbrxizqgav09m7hicksb0 feature-work
+```
+
+This updates the name associated with the specified context ID.
+
 ## Using Contexts
 
 Once you've switched to a context, all operations happen in that context:

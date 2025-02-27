@@ -177,6 +177,21 @@ export def --env ".ctx new" [name: string] {
   .append "xs.context" -c $XS_CONTEXT_SYSTEM --meta {name: $name} | .ctx switch $in.id
 }
 
+export def --env ".ctx rename" [id: string name: string] {
+  let span = (metadata $id).span;
+  xs-context $id | and-then {
+    .append "xs.annotate" -c $XS_CONTEXT_SYSTEM --meta {
+      updates: $id
+      name: $name
+    }
+  } --else {
+    error make {
+      msg: "context not found"
+      label: {text: "provided context" span: $span}
+    }
+  }
+}
+
 export def --env ".ctx select" [] {
   .ctx list | input list | get id
 }
