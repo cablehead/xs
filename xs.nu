@@ -25,21 +25,26 @@ export def xs-addr [] {
 }
 
 export def xs-context-collect [] {
-  _cat {context: $XS_CONTEXT_SYSTEM} | where topic == "xs.context" | each {
-    {
-      id: $in.id
-      name: $in.meta?.name?
+  _cat {context: $XS_CONTEXT_SYSTEM} | generate {|frame contexts = {}|
+    mut contexts = $contexts
+    match $frame.topic {
+      "xs.context" => ($contexts = $contexts | insert $frame.id $frame.meta?.name?)
+      "xs.annotate" => (
+        if $frame.meta?.updates? in $contexts {
+          $contexts = $contexts | update $frame.meta.updates $frame.meta?.name?
+        }
+      )
     }
-  } | prepend {
+    {out: $contexts next: $contexts}
+  } | last | transpose id name | prepend {
     id: $XS_CONTEXT_SYSTEM
     name: "system"
   }
 }
 
 export def xs-context [selected?: string] {
-
   if $selected == null {
-    return $env | get XS_CONTEXT?
+    return ($env | get XS_CONTEXT?)
   }
 
   let span = (metadata $selected).span;
