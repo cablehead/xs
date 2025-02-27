@@ -25,18 +25,19 @@ export def xs-addr [] {
 }
 
 export def xs-context-collect [] {
-  _cat {context: $XS_CONTEXT_SYSTEM} | generate {|frame contexts = {}|
-    mut contexts = $contexts
+  _cat {context: $XS_CONTEXT_SYSTEM} | reduce --fold {} {|frame, acc|
     match $frame.topic {
-      "xs.context" => ($contexts = $contexts | insert $frame.id $frame.meta?.name?)
+      "xs.context" => ($acc | insert $frame.id $frame.meta?.name?)
       "xs.annotate" => (
-        if $frame.meta?.updates? in $contexts {
-          $contexts = $contexts | update $frame.meta.updates $frame.meta?.name?
+        if $frame.meta?.updates? in $acc {
+          $acc | update $frame.meta.updates $frame.meta?.name?
+        } else {
+          $acc
         }
       )
+      _ => $acc
     }
-    {out: $contexts next: $contexts}
-  } | last | transpose id name | prepend {
+  } | transpose id name | prepend {
     id: $XS_CONTEXT_SYSTEM
     name: "system"
   }
