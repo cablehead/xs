@@ -43,16 +43,18 @@ export def xs-context-collect [] {
 }
 
 export def xs-context [selected?: string span?] {
-  let span = $span | or-else { (metadata $selected).span }
-
   if $selected == null {
     return ($env | get XS_CONTEXT?)
   }
 
   xs-context-collect | where id == $selected or name == $selected | try { first | get id } catch {
-    error make {
-      msg: $"context not found: ($selected)"
-      label: {text: "provided context" span: $span}
+    if $span != null {
+      error make {
+        msg: $"context not found: ($selected)"
+        label: {text: "provided span" span: $span}
+      }
+    } else {
+      error make -u {msg: $"context not found: ($selected)"}
     }
   }
 }
