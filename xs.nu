@@ -94,7 +94,7 @@ export def .cat [
     limit: $limit
     context: (if not $all { (xs-context $context (metadata $context).span) })
     all: $all
-  }
+  } | conditional-pipe (not ($detail or $all)) { each { reject context_id ttl } }
 }
 
 def read_hash [hash?: any] {
