@@ -14,10 +14,8 @@ specific context is specified.
 ## System Context
 
 When you first start using cross.stream, you're working in the system context.
-Let's see this in action:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
+The system context contains the initial `xs.start` frame and any other frames
+you create without specifying a different context.
 
 ```nushell withOutput
 > .cat
@@ -26,257 +24,106 @@ Let's see this in action:
 ───┴──────────┴───────────────────────────┴──────┴──────┴─────────
 ```
 
-The `xs.start` frame above is in the system context. Let's add a note:
+## Creating Contexts
+
+Create a new named context using the `.ctx new` command:
 
 ```nushell withOutput
-> "system note" | .append notes
-───────┬─────────────────────────────────────────────────────
- topic │ notes
- id    │ 03d4q1qhbiv09ovtuhokw5yxv
- hash  │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY=
- meta  │
- ttl   │ forever
-───────┴─────────────────────────────────────────────────────
+> .ctx new my-project
+03d4qbrxizqgav09m7hicksb0
 ```
 
-</TabItem>
-<TabItem label="bash">
+This creates a context named "my-project" and automatically switches to it.
 
-```bash withOutput
-> xs cat ./store
-{"topic":"xs.start","id":"03d4qiab9g5vagrlrvxa2vjw0","hash":null,"meta":null,"ttl":null}
-```
+## Listing Contexts
 
-The `xs.start` frame above is in the system context. Let's add a note:
-
-```bash withOutput
-> echo "system note" | xs append ./store notes
-{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":"sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=","meta":null,"ttl":"forever"}
-```
-
-</TabItem>
-</Tabs>
-
-## Creating a New Context
-
-To create a new context, we use the special `xs.context` topic:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
+View all available contexts:
 
 ```nushell withOutput
-> "my project" | .append xs.context
-───────┬─────────────────────────────────────────────────────
- topic │ xs.context
- id    │ 03d4qbrxizqgav09m7hicksb0
- meta  │
- ttl   │ forever
-───────┴─────────────────────────────────────────────────────
-
-# Save the context ID for later use
-> let project_context = (ls | last).id
+> .ctx list
+─#─┬───────────────id───────────────┬───name─────┬─active──
+ 0 │ 0000000000000000000000000      │ system     │ true
+ 1 │ 03d4qbrxizqgav09m7hicksb0      │ my-project │ false
+───┴────────────────────────────────┴────────────┴─────────
 ```
 
-</TabItem>
-<TabItem label="bash">
+You can also use the `.ctx ls` alias for the same output.
 
-```bash withOutput
-> echo "my project" | xs append ./store xs.context
-{"topic":"xs.context","id":"03d4qbrxizqgav09m7hicksb0","meta":null,"ttl":"forever"}
+## Switching Contexts
 
-# Save the context ID for later use
-PROJECT_CONTEXT=03d4qbrxizqgav09m7hicksb0
+Switch between contexts using either their names or IDs:
+
+```nushell withOutput
+> .ctx switch my-project
+03d4qbrxizqgav09m7hicksb0
+
+> .ctx switch 03d4qbrxizqgav09m7hicksb0
+03d4qbrxizqgav09m7hicksb0
 ```
 
-</TabItem>
-</Tabs>
+You can also switch interactively by running `.ctx switch` without arguments.
+
+## Renaming Contexts
+
+You can rename contexts using the context ID:
+
+```nushell withOutput
+> .ctx rename 03d4qbrxizqgav09m7hicksb0 feature-work
+```
+
+This updates the name associated with the specified context ID.
 
 ## Using Contexts
 
-Now we can add frames to our new context:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
+Once you've switched to a context, all operations happen in that context:
 
 ```nushell withOutput
-> "project note" | .append notes -c $project_context
-> .cat -c $project_context
+> "project note" | .append notes
+> .cat
 ─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬─meta─┬───ttl───
  0 │ notes    │ 03d4qbrxizqgav09m7hicksb0 │ sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c= │      │ forever
 ───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
 ```
 
-Notice how `.cat -c $project_context` only shows frames from our project
-context. The system note we created earlier isn't visible.
-
-The `head` command is also context-aware:
+You can explicitly specify a context with any command using the `-c` parameter:
 
 ```nushell withOutput
-> .head notes -c $project_context | .cas
-project note
-```
-
-</TabItem>
-<TabItem label="bash">
-
-```bash withOutput
-> echo "project note" | xs append ./store notes -c $PROJECT_CONTEXT
-> xs cat ./store -c $PROJECT_CONTEXT
-{"topic":"notes","id":"03d4qbrxizqgav09m7hicksb0","hash":"sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c=","meta":null,"ttl":"forever"}
-```
-
-Notice how `xs cat -c $PROJECT_CONTEXT` only shows frames from our project
-context. The system note we created earlier isn't visible.
-
-The `head` command is also context-aware:
-
-```bash withOutput
-> xs head ./store notes -c $PROJECT_CONTEXT | jq -r .hash | xargs xs cas ./store
-project note
-```
-
-</TabItem>
-</Tabs>
-
-## Setting a Default Context
-
-Instead of specifying the context with each command, you can set a default:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
-
-```nushell withOutput
-> $env.XS_CONTEXT = $project_context
-> "another project note" | .append notes  # Uses project context automatically
-> .cat  # Also uses project context
-```
-
-</TabItem>
-<TabItem label="bash">
-
-```bash withOutput
-> export XS_CONTEXT=$PROJECT_CONTEXT
-> echo "another project note" | xs append ./store notes  # Uses project context automatically
-> xs cat ./store  # Also uses project context
-```
-
-</TabItem>
-</Tabs>
-
-## Viewing All Contexts
-
-Sometimes you may want to see frames across all contexts:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
-
-```nushell withOutput
-> .cat --all
+> "new feature idea" | .append notes -c feature-branch
+> .cat -c feature-branch
 ─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬─meta─┬───ttl───
- 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │                                                     │      │
- 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
- 2 │ xs.context│ 03d4qbrxizqgav09m7hicksb0 │ sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c= │      │ forever
- 3 │ notes    │ 03d4qkzpbiv09ovtuhokw5yxv │ sha256-LMcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
+ 0 │ notes    │ 03f8q6rxnzqgav09n7hicksb9 │ sha256-LMcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
 ───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
 ```
 
-</TabItem>
-<TabItem label="bash">
-
-```bash withOutput
-> xs cat ./store --all
-{"topic":"xs.start","id":"03d4q1o70y6ek0ig8hwy9q00n","hash":null,"meta":null,"ttl":null}
-{"topic":"notes","id":"03d4q1qhbiv09ovtuhokw5yxv","hash":"sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY=","meta":null,"ttl":"forever"}
-{"topic":"xs.context","id":"03d4qbrxizqgav09m7hicksb0","hash":"sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c=","meta":null,"ttl":"forever"}
-{"topic":"notes","id":"03d4qkzpbiv09ovtuhokw5yxv","hash":"sha256-LMcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY=","meta":null,"ttl":"forever"}
-```
-
-</TabItem>
-</Tabs>
-
-<Aside type="tip">
-Everything in cross.stream is scoped by context - including TTLs, head tracking, and other features. This makes it easy to maintain separate streams of events while keeping them organized in the same store.
-</Aside>
-
-## Managing Contexts with .ctx Commands
-
-When using the NuShell convenience module (`xs.nu`), you get access to
-additional context management commands under the `.ctx` namespace. These provide
-a more interactive way to work with contexts.
-
-### Listing Contexts
-
-View all available contexts and see which one is active:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
+The `head` command is also context-aware:
 
 ```nushell withOutput
-> .ctx list
-─#─┬───────────────id───────────────┬─active─┐
- 0 │ 0000000000000000000000000       │ true   │
- 1 │ 03d4qbrxizqgav09m7hicksb0       │ false  │
-───┴──────────────────────────────────┴────────┘
+> .head notes -c feature-branch | .cas
+new feature idea
 ```
 
-</TabItem>
-</Tabs>
+## Viewing Current Context
 
-### Switching Contexts
-
-Change your active context:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
-
-```nushell withOutput
-> .ctx switch 03d4qbrxizqgav09m7hicksb0
-03d4qbrxizqgav09m7hicksb0
-```
-
-You can also switch interactively:
-
-```nushell withOutput
-> .ctx switch
-# (shows interactive list to select from)
-03d4qbrxizqgav09m7hicksb0
-```
-
-</TabItem>
-</Tabs>
-
-### Creating a New Context
-
-Create and automatically switch to a new context:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
-
-```nushell withOutput
-> .ctx new
-03d4qbrxizqgav09m7hicksb0
-```
-
-</TabItem>
-</Tabs>
-
-### Viewing Current Context
-
-Check your current context:
-
-<Tabs syncKey="shell">
-<TabItem label="nushell">
+See the ID of your current context:
 
 ```nushell withOutput
 > .ctx
 03d4qbrxizqgav09m7hicksb0
 ```
 
-</TabItem>
-</Tabs>
+## Viewing All Contexts
 
-<Aside type="note">
-These `.ctx` commands modify the `$env.XS_CONTEXT` environment variable and
-provide a convenient wrapper around the basic context operations. They're only
-available when using NuShell with the xs.nu module loaded.
+View frames across all contexts with the `--all` flag:
+
+```nushell withOutput
+> .cat --all
+─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬─meta─┬───ttl───
+ 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │                                                     │      │
+ 1 │ notes    │ 03d4qbrxizqgav09m7hicksb0 │ sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c= │      │ forever
+ 2 │ notes    │ 03f8q6rxnzqgav09n7hicksb9 │ sha256-LMcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
+───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
+```
+
+<Aside type="tip">
+Everything in cross.stream is scoped by context - including TTLs, head tracking, and other features. Using descriptive context names helps organize your event streams.
 </Aside>

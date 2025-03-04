@@ -24,11 +24,42 @@ export def xs-addr [] {
   $env | get XS_ADDR? | or-else { "./store" }
 }
 
-export def xs-context [selected?: string] {
-  $selected | if ($in | is-empty) { $env | get XS_CONTEXT? } else { }
+export def xs-context-collect [] {
+  _cat {context: $XS_CONTEXT_SYSTEM} | reduce --fold {} {|frame, acc|
+    match $frame.topic {
+      "xs.context" => ($acc | insert $frame.id $frame.meta?.name?)
+      "xs.annotate" => (
+        if $frame.meta?.updates? in $acc {
+          $acc | update $frame.meta.updates $frame.meta?.name?
+        } else {
+          $acc
+        }
+      )
+      _ => $acc
+    }
+  } | transpose id name | prepend {
+    id: $XS_CONTEXT_SYSTEM
+    name: "system"
+  }
 }
 
-# update to use (xs-addr) and the xs cli
+export def xs-context [selected?: string span?] {
+  if $selected == null {
+    return ($env | get XS_CONTEXT?)
+  }
+
+  xs-context-collect | where id == $selected or name == $selected | try { first | get id } catch {
+    if $span != null {
+      error make {
+        msg: $"context not found: ($selected)"
+        label: {text: "provided span" span: $span}
+      }
+    } else {
+      error make -u {msg: $"context not found: ($selected)"}
+    }
+  }
+}
+
 def _cat [options: record] {
   let params = [
     (if ($options | get follow? | default false) { "--follow" })
@@ -61,7 +92,7 @@ export def .cat [
     tail: $tail
     last_id: $last_id
     limit: $limit
-    context: (if not $all { (xs-context $context) })
+    context: (if not $all { (xs-context $context (metadata $context).span) })
     all: $all
   } | conditional-pipe (not ($detail or $all)) { reject context_id ttl }
 }
@@ -91,7 +122,7 @@ export def .head [
   --context (-c): string
 ] {
   let params = [
-    (xs-context $context | and-then { ["--context" $in] })
+    (xs-context $context (metadata $context).span | and-then { ["--context" $in] })
   ] | compact | flatten
 
   if $follow {
@@ -116,7 +147,7 @@ export def .append [
     [
       (if $meta != null { ["--meta" ($meta | to json -r)] })
       (if $ttl != null { ["--ttl" $ttl] })
-      (xs-context $context | and-then { ["--context" $in] })
+      (xs-context $context (metadata $context).span | and-then { ["--context" $in] })
     ] | compact | flatten
   ) | from json
 }
@@ -133,18 +164,27 @@ export def ".ctx" [] {
 
 export def ".ctx list" [] {
   let active = .ctx
-  .cat -c $XS_CONTEXT_SYSTEM | where topic == "xs.context" | get id | prepend $XS_CONTEXT_SYSTEM | each {|x|
-    {id: $x active: ($x == $active)}
+  xs-context-collect | insert active {
+    $in.id == $active
   }
 }
+
+export alias ".ctx ls" = .ctx list
 
 export def --env ".ctx switch" [id?: string] {
   $env.XS_CONTEXT = $id | or-else { .ctx select }
   .ctx
 }
 
-export def --env ".ctx new" [] {
-  .append "xs.context" -c $XS_CONTEXT_SYSTEM | .ctx switch $in.id
+export def --env ".ctx new" [name: string] {
+  .append "xs.context" -c $XS_CONTEXT_SYSTEM --meta {name: $name} | .ctx switch $in.id
+}
+
+export def --env ".ctx rename" [id: string name: string] {
+  .append "xs.annotate" -c $XS_CONTEXT_SYSTEM --meta {
+    updates: (xs-context $id (metadata $id).span)
+    name: $name
+  }
 }
 
 export def --env ".ctx select" [] {
