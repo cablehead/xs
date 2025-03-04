@@ -59,7 +59,6 @@ pub async fn serve(
         if frame.topic == "xs.threshold" {
             break;
         }
-
         if let Some(name) = frame.topic.strip_suffix(".define") {
             handle_define(&frame, name, &base_engine, &store, &mut commands).await;
         }
@@ -70,8 +69,18 @@ pub async fn serve(
         if let Some(name) = frame.topic.strip_suffix(".define") {
             handle_define(&frame, name, &base_engine, &store, &mut commands).await;
         } else if let Some(name) = frame.topic.strip_suffix(".call") {
+            eprintln!("Processing call: {}", name);
             if let Some(command) = commands.get(name) {
-                execute_command(command.clone(), frame, &store).await?;
+                if let Err(e) = execute_command(command.clone(), &frame, &store).await {
+                    tracing::error!("Failed to execute command '{}': {:?}", name, e);
+                    let _ = store.append(
+                        Frame::builder(format!("{}.error", name), frame.context_id)
+                            .meta(serde_json::json!({
+                                "error": e.to_string(),
+                            }))
+                            .build(),
+                    );
+                }
             }
         }
     }
@@ -120,8 +129,11 @@ async fn register_command(
         )
     )
 )]
-async fn execute_command(command: Command, frame: Frame, store: &Store) -> Result<(), Error> {
+async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Result<(), Error> {
+    eprintln!("Executing command: {}", command.id);
+
     let store = store.clone();
+    let frame = frame.clone();
 
     tokio::task::spawn_blocking(move || {
         let base_meta = serde_json::json!({
