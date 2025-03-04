@@ -2,17 +2,27 @@ use scru128::Scru128Id;
 use std::collections::HashMap;
 use tracing::instrument;
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
 use crate::nu::util::value_to_json;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
+
+// TODO: DRY with handlers
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ReturnOptions {
+    pub suffix: Option<String>,
+    pub ttl: Option<TTL>,
+}
 
 #[derive(Clone)]
 struct Command {
     id: Scru128Id,
     engine: nu::Engine,
     definition: String,
+    return_options: Option<ReturnOptions>,
 }
 
 async fn handle_define(
@@ -95,12 +105,12 @@ async fn register_command(
 ) -> Result<Command, Error> {
     // Get definition from CAS
     let hash = frame.hash.as_ref().ok_or("Missing hash field")?;
-    let definition = store.cas_read(hash).await?;
-    let definition = String::from_utf8(definition)?;
+    let definition_bytes = store.cas_read(hash).await?;
+    let definition = String::from_utf8(definition_bytes)?;
 
     let mut engine = base_engine.clone();
 
-    // Add addtional commands, scoped to this command's context
+    // Add additional commands, scoped to this command's context
     engine.add_commands(vec![
         Box::new(commands::cat_command::CatCommand::new(
             store.clone(),
@@ -112,10 +122,14 @@ async fn register_command(
         )),
     ])?;
 
+    // Parse the command configuration to extract return_options (ignore the process closure here)
+    let (_closure, return_options) = parse_command_definition(&mut engine, &definition)?;
+
     Ok(Command {
         id: frame.id,
         engine,
         definition,
+        return_options,
     })
 }
 
@@ -151,19 +165,34 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
             ),
         )])?;
 
-        let closure = parse_command_definition(&mut engine, &command.definition)?;
+        let (closure, _) = parse_command_definition(&mut engine, &command.definition)?;
 
         // Run command and process pipeline
         match run_command(&engine, closure, &frame) {
             Ok(pipeline_data) => {
+                let recv_suffix = command
+                    .return_options
+                    .as_ref()
+                    .and_then(|opts| opts.suffix.as_deref())
+                    .unwrap_or(".recv");
+                let ttl = command
+                    .return_options
+                    .as_ref()
+                    .and_then(|opts| opts.ttl.clone());
+
                 // Process each value as a .recv event
                 for value in pipeline_data {
                     let hash = store.cas_insert_sync(value_to_json(&value).to_string())?;
                     let _ = store.append(
                         Frame::builder(
-                            format!("{}.recv", frame.topic.strip_suffix(".call").unwrap()),
+                            format!(
+                                "{}{}",
+                                frame.topic.strip_suffix(".call").unwrap(),
+                                recv_suffix
+                            ),
                             frame.context_id,
                         )
+                        .maybe_ttl(ttl.clone())
                         .hash(hash)
                         .meta(serde_json::json!({
                             "command_id": command.id.to_string(),
@@ -236,7 +265,7 @@ fn run_command(
 fn parse_command_definition(
     engine: &mut nu::Engine,
     script: &str,
-) -> Result<nu_protocol::engine::Closure, Error> {
+) -> Result<(nu_protocol::engine::Closure, Option<ReturnOptions>), Error> {
     let mut working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
     let block = nu_parser::parse(&mut working_set, None, script.as_bytes(), false);
 
@@ -252,12 +281,36 @@ fn parse_command_definition(
 
     let config = result.into_value(nu_protocol::Span::unknown())?;
 
+    // Get the process closure (required)
     let process = config
         .get_data_by_key("process")
         .ok_or("No 'process' field found in command configuration")?
         .into_closure()?;
 
+    // Optionally parse return_options (using the same approach as in handlers)
+    let return_options = if let Some(return_config) = config.get_data_by_key("return_options") {
+        let record = return_config
+            .as_record()
+            .map_err(|_| "return must be a record")?;
+
+        let suffix = record
+            .get("suffix")
+            .map(|v| v.as_str().map_err(|_| "suffix must be a string"))
+            .transpose()?
+            .map(String::from);
+
+        let ttl = record
+            .get("ttl")
+            .map(|v| serde_json::from_str(&value_to_json(v).to_string()))
+            .transpose()
+            .map_err(|e| format!("invalid TTL: {}", e))?;
+
+        Some(ReturnOptions { suffix, ttl })
+    } else {
+        None
+    };
+
     engine.state.merge_env(&mut stack)?;
 
-    Ok(process)
+    Ok((process, return_options))
 }
