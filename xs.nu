@@ -17,7 +17,7 @@ def conditional-pipe [
   condition: bool
   action: closure
 ] {
-  if $condition { do $action } else { $in }
+  if $condition { do $action } else { }
 }
 
 export def xs-addr [] {
