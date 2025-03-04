@@ -274,11 +274,20 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
 
     let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
     let mut stdout = tokio::io::stdout();
-    while let Some(bytes) = receiver.recv().await {
-        stdout.write_all(&bytes).await?;
-        stdout.flush().await?;
+
+    match async {
+        while let Some(bytes) = receiver.recv().await {
+            stdout.write_all(&bytes).await?;
+            stdout.flush().await?;
+        }
+        Ok::<_, std::io::Error>(())
     }
-    Ok(())
+    .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 use std::io::IsTerminal;
