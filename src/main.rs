@@ -247,7 +247,6 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .as_deref()
         .and_then(|context| scru128::Scru128Id::from_str(context).ok())
         .or_else(|| (!args.all).then_some(ZERO_CONTEXT));
-
     let last_id = if let Some(last_id) = &args.last_id {
         match scru128::Scru128Id::from_str(last_id) {
             Ok(id) => Some(id),
@@ -256,7 +255,6 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     } else {
         None
     };
-
     // Build options in one chain
     let options = ReadOptions::builder()
         .tail(args.tail)
@@ -271,19 +269,65 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .maybe_limit(args.limit.map(|l| l as usize))
         .maybe_context_id(context_id)
         .build();
-
     let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
     let mut stdout = tokio::io::stdout();
 
-    match async {
-        while let Some(bytes) = receiver.recv().await {
-            stdout.write_all(&bytes).await?;
-            stdout.flush().await?;
+    #[cfg(unix)]
+    let result = {
+        use nix::poll::{poll, PollFd, PollFlags};
+        use std::os::fd::BorrowedFd;
+        use std::os::unix::io::AsRawFd;
+        use tokio::io::unix::AsyncFd;
+
+        let stdout_fd = std::io::stdout().as_raw_fd();
+        let async_fd = AsyncFd::new(stdout_fd)?;
+
+        async {
+        loop {
+            eprintln!("loop");
+            tokio::select! {
+                maybe_bytes = receiver.recv() => {
+                    match maybe_bytes {
+                        Some(bytes) => {
+                            stdout.write_all(&bytes).await?;
+                            stdout.flush().await?;
+                        }
+                        None => break,
+                    }
+                },
+                Ok(mut guard) = async_fd.readable() => {
+                    eprintln!("poll");
+                    let borrowed_fd = unsafe { BorrowedFd::borrow_raw(stdout_fd) };
+                    let pollfd = PollFd::new(borrowed_fd, PollFlags::POLLHUP);
+
+                    // Use 0u8 instead of 0 for the timeout
+                    if poll(&mut [pollfd], 0u8)? > 0 && pollfd.revents().unwrap().contains(PollFlags::POLLHUP) {
+                        // Stdout is closed
+                        break;
+                    }
+
+                    guard.clear_ready();
+                }
+            }
         }
         Ok::<_, std::io::Error>(())
     }
     .await
-    {
+    };
+
+    #[cfg(not(unix))]
+    let result = {
+        async {
+            while let Some(bytes) = receiver.recv().await {
+                stdout.write_all(&bytes).await?;
+                stdout.flush().await?;
+            }
+            Ok::<_, std::io::Error>(())
+        }
+        .await
+    };
+
+    match result {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         Err(e) => Err(e.into()),
