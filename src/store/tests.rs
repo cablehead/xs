@@ -844,6 +844,53 @@ mod tests_context {
             "No context with last_id failed"
         );
     }
+
+    #[test]
+    fn test_iter_frames_context_scope_with_last_id() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Create two distinct contexts
+        let ctx1 = store
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .unwrap()
+            .id;
+        let ctx2 = store
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .unwrap()
+            .id;
+
+        // Add frames in context 1
+        let ctx1_frame1 = store.append(Frame::builder("test", ctx1).build()).unwrap();
+        let ctx1_frame2 = store.append(Frame::builder("test", ctx1).build()).unwrap();
+
+        // Add frames in context 2
+        let ctx2_frame1 = store.append(Frame::builder("test", ctx2).build()).unwrap();
+        let ctx2_frame2 = store.append(Frame::builder("test", ctx2).build()).unwrap();
+
+        // Attempt to iterate from ctx1_frame1 in ctx1
+        let frames_ctx1: Vec<_> = store
+            .iter_frames(Some(ctx1), Some(&ctx1_frame1.id))
+            .collect();
+
+        // Verify we ONLY get ctx1_frame2
+        assert_eq!(frames_ctx1, vec![ctx1_frame2.clone()]);
+
+        // Attempt to iterate from ctx1_frame1 but incorrectly across contexts
+        let frames_cross_context: Vec<_> = store
+            .iter_frames(Some(ctx1), Some(&ctx1_frame2.id))
+            .collect();
+
+        // This should yield NO frames, as ctx1_frame2 is the last in ctx1
+        assert!(
+            frames_cross_context.is_empty(),
+            "Iterator incorrectly traversed beyond context boundary"
+        );
+
+        // Additionally, ensure iterating in ctx2 doesn't return frames from ctx1
+        let frames_ctx2: Vec<_> = store.iter_frames(Some(ctx2), None).collect();
+        assert_eq!(frames_ctx2, vec![ctx2_frame1, ctx2_frame2]);
+    }
 }
 
 mod tests_ttl_expire {
