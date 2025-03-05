@@ -274,45 +274,57 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
 
     #[cfg(unix)]
     let result = {
-        use nix::poll::{poll, PollFd, PollFlags};
-        use std::os::fd::BorrowedFd;
-        use std::os::unix::io::AsRawFd;
+        use nix::unistd::dup;
+        use std::io::Write;
+        use std::os::unix::io::{AsRawFd, FromRawFd};
         use tokio::io::unix::AsyncFd;
 
         let stdout_fd = std::io::stdout().as_raw_fd();
-        let async_fd = AsyncFd::new(stdout_fd)?;
+        // Create a duplicate of the file descriptor so we can check it separately
+        let dup_fd = dup(stdout_fd)?;
+        let stdout_file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
+        let async_fd = AsyncFd::new(stdout_file)?;
 
         async {
-        loop {
-            eprintln!("loop");
-            tokio::select! {
-                maybe_bytes = receiver.recv() => {
-                    match maybe_bytes {
-                        Some(bytes) => {
-                            stdout.write_all(&bytes).await?;
-                            stdout.flush().await?;
+            loop {
+                tokio::select! {
+                    maybe_bytes = receiver.recv() => {
+                        match maybe_bytes {
+                            Some(bytes) => {
+                                if let Err(e) = stdout.write_all(&bytes).await {
+                                    if e.kind() == std::io::ErrorKind::BrokenPipe {
+                                        break;
+                                    }
+                                    return Err(e);
+                                }
+                                stdout.flush().await?;
+                            }
+                            None => break,
                         }
-                        None => break,
-                    }
-                },
-                Ok(mut guard) = async_fd.readable() => {
-                    eprintln!("poll");
-                    let borrowed_fd = unsafe { BorrowedFd::borrow_raw(stdout_fd) };
-                    let pollfd = PollFd::new(borrowed_fd, PollFlags::POLLHUP);
+                    },
+                    Ok(mut guard) = async_fd.writable() => {
+                        // Try a zero-byte write to check if stdout is closed
+                        match guard.try_io(|inner| {
+                            // We're just doing a test write to check for EPIPE
+                            match inner.get_ref().write(&[]) {
+                                Ok(_) => Ok(false), // Stdout is still open
+                                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(true), // Stdout closed
+                                Err(e) => Err(e), // Other error
+                            }
+                        }) {
+                            Ok(Ok(true)) => break, // Stdout is closed
+                            Ok(Ok(false)) => { /* Stdout still open */ },
+                            Ok(Err(e)) => return Err(e), // Error occurred
+                            Err(_) => { /* Would block, try again later */ }
+                        }
 
-                    // Use 0u8 instead of 0 for the timeout
-                    if poll(&mut [pollfd], 0u8)? > 0 && pollfd.revents().unwrap().contains(PollFlags::POLLHUP) {
-                        // Stdout is closed
-                        break;
+                        guard.clear_ready();
                     }
-
-                    guard.clear_ready();
                 }
             }
+            Ok::<_, std::io::Error>(())
         }
-        Ok::<_, std::io::Error>(())
-    }
-    .await
+        .await
     };
 
     #[cfg(not(unix))]
