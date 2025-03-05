@@ -522,26 +522,28 @@ impl Store {
     ) -> Box<dyn Iterator<Item = Frame> + '_> {
         match context_id {
             Some(ctx_id) => {
-                let mut start_key = Vec::with_capacity(32);
-                start_key.extend(ctx_id.as_bytes());
-                if let Some(last_id) = last_id {
-                    start_key.extend(last_id.as_bytes());
-                }
-
-                let range = match last_id {
-                    Some(_) => (Bound::Excluded(start_key), Bound::Unbounded),
-                    None => (
-                        Bound::Included(ctx_id.as_bytes().to_vec()),
-                        Bound::Excluded(idx_context_key_range_end(ctx_id)),
-                    ),
+                let start_key = if let Some(last_id) = last_id {
+                    // explicitly combine context_id + last_id
+                    let mut v = Vec::with_capacity(32);
+                    v.extend(ctx_id.as_bytes());
+                    v.extend(last_id.as_bytes());
+                    Bound::Excluded(v)
+                } else {
+                    Bound::Included(ctx_id.as_bytes().to_vec())
                 };
 
-                Box::new(self.idx_context.range(range).filter_map(move |r| {
-                    let (key, _) = r.ok()?;
-                    let frame_id_bytes = &key[16..];
-                    let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().ok()?);
-                    self.get(&frame_id)
-                }))
+                let end_key = Bound::Excluded(idx_context_key_range_end(ctx_id));
+
+                Box::new(
+                    self.idx_context
+                        .range((start_key, end_key))
+                        .filter_map(move |r| {
+                            let (key, _) = r.ok()?;
+                            let frame_id_bytes = &key[16..];
+                            let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().ok()?);
+                            self.get(&frame_id)
+                        }),
+                )
             }
             None => {
                 let range = match last_id {
