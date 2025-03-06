@@ -16,7 +16,7 @@ import pathlib
 import subprocess
 import shutil
 import glob
-from typing import Dict, List, Optional, Union, Any, Callable
+from typing import Dict, List, Optional, Union, Any, Callable, Iterator
 from dataclasses import dataclass
 from http.client import HTTPResponse
 
@@ -34,6 +34,22 @@ def make_unix_socket_connection(sock_path: str):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(sock_path)
     return sock
+
+
+def is_hex_number(s: str) -> bool:
+    """Check if a string is a hexadecimal number (used for chunk size detection)"""
+    if not s:
+        return False
+
+    # Handle potential chunk extensions by splitting at semicolon
+    if ';' in s:
+        s = s.split(';', 1)[0]
+
+    try:
+        int(s, 16)
+        return True
+    except ValueError:
+        return False
 
 
 def request(method: str, path: str = "", data: bytes = None, headers: Dict = None, debug=False) -> str:
@@ -148,6 +164,136 @@ def request(method: str, path: str = "", data: bytes = None, headers: Dict = Non
             return response.read().decode("utf-8")
 
 
+def _cat(options: Dict) -> Iterator[Dict]:
+    """Read frames from the store, returning an iterator of frames"""
+    params = []
+
+    if options.get("follow", False):
+        params.append("follow=true")
+    if options.get("tail", False):
+        params.append("tail=true")
+    if options.get("all", False):
+        params.append("all=true")
+    if options.get("last_id"):
+        params.append(f"last_id={options['last_id']}")
+    if options.get("limit"):
+        params.append(f"limit={options['limit']}")
+    if options.get("pulse"):
+        params.append(f"pulse={options['pulse']}")
+    if options.get("context"):
+        params.append(f"context={options['context']}")
+
+    url_params = "&".join(params)
+    path = f"?{url_params}" if url_params else ""
+
+    headers = {}
+    if options.get("follow", False):
+        headers["Accept"] = "text/event-stream"
+
+    addr = xs_addr()
+
+    try:
+        # For follow mode with Unix sockets, use streaming approach
+        if options.get("follow", False) and (addr.startswith('./') or addr.startswith('/')):
+            return _cat_stream(path, headers)
+
+        # For non-follow mode or HTTP requests, use the simpler approach
+        content = request("GET", path, headers=headers)
+
+        for line in content.splitlines():
+            line = line.strip()
+
+            # Skip empty lines and hex chunk size lines
+            if not line or is_hex_number(line):
+                continue
+
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                # Skip invalid JSON lines
+                continue
+
+    except Exception as e:
+        print(f"Error in _cat: {e}")
+
+
+def _cat_stream(path: str, headers: Dict) -> Iterator[Dict]:
+    """Stream frames from the store when using follow mode"""
+    addr = xs_addr()
+
+    if addr.startswith('./') or addr.startswith('/'):
+        # Unix socket connection
+        sock_path = f"{addr}/sock"
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+        try:
+            sock.connect(sock_path)
+
+            # Construct HTTP request
+            req_parts = [f"GET /{path} HTTP/1.1", "Host: localhost", "Connection: keep-alive"]
+
+            # Add headers
+            if headers:
+                for key, value in headers.items():
+                    req_parts.append(f"{key}: {value}")
+
+            # Finish headers
+            req_parts.append("")
+            req_parts.append("")
+
+            # Send request
+            sock.sendall("\r\n".join(req_parts).encode("utf-8"))
+
+            # Process response
+            buffer = b""
+            header_received = False
+
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+
+                buffer += chunk
+
+                # Handle initial headers
+                if not header_received and b"\r\n\r\n" in buffer:
+                    header_end = buffer.find(b"\r\n\r\n")
+                    buffer = buffer[header_end + 4:]
+                    header_received = True
+
+                # Process complete lines
+                while b"\n" in buffer:
+                    line_end = buffer.find(b"\n")
+                    line = buffer[:line_end].strip().decode("utf-8")
+                    buffer = buffer[line_end + 1:]
+
+                    if not line or is_hex_number(line):
+                        continue
+
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+        except Exception as e:
+            print(f"Error in streaming: {e}")
+        finally:
+            sock.close()
+    else:
+        # HTTP(S) connection
+        req = urllib.request.Request(url=f"{addr}/{path}", method="GET", headers=headers or {})
+        with urllib.request.urlopen(req) as response:
+            for line in response:
+                line = line.decode("utf-8").strip()
+                if not line or is_hex_number(line):
+                    continue
+
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+
 def xs_context_collect() -> List[Dict[str, str]]:
     """Collect all contexts"""
     # Start with system context
@@ -155,9 +301,7 @@ def xs_context_collect() -> List[Dict[str, str]]:
 
     try:
         # Get frames by using _cat directly
-        frames = _cat({"context": XS_CONTEXT_SYSTEM})
-
-        for frame in frames:
+        for frame in _cat({"context": XS_CONTEXT_SYSTEM}):
             if not isinstance(frame, dict):
                 continue
 
@@ -189,81 +333,16 @@ def xs_context(selected: Optional[str] = None) -> str:
     raise ValueError(f"Context not found: {selected}")
 
 
-def _cat(options: Dict) -> List[Dict]:
-    """Low-level function to read frames from the store"""
-    params = []
-
-    if options.get("follow", False):
-        params.append("follow=true")
-    if options.get("tail", False):
-        params.append("tail=true")
-    if options.get("all", False):
-        params.append("all=true")
-    if options.get("last_id"):
-        params.append(f"last_id={options['last_id']}")
-    if options.get("limit"):
-        params.append(f"limit={options['limit']}")
-    if options.get("pulse"):
-        params.append(f"pulse={options['pulse']}")
-    if options.get("context"):
-        params.append(f"context={options['context']}")
-
-    url_params = "&".join(params)
-    path = f"?{url_params}" if url_params else ""
-
-    headers = {}
-    if options.get("follow", False):
-        headers["Accept"] = "text/event-stream"
-
-    try:
-        content = request("GET", path, headers=headers)
-
-        if options.get("follow", False):
-            # Handle SSE stream
-            # This would be implemented with a generator for SSE parsing
-            # For simplicity, not implemented in this example
-            return []
-        else:
-            result = []
-            # Process the response, filtering out chunk size lines
-            for line in content.splitlines():
-                line = line.strip()
-                # Skip empty lines and lines that are just hex numbers (chunk sizes)
-                if not line:
-                    continue
-                if is_hex_number(line):
-                    continue
-
-                try:
-                    result.append(json.loads(line))
-                except json.JSONDecodeError:
-                    # Skip lines that aren't valid JSON
-                    continue
-            return result
-    except Exception as e:
-        print(f"Error in _cat: {e}")
-        return []
-
-def is_hex_number(s):
-    """Check if a string is a valid hexadecimal number (used for chunked encoding)"""
-    # Check if string consists only of hex digits
-    try:
-        int(s, 16)
-        return True
-    except ValueError:
-        return False
-
-
 class XS:
     @staticmethod
     def cat(follow: bool = False, pulse: Optional[int] = None, tail: bool = False,
             last_id: Optional[str] = None, limit: Optional[int] = None,
-            context: Optional[str] = None, all: bool = False) -> List[Dict]:
+            context: Optional[str] = None, all: bool = False) -> Iterator[Dict]:
         """
         Cat the event stream
 
         Args:
-            follow: long poll for new events
+            follow: long poll for new events and yield frames as they arrive
             pulse: specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
             tail: begin long after the end of the stream
             last_id: start reading from a specific frame ID
@@ -272,13 +351,13 @@ class XS:
             all: cat across all contexts
 
         Returns:
-            List of frames
+            Iterator yielding frames (for both streaming and non-streaming requests)
         """
         ctx = None
         if not all and context is not None:
             ctx = xs_context(context)
 
-        return _cat({
+        yield from _cat({
             "follow": follow,
             "pulse": pulse,
             "tail": tail,
