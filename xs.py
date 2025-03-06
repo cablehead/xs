@@ -230,64 +230,69 @@ def _cat_stream(path: str, headers: Dict) -> Iterator[Dict]:
         try:
             sock.connect(sock_path)
 
-            # Construct HTTP request
+            # Simple HTTP request - we're not expecting SSE but plain JSONL
             req_parts = [f"GET /{path} HTTP/1.1", "Host: localhost", "Connection: keep-alive"]
-
-            # Add headers
-            if headers:
-                for key, value in headers.items():
-                    req_parts.append(f"{key}: {value}")
-
-            # Finish headers
             req_parts.append("")
             req_parts.append("")
+            req = "\r\n".join(req_parts).encode("utf-8")
 
-            # Send request
-            sock.sendall("\r\n".join(req_parts).encode("utf-8"))
+            # Send the request
+            sock.sendall(req)
 
-            # Process response
-            buffer = b""
-            header_received = False
+            # Read the response and skip headers
+            response = b""
+            header_end = -1
 
-            # First wait for the headers
-            while not header_received:
+            # First read until we find the end of headers marker
+            while header_end == -1:
                 chunk = sock.recv(4096)
                 if not chunk:
-                    return  # Connection closed
+                    return  # Connection closed unexpectedly
 
-                buffer += chunk
+                response += chunk
+                header_end = response.find(b"\r\n\r\n")
 
-                if b"\r\n\r\n" in buffer:
-                    header_end = buffer.find(b"\r\n\r\n")
-                    buffer = buffer[header_end + 4:]
-                    header_received = True
-                    break
+            # Extract the initial body part after headers
+            body = response[header_end + 4:]
 
-            # Now process the body, which may include chunk headers for chunked encoding
+            # Process any complete lines in the initial body
+            lines = body.split(b"\n")
+            # Keep the last line which might be incomplete
+            buffer = lines[-1]
+
+            # Process all complete lines
+            for line in lines[:-1]:
+                line = line.strip()
+                if not line or is_hex_number(line.decode("utf-8", errors="ignore")):
+                    continue
+
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+            # Continue reading and processing new lines
             while True:
-                # Process any complete lines already in the buffer
-                while b"\n" in buffer:
-                    line_end = buffer.find(b"\n")
-                    line = buffer[:line_end].strip()
-                    buffer = buffer[line_end + 1:]
-
-                    # Skip empty lines and chunk size lines
-                    if not line or is_hex_number(line.decode("utf-8", errors="ignore")):
-                        continue
-
-                    try:
-                        frame = json.loads(line)
-                        yield frame
-                    except json.JSONDecodeError:
-                        # Skip invalid JSON
-                        pass
-
-                # Get more data
                 chunk = sock.recv(4096)
                 if not chunk:
                     break  # Connection closed
 
+                # Add to buffer and split on newlines
                 buffer += chunk
+                lines = buffer.split(b"\n")
+                # Last line might be incomplete, keep it as buffer
+                buffer = lines[-1]
+
+                # Process all complete lines
+                for line in lines[:-1]:
+                    line = line.strip()
+                    if not line or is_hex_number(line.decode("utf-8", errors="ignore")):
+                        continue
+
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
 
         except Exception as e:
             print(f"Error in streaming: {e}")
