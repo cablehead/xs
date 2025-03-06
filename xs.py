@@ -193,11 +193,12 @@ def _cat(options: Dict) -> Iterator[Dict]:
     addr = xs_addr()
 
     try:
-        # For follow mode with Unix sockets, use streaming approach
-        if options.get("follow", False) and (addr.startswith('./') or addr.startswith('/')):
-            return _cat_stream(path, headers)
+        # For follow mode, use streaming approach
+        if options.get("follow", False):
+            yield from _cat_stream(path, headers)
+            return
 
-        # For non-follow mode or HTTP requests, use the simpler approach
+        # For non-follow mode, use the simpler approach
         content = request("GET", path, headers=headers)
 
         for line in content.splitlines():
@@ -248,6 +249,16 @@ def _cat_stream(path: str, headers: Dict) -> Iterator[Dict]:
             buffer = b""
             header_received = False
 
+            # First, yield existing frames
+            existing_frames = list(_cat({
+                "context": path.split("context=")[1].split("&")[0] if "context=" in path else None,
+                "follow": False
+            }))
+
+            for frame in existing_frames:
+                yield frame
+
+            # Then keep connection open for new frames
             while True:
                 chunk = sock.recv(4096)
                 if not chunk:
@@ -281,17 +292,31 @@ def _cat_stream(path: str, headers: Dict) -> Iterator[Dict]:
             sock.close()
     else:
         # HTTP(S) connection
-        req = urllib.request.Request(url=f"{addr}/{path}", method="GET", headers=headers or {})
-        with urllib.request.urlopen(req) as response:
-            for line in response:
-                line = line.decode("utf-8").strip()
-                if not line or is_hex_number(line):
-                    continue
+        # First, yield existing frames
+        existing_frames = list(_cat({
+            "context": path.split("context=")[1].split("&")[0] if "context=" in path else None,
+            "follow": False
+        }))
 
-                try:
-                    yield json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+        for frame in existing_frames:
+            yield frame
+
+        # Then keep connection open for new frames
+        req = urllib.request.Request(url=f"{addr}/{path}", method="GET", headers=headers or {})
+        try:
+            with urllib.request.urlopen(req) as response:
+                for line in response:
+                    line = line.decode("utf-8").strip()
+                    if not line or is_hex_number(line):
+                        continue
+
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            print(f"Error in streaming: {e}")
+            return
 
 
 def xs_context_collect() -> List[Dict[str, str]]:
