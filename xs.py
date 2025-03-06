@@ -578,78 +578,6 @@ class XS:
                 "name": name
             }, context=XS_CONTEXT_SYSTEM)
 
-    @staticmethod
-    def export(path: str) -> None:
-        """
-        Export store to a file
-
-        Args:
-            path: Export path
-        """
-        if os.path.exists(path):
-            print("path exists")
-            return
-
-        os.makedirs(os.path.join(path, "cas"), exist_ok=True)
-
-        frames_path = os.path.join(path, "frames.jsonl")
-
-        with open(frames_path, "w") as f:
-            for frame in _cat({}):
-                f.write(json.dumps(frame) + "\n")
-
-        # Get unique hashes
-        hashes = set()
-        with open(frames_path, "r") as f:
-            for line in f:
-                frame = json.loads(line)
-                if "hash" in frame and frame["hash"]:
-                    hashes.add(frame["hash"])
-
-        # Save content for each hash
-        for hash_value in hashes:
-            hash_b64 = base64.b64encode(hash_value.encode()).decode()
-            out_path = os.path.join(path, "cas", hash_b64)
-            content = XS.cas(hash_value)
-            with open(out_path, "w") as f:
-                f.write(content)
-
-    @staticmethod
-    def import_store(path: str) -> None:
-        """
-        Import store from a file
-
-        Args:
-            path: Import path
-        """
-        # Import cas files
-        cas_files = glob.glob(os.path.join(path, "cas", "*"))
-        for cas_file in cas_files:
-            hash_b64 = os.path.basename(cas_file)
-            hash_value = base64.b64decode(hash_b64).decode()
-
-            with open(cas_file, "r") as f:
-                content = f.read()
-
-            # Post to CAS
-            headers = {"Content-Type": "application/octet-stream"}
-            resp = request("POST", "cas", data=content.encode(), headers=headers)
-            got = resp.read().decode()
-
-            if got != hash_value:
-                raise ValueError(f"Hash mismatch: got={got}, want={hash_value}")
-
-        # Import frames
-        frames_path = os.path.join(path, "frames.jsonl")
-        with open(frames_path, "r") as f:
-            for line in f:
-                frame = json.loads(line)
-                if "context_id" not in frame:
-                    frame["context_id"] = XS_CONTEXT_SYSTEM
-
-                headers = {"Content-Type": "application/json"}
-                request("POST", "import", data=json.dumps(frame).encode(), headers=headers)
-
 
 # Create convenience aliases for easier access
 cat = XS.cat
@@ -660,8 +588,6 @@ append = XS.append
 remove = XS.remove
 rm = XS.rm
 ctx = XS.Ctx
-export = XS.export
-import_store = XS.import_store
 
 
 if __name__ == "__main__":
