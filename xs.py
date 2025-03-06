@@ -249,16 +249,6 @@ def _cat_stream(path: str, headers: Dict) -> Iterator[Dict]:
             buffer = b""
             header_received = False
 
-            # First, yield existing frames
-            existing_frames = list(_cat({
-                "context": path.split("context=")[1].split("&")[0] if "context=" in path else None,
-                "follow": False
-            }))
-
-            for frame in existing_frames:
-                yield frame
-
-            # Then keep connection open for new frames
             while True:
                 chunk = sock.recv(4096)
                 if not chunk:
@@ -292,16 +282,6 @@ def _cat_stream(path: str, headers: Dict) -> Iterator[Dict]:
             sock.close()
     else:
         # HTTP(S) connection
-        # First, yield existing frames
-        existing_frames = list(_cat({
-            "context": path.split("context=")[1].split("&")[0] if "context=" in path else None,
-            "follow": False
-        }))
-
-        for frame in existing_frames:
-            yield frame
-
-        # Then keep connection open for new frames
         req = urllib.request.Request(url=f"{addr}/{path}", method="GET", headers=headers or {})
         try:
             with urllib.request.urlopen(req) as response:
