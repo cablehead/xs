@@ -249,32 +249,45 @@ def _cat_stream(path: str, headers: Dict) -> Iterator[Dict]:
             buffer = b""
             header_received = False
 
-            while True:
+            # First wait for the headers
+            while not header_received:
                 chunk = sock.recv(4096)
                 if not chunk:
-                    break
+                    return  # Connection closed
 
                 buffer += chunk
 
-                # Handle initial headers
-                if not header_received and b"\r\n\r\n" in buffer:
+                if b"\r\n\r\n" in buffer:
                     header_end = buffer.find(b"\r\n\r\n")
                     buffer = buffer[header_end + 4:]
                     header_received = True
+                    break
 
-                # Process complete lines
+            # Now process the body, which may include chunk headers for chunked encoding
+            while True:
+                # Process any complete lines already in the buffer
                 while b"\n" in buffer:
                     line_end = buffer.find(b"\n")
-                    line = buffer[:line_end].strip().decode("utf-8")
+                    line = buffer[:line_end].strip()
                     buffer = buffer[line_end + 1:]
 
-                    if not line or is_hex_number(line):
+                    # Skip empty lines and chunk size lines
+                    if not line or is_hex_number(line.decode("utf-8", errors="ignore")):
                         continue
 
                     try:
-                        yield json.loads(line)
+                        frame = json.loads(line)
+                        yield frame
                     except json.JSONDecodeError:
-                        continue
+                        # Skip invalid JSON
+                        pass
+
+                # Get more data
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break  # Connection closed
+
+                buffer += chunk
 
         except Exception as e:
             print(f"Error in streaming: {e}")
