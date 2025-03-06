@@ -795,6 +795,7 @@ dependencies = [
  "http-serde",
  "hyper",
  "hyper-util",
+ "nix",
  "nu-cli",
  "nu-cmd-lang",
  "nu-command",

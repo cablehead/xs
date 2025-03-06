@@ -247,7 +247,6 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .as_deref()
         .and_then(|context| scru128::Scru128Id::from_str(context).ok())
         .or_else(|| (!args.all).then_some(ZERO_CONTEXT));
-
     let last_id = if let Some(last_id) = &args.last_id {
         match scru128::Scru128Id::from_str(last_id) {
             Ok(id) => Some(id),
@@ -256,7 +255,6 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     } else {
         None
     };
-
     // Build options in one chain
     let options = ReadOptions::builder()
         .tail(args.tail)
@@ -271,19 +269,77 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .maybe_limit(args.limit.map(|l| l as usize))
         .maybe_context_id(context_id)
         .build();
-
     let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
     let mut stdout = tokio::io::stdout();
 
-    match async {
-        while let Some(bytes) = receiver.recv().await {
-            stdout.write_all(&bytes).await?;
-            stdout.flush().await?;
+    #[cfg(unix)]
+    let result = {
+        use nix::unistd::dup;
+        use std::io::Write;
+        use std::os::unix::io::{AsRawFd, FromRawFd};
+        use tokio::io::unix::AsyncFd;
+
+        let stdout_fd = std::io::stdout().as_raw_fd();
+        // Create a duplicate of the file descriptor so we can check it separately
+        let dup_fd = dup(stdout_fd)?;
+        let stdout_file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
+        let async_fd = AsyncFd::new(stdout_file)?;
+
+        async {
+            loop {
+                tokio::select! {
+                    maybe_bytes = receiver.recv() => {
+                        match maybe_bytes {
+                            Some(bytes) => {
+                                if let Err(e) = stdout.write_all(&bytes).await {
+                                    if e.kind() == std::io::ErrorKind::BrokenPipe {
+                                        break;
+                                    }
+                                    return Err(e);
+                                }
+                                stdout.flush().await?;
+                            }
+                            None => break,
+                        }
+                    },
+                    Ok(mut guard) = async_fd.writable() => {
+                        // Try a zero-byte write to check if stdout is closed
+                        match guard.try_io(|inner| {
+                            // We're just doing a test write to check for EPIPE
+                            match inner.get_ref().write(&[]) {
+                                Ok(_) => Ok(false), // Stdout is still open
+                                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(true), // Stdout closed
+                                Err(e) => Err(e), // Other error
+                            }
+                        }) {
+                            Ok(Ok(true)) => break, // Stdout is closed
+                            Ok(Ok(false)) => { /* Stdout still open */ },
+                            Ok(Err(e)) => return Err(e), // Error occurred
+                            Err(_) => { /* Would block, try again later */ }
+                        }
+
+                        guard.clear_ready();
+                    }
+                }
+            }
+            Ok::<_, std::io::Error>(())
         }
-        Ok::<_, std::io::Error>(())
-    }
-    .await
-    {
+        .await
+    };
+
+    #[cfg(not(unix))]
+    let result = {
+        async {
+            while let Some(bytes) = receiver.recv().await {
+                stdout.write_all(&bytes).await?;
+                stdout.flush().await?;
+            }
+            Ok::<_, std::io::Error>(())
+        }
+        .await
+    };
+
+    match result {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         Err(e) => Err(e.into()),
