@@ -107,14 +107,28 @@ def request(method: str, path: str = "", data: bytes = None, headers: Dict = Non
 
 def xs_context_collect() -> List[Dict[str, str]]:
     """Collect all contexts"""
-    contexts = {"0000000000000000000000000": "system"}
+    # Start with system context
+    contexts = {XS_CONTEXT_SYSTEM: "system"}
 
-    for frame in _cat({"context": XS_CONTEXT_SYSTEM}):
-        if frame.get("topic") == "xs.context":
-            contexts[frame.get("id")] = frame.get("meta", {}).get("name")
-        elif frame.get("topic") == "xs.annotate":
-            if frame.get("meta", {}).get("updates") in contexts:
-                contexts[frame.get("meta", {}).get("updates")] = frame.get("meta", {}).get("name")
+    try:
+        # Try to get contexts from the store
+        frames = _cat({"context": XS_CONTEXT_SYSTEM})
+
+        for frame in frames:
+            if not isinstance(frame, dict):
+                continue
+
+            if frame.get("topic") == "xs.context":
+                meta = frame.get("meta", {})
+                if isinstance(meta, dict) and "name" in meta:
+                    contexts[frame.get("id")] = meta["name"]
+            elif frame.get("topic") == "xs.annotate":
+                meta = frame.get("meta", {})
+                if isinstance(meta, dict) and "updates" in meta and "name" in meta:
+                    if meta["updates"] in contexts:
+                        contexts[meta["updates"]] = meta["name"]
+    except Exception as e:
+        print(f"Warning: Error collecting contexts: {e}")
 
     return [{"id": k, "name": v} for k, v in contexts.items()]
 
