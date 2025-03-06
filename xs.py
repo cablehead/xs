@@ -36,7 +36,7 @@ def make_unix_socket_connection(sock_path: str):
     return sock
 
 
-def request(method: str, path: str = "", data: bytes = None, headers: Dict = None) -> str:
+def request(method: str, path: str = "", data: bytes = None, headers: Dict = None, debug=False) -> str:
     """Make a request to the xs store"""
     addr = xs_addr()
 
@@ -84,14 +84,57 @@ def request(method: str, path: str = "", data: bytes = None, headers: Dict = Non
             # Parse the HTTP response
             response_text = response.decode("utf-8")
 
-            # Simple but effective way to extract the body
-            if "\r\n\r\n" in response_text:
-                body = response_text.split("\r\n\r\n", 1)[1]
-                return body
-            else:
-                # Fall back to returning the whole response if headers separator not found
-                # This shouldn't happen with a well-formed HTTP response
+            # Find where headers end and body begins
+            header_end = response_text.find("\r\n\r\n")
+            if header_end == -1:
                 return response_text
+
+            headers_text = response_text[:header_end]
+            body = response_text[header_end + 4:]
+
+            # Check if response is chunked
+            if "Transfer-Encoding: chunked" in headers_text:
+                # Handle chunked encoding manually
+                lines = []
+                pos = 0
+
+                while pos < len(body):
+                    # Find the chunk size line
+                    chunk_size_end = body.find("\r\n", pos)
+                    if chunk_size_end == -1:
+                        break
+
+                    # Parse hex chunk size (ignore chunk extensions)
+                    chunk_size_line = body[pos:chunk_size_end].strip()
+                    if ';' in chunk_size_line:
+                        chunk_size_line = chunk_size_line.split(';', 1)[0]
+
+                    try:
+                        chunk_size = int(chunk_size_line, 16)
+                    except ValueError:
+                        # Not a valid chunk size line, might already be in the data
+                        pos += 1
+                        continue
+
+                    if chunk_size == 0:
+                        # End of chunks
+                        break
+
+                    # Move past the chunk size line
+                    pos = chunk_size_end + 2
+
+                    # Get chunk data
+                    chunk_data = body[pos:pos + chunk_size]
+                    pos += chunk_size + 2  # Skip past chunk and CRLF
+
+                    # Add normalized lines from this chunk
+                    chunk_lines = chunk_data.splitlines()
+                    lines.extend(chunk_lines)
+
+                return "\n".join(lines)
+            else:
+                # Not chunked, return body directly
+                return body
 
         except Exception as e:
             print(f"Error connecting to Unix socket: {e}")
@@ -111,22 +154,31 @@ def xs_context_collect() -> List[Dict[str, str]]:
     contexts = {XS_CONTEXT_SYSTEM: "system"}
 
     try:
-        # Try to get contexts from the store
-        frames = _cat({"context": XS_CONTEXT_SYSTEM})
+        # Try to get contexts from the store with debugging
+        content = request("GET", "", debug=True)
 
-        for frame in frames:
-            if not isinstance(frame, dict):
+        # Manually parse the lines to handle potential chunked encoding issues
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.isdigit():
                 continue
 
-            if frame.get("topic") == "xs.context":
-                meta = frame.get("meta", {})
-                if isinstance(meta, dict) and "name" in meta:
-                    contexts[frame.get("id")] = meta["name"]
-            elif frame.get("topic") == "xs.annotate":
-                meta = frame.get("meta", {})
-                if isinstance(meta, dict) and "updates" in meta and "name" in meta:
-                    if meta["updates"] in contexts:
-                        contexts[meta["updates"]] = meta["name"]
+            try:
+                frame = json.loads(line)
+                if not isinstance(frame, dict):
+                    continue
+
+                if frame.get("topic") == "xs.context":
+                    meta = frame.get("meta", {})
+                    if isinstance(meta, dict) and "name" in meta:
+                        contexts[frame.get("id")] = meta["name"]
+                elif frame.get("topic") == "xs.annotate":
+                    meta = frame.get("meta", {})
+                    if isinstance(meta, dict) and "updates" in meta and "name" in meta:
+                        if meta["updates"] in contexts:
+                            contexts[meta["updates"]] = meta["name"]
+            except json.JSONDecodeError as e:
+                print(f"Warning: Could not parse context JSON: {e}. Line: {line[:50]}...")
     except Exception as e:
         print(f"Warning: Error collecting contexts: {e}")
 
@@ -184,14 +236,12 @@ def _cat(options: Dict) -> List[Dict]:
             result = []
             for line in content.splitlines():
                 line = line.strip()
-                if line:
-                    # Skip lines that are just numbers (common in HTTP chunked encoding)
-                    if line.isdigit():
-                        continue
-                    try:
-                        result.append(json.loads(line))
-                    except json.JSONDecodeError as e:
-                        print(f"Warning: Could not parse JSON: {e}. Line: {line[:50]}...")
+                if not line:
+                    continue
+                try:
+                    result.append(json.loads(line))
+                except json.JSONDecodeError as e:
+                    print(f"Warning: Could not parse JSON: {str(e)[:50]}... Line: {line[:50]}...")
             return result
     except Exception as e:
         print(f"Error in _cat: {e}")
