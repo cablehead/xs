@@ -29,36 +29,74 @@ def xs_addr() -> str:
     return os.environ.get("XS_ADDR", "./store")
 
 
-def make_socket_connection(addr: str, path: str = "") -> urllib.request.Request:
-    """Create a connection to a Unix socket with the given path"""
-    if addr.startswith("./") or addr.startswith("/"):
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(f"{addr}/sock")
-        return urllib.request.Request(f"http://localhost/{path}")
-    else:
-        return urllib.request.Request(f"{addr}/{path}")
+def make_unix_socket_connection(sock_path: str):
+    """Create a connection to a Unix socket"""
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(sock_path)
+    return sock
 
 
-def request(method: str, path: str = "", data: bytes = None, headers: Dict = None) -> HTTPResponse:
+def request(method: str, path: str = "", data: bytes = None, headers: Dict = None) -> str:
     """Make a request to the xs store"""
     addr = xs_addr()
-    url = f"{addr}/{path}" if addr.startswith("http") else f"http://localhost/{path}"
-    
-    req = urllib.request.Request(url=url, method=method, data=data, headers=headers or {})
     
     if addr.startswith("./") or addr.startswith("/"):
         # Unix socket connection
-        class UnixAdapter(urllib.request.BaseHandler):
-            def unix_open(self, req):
-                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                sock.connect(f"{addr}/sock")
-                return urllib.request.HTTPResponse(sock, method=req.method, url=req.full_url)
-        
-        opener = urllib.request.build_opener(UnixAdapter)
-        return opener.open(req)
+        sock_path = f"{addr}/sock"
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(sock_path)
+            
+            # Construct HTTP request manually
+            req_parts = [f"{method} /{path} HTTP/1.1", "Host: localhost", "Connection: close"]
+            
+            # Add headers
+            if headers:
+                for key, value in headers.items():
+                    req_parts.append(f"{key}: {value}")
+            
+            # Add content length if we have data
+            if data:
+                req_parts.append(f"Content-Length: {len(data)}")
+            
+            # Finish headers
+            req_parts.append("")
+            req_parts.append("")
+            
+            # Create the request
+            request_str = "\r\n".join(req_parts)
+            
+            # Send the request
+            sock.sendall(request_str.encode("utf-8"))
+            
+            # Send data if we have it
+            if data:
+                sock.sendall(data)
+            
+            # Read the response
+            response = b""
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                response += chunk
+            
+            # Parse the HTTP response
+            response_text = response.decode("utf-8")
+            headers_end = response_text.find("\r\n\r\n")
+            if headers_end == -1:
+                raise ValueError("Invalid HTTP response")
+            
+            body = response_text[headers_end + 4:]
+            return body
+            
+        finally:
+            sock.close()
     else:
         # HTTP connection
-        return urllib.request.urlopen(req)
+        req = urllib.request.Request(url=f"{addr}/{path}", method=method, data=data, headers=headers or {})
+        with urllib.request.urlopen(req) as response:
+            return response.read().decode("utf-8")
 
 
 def xs_context_collect() -> List[Dict[str, str]]:
@@ -114,15 +152,14 @@ def _cat(options: Dict) -> List[Dict]:
     if options.get("follow", False):
         headers["Accept"] = "text/event-stream"
     
-    resp = request("GET", path, headers=headers)
+    content = request("GET", path, headers=headers)
     
     if options.get("follow", False):
         # Handle SSE stream
         # This would be implemented with a generator for SSE parsing
         # For simplicity, not implemented in this example
-        pass
+        return []
     else:
-        content = resp.read().decode("utf-8")
         return [json.loads(line) for line in content.splitlines() if line.strip()]
 
 
@@ -190,8 +227,7 @@ class XS:
         if isinstance(hash_value, dict) and "hash" in hash_value:
             hash_value = hash_value["hash"]
         
-        resp = request("GET", f"cas/{hash_value}")
-        return resp.read().decode("utf-8")
+        return request("GET", f"cas/{hash_value}")
     
     @staticmethod
     def get(id: str) -> Dict:
@@ -205,7 +241,7 @@ class XS:
             Frame data
         """
         resp = request("GET", id)
-        return json.loads(resp.read().decode("utf-8"))
+        return json.loads(resp)
     
     @staticmethod
     def head(topic: str, follow: bool = False, context: Optional[str] = None) -> Dict:
@@ -233,7 +269,7 @@ class XS:
         path = f"head/{topic}{path_suffix}"
         
         resp = request("GET", path)
-        return json.loads(resp.read().decode("utf-8"))
+        return json.loads(resp)
     
     @staticmethod
     def append(topic: str, content: str, meta: Optional[Dict] = None, 
@@ -273,7 +309,7 @@ class XS:
             headers["xs-meta"] = meta_b64
         
         resp = request("POST", path, data=content.encode("utf-8"), headers=headers)
-        return json.loads(resp.read().decode("utf-8"))
+        return json.loads(resp)
     
     @staticmethod
     def remove(id: str) -> None:
