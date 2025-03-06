@@ -154,31 +154,22 @@ def xs_context_collect() -> List[Dict[str, str]]:
     contexts = {XS_CONTEXT_SYSTEM: "system"}
 
     try:
-        # Try to get contexts from the store with debugging
-        content = request("GET", "", debug=True)
+        # Get frames by using _cat directly
+        frames = _cat({"context": XS_CONTEXT_SYSTEM})
 
-        # Manually parse the lines to handle potential chunked encoding issues
-        for line in content.splitlines():
-            line = line.strip()
-            if not line or line.isdigit():
+        for frame in frames:
+            if not isinstance(frame, dict):
                 continue
 
-            try:
-                frame = json.loads(line)
-                if not isinstance(frame, dict):
-                    continue
-
-                if frame.get("topic") == "xs.context":
-                    meta = frame.get("meta", {})
-                    if isinstance(meta, dict) and "name" in meta:
-                        contexts[frame.get("id")] = meta["name"]
-                elif frame.get("topic") == "xs.annotate":
-                    meta = frame.get("meta", {})
-                    if isinstance(meta, dict) and "updates" in meta and "name" in meta:
-                        if meta["updates"] in contexts:
-                            contexts[meta["updates"]] = meta["name"]
-            except json.JSONDecodeError as e:
-                print(f"Warning: Could not parse context JSON: {e}. Line: {line[:50]}...")
+            if frame.get("topic") == "xs.context":
+                meta = frame.get("meta", {})
+                if isinstance(meta, dict) and "name" in meta:
+                    contexts[frame.get("id")] = meta["name"]
+            elif frame.get("topic") == "xs.annotate":
+                meta = frame.get("meta", {})
+                if isinstance(meta, dict) and "updates" in meta and "name" in meta:
+                    if meta["updates"] in contexts:
+                        contexts[meta["updates"]] = meta["name"]
     except Exception as e:
         print(f"Warning: Error collecting contexts: {e}")
 
@@ -234,18 +225,33 @@ def _cat(options: Dict) -> List[Dict]:
             return []
         else:
             result = []
+            # Process the response, filtering out chunk size lines
             for line in content.splitlines():
                 line = line.strip()
+                # Skip empty lines and lines that are just hex numbers (chunk sizes)
                 if not line:
                     continue
+                if is_hex_number(line):
+                    continue
+
                 try:
                     result.append(json.loads(line))
-                except json.JSONDecodeError as e:
-                    print(f"Warning: Could not parse JSON: {str(e)[:50]}... Line: {line[:50]}...")
+                except json.JSONDecodeError:
+                    # Skip lines that aren't valid JSON
+                    continue
             return result
     except Exception as e:
         print(f"Error in _cat: {e}")
         return []
+
+def is_hex_number(s):
+    """Check if a string is a valid hexadecimal number (used for chunked encoding)"""
+    # Check if string consists only of hex digits
+    try:
+        int(s, 16)
+        return True
+    except ValueError:
+        return False
 
 
 class XS:
