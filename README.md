@@ -4,6 +4,8 @@
 [`sqlite`](https://sqlite.org/cli.html), but specializing in the
 [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
 
+<img src="https://github.com/user-attachments/assets/12c9cce5-44ab-4a64-ab1c-d83bf6c28cad" height="200" alt="image">
+
 Read [here](https://cablehead.github.io/xs/getting-started/installation/) to
 [get started](https://cablehead.github.io/xs/getting-started/installation/) or
 [join our Discord](https://discord.com/invite/YNbScHBHrh) to ask questions.
