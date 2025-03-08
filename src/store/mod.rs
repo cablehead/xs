@@ -640,17 +640,12 @@ fn idx_context_key_from_frame(frame: &Frame) -> Vec<u8> {
 
 // Returns the key prefix for the next context after the given one
 fn idx_context_key_range_end(context_id: Scru128Id) -> Vec<u8> {
-    let mut bytes = context_id.as_bytes().to_vec();
-    for i in (0..bytes.len()).rev() {
-        if bytes[i] == 0xFF {
-            bytes[i] = 0;
-        } else {
-            bytes[i] += 1;
-            return bytes;
-        }
-    }
-    bytes.push(0);
-    bytes
+    let mut i = context_id.to_u128();
+
+    // NOTE: Reaching u128::MAX is probably not gonna happen...
+    i = i.saturating_add(1);
+
+    Scru128Id::from(i).as_bytes().to_vec()
 }
 
 fn deserialize_frame<B1: AsRef<[u8]>, B2: AsRef<[u8]>>(record: (B1, B2)) -> Frame {
