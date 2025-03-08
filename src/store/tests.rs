@@ -24,6 +24,37 @@ mod tests_read_options {
     }
 
     #[tokio::test]
+    async fn test_topic_index_order() {
+        let folder = tempfile::tempdir().unwrap();
+
+        let store = Store::new(folder.path().to_path_buf());
+
+        let frame1 = Frame {
+            id: scru128::new(),
+            topic: "ab".to_owned(),
+            ..Default::default()
+        };
+        let frame1 = store.append(frame1).unwrap();
+
+        let frame2 = Frame {
+            id: scru128::new(),
+            topic: "abc".to_owned(),
+            ..Default::default()
+        };
+        let frame2 = store.append(frame2).unwrap();
+
+        let keys = store.idx_topic.keys().flatten().collect::<Vec<_>>();
+
+        assert_eq!(
+            &[
+                fjall::Slice::from(idx_topic_key_from_frame(&frame1)),
+                fjall::Slice::from(idx_topic_key_from_frame(&frame2)),
+            ],
+            &*keys,
+        );
+    }
+
+    #[tokio::test]
     async fn test_topic_index() {
         let folder = tempfile::tempdir().unwrap();
 

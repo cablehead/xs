@@ -609,15 +609,17 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
     now_ms >= expires_ms
 }
 
+const NULL_DELIMITER: u8 = 0;
+
 fn idx_topic_key_prefix(context_id: Scru128Id, topic: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(16 + topic.len() + 1); // context_id (16) + topic bytes + delimiter
     v.extend(context_id.as_bytes()); // binary context_id (16 bytes)
     v.extend(topic.as_bytes()); // topic string as UTF-8 bytes
-    v.push(0xFF); // delimiter
+    v.push(NULL_DELIMITER); // Delimiter for variable-sized keys
     v
 }
 
-fn idx_topic_key_from_frame(frame: &Frame) -> Vec<u8> {
+pub(crate) fn idx_topic_key_from_frame(frame: &Frame) -> Vec<u8> {
     let mut v = idx_topic_key_prefix(frame.context_id, &frame.topic);
     v.extend(frame.id.as_bytes());
     v
