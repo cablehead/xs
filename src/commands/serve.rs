@@ -2,20 +2,11 @@ use scru128::Scru128Id;
 use std::collections::HashMap;
 use tracing::instrument;
 
-use serde::{Deserialize, Serialize};
-
 use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
-use crate::nu::util::value_to_json;
-use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
-
-// TODO: DRY with handlers
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct ReturnOptions {
-    pub suffix: Option<String>,
-    pub ttl: Option<TTL>,
-}
+use crate::nu::ReturnOptions;
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[derive(Clone)]
 struct Command {
@@ -127,14 +118,14 @@ async fn register_command(
         )),
     ])?;
 
-    // Parse the command configuration to extract return_options (ignore the run closure here)
-    let (_closure, return_options) = parse_command_definition(&mut engine, &definition)?;
+    // Parse the command configuration
+    let common_options = nu::parse_config(&mut engine, &definition)?;
 
     Ok(Command {
         id: frame.id,
         engine,
         definition,
-        return_options,
+        return_options: common_options.return_options,
     })
 }
 
@@ -168,10 +159,11 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
             ),
         )])?;
 
-        let (closure, _) = parse_command_definition(&mut engine, &command.definition)?;
+        // Parse the command configuration to get the up-to-date closure with modules loaded
+        let common_options = nu::parse_config(&mut engine, &command.definition)?;
 
         // Run command and process pipeline
-        match run_command(&engine, closure, &frame) {
+        match run_command(&engine, common_options.run, &frame) {
             Ok(pipeline_data) => {
                 let recv_suffix = command
                     .return_options
@@ -185,7 +177,7 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
 
                 // Process each value as a .recv event
                 for value in pipeline_data {
-                    let hash = store.cas_insert_sync(value_to_json(&value).to_string())?;
+                    let hash = store.cas_insert_sync(nu::value_to_json(&value).to_string())?;
                     let _ = store.append(
                         Frame::builder(
                             format!(
@@ -263,57 +255,4 @@ fn run_command(
         block,
         nu_protocol::PipelineData::empty(),
     )
-}
-
-fn parse_command_definition(
-    engine: &mut nu::Engine,
-    script: &str,
-) -> Result<(nu_protocol::engine::Closure, Option<ReturnOptions>), Error> {
-    let mut working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-    let block = nu_parser::parse(&mut working_set, None, script.as_bytes(), false);
-
-    engine.state.merge_delta(working_set.render())?;
-
-    let mut stack = nu_protocol::engine::Stack::new();
-    let result = nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
-        &engine.state,
-        &mut stack,
-        &block,
-        nu_protocol::PipelineData::empty(),
-    )?;
-
-    let config = result.into_value(nu_protocol::Span::unknown())?;
-
-    // Get the run closure (required)
-    let run = config
-        .get_data_by_key("run")
-        .ok_or("No 'run' field found in command configuration")?
-        .into_closure()?;
-
-    // Optionally parse return_options (using the same approach as in handlers)
-    let return_options = if let Some(return_config) = config.get_data_by_key("return_options") {
-        let record = return_config
-            .as_record()
-            .map_err(|_| "return must be a record")?;
-
-        let suffix = record
-            .get("suffix")
-            .map(|v| v.as_str().map_err(|_| "suffix must be a string"))
-            .transpose()?
-            .map(String::from);
-
-        let ttl = record
-            .get("ttl")
-            .map(|v| serde_json::from_str(&value_to_json(v).to_string()))
-            .transpose()
-            .map_err(|e| format!("invalid TTL: {}", e))?;
-
-        Some(ReturnOptions { suffix, ttl })
-    } else {
-        None
-    };
-
-    engine.state.merge_env(&mut stack)?;
-
-    Ok((run, return_options))
 }

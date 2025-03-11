@@ -186,7 +186,7 @@ async fn test_register_parse_error() {
         recver.recv().await.unwrap(), {
         topic: "invalid.unregistered",
         handler: frame_handler,
-        error: "MissingPositional",
+        error: "Parse error", // Expecting parse error details
     });
 
     assert_no_more_frames(&mut recver).await;

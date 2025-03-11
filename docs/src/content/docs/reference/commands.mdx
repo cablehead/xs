@@ -19,6 +19,7 @@ To create a command, append a definition string with the topic
 
 ```nushell
 r#'{
+  # Required: Command closure
   run: {|frame|
     # frame.topic - always <command>.call
     # frame.hash - contains input content if present
@@ -26,6 +27,17 @@ r#'{
     let input = if ($frame.hash != null) { .cas $frame.hash } else { null }
     let n = $frame.meta.args.n
     1..($n) | each {$"($in): ($input)"}
+  }
+
+  # Optional: Module definitions
+  modules: {
+    "my-util": "export def format [x] { $\"formatted: ($x)\" }"
+  }
+
+  # Optional: Control output frame behavior
+  return_options: {
+    suffix: ".output" # Output topic suffix (default: ".recv")
+    ttl: "head:1" # Keep only most recent frame
   }
 }'# | .append repeat.define
 ```
@@ -75,6 +87,24 @@ If a command encounters an error during execution, it will:
 Unlike generators, commands do not automatically restart on error - each
 invocation is independent.
 
+## Modules
+
+Commands can use custom Nushell modules:
+
+```nushell
+r#'{
+  run: {|frame|
+    my-math double (frame.meta.args.number)
+  }
+
+  modules: {
+    "my-math": "export def double [x] { $x * 2 }"
+  }
+}'# | .append calculator.define
+```
+
+This allows you to modularize your commands and reuse code across different commands.
+
 ## Key Differences
 
 | Feature        | Commands                | Handlers               | Generators      |
@@ -84,3 +114,4 @@ invocation is independent.
 | Results        | Streamed immediately    | Batched on completion  | Streamed        |
 | Parallelism    | Multiple parallel calls | Sequential processing  | Single instance |
 | Error Handling | Per-invocation          | Unregisters handler    | Auto-restarts   |
+| Modules        | Supported               | Supported              | Not supported   |
