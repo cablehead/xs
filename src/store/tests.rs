@@ -24,6 +24,37 @@ mod tests_read_options {
     }
 
     #[tokio::test]
+    async fn test_topic_index_order() {
+        let folder = tempfile::tempdir().unwrap();
+
+        let store = Store::new(folder.path().to_path_buf());
+
+        let frame1 = Frame {
+            id: scru128::new(),
+            topic: "ab".to_owned(),
+            ..Default::default()
+        };
+        let frame1 = store.append(frame1).unwrap();
+
+        let frame2 = Frame {
+            id: scru128::new(),
+            topic: "abc".to_owned(),
+            ..Default::default()
+        };
+        let frame2 = store.append(frame2).unwrap();
+
+        let keys = store.idx_topic.keys().flatten().collect::<Vec<_>>();
+
+        assert_eq!(
+            &[
+                fjall::Slice::from(idx_topic_key_from_frame(&frame1).unwrap()),
+                fjall::Slice::from(idx_topic_key_from_frame(&frame2).unwrap()),
+            ],
+            &*keys,
+        );
+    }
+
+    #[tokio::test]
     async fn test_topic_index() {
         let folder = tempfile::tempdir().unwrap();
 
@@ -494,6 +525,32 @@ mod tests_context {
     use tempfile::TempDir;
 
     #[tokio::test]
+    async fn test_reject_null_byte_in_topic() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Try to create a frame with a topic containing a null byte
+        let frame = Frame {
+            id: scru128::new(),
+            topic: "test\0topic".to_owned(),
+            context_id: ZERO_CONTEXT,
+            hash: None,
+            meta: None,
+            ttl: None,
+        };
+
+        // Creating the index key should fail
+        let result = idx_topic_key_from_frame(&frame);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("null byte"));
+
+        // Trying to append the frame should also fail
+        let result = store.append(frame);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("null byte"));
+    }
+
+    #[tokio::test]
     async fn test_context_operations() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
@@ -890,6 +947,68 @@ mod tests_context {
         // Additionally, ensure iterating in ctx2 doesn't return frames from ctx1
         let frames_ctx2: Vec<_> = store.iter_frames(Some(ctx2), None).collect();
         assert_eq!(frames_ctx2, vec![ctx2_frame1, ctx2_frame2]);
+    }
+
+    #[test]
+    fn test_idx_context_key_range_end() {
+        // Test 1: Normal case - verify basic increment works
+        let context_id = Scru128Id::from_u128(100);
+        let next_id = Scru128Id::from_u128(101);
+        let result = idx_context_key_range_end(context_id);
+        assert_eq!(result, next_id.as_bytes().to_vec());
+
+        // Test 2: Test with a complex key that's not all 0xFF
+        let complex_id = Scru128Id::from_u128(0x8000_FFFF_0000_AAAA_1234_5678_9ABC_DEF0);
+        let expected_next = Scru128Id::from_u128(0x8000_FFFF_0000_AAAA_1234_5678_9ABC_DEF1);
+        assert_eq!(
+            idx_context_key_range_end(complex_id),
+            expected_next.as_bytes().to_vec()
+        );
+
+        // Test 3: Boundary case - near maximum value
+        let near_max = Scru128Id::from_u128(u128::MAX - 1);
+        let max = Scru128Id::from_u128(u128::MAX);
+        assert_eq!(idx_context_key_range_end(near_max), max.as_bytes().to_vec());
+
+        // Test 4: Boundary case - at maximum value (saturating_add should prevent overflow)
+        let at_max = Scru128Id::from_u128(u128::MAX);
+        assert_eq!(
+            idx_context_key_range_end(at_max),
+            at_max.as_bytes().to_vec(),
+            "When at u128::MAX, saturating_add should keep the same value"
+        );
+
+        // Test 5: Integration test - make sure it works in range queries
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Create first context normally
+        let ctx1_frame = store
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .unwrap();
+        let ctx1 = ctx1_frame.id;
+
+        // For ctx2, we need to manually create and register it
+        let ctx2 = Scru128Id::from_u128(ctx1.to_u128() + 1);
+        let ctx2_frame = Frame::builder("xs.context", ZERO_CONTEXT)
+            .id(ctx2)
+            .ttl(TTL::Forever)
+            .build();
+
+        // Manually insert the frame and register the context
+        store.insert_frame(&ctx2_frame).unwrap();
+        store.contexts.write().unwrap().insert(ctx2);
+
+        // Add frames to both contexts
+        let frame1 = store.append(Frame::builder("test", ctx1).build()).unwrap();
+        let frame2 = store.append(Frame::builder("test", ctx2).build()).unwrap();
+
+        // Test that range query correctly separates the contexts
+        let frames1: Vec<_> = store.read_sync(None, None, Some(ctx1)).collect();
+        assert_eq!(frames1, vec![frame1], "Should only return frames from ctx1");
+
+        let frames2: Vec<_> = store.read_sync(None, None, Some(ctx2)).collect();
+        assert_eq!(frames2, vec![frame2], "Should only return frames from ctx2");
     }
 }
 
