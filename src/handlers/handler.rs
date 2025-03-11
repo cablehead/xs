@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,14 +15,9 @@ use scru128::Scru128Id;
 use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
-use crate::nu::util::value_to_json;
-use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct ReturnOptions {
-    pub suffix: Option<String>,
-    pub ttl: Option<TTL>,
-}
+use crate::nu::value_to_json;
+use crate::nu::ReturnOptions;
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[derive(Clone)]
 pub struct Handler {
@@ -38,7 +32,6 @@ pub struct Handler {
 #[derive(Clone, Debug)]
 struct HandlerConfig {
     resume_from: ResumeFrom,
-    modules: HashMap<String, String>,
     pulse: Option<u64>,
     return_options: Option<ReturnOptions>,
 }
@@ -82,22 +75,10 @@ impl Handler {
             )),
         ])?;
 
-        let (mut run, mut config) = parse_handler_configuration_script(&mut engine, &expression)?;
+        // Parse configuration (this will handle module loading internally)
+        let (run, config) = parse_handler_configuration_script(&mut engine, &expression)?;
 
-        // Load modules and reparse if needed
-        if !config.modules.is_empty() {
-            for (name, content) in &config.modules {
-                tracing::debug!("Loading module '{}'", name);
-                engine
-                    .add_module(name, content)
-                    .map_err(|e| format!("Failed to load module '{}': {}", name, e))?;
-            }
-
-            // we need to re-parse the expression after loading modules, so that the closure has access
-            // to the additional modules: not the best, but I can't see a better way
-            (run, config) = parse_handler_configuration_script(&mut engine, &expression)?;
-        }
-
+        // Validate the closure signature
         let block = engine.state.get_block(run.block_id);
         if block.signature.required_positional.len() != 1 {
             return Err(format!(
@@ -423,40 +404,16 @@ use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
 use nu_protocol::PipelineData;
 
-use nu_protocol::format_shell_error;
-use nu_protocol::ShellError;
-
 fn parse_handler_configuration_script(
     engine: &mut nu::Engine,
     script: &str,
 ) -> Result<(Closure, HandlerConfig), Error> {
+    // Parse common options first (includes run, modules, return_options)
+    let common_options = nu::parse_config(engine, script)?;
+
+    // Parse handler-specific options
     let mut working_set = StateWorkingSet::new(&engine.state);
-
     let block = parse(&mut working_set, None, script.as_bytes(), false);
-
-    // Handle parse errors
-    if let Some(err) = working_set.parse_errors.first() {
-        let shell_error = ShellError::GenericError {
-            error: "Parse error".into(),
-            msg: format!("{:?}", err),
-            span: Some(err.span()),
-            help: None,
-            inner: vec![],
-        };
-        return Err(Error::from(format_shell_error(&working_set, &shell_error)));
-    }
-
-    // Handle compile errors
-    if let Some(err) = working_set.compile_errors.first() {
-        let shell_error = ShellError::GenericError {
-            error: "Compile error".into(),
-            msg: format!("{:?}", err),
-            span: None,
-            help: None,
-            inner: vec![],
-        };
-        return Err(Error::from(format_shell_error(&working_set, &shell_error)));
-    }
 
     engine.state.merge_delta(working_set.render())?;
 
@@ -466,19 +423,11 @@ fn parse_handler_configuration_script(
         &mut stack,
         &block,
         PipelineData::empty(),
-    )
-    .map_err(|err| {
-        let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-        Error::from(nu_protocol::format_shell_error(&working_set, &err))
-    })?;
+    )?;
 
     let config = result.into_value(nu_protocol::Span::unknown())?;
 
-    let run = config
-        .get_data_by_key("run")
-        .ok_or("No 'run' field found in handler configuration")?
-        .into_closure()?;
-
+    // Parse resume_from (specific to handlers)
     let resume_from = match config.get_data_by_key("resume_from") {
         Some(val) => {
             let resume_str = val.as_str().map_err(|_| "resume_from must be a string")?;
@@ -494,59 +443,21 @@ fn parse_handler_configuration_script(
         None => ResumeFrom::default(),
     };
 
-    let modules = match config.get_data_by_key("modules") {
-        Some(val) => {
-            let record = val.as_record().map_err(|_| "modules must be a record")?;
-            record
-                .iter()
-                .map(|(name, content)| {
-                    let content = content
-                        .as_str()
-                        .map_err(|_| format!("module '{}' content must be a string", name))?;
-                    Ok((name.to_string(), content.to_string()))
-                })
-                .collect::<Result<HashMap<_, _>, Error>>()?
-        }
-        None => HashMap::new(),
-    };
-
+    // Parse pulse (specific to handlers)
     let pulse = config
         .get_data_by_key("pulse")
         .map(|v| v.as_int().map_err(|_| "pulse must be an integer"))
         .transpose()?
         .map(|n| n as u64);
 
-    let return_options = if let Some(return_config) = config.get_data_by_key("return_options") {
-        let record = return_config
-            .as_record()
-            .map_err(|_| "return must be a record")?;
-
-        let suffix = record
-            .get("suffix")
-            .map(|v| v.as_str().map_err(|_| "suffix must be a string"))
-            .transpose()?
-            .map(String::from);
-
-        let ttl = record
-            .get("ttl")
-            .map(|v| serde_json::from_str(&value_to_json(v).to_string()))
-            .transpose()
-            .map_err(|e| format!("invalid TTL: {}", e))?;
-
-        Some(ReturnOptions { suffix, ttl })
-    } else {
-        None
-    };
-
     engine.state.merge_env(&mut stack)?;
 
     Ok((
-        run,
+        common_options.run,
         HandlerConfig {
             resume_from,
-            modules,
             pulse,
-            return_options,
+            return_options: common_options.return_options,
         },
     ))
 }
