@@ -414,15 +414,18 @@ impl Store {
     }
 
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
-    pub fn remove(&self, id: &Scru128Id) -> Result<(), fjall::Error> {
+    pub fn remove(&self, id: &Scru128Id) -> Result<(), crate::error::Error> {
         let Some(frame) = self.get(id) else {
             // Already deleted
             return Ok(());
         };
 
+        // Get the index topic key
+        let topic_key = idx_topic_key_from_frame(&frame)?;
+
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.as_bytes());
-        batch.remove(&self.idx_topic, idx_topic_key_from_frame(&frame));
+        batch.remove(&self.idx_topic, topic_key);
         batch.remove(&self.idx_context, idx_context_key_from_frame(&frame));
 
         // If this is a context frame, remove it from the contexts set
@@ -431,7 +434,8 @@ impl Store {
         }
 
         batch.commit()?;
-        self.keyspace.persist(fjall::PersistMode::SyncAll)
+        self.keyspace.persist(fjall::PersistMode::SyncAll)?;
+        Ok(())
     }
 
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
@@ -469,14 +473,19 @@ impl Store {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn insert_frame(&self, frame: &Frame) -> Result<(), fjall::Error> {
+    pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
+
+        // Get the index topic key
+        let topic_key = idx_topic_key_from_frame(frame)?;
+
         let mut batch = self.keyspace.batch();
         batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
-        batch.insert(&self.idx_topic, idx_topic_key_from_frame(frame), b"");
+        batch.insert(&self.idx_topic, topic_key, b"");
         batch.insert(&self.idx_context, idx_context_key_from_frame(frame), b"");
         batch.commit()?;
-        self.keyspace.persist(fjall::PersistMode::SyncAll)
+        self.keyspace.persist(fjall::PersistMode::SyncAll)?;
+        Ok(())
     }
 
     pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
@@ -496,6 +505,9 @@ impl Store {
                 return Err(format!("Invalid context: {}", frame.context_id).into());
             }
         }
+
+        // Check for null byte in topic (in case we're not storing the frame)
+        idx_topic_key_from_frame(&frame)?;
 
         // only store the frame if it's not ephemeral
         if frame.ttl != Some(TTL::Ephemeral) {
@@ -609,18 +621,28 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
     now_ms >= expires_ms
 }
 
+const NULL_DELIMITER: u8 = 0;
+
 fn idx_topic_key_prefix(context_id: Scru128Id, topic: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(16 + topic.len() + 1); // context_id (16) + topic bytes + delimiter
     v.extend(context_id.as_bytes()); // binary context_id (16 bytes)
     v.extend(topic.as_bytes()); // topic string as UTF-8 bytes
-    v.push(0xFF); // delimiter
+    v.push(NULL_DELIMITER); // Delimiter for variable-sized keys
     v
 }
 
-fn idx_topic_key_from_frame(frame: &Frame) -> Vec<u8> {
+pub(crate) fn idx_topic_key_from_frame(frame: &Frame) -> Result<Vec<u8>, crate::error::Error> {
+    // Check if the topic contains a null byte when encoded as UTF-8
+    if frame.topic.as_bytes().contains(&NULL_DELIMITER) {
+        return Err(
+            "Topic cannot contain null byte (0x00) as it's used as a delimiter"
+                .to_string()
+                .into(),
+        );
+    }
     let mut v = idx_topic_key_prefix(frame.context_id, &frame.topic);
     v.extend(frame.id.as_bytes());
-    v
+    Ok(v)
 }
 
 fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
@@ -638,17 +660,12 @@ fn idx_context_key_from_frame(frame: &Frame) -> Vec<u8> {
 
 // Returns the key prefix for the next context after the given one
 fn idx_context_key_range_end(context_id: Scru128Id) -> Vec<u8> {
-    let mut bytes = context_id.as_bytes().to_vec();
-    for i in (0..bytes.len()).rev() {
-        if bytes[i] == 0xFF {
-            bytes[i] = 0;
-        } else {
-            bytes[i] += 1;
-            return bytes;
-        }
-    }
-    bytes.push(0);
-    bytes
+    let mut i = context_id.to_u128();
+
+    // NOTE: Reaching u128::MAX is probably not gonna happen...
+    i = i.saturating_add(1);
+
+    Scru128Id::from(i).as_bytes().to_vec()
 }
 
 fn deserialize_frame<B1: AsRef<[u8]>, B2: AsRef<[u8]>>(record: (B1, B2)) -> Frame {
