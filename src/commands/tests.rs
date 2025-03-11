@@ -23,7 +23,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
-                            process: {|frame|
+                            run: {|frame|
                                 let input = if ($frame.hash != null) { .cas $frame.hash } else { null }
                                 let n = $frame.meta.args.n
                                 1..($n) | each {$"($in): ($input)"}
@@ -92,7 +92,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
                     store
                         .cas_insert(
                             r#"{
-                            process: {|frame|
+                            run: {|frame|
                                 $frame.meta.args.not_exists # This will error
                             }
                         }"#,
@@ -144,7 +144,7 @@ async fn test_command_single_value() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
-                            process: {|frame| "single value output"}
+                            run: {|frame| "single value output"}
                         }"#,
                     )
                     .await?,
@@ -208,7 +208,7 @@ async fn test_command_empty_output() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
-                            process: {|frame|}
+                            run: {|frame|}
                         }"#,
                     )
                     .await?,
@@ -250,7 +250,7 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
                 store
                     .cas_insert(
                         r#"{
-                            process: {|frame|
+                            run: {|frame|
                                 [1 2 3] | tee { collect { math sum } | to json -r | .append sum }
                             }
                         }"#,

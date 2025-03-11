@@ -19,7 +19,7 @@ To create a command, append a definition string with the topic
 
 ```nushell
 r#'{
-  process: {|frame|
+  run: {|frame|
     # frame.topic - always <command>.call
     # frame.hash - contains input content if present
     # frame.meta.args - contains call arguments
@@ -32,7 +32,7 @@ r#'{
 
 The command definition requires:
 
-- `process`: A closure that receives the call frame and can return a pipeline of
+- `run`: A closure that receives the call frame and can return a pipeline of
   results
 
 Each value in the closure's output pipeline becomes a `.recv` event
