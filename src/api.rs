@@ -358,7 +358,7 @@ pub async fn serve(
     store: Store,
     engine: nu::Engine,
     expose: Option<String>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), BoxError> {
     if let Err(e) = store.append(
         Frame::builder("xs.start", store::ZERO_CONTEXT)
             .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
@@ -397,7 +397,7 @@ async fn listener_loop(
     mut listener: Listener,
     store: Store,
     engine: nu::Engine,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), BoxError> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
@@ -506,9 +506,7 @@ async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPRe
         Err(e) => return response_400(format!("Invalid frame JSON: {}", e)),
     };
 
-    store
-        .insert_frame(&frame)
-        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+    store.insert_frame(&frame).map_err(BoxError::from)?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

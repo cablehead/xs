@@ -635,7 +635,9 @@ pub(crate) fn idx_topic_key_from_frame(frame: &Frame) -> Result<Vec<u8>, crate::
     // Check if the topic contains a null byte when encoded as UTF-8
     if frame.topic.as_bytes().contains(&NULL_DELIMITER) {
         return Err(
-            format!("Topic cannot contain null byte (0x00) as it's used as a delimiter").into(),
+            "Topic cannot contain null byte (0x00) as it's used as a delimiter"
+                .to_string()
+                .into(),
         );
     }
     let mut v = idx_topic_key_prefix(frame.context_id, &frame.topic);
