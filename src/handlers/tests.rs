@@ -116,7 +116,7 @@ async fn test_register_invalid_closure() {
                 .hash(
                     store
                         .cas_insert(
-                            r#"{process: {|| 42}}"#, // Invalid closure, expects at least one argument
+                            r#"{run: {|| 42}}"#, // Invalid closure, expects at least one argument
                         )
                         .await
                         .unwrap(),
@@ -162,7 +162,7 @@ async fn test_register_parse_error() {
                         .cas_insert(
                             r#"
                         {
-                          process: {|frame|
+                          run: {|frame|
                             .head index.html | .cas
                           }
                         }
@@ -193,7 +193,7 @@ async fn test_register_parse_error() {
 }
 
 #[tokio::test]
-// This test is to ensure that a handler does not process its own output
+// This test is to ensure that a handler does not run its own output
 async fn test_no_self_loop() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -204,13 +204,13 @@ async fn test_no_self_loop() {
         "xs.threshold".to_string()
     );
 
-    // Register handler that would process its own output if not prevented
+    // Register handler that would run its own output if not prevented
     store
         .append(
             Frame::builder("echo.register", ZERO_CONTEXT)
                 .hash(
                     store
-                        .cas_insert(r#"{process: {|frame| $frame}}"#)
+                        .cas_insert(r#"{run: {|frame| $frame}}"#)
                         .await
                         .unwrap(),
                 )
@@ -271,7 +271,7 @@ async fn test_essentials() {
                 .cas_insert(
                     r#"
                     {
-                      process: {|frame|
+                      run: {|frame|
                         if $frame.topic != "pew" { return }
                         "processed"
                       }
@@ -373,7 +373,7 @@ async fn test_unregister_on_error() {
                     store
                         .cas_insert(
                             r#"{
-                          process: {|frame|
+                          run: {|frame|
                             let x = {"foo": null}
                             $x.foo.bar  # Will error at runtime - null access
                           }
@@ -421,7 +421,7 @@ async fn test_return_options() {
                         ttl: "head:1"
                       }
 
-                      process: {|frame|
+                      run: {|frame|
                         if $frame.topic != "ping" { return }
                         "pong"
                       }
@@ -491,7 +491,7 @@ async fn test_custom_append() {
             store
                 .cas_insert(
                     r#"{
-                      process: {|frame|
+                      run: {|frame|
                        if $frame.topic != "trigger" { return }
                        "1" | .append topic1 --meta {"t": "1"}
                        "2" | .append topic2 --meta {"t": "2"}
@@ -541,7 +541,7 @@ async fn test_handler_replacement() {
                 .hash(
                     store
                         .cas_insert(
-                            r#"{process: {|frame|
+                            r#"{run: {|frame|
                         if $frame.topic != "trigger" { return }
                         "handler1"
                     }}"#,
@@ -563,7 +563,7 @@ async fn test_handler_replacement() {
                 .hash(
                     store
                         .cas_insert(
-                            r#"{process: {|frame|
+                            r#"{run: {|frame|
                         if $frame.topic != "trigger" { return }
                         "handler2"
                     }}"#,
@@ -639,7 +639,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
                                 mymod: (.head mymod.nu | .cas $in.hash)
                             }
 
-                            process: {|frame|
+                            run: {|frame|
                                 if $frame.topic != "trigger" { return }
                                 mymod add_nums 40 2
                             }
@@ -712,7 +712,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
                     }
 
                     {
-                        process: {|frame|
+                        run: {|frame|
                             if $frame.topic != "trigger" { return }
                             inc-abc
                         }
@@ -798,7 +798,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
                     store
                         .cas_insert(
                             r#"{
-                                process: "not a closure"
+                                run: "not a closure"
                              }"#,
                         )
                         .await?,
@@ -820,7 +820,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     let handler_hash = store
         .cas_insert(
             r#"{
-                process: {|frame|
+                run: {|frame|
                     if $frame.topic != "trigger" { return }
                     "explicit append" | .append echo.direct
                     "handler return"

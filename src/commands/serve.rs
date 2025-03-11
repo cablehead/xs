@@ -127,7 +127,7 @@ async fn register_command(
         )),
     ])?;
 
-    // Parse the command configuration to extract return_options (ignore the process closure here)
+    // Parse the command configuration to extract return_options (ignore the run closure here)
     let (_closure, return_options) = parse_command_definition(&mut engine, &definition)?;
 
     Ok(Command {
@@ -284,10 +284,10 @@ fn parse_command_definition(
 
     let config = result.into_value(nu_protocol::Span::unknown())?;
 
-    // Get the process closure (required)
-    let process = config
-        .get_data_by_key("process")
-        .ok_or("No 'process' field found in command configuration")?
+    // Get the run closure (required)
+    let run = config
+        .get_data_by_key("run")
+        .ok_or("No 'run' field found in command configuration")?
         .into_closure()?;
 
     // Optionally parse return_options (using the same approach as in handlers)
@@ -315,5 +315,5 @@ fn parse_command_definition(
 
     engine.state.merge_env(&mut stack)?;
 
-    Ok((process, return_options))
+    Ok((run, return_options))
 }

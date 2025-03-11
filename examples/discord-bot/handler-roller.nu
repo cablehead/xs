@@ -34,7 +34,7 @@ $env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
 {
   modules: {discord: (.head discord.nu | .cas $in.hash)}
 
-  process: {|frame|
+  run: {|frame|
     if $frame.topic != "discord.ws.recv" { return }
 
     # TODO: .cas should also be able to take a record, to match xs2.nu's usage

@@ -82,8 +82,7 @@ impl Handler {
             )),
         ])?;
 
-        let (mut process, mut config) =
-            parse_handler_configuration_script(&mut engine, &expression)?;
+        let (mut run, mut config) = parse_handler_configuration_script(&mut engine, &expression)?;
 
         // Load modules and reparse if needed
         if !config.modules.is_empty() {
@@ -96,10 +95,10 @@ impl Handler {
 
             // we need to re-parse the expression after loading modules, so that the closure has access
             // to the additional modules: not the best, but I can't see a better way
-            (process, config) = parse_handler_configuration_script(&mut engine, &expression)?;
+            (run, config) = parse_handler_configuration_script(&mut engine, &expression)?;
         }
 
-        let block = engine.state.get_block(process.block_id);
+        let block = engine.state.get_block(run.block_id);
         if block.signature.required_positional.len() != 1 {
             return Err(format!(
                 "Closure must accept exactly one frame argument, found {}",
@@ -108,7 +107,7 @@ impl Handler {
             .into());
         }
 
-        let engine_worker = Arc::new(EngineWorker::new(engine, process));
+        let engine_worker = Arc::new(EngineWorker::new(engine, run));
 
         Ok(Self {
             id,
@@ -475,9 +474,9 @@ fn parse_handler_configuration_script(
 
     let config = result.into_value(nu_protocol::Span::unknown())?;
 
-    let process = config
-        .get_data_by_key("process")
-        .ok_or("No 'process' field found in handler configuration")?
+    let run = config
+        .get_data_by_key("run")
+        .ok_or("No 'run' field found in handler configuration")?
         .into_closure()?;
 
     let resume_from = match config.get_data_by_key("resume_from") {
@@ -542,7 +541,7 @@ fn parse_handler_configuration_script(
     engine.state.merge_env(&mut stack)?;
 
     Ok((
-        process,
+        run,
         HandlerConfig {
             resume_from,
             modules,
