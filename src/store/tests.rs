@@ -47,8 +47,8 @@ mod tests_read_options {
 
         assert_eq!(
             &[
-                fjall::Slice::from(idx_topic_key_from_frame(&frame1)),
-                fjall::Slice::from(idx_topic_key_from_frame(&frame2)),
+                fjall::Slice::from(idx_topic_key_from_frame(&frame1).unwrap()),
+                fjall::Slice::from(idx_topic_key_from_frame(&frame2).unwrap()),
             ],
             &*keys,
         );
@@ -523,6 +523,32 @@ mod tests_ttl {
 mod tests_context {
     use super::*;
     use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_reject_null_byte_in_topic() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Try to create a frame with a topic containing a null byte
+        let frame = Frame {
+            id: scru128::new(),
+            topic: "test\0topic".to_owned(),
+            context_id: ZERO_CONTEXT,
+            hash: None,
+            meta: None,
+            ttl: None,
+        };
+
+        // Creating the index key should fail
+        let result = idx_topic_key_from_frame(&frame);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("null byte"));
+
+        // Trying to append the frame should also fail
+        let result = store.append(frame);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("null byte"));
+    }
 
     #[tokio::test]
     async fn test_context_operations() {

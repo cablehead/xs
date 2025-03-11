@@ -508,7 +508,7 @@ async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPRe
 
     store
         .insert_frame(&frame)
-        .map_err(|e| Box::new(e) as BoxError)?;
+        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
