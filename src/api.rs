@@ -58,6 +58,24 @@ enum Routes {
     BadRequest(String),
 }
 
+/// Validates an Integrity object to ensure all its hashes are properly formatted
+fn validate_integrity(integrity: &ssri::Integrity) -> bool {
+    // Check if there are any hashes
+    if integrity.hashes.is_empty() {
+        return false;
+    }
+
+    // For each hash, check if it has a valid base64-encoded digest
+    for hash in &integrity.hashes {
+        // Check if digest is valid base64 using the modern API
+        if let Err(_) = base64::engine::general_purpose::STANDARD.decode(&hash.digest) {
+            return false;
+        }
+    }
+
+    true
+}
+
 fn match_route(
     method: &Method,
     path: &str,
@@ -109,7 +127,13 @@ fn match_route(
         (&Method::GET, p) if p.starts_with("/cas/") => {
             if let Some(hash) = p.strip_prefix("/cas/") {
                 match ssri::Integrity::from_str(hash) {
-                    Ok(integrity) => Routes::CasGet(integrity),
+                    Ok(integrity) => {
+                        if validate_integrity(&integrity) {
+                            Routes::CasGet(integrity)
+                        } else {
+                            Routes::BadRequest(format!("Invalid CAS hash format: {}", hash))
+                        }
+                    }
                     Err(e) => Routes::BadRequest(format!("Invalid CAS hash: {}", e)),
                 }
             } else {
