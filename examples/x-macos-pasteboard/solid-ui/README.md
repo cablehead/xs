@@ -21,12 +21,12 @@ xs serve ./store --expose :3021
 
 Bootstrap the store:
 
-```bash
+```nushell
 # register x-macos-pasteboard as a frame generator
-echo "x-macos-pasteboard | lines" | xs append ./store pb.spawn
+"x-macos-pasteboard | lines" | .append pb.spawn
 
 # register a handler to map raw clipboard data to content
-cat handler-pb.map.nu | xs append ./store pb.map.register
+cat handler-pb.map.nu | .append pb.map.register
 ```
 
 Start UI:
