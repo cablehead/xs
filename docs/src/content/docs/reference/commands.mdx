@@ -94,7 +94,7 @@ Commands can use custom Nushell modules:
 ```nushell
 r#'{
   run: {|frame|
-    my-math double (frame.meta.args.number)
+    my-math double ($frame.meta.args.number)
   }
 
   modules: {
