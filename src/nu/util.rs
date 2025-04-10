@@ -86,7 +86,13 @@ pub fn write_pipeline_to_cas(
 ) -> Result<Option<ssri::Integrity>, ShellError> {
     let mut writer = store
         .cas_writer_sync()
-        .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+        .map_err(|e| ShellError::GenericError {
+            error: "I/O Error".into(),
+            msg: e.to_string(),
+            span: Some(span),
+            help: None,
+            inner: vec![],
+        })?;
 
     match input {
         PipelineData::Value(value, _) => match value {
@@ -94,37 +100,73 @@ pub fn write_pipeline_to_cas(
             Value::String { val, .. } => {
                 writer
                     .write_all(val.as_bytes())
-                    .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                    .map_err(|e| ShellError::GenericError {
+                        error: "I/O Error".into(),
+                        msg: e.to_string(),
+                        span: Some(span),
+                        help: None,
+                        inner: vec![],
+                    })?;
 
-                let hash = writer
-                    .commit()
-                    .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                let hash = writer.commit().map_err(|e| ShellError::GenericError {
+                    error: "I/O Error".into(),
+                    msg: e.to_string(),
+                    span: Some(span),
+                    help: None,
+                    inner: vec![],
+                })?;
 
                 Ok(Some(hash))
             }
             Value::Binary { val, .. } => {
                 writer
                     .write_all(&val)
-                    .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                    .map_err(|e| ShellError::GenericError {
+                        error: "I/O Error".into(),
+                        msg: e.to_string(),
+                        span: Some(span),
+                        help: None,
+                        inner: vec![],
+                    })?;
 
-                let hash = writer
-                    .commit()
-                    .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                let hash = writer.commit().map_err(|e| ShellError::GenericError {
+                    error: "I/O Error".into(),
+                    msg: e.to_string(),
+                    span: Some(span),
+                    help: None,
+                    inner: vec![],
+                })?;
 
                 Ok(Some(hash))
             }
             Value::Record { .. } => {
                 let json = value_to_json(&value);
-                let json_string = serde_json::to_string(&json)
-                    .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                let json_string =
+                    serde_json::to_string(&json).map_err(|e| ShellError::GenericError {
+                        error: "I/O Error".into(),
+                        msg: e.to_string(),
+                        span: Some(span),
+                        help: None,
+                        inner: vec![],
+                    })?;
 
                 writer
                     .write_all(json_string.as_bytes())
-                    .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                    .map_err(|e| ShellError::GenericError {
+                        error: "I/O Error".into(),
+                        msg: e.to_string(),
+                        span: Some(span),
+                        help: None,
+                        inner: vec![],
+                    })?;
 
-                let hash = writer
-                    .commit()
-                    .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                let hash = writer.commit().map_err(|e| ShellError::GenericError {
+                    error: "I/O Error".into(),
+                    msg: e.to_string(),
+                    span: Some(span),
+                    help: None,
+                    inner: vec![],
+                })?;
 
                 Ok(Some(hash))
             }
@@ -144,23 +186,40 @@ pub fn write_pipeline_to_cas(
             if let Some(mut reader) = stream.reader() {
                 let mut buffer = [0; 8192];
                 loop {
-                    let bytes_read = reader
-                        .read(&mut buffer)
-                        .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                    let bytes_read =
+                        reader
+                            .read(&mut buffer)
+                            .map_err(|e| ShellError::GenericError {
+                                error: "I/O Error".into(),
+                                msg: e.to_string(),
+                                span: Some(span),
+                                help: None,
+                                inner: vec![],
+                            })?;
 
                     if bytes_read == 0 {
                         break;
                     }
 
-                    writer
-                        .write_all(&buffer[..bytes_read])
-                        .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+                    writer.write_all(&buffer[..bytes_read]).map_err(|e| {
+                        ShellError::GenericError {
+                            error: "I/O Error".into(),
+                            msg: e.to_string(),
+                            span: Some(span),
+                            help: None,
+                            inner: vec![],
+                        }
+                    })?;
                 }
             }
 
-            let hash = writer
-                .commit()
-                .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+            let hash = writer.commit().map_err(|e| ShellError::GenericError {
+                error: "I/O Error".into(),
+                msg: e.to_string(),
+                span: Some(span),
+                help: None,
+                inner: vec![],
+            })?;
 
             Ok(Some(hash))
         }

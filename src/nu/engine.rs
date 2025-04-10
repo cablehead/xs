@@ -101,15 +101,24 @@ impl Engine {
         let mut working_set = StateWorkingSet::new(&self.state);
 
         // Create temporary file with .nu extension that will be cleaned up when temp_dir is dropped
-        let temp_dir = tempfile::TempDir::new().map_err(|e| ShellError::IOError {
+        let temp_dir = tempfile::TempDir::new().map_err(|e| ShellError::GenericError {
+            error: "I/O Error".into(),
             msg: format!(
                 "Failed to create temporary directory for module '{}': {}",
                 name, e
             ),
+            span: Some(Span::unknown()),
+            help: None,
+            inner: vec![],
         })?;
         let module_path = temp_dir.path().join(format!("{}.nu", name));
-        std::fs::write(&module_path, content)
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+        std::fs::write(&module_path, content).map_err(|e| ShellError::GenericError {
+            error: "I/O Error".into(),
+            msg: e.to_string(),
+            span: Some(Span::unknown()),
+            help: None,
+            inner: vec![],
+        })?;
 
         // Parse the use statement
         let use_stmt = format!("use {}", module_path.display());
