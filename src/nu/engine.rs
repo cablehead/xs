@@ -53,35 +53,40 @@ impl Engine {
         &self,
         input: PipelineData,
         expression: String,
-    ) -> Result<PipelineData, ShellError> {
+    ) -> Result<PipelineData, Box<ShellError>> {
         let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, expression.as_bytes(), false);
 
         if !working_set.parse_errors.is_empty() {
             let first_error = &working_set.parse_errors[0];
-            return Err(ShellError::GenericError {
+            return Err(Box::new(ShellError::GenericError {
                 error: "Parse error".into(),
                 msg: first_error.to_string(),
                 span: Some(first_error.span()),
                 help: None,
                 inner: vec![],
-            });
+            }));
         }
 
         let mut engine_state = self.state.clone();
-        engine_state.merge_delta(working_set.render())?;
+        engine_state
+            .merge_delta(working_set.render())
+            .map_err(Box::new)?;
 
         let mut stack = Stack::new();
         let mut stack =
             stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
 
         eval_block_with_early_return::<WithoutDebug>(&engine_state, &mut stack, &block, input)
+            .map_err(Box::new)
     }
 
-    pub fn parse_closure(&mut self, script: &str) -> Result<Closure, ShellError> {
+    pub fn parse_closure(&mut self, script: &str) -> Result<Closure, Box<ShellError>> {
         let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, script.as_bytes(), false);
-        self.state.merge_delta(working_set.render())?;
+        self.state
+            .merge_delta(working_set.render())
+            .map_err(Box::new)?;
 
         let mut stack = Stack::new();
         let result = eval_block_with_early_return::<WithoutDebug>(
@@ -89,27 +94,45 @@ impl Engine {
             &mut stack,
             &block,
             PipelineData::empty(),
-        )?;
-        let closure = result.into_value(Span::unknown())?.into_closure()?;
+        )
+        .map_err(Box::new)?;
+        let closure = result
+            .into_value(Span::unknown())
+            .map_err(Box::new)?
+            .into_closure()
+            .map_err(Box::new)?;
 
-        self.state.merge_env(&mut stack)?;
+        self.state.merge_env(&mut stack).map_err(Box::new)?;
 
         Ok(closure)
     }
 
-    pub fn add_module(&mut self, name: &str, content: &str) -> Result<(), ShellError> {
+    pub fn add_module(&mut self, name: &str, content: &str) -> Result<(), Box<ShellError>> {
         let mut working_set = StateWorkingSet::new(&self.state);
 
         // Create temporary file with .nu extension that will be cleaned up when temp_dir is dropped
-        let temp_dir = tempfile::TempDir::new().map_err(|e| ShellError::IOError {
-            msg: format!(
-                "Failed to create temporary directory for module '{}': {}",
-                name, e
-            ),
+        let temp_dir = tempfile::TempDir::new().map_err(|e| {
+            Box::new(ShellError::GenericError {
+                error: "I/O Error".into(),
+                msg: format!(
+                    "Failed to create temporary directory for module '{}': {}",
+                    name, e
+                ),
+                span: Some(Span::unknown()),
+                help: None,
+                inner: vec![],
+            })
         })?;
         let module_path = temp_dir.path().join(format!("{}.nu", name));
-        std::fs::write(&module_path, content)
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+        std::fs::write(&module_path, content).map_err(|e| {
+            Box::new(ShellError::GenericError {
+                error: "I/O Error".into(),
+                msg: e.to_string(),
+                span: Some(Span::unknown()),
+                help: None,
+                inner: vec![],
+            })
+        })?;
 
         // Parse the use statement
         let use_stmt = format!("use {}", module_path.display());
@@ -118,17 +141,19 @@ impl Engine {
         // Check for parse errors
         if !working_set.parse_errors.is_empty() {
             let first_error = &working_set.parse_errors[0];
-            return Err(ShellError::GenericError {
+            return Err(Box::new(ShellError::GenericError {
                 error: "Parse error".into(),
                 msg: first_error.to_string(),
                 span: Some(first_error.span()),
                 help: None,
                 inner: vec![],
-            });
+            }));
         }
 
         // Merge changes into engine state
-        self.state.merge_delta(working_set.render())?;
+        self.state
+            .merge_delta(working_set.render())
+            .map_err(Box::new)?;
 
         // Create a temporary stack and evaluate the module
         let mut stack = Stack::new();
@@ -137,10 +162,11 @@ impl Engine {
             &mut stack,
             &_block,
             PipelineData::empty(),
-        )?;
+        )
+        .map_err(Box::new)?;
 
         // Merge environment variables into engine state
-        self.state.merge_env(&mut stack)?;
+        self.state.merge_env(&mut stack).map_err(Box::new)?;
 
         Ok(())
     }

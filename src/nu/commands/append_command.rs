@@ -102,7 +102,7 @@ impl Command for AppendCommand {
             None => None,
         };
 
-        let hash = util::write_pipeline_to_cas(input, &store, span)?;
+        let hash = util::write_pipeline_to_cas(input, &store, span).map_err(|boxed| *boxed)?;
         let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
         let context_id = context_str
             .map(|ctx| ctx.parse::<scru128::Scru128Id>())

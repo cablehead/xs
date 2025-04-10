@@ -83,7 +83,8 @@ impl Command for AppendCommand {
             PipelineData::Value(input_value.clone(), None),
             &self.store,
             span,
-        )?;
+        )
+        .map_err(|boxed| *boxed)?;
 
         let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
         let context_id = if let Some(ctx) = context_str {
