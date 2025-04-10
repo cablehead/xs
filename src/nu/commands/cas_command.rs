@@ -46,19 +46,35 @@ impl Command for CasCommand {
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
         let hash: String = call.req(engine_state, stack, 0)?;
-        let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::IOError {
+        let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::GenericError {
+            error: "I/O Error".into(),
             msg: format!("Malformed ssri::Integrity:: {}", e),
+            span: Some(span),
+            help: None,
+            inner: vec![],
         })?;
 
-        let mut reader = self
-            .store
-            .cas_reader_sync(hash)
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+        let mut reader =
+            self.store
+                .cas_reader_sync(hash)
+                .map_err(|e| ShellError::GenericError {
+                    error: "I/O Error".into(),
+                    msg: e.to_string(),
+                    span: Some(span),
+                    help: None,
+                    inner: vec![],
+                })?;
 
         let mut contents = Vec::new();
         reader
             .read_to_end(&mut contents)
-            .map_err(|e| ShellError::IOError { msg: e.to_string() })?;
+            .map_err(|e| ShellError::GenericError {
+                error: "I/O Error".into(),
+                msg: e.to_string(),
+                span: Some(span),
+                help: None,
+                inner: vec![],
+            })?;
 
         // Try to convert to string if valid UTF-8, otherwise return as binary
         let value = match String::from_utf8(contents.clone()) {
