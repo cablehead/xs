@@ -240,7 +240,7 @@ fn run_command(
     engine: &nu::Engine,
     closure: nu_protocol::engine::Closure,
     frame: &Frame,
-) -> Result<nu_protocol::PipelineData, nu_protocol::ShellError> {
+) -> Result<nu_protocol::PipelineData, Box<nu_protocol::ShellError>> {
     let mut stack = nu_protocol::engine::Stack::new();
 
     let block = engine.state.get_block(closure.block_id);
@@ -255,4 +255,5 @@ fn run_command(
         block,
         nu_protocol::PipelineData::empty(),
     )
+    .map_err(Box::new)
 }

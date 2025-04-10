@@ -68,7 +68,10 @@ fn validate_integrity(integrity: &ssri::Integrity) -> bool {
     // For each hash, check if it has a valid base64-encoded digest
     for hash in &integrity.hashes {
         // Check if digest is valid base64 using the modern API
-        if let Err(_) = base64::engine::general_purpose::STANDARD.decode(&hash.digest) {
+        if base64::engine::general_purpose::STANDARD
+            .decode(&hash.digest)
+            .is_err()
+        {
             return false;
         }
     }
@@ -530,7 +533,7 @@ async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPRe
         Err(e) => return response_400(format!("Invalid frame JSON: {}", e)),
     };
 
-    store.insert_frame(&frame).map_err(BoxError::from)?;
+    store.insert_frame(&frame)?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
