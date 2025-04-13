@@ -21,7 +21,7 @@ def conditional-pipe [
 }
 
 export def xs-addr [] {
-  $env | get XS_ADDR? | or-else { "./store" }
+  $env | get XS_ADDR? | or-else { try { open  ~/.config/cross.stream/XS_ADDR } } | or-else { "./store" }
 }
 
 export def xs-context-collect [] {
