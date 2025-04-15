@@ -168,32 +168,6 @@ pub async fn serve(
             }
             continue;
         }
-
-        if let Some(topic) = frame.topic.clone().strip_suffix(".spawn") {
-            if let Err(e) = handle_spawn_event(
-                topic,
-                frame.clone(),
-                &mut generators,
-                engine.clone(),
-                store.clone(),
-            )
-            .await
-            {
-                let store = store.clone();
-                let meta = serde_json::json!({
-                    "source_id": frame.id.to_string(),
-                    "reason": e.to_string()
-                });
-
-                if let Err(e) = store.append(
-                    Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
-                        .meta(meta)
-                        .build(),
-                ) {
-                    tracing::error!("Error appending error frame: {}", e);
-                }
-            }
-        }
     }
 
     Ok(())
