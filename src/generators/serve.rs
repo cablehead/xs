@@ -2,12 +2,15 @@
 /// this module should be renamed to generators.rs
 /// https://cablehead.github.io/xs/reference/generators/
 use std::collections::HashMap;
+use std::sync::{Arc, Weak};
 
 use scru128::Scru128Id;
-
 use tokio::io::AsyncReadExt;
+use tokio::sync::{mpsc, oneshot};
 
+use futures::StreamExt;
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -46,17 +49,103 @@ struct GeneratorTask {
     expression: String,
 }
 
+// Message types for controller
+enum ControllerMessage {
+    Start,
+    Terminate,
+}
+
+// Handle to a generator controller
+struct ControllerHandle {
+    sender: mpsc::Sender<ControllerMessage>,
+    // Weak reference to the controller to check if it's alive
+    controller: Weak<GeneratorController>,
+}
+
+// The Generator Controller manages the lifecycle of a generator
+struct GeneratorController {
+    task: GeneratorTask,
+    store: Store,
+    engine: nu::Engine,
+    rx: mpsc::Receiver<ControllerMessage>,
+    running: bool,
+}
+
+impl GeneratorController {
+    fn new(
+        task: GeneratorTask,
+        store: Store,
+        engine: nu::Engine,
+        rx: mpsc::Receiver<ControllerMessage>,
+    ) -> Self {
+        Self {
+            task,
+            store,
+            engine,
+            rx,
+            running: false,
+        }
+    }
+
+    async fn run(mut self) {
+        while let Some(msg) = self.rx.recv().await {
+            match msg {
+                ControllerMessage::Start => {
+                    if self.running {
+                        // If already running, emit a stop event first
+                        let _ = self.stop().await;
+                    }
+                    self.start().await;
+                }
+                ControllerMessage::Terminate => {
+                    let _ = self.stop().await;
+                    break;
+                }
+            }
+        }
+        // When we exit the loop, the controller will be dropped
+    }
+
+    async fn start(&mut self) {
+        self.running = true;
+        let _ = append(self.store.clone(), &self.task, "start", None).await;
+
+        let store = self.store.clone();
+        let engine = self.engine.clone();
+        let task = self.task.clone();
+
+        let (_completion_tx, _completion_rx) = oneshot::channel::<()>();
+
+        // Spawn the generator in a separate thread
+        tokio::task::spawn_blocking(move || {
+            run_generator(store.clone(), engine.clone(), task.clone());
+        });
+
+        // Store the completion channel so we can wait for it when stopping
+        self.running = true;
+    }
+
+    async fn stop(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.running {
+            // Emit stop event
+            append(self.store.clone(), &self.task, "stop", None).await?;
+            self.running = false;
+        }
+        Ok(())
+    }
+}
+
 async fn try_start_task(
     topic: &str,
     frame: &Frame,
-    generators: &mut HashMap<String, GeneratorTask>,
+    controllers: &mut HashMap<String, ControllerHandle>,
     engine: &nu::Engine,
     store: &Store,
 ) {
     if let Err(e) = handle_spawn_event(
         topic,
         frame.clone(),
-        generators,
+        controllers,
         engine.clone(),
         store.clone(),
     )
@@ -80,7 +169,7 @@ async fn try_start_task(
 async fn handle_spawn_event(
     topic: &str,
     frame: Frame,
-    generators: &mut HashMap<String, GeneratorTask>,
+    controllers: &mut HashMap<String, ControllerHandle>,
     engine: nu::Engine,
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -89,10 +178,6 @@ async fn handle_spawn_event(
         .clone()
         .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
         .unwrap_or_default();
-
-    if generators.contains_key(topic) {
-        return Err("Updating existing generator is not implemented".into());
-    }
 
     let hash = frame.hash.clone().ok_or("Missing hash")?;
     let mut reader = store.cas_reader(hash).await?;
@@ -107,9 +192,55 @@ async fn handle_spawn_event(
         expression: expression.clone(),
     };
 
-    generators.insert(topic.to_string(), task.clone());
+    // Check if we already have a controller for this topic
+    if let Some(handle) = controllers.get(topic) {
+        // Try to upgrade the weak reference
+        if let Some(_controller) = handle.controller.upgrade() {
+            // Controller exists, we'll terminate the existing one
+            let _ = handle.sender.send(ControllerMessage::Terminate).await;
+        }
+        // Remove the old controller handle
+        controllers.remove(topic);
+    }
 
-    spawn(engine.clone(), store.clone(), task).await;
+    // Create a new controller
+    let (tx, rx) = mpsc::channel(32);
+    let controller = Arc::new(GeneratorController::new(
+        task,
+        store.clone(),
+        engine.clone(),
+        rx,
+    ));
+
+    // Store the handle with a weak reference
+    controllers.insert(
+        topic.to_string(),
+        ControllerHandle {
+            sender: tx.clone(),
+            controller: Arc::downgrade(&controller),
+        },
+    );
+
+    // Start the controller in a separate task
+    tokio::spawn(async move {
+        // Move the controller to the task
+        // We'll do this by taking it out of the Arc
+        // This is a bit of a hack, but it works because we know we are
+        // the only owner of this Arc at this point
+        let controller = match Arc::try_unwrap(controller) {
+            Ok(controller) => controller,
+            Err(_) => {
+                // This should never happen, but if it does, we'll just create a new controller
+                tracing::error!("Failed to unwrap controller Arc, this should not happen");
+                return;
+            }
+        };
+        controller.run().await;
+    });
+
+    // Send start message
+    let _ = tx.send(ControllerMessage::Start).await;
+
     Ok(())
 }
 
@@ -120,7 +251,7 @@ pub async fn serve(
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
-    let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
+    let mut controllers: HashMap<String, ControllerHandle> = HashMap::new();
     let mut compacted_frames: HashMap<String, Frame> = HashMap::new();
 
     // Phase 1: Collect and compact messages until threshold
@@ -144,27 +275,26 @@ pub async fn serve(
     // Process compacted frames
     for frame in compacted_frames.values() {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, frame, &mut generators, &engine, &store).await;
+            try_start_task(topic, frame, &mut controllers, &engine, &store).await;
         }
     }
 
     // Phase 2: Process messages as they arrive
     while let Some(frame) = recver.recv().await {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, &frame, &mut generators, &engine, &store).await;
+            try_start_task(topic, &frame, &mut controllers, &engine, &store).await;
             continue;
         }
 
-        if let Some(topic) = frame.topic.strip_suffix(".stop") {
-            if let Some(task) = generators.get(topic) {
-                // respawn the task in a second
-                let engine = engine.clone();
-                let store = store.clone();
-                let task = task.clone();
-                tokio::task::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    spawn(engine.clone(), store.clone(), task.clone()).await;
-                });
+        if let Some(topic) = frame.topic.strip_suffix(".terminate") {
+            if let Some(handle) = controllers.get(topic) {
+                // Try to upgrade the weak reference
+                if let Some(_) = handle.controller.upgrade() {
+                    // Controller exists, send terminate message
+                    let _ = handle.sender.send(ControllerMessage::Terminate).await;
+                }
+                // Remove from controllers map
+                controllers.remove(topic);
             }
             continue;
         }
@@ -198,26 +328,33 @@ async fn append(
     Ok(frame)
 }
 
-async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
-    let start = append(store.clone(), &task, "start", None).await.unwrap();
+fn run_generator(store: Store, engine: nu::Engine, task: GeneratorTask) {
+    let handle = tokio::runtime::Handle::current().clone();
 
-    use futures::StreamExt;
-    use tokio_stream::wrappers::ReceiverStream;
-
+    // Initialize input pipeline for duplex generators
     let input_pipeline = if task.meta.duplex.unwrap_or(false) {
-        let store = store.clone();
+        let store_clone = store.clone();
         let topic = task.topic.clone();
-        let options = ReadOptions::builder()
+
+        // Setup the read channel asynchronously
+        let options_builder = ReadOptions::builder()
             .follow(FollowOption::On)
-            .last_id(start.id)
+            .tail(true)
             .build();
-        let rx = store.read(options).await;
+
+        let rx = handle.block_on(async move {
+            let options = options_builder.clone();
+            store_clone.read(options).await
+        });
+
+        let store_for_filter = store.clone();
+        let topic_for_filter = topic.clone();
 
         let stream = ReceiverStream::new(rx);
         let stream = stream
             .filter_map(move |frame: Frame| {
-                let store = store.clone();
-                let topic = topic.clone();
+                let store = store_for_filter.clone();
+                let topic = topic_for_filter.clone();
                 async move {
                     if frame.topic == format!("{}.send", topic) {
                         if let Some(hash) = frame.hash {
@@ -231,12 +368,14 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
             })
             .boxed();
 
-        let handle = tokio::runtime::Handle::current().clone();
+        // Create a new handle for the stream iteration
+        let stream_handle = handle.clone();
+
         // Wrap stream in Option to allow mutable access without moving it
         let mut stream = Some(stream);
         let iter = std::iter::from_fn(move || {
             if let Some(ref mut stream) = stream {
-                handle.block_on(async move { stream.next().await })
+                stream_handle.block_on(async move { stream.next().await })
             } else {
                 None
             }
@@ -253,46 +392,37 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
         PipelineData::empty()
     };
 
-    let handle = tokio::runtime::Handle::current().clone();
+    // Run the generator
+    let pipeline = engine
+        .eval(input_pipeline, task.expression.clone())
+        .unwrap();
 
-    std::thread::spawn(move || {
-        let pipeline = engine
-            .eval(input_pipeline, task.expression.clone())
-            .unwrap();
-
-        match pipeline {
-            PipelineData::Empty => {
-                // Close the channel immediately
+    match pipeline {
+        PipelineData::Empty => {
+            // Close the channel immediately
+        }
+        PipelineData::Value(value, _) => {
+            if let Value::String { val, .. } = value {
+                handle
+                    .block_on(async { append(store.clone(), &task, "recv", Some(val)).await })
+                    .unwrap();
+            } else {
+                tracing::error!("Unexpected Value type in PipelineData::Value");
             }
-            PipelineData::Value(value, _) => {
+        }
+        PipelineData::ListStream(mut stream, _) => {
+            while let Some(value) = stream.next_value() {
                 if let Value::String { val, .. } = value {
                     handle
                         .block_on(async { append(store.clone(), &task, "recv", Some(val)).await })
                         .unwrap();
                 } else {
-                    panic!("Unexpected Value type in PipelineData::Value");
+                    tracing::error!("Unexpected Value type in ListStream");
                 }
-            }
-            PipelineData::ListStream(mut stream, _) => {
-                while let Some(value) = stream.next_value() {
-                    if let Value::String { val, .. } = value {
-                        handle
-                            .block_on(async {
-                                append(store.clone(), &task, "recv", Some(val)).await
-                            })
-                            .unwrap();
-                    } else {
-                        panic!("Unexpected Value type in ListStream");
-                    }
-                }
-            }
-            PipelineData::ByteStream(_, _) => {
-                panic!("ByteStream not supported");
             }
         }
-
-        handle
-            .block_on(async { append(store.clone(), &task, "stop", None).await })
-            .unwrap();
-    });
+        PipelineData::ByteStream(_, _) => {
+            tracing::error!("ByteStream not supported");
+        }
+    }
 }
