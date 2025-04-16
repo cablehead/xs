@@ -58,9 +58,10 @@ impl Drop for SupervisorCleanup {
 
 // The Supervisor manages the lifecycle of a generator
 struct Supervisor {
-    spec: Spec,
+    spec: Option<Spec>,
     store: Store,
     engine: nu::Engine,
+    topic: String, // Storing the topic separately since it's needed before we have a spec
     _cleanup: Arc<SupervisorCleanup>, // Underscore prefix to indicate it's only kept for Drop behavior
 }
 
@@ -77,17 +78,11 @@ impl Supervisor {
             registry,
         });
 
-        // Create with placeholder spec until we get a spawn event
         Self {
-            spec: Spec {
-                id: scru128::new(),
-                context_id: scru128::new(),
-                topic,
-                meta: SpecMeta::default(),
-                expression: String::new(),
-            },
+            spec: None, // No spec until we get a spawn event
             store,
             engine,
+            topic,
             _cleanup: cleanup,
         }
     }
@@ -113,13 +108,13 @@ impl Supervisor {
         reader.read_to_string(&mut expression).await?;
 
         // Update spec with new information
-        self.spec = Spec {
+        self.spec = Some(Spec {
             id: frame.id,
             context_id: frame.context_id,
-            topic: self.spec.topic.clone(),
+            topic: self.topic.clone(),
             meta,
             expression,
-        };
+        });
 
         // Start the generator
         self.run().await;
@@ -128,23 +123,26 @@ impl Supervisor {
     }
 
     async fn run(&self) {
-        // Emit start event
-        let _ = append(self.store.clone(), &self.spec, "start", None).await;
+        // Only run if we have a spec
+        if let Some(spec) = &self.spec {
+            // Emit start event
+            let _ = append(self.store.clone(), spec, "start", None).await;
 
-        let store = self.store.clone();
-        let engine = self.engine.clone();
-        let spec = self.spec.clone();
+            let store = self.store.clone();
+            let engine = self.engine.clone();
+            let spec_clone = spec.clone();
 
-        // Spawn the generator in a separate thread
-        tokio::task::spawn_blocking(move || {
-            run_generator(store.clone(), engine.clone(), spec.clone());
-        });
+            // Spawn the generator in a separate thread
+            tokio::task::spawn_blocking(move || {
+                run_generator(store.clone(), engine.clone(), spec_clone);
+            });
+        }
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Only emit stop event if we have a valid spec (have seen a spawn event)
-        if !self.spec.expression.is_empty() {
-            append(self.store.clone(), &self.spec, "stop", None).await?;
+        // Only emit stop event if we have a valid spec
+        if let Some(spec) = &self.spec {
+            append(self.store.clone(), spec, "stop", None).await?;
         }
         Ok(())
     }
