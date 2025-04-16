@@ -80,23 +80,66 @@ struct GeneratorController {
 }
 
 impl GeneratorController {
+    // Create a new controller for a topic prefix
     fn new(
-        task: GeneratorTask,
+        topic: String,
         store: Store,
         engine: nu::Engine,
         registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
     ) -> Self {
         let cleanup = Arc::new(CleanupNotifier {
-            topic: task.topic.clone(),
+            topic: topic.clone(),
             registry,
         });
 
+        // Create with placeholder task until we get a spawn event
         Self {
-            task,
+            task: GeneratorTask {
+                id: scru128::new(),
+                context_id: scru128::new(),
+                topic,
+                meta: GeneratorMeta::default(),
+                expression: String::new(),
+            },
             store,
             engine,
             _cleanup: cleanup,
         }
+    }
+
+    // Handle a spawn event, which starts or replaces the generator
+    async fn handle_spawn(
+        &mut self,
+        frame: &Frame,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Stop any existing generator first
+        let _ = self.stop().await;
+
+        // Extract metadata and expression from frame
+        let meta = frame
+            .meta
+            .clone()
+            .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
+            .unwrap_or_default();
+
+        let hash = frame.hash.clone().ok_or("Missing hash")?;
+        let mut reader = self.store.cas_reader(hash).await?;
+        let mut expression = String::new();
+        reader.read_to_string(&mut expression).await?;
+
+        // Update task with new information
+        self.task = GeneratorTask {
+            id: frame.id,
+            context_id: frame.context_id,
+            topic: self.task.topic.clone(),
+            meta,
+            expression,
+        };
+
+        // Start the generator
+        self.run().await;
+
+        Ok(())
     }
 
     async fn run(&self) {
@@ -114,93 +157,33 @@ impl GeneratorController {
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Emit stop event
-        append(self.store.clone(), &self.task, "stop", None).await?;
+        // Only emit stop event if we have a valid task (have seen a spawn event)
+        if !self.task.expression.is_empty() {
+            append(self.store.clone(), &self.task, "stop", None).await?;
+        }
         Ok(())
     }
 }
 
-async fn try_start_task(
+// Get or create a controller for a topic
+async fn get_or_create_controller(
     topic: &str,
-    frame: &Frame,
     registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
     engine: &nu::Engine,
     store: &Store,
-) {
-    if let Err(e) = handle_spawn_event(
-        topic,
-        frame.clone(),
-        registry,
-        engine.clone(),
-        store.clone(),
-    )
-    .await
-    {
-        let meta = serde_json::json!({
-            "source_id": frame.id.to_string(),
-            "reason": e.to_string()
-        });
-
-        if let Err(e) = store.append(
-            Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
-                .meta(meta)
-                .build(),
-        ) {
-            tracing::error!("Error appending error frame: {}", e);
-        }
-    }
-}
-
-async fn handle_spawn_event(
-    topic: &str,
-    frame: Frame,
-    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
-    engine: nu::Engine,
-    store: Store,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let meta = frame
-        .meta
-        .clone()
-        .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
-        .unwrap_or_default();
-
-    let hash = frame.hash.clone().ok_or("Missing hash")?;
-    let mut reader = store.cas_reader(hash).await?;
-    let mut expression = String::new();
-    reader.read_to_string(&mut expression).await?;
-
-    let task = GeneratorTask {
-        id: frame.id,
-        context_id: frame.context_id,
-        topic: topic.to_string(),
-        meta: meta.clone(),
-        expression: expression.clone(),
-    };
-
-    // Get existing controller for this topic if it exists
-    let controller_to_stop = {
-        let controllers = registry.lock().map_err(|_| "Failed to lock registry")?;
+) -> Result<Arc<GeneratorController>, Box<dyn std::error::Error + Send + Sync>> {
+    // Try to get existing controller
+    if let Ok(controllers) = registry.lock() {
         if let Some(handle) = controllers.get(topic) {
-            handle.controller.upgrade()
-        } else {
-            None
+            if let Some(controller) = handle.controller.upgrade() {
+                return Ok(controller);
+            }
         }
-    };
-
-    // Stop controller if it exists
-    if let Some(controller) = controller_to_stop {
-        let _ = controller.stop().await;
     }
 
-    // Remove from registry (the controller will be dropped when all strong references are gone)
-    {
-        let mut controllers = registry.lock().map_err(|_| "Failed to lock registry")?;
-        controllers.remove(topic);
-    }
-
-    // Create a new controller
+    // No existing controller, create a new one
     let controller = Arc::new(GeneratorController::new(
-        task,
+        topic.to_string(),
         store.clone(),
         engine.clone(),
         registry.clone(),
@@ -217,10 +200,64 @@ async fn handle_spawn_event(
         );
     }
 
-    // Start the controller
-    controller.run().await;
+    Ok(controller)
+}
 
-    Ok(())
+// Handle a spawn event for a topic prefix
+async fn handle_spawn_event(
+    topic: &str,
+    frame: &Frame,
+    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
+    engine: &nu::Engine,
+    store: &Store,
+) {
+    // Get or create controller
+    match get_or_create_controller(topic, registry, engine, store).await {
+        Ok(controller) => {
+            // Safety: We need a mutable controller to handle spawn events
+            // This is technically unsafe and a workaround for Rust's immutability rules
+            // A better approach would be to use interior mutability or a channel-based design
+            let controller_ptr = Arc::as_ptr(&controller) as *mut GeneratorController;
+
+            // Handle the spawn event
+            let result = unsafe {
+                let controller = &mut *controller_ptr;
+                controller.handle_spawn(frame).await
+            };
+
+            // Handle errors
+            if let Err(e) = result {
+                let meta = serde_json::json!({
+                    "source_id": frame.id.to_string(),
+                    "reason": e.to_string()
+                });
+
+                if let Err(e) = store.append(
+                    Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
+                        .meta(meta)
+                        .build(),
+                ) {
+                    tracing::error!("Error appending error frame: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to get or create controller: {}", e);
+
+            let meta = serde_json::json!({
+                "source_id": frame.id.to_string(),
+                "reason": e.to_string()
+            });
+
+            if let Err(e) = store.append(
+                Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
+                    .meta(meta)
+                    .build(),
+            ) {
+                tracing::error!("Error appending error frame: {}", e);
+            }
+        }
+    }
 }
 
 pub async fn serve(
@@ -242,32 +279,35 @@ pub async fn serve(
         }
 
         // Compact spawn frames
-        if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".spawn.error") {
-            if let Some(topic) = frame
-                .topic
-                .strip_suffix(".spawn.error")
-                .or_else(|| frame.topic.strip_suffix(".spawn"))
-            {
+        if frame.topic.ends_with(".spawn") {
+            if let Some(topic) = frame.topic.strip_suffix(".spawn") {
                 compacted_frames.insert(topic.to_string(), frame);
             }
         }
     }
 
-    // Process compacted frames
+    // Process compacted frames - create initial controllers from compacted spawn events
     for frame in compacted_frames.values() {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, frame, registry.clone(), &engine, &store).await;
+            handle_spawn_event(topic, frame, registry.clone(), &engine, &store).await;
         }
     }
 
     // Phase 2: Process messages as they arrive
     while let Some(frame) = recver.recv().await {
-        if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, &frame, registry.clone(), &engine, &store).await;
-            continue;
-        }
+        // Process events based on topic pattern
+        if let Some(dot_pos) = frame.topic.find('.') {
+            let topic_prefix = &frame.topic[..dot_pos];
+            let suffix = &frame.topic[dot_pos + 1..];
 
-        // No special handling for terminate events - the RAII approach will handle cleanup
+            // Handle special case for spawn events
+            if suffix == "spawn" {
+                handle_spawn_event(topic_prefix, &frame, registry.clone(), &engine, &store).await;
+            }
+
+            // All other events are handled via the controllers' store monitoring
+            // No special handling needed as controllers already watch for relevant events
+        }
     }
 
     Ok(())
