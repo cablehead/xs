@@ -35,34 +35,34 @@ a new one: so all events generated are now linked to the new id.
 */
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
-pub struct GeneratorMeta {
+pub struct SpecMeta {
     duplex: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
-struct GeneratorTask {
+struct Spec {
     id: Scru128Id,
     context_id: Scru128Id,
     topic: String,
-    meta: GeneratorMeta,
+    meta: SpecMeta,
     expression: String,
 }
 
-// Handle to a generator controller
-struct ControllerHandle {
-    controller: Weak<GeneratorController>,
+// Handle to a supervisor
+struct SupervisorHandle {
+    supervisor: Weak<Supervisor>,
 }
 
-// Cleanup notifier that removes controller from registry when dropped
-struct CleanupNotifier {
+// Cleanup notifier that removes supervisor from registry when dropped
+struct SupervisorCleanup {
     topic: String,
-    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
+    registry: Arc<Mutex<HashMap<String, SupervisorHandle>>>,
 }
 
-impl Drop for CleanupNotifier {
+impl Drop for SupervisorCleanup {
     fn drop(&mut self) {
         tracing::debug!(
-            "Controller for '{}' dropped, cleaning up registry",
+            "Supervisor for '{}' dropped, cleaning up registry",
             self.topic
         );
         if let Ok(mut registry) = self.registry.lock() {
@@ -71,34 +71,34 @@ impl Drop for CleanupNotifier {
     }
 }
 
-// The Generator Controller manages the lifecycle of a generator
-struct GeneratorController {
-    task: GeneratorTask,
+// The Supervisor manages the lifecycle of a generator
+struct Supervisor {
+    task: Spec,
     store: Store,
     engine: nu::Engine,
-    _cleanup: Arc<CleanupNotifier>, // Underscore prefix to indicate it's only kept for Drop behavior
+    _cleanup: Arc<SupervisorCleanup>, // Underscore prefix to indicate it's only kept for Drop behavior
 }
 
-impl GeneratorController {
-    // Create a new controller for a topic prefix
+impl Supervisor {
+    // Create a new supervisor for a topic prefix
     fn new(
         topic: String,
         store: Store,
         engine: nu::Engine,
-        registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
+        registry: Arc<Mutex<HashMap<String, SupervisorHandle>>>,
     ) -> Self {
-        let cleanup = Arc::new(CleanupNotifier {
+        let cleanup = Arc::new(SupervisorCleanup {
             topic: topic.clone(),
             registry,
         });
 
         // Create with placeholder task until we get a spawn event
         Self {
-            task: GeneratorTask {
+            task: Spec {
                 id: scru128::new(),
                 context_id: scru128::new(),
                 topic,
-                meta: GeneratorMeta::default(),
+                meta: SpecMeta::default(),
                 expression: String::new(),
             },
             store,
@@ -119,7 +119,7 @@ impl GeneratorController {
         let meta = frame
             .meta
             .clone()
-            .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
+            .and_then(|meta| serde_json::from_value::<SpecMeta>(meta).ok())
             .unwrap_or_default();
 
         let hash = frame.hash.clone().ok_or("Missing hash")?;
@@ -128,7 +128,7 @@ impl GeneratorController {
         reader.read_to_string(&mut expression).await?;
 
         // Update task with new information
-        self.task = GeneratorTask {
+        self.task = Spec {
             id: frame.id,
             context_id: frame.context_id,
             topic: self.task.topic.clone(),
@@ -165,24 +165,24 @@ impl GeneratorController {
     }
 }
 
-// Get or create a controller for a topic
-async fn get_or_create_controller(
+// Get or create a supervisor for a topic
+async fn get_or_create_supervisor(
     topic: &str,
-    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
+    registry: Arc<Mutex<HashMap<String, SupervisorHandle>>>,
     engine: &nu::Engine,
     store: &Store,
-) -> Result<Arc<GeneratorController>, Box<dyn std::error::Error + Send + Sync>> {
-    // Try to get existing controller
-    if let Ok(controllers) = registry.lock() {
-        if let Some(handle) = controllers.get(topic) {
-            if let Some(controller) = handle.controller.upgrade() {
-                return Ok(controller);
+) -> Result<Arc<Supervisor>, Box<dyn std::error::Error + Send + Sync>> {
+    // Try to get existing supervisor
+    if let Ok(supervisors) = registry.lock() {
+        if let Some(handle) = supervisors.get(topic) {
+            if let Some(supervisor) = handle.supervisor.upgrade() {
+                return Ok(supervisor);
             }
         }
     }
 
-    // No existing controller, create a new one
-    let controller = Arc::new(GeneratorController::new(
+    // No existing supervisor, create a new one
+    let supervisor = Arc::new(Supervisor::new(
         topic.to_string(),
         store.clone(),
         engine.clone(),
@@ -191,38 +191,38 @@ async fn get_or_create_controller(
 
     // Add to registry
     {
-        let mut controllers = registry.lock().map_err(|_| "Failed to lock registry")?;
-        controllers.insert(
+        let mut supervisors = registry.lock().map_err(|_| "Failed to lock registry")?;
+        supervisors.insert(
             topic.to_string(),
-            ControllerHandle {
-                controller: Arc::downgrade(&controller),
+            SupervisorHandle {
+                supervisor: Arc::downgrade(&supervisor),
             },
         );
     }
 
-    Ok(controller)
+    Ok(supervisor)
 }
 
 // Handle a spawn event for a topic prefix
 async fn handle_spawn_event(
     topic: &str,
     frame: &Frame,
-    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
+    registry: Arc<Mutex<HashMap<String, SupervisorHandle>>>,
     engine: &nu::Engine,
     store: &Store,
 ) {
-    // Get or create controller
-    match get_or_create_controller(topic, registry, engine, store).await {
-        Ok(controller) => {
-            // Safety: We need a mutable controller to handle spawn events
+    // Get or create supervisor
+    match get_or_create_supervisor(topic, registry, engine, store).await {
+        Ok(supervisor) => {
+            // Safety: We need a mutable supervisor to handle spawn events
             // This is technically unsafe and a workaround for Rust's immutability rules
             // A better approach would be to use interior mutability or a channel-based design
-            let controller_ptr = Arc::as_ptr(&controller) as *mut GeneratorController;
+            let supervisor_ptr = Arc::as_ptr(&supervisor) as *mut Supervisor;
 
             // Handle the spawn event
             let result = unsafe {
-                let controller = &mut *controller_ptr;
-                controller.handle_spawn(frame).await
+                let supervisor = &mut *supervisor_ptr;
+                supervisor.handle_spawn(frame).await
             };
 
             // Handle errors
@@ -242,7 +242,7 @@ async fn handle_spawn_event(
             }
         }
         Err(e) => {
-            tracing::error!("Failed to get or create controller: {}", e);
+            tracing::error!("Failed to get or create supervisor: {}", e);
 
             let meta = serde_json::json!({
                 "source_id": frame.id.to_string(),
@@ -268,7 +268,8 @@ pub async fn serve(
     let mut recver = store.read(options).await;
 
     // Create shared registry
-    let registry = Arc::new(Mutex::new(HashMap::new()));
+    let registry: Arc<Mutex<HashMap<String, SupervisorHandle>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     let mut compacted_frames: HashMap<String, Frame> = HashMap::new();
 
@@ -286,7 +287,7 @@ pub async fn serve(
         }
     }
 
-    // Process compacted frames - create initial controllers from compacted spawn events
+    // Process compacted frames - create initial supervisors from compacted spawn events
     for frame in compacted_frames.values() {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
             handle_spawn_event(topic, frame, registry.clone(), &engine, &store).await;
@@ -305,8 +306,8 @@ pub async fn serve(
                 handle_spawn_event(topic_prefix, &frame, registry.clone(), &engine, &store).await;
             }
 
-            // All other events are handled via the controllers' store monitoring
-            // No special handling needed as controllers already watch for relevant events
+            // All other events are handled via the supervisors' store monitoring
+            // No special handling needed as supervisors already watch for relevant events
         }
     }
 
@@ -315,7 +316,7 @@ pub async fn serve(
 
 async fn append(
     store: Store,
-    task: &GeneratorTask,
+    task: &Spec,
     suffix: &str,
     content: Option<String>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
@@ -338,7 +339,7 @@ async fn append(
     Ok(frame)
 }
 
-fn run_generator(store: Store, engine: nu::Engine, task: GeneratorTask) {
+fn run_generator(store: Store, engine: nu::Engine, task: Spec) {
     let handle = tokio::runtime::Handle::current().clone();
 
     // Initialize input pipeline for duplex generators
@@ -440,5 +441,5 @@ fn run_generator(store: Store, engine: nu::Engine, task: GeneratorTask) {
     }
 
     // When the generator is done running, it will be dropped,
-    // which will trigger cleanup via the Drop implementation on CleanupNotifier
+    // which will trigger cleanup via the Drop implementation on SupervisorCleanup
 }
