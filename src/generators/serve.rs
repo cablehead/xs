@@ -2,11 +2,10 @@
 /// this module should be renamed to generators.rs
 /// https://cablehead.github.io/xs/reference/generators/
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use scru128::Scru128Id;
 use tokio::io::AsyncReadExt;
-use tokio::sync::{mpsc, oneshot};
 
 use futures::StreamExt;
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
@@ -49,17 +48,27 @@ struct GeneratorTask {
     expression: String,
 }
 
-// Message types for controller
-enum ControllerMessage {
-    Start,
-    Terminate,
-}
-
 // Handle to a generator controller
 struct ControllerHandle {
-    sender: mpsc::Sender<ControllerMessage>,
-    // Weak reference to the controller to check if it's alive
     controller: Weak<GeneratorController>,
+}
+
+// Cleanup notifier that removes controller from registry when dropped
+struct CleanupNotifier {
+    topic: String,
+    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
+}
+
+impl Drop for CleanupNotifier {
+    fn drop(&mut self) {
+        tracing::debug!(
+            "Controller for '{}' dropped, cleaning up registry",
+            self.topic
+        );
+        if let Ok(mut registry) = self.registry.lock() {
+            registry.remove(&self.topic);
+        }
+    }
 }
 
 // The Generator Controller manages the lifecycle of a generator
@@ -67,8 +76,7 @@ struct GeneratorController {
     task: GeneratorTask,
     store: Store,
     engine: nu::Engine,
-    rx: mpsc::Receiver<ControllerMessage>,
-    running: bool,
+    _cleanup: Arc<CleanupNotifier>, // Underscore prefix to indicate it's only kept for Drop behavior
 }
 
 impl GeneratorController {
@@ -76,61 +84,38 @@ impl GeneratorController {
         task: GeneratorTask,
         store: Store,
         engine: nu::Engine,
-        rx: mpsc::Receiver<ControllerMessage>,
+        registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
     ) -> Self {
+        let cleanup = Arc::new(CleanupNotifier {
+            topic: task.topic.clone(),
+            registry,
+        });
+
         Self {
             task,
             store,
             engine,
-            rx,
-            running: false,
+            _cleanup: cleanup,
         }
     }
 
-    async fn run(mut self) {
-        while let Some(msg) = self.rx.recv().await {
-            match msg {
-                ControllerMessage::Start => {
-                    if self.running {
-                        // If already running, emit a stop event first
-                        let _ = self.stop().await;
-                    }
-                    self.start().await;
-                }
-                ControllerMessage::Terminate => {
-                    let _ = self.stop().await;
-                    break;
-                }
-            }
-        }
-        // When we exit the loop, the controller will be dropped
-    }
-
-    async fn start(&mut self) {
-        self.running = true;
+    async fn run(&self) {
+        // Emit start event
         let _ = append(self.store.clone(), &self.task, "start", None).await;
 
         let store = self.store.clone();
         let engine = self.engine.clone();
         let task = self.task.clone();
 
-        let (_completion_tx, _completion_rx) = oneshot::channel::<()>();
-
         // Spawn the generator in a separate thread
         tokio::task::spawn_blocking(move || {
             run_generator(store.clone(), engine.clone(), task.clone());
         });
-
-        // Store the completion channel so we can wait for it when stopping
-        self.running = true;
     }
 
-    async fn stop(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.running {
-            // Emit stop event
-            append(self.store.clone(), &self.task, "stop", None).await?;
-            self.running = false;
-        }
+    async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Emit stop event
+        append(self.store.clone(), &self.task, "stop", None).await?;
         Ok(())
     }
 }
@@ -138,14 +123,14 @@ impl GeneratorController {
 async fn try_start_task(
     topic: &str,
     frame: &Frame,
-    controllers: &mut HashMap<String, ControllerHandle>,
+    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
     engine: &nu::Engine,
     store: &Store,
 ) {
     if let Err(e) = handle_spawn_event(
         topic,
         frame.clone(),
-        controllers,
+        registry,
         engine.clone(),
         store.clone(),
     )
@@ -169,7 +154,7 @@ async fn try_start_task(
 async fn handle_spawn_event(
     topic: &str,
     frame: Frame,
-    controllers: &mut HashMap<String, ControllerHandle>,
+    registry: Arc<Mutex<HashMap<String, ControllerHandle>>>,
     engine: nu::Engine,
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -192,54 +177,48 @@ async fn handle_spawn_event(
         expression: expression.clone(),
     };
 
-    // Check if we already have a controller for this topic
-    if let Some(handle) = controllers.get(topic) {
-        // Try to upgrade the weak reference
-        if let Some(_controller) = handle.controller.upgrade() {
-            // Controller exists, we'll terminate the existing one
-            let _ = handle.sender.send(ControllerMessage::Terminate).await;
+    // Get existing controller for this topic if it exists
+    let controller_to_stop = {
+        let controllers = registry.lock().map_err(|_| "Failed to lock registry")?;
+        if let Some(handle) = controllers.get(topic) {
+            handle.controller.upgrade()
+        } else {
+            None
         }
-        // Remove the old controller handle
+    };
+
+    // Stop controller if it exists
+    if let Some(controller) = controller_to_stop {
+        let _ = controller.stop().await;
+    }
+
+    // Remove from registry (the controller will be dropped when all strong references are gone)
+    {
+        let mut controllers = registry.lock().map_err(|_| "Failed to lock registry")?;
         controllers.remove(topic);
     }
 
     // Create a new controller
-    let (tx, rx) = mpsc::channel(32);
     let controller = Arc::new(GeneratorController::new(
         task,
         store.clone(),
         engine.clone(),
-        rx,
+        registry.clone(),
     ));
 
-    // Store the handle with a weak reference
-    controllers.insert(
-        topic.to_string(),
-        ControllerHandle {
-            sender: tx.clone(),
-            controller: Arc::downgrade(&controller),
-        },
-    );
+    // Add to registry
+    {
+        let mut controllers = registry.lock().map_err(|_| "Failed to lock registry")?;
+        controllers.insert(
+            topic.to_string(),
+            ControllerHandle {
+                controller: Arc::downgrade(&controller),
+            },
+        );
+    }
 
-    // Start the controller in a separate task
-    tokio::spawn(async move {
-        // Move the controller to the task
-        // We'll do this by taking it out of the Arc
-        // This is a bit of a hack, but it works because we know we are
-        // the only owner of this Arc at this point
-        let controller = match Arc::try_unwrap(controller) {
-            Ok(controller) => controller,
-            Err(_) => {
-                // This should never happen, but if it does, we'll just create a new controller
-                tracing::error!("Failed to unwrap controller Arc, this should not happen");
-                return;
-            }
-        };
-        controller.run().await;
-    });
-
-    // Send start message
-    let _ = tx.send(ControllerMessage::Start).await;
+    // Start the controller
+    controller.run().await;
 
     Ok(())
 }
@@ -251,7 +230,9 @@ pub async fn serve(
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
-    let mut controllers: HashMap<String, ControllerHandle> = HashMap::new();
+    // Create shared registry
+    let registry = Arc::new(Mutex::new(HashMap::new()));
+
     let mut compacted_frames: HashMap<String, Frame> = HashMap::new();
 
     // Phase 1: Collect and compact messages until threshold
@@ -275,29 +256,18 @@ pub async fn serve(
     // Process compacted frames
     for frame in compacted_frames.values() {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, frame, &mut controllers, &engine, &store).await;
+            try_start_task(topic, frame, registry.clone(), &engine, &store).await;
         }
     }
 
     // Phase 2: Process messages as they arrive
     while let Some(frame) = recver.recv().await {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, &frame, &mut controllers, &engine, &store).await;
+            try_start_task(topic, &frame, registry.clone(), &engine, &store).await;
             continue;
         }
 
-        if let Some(topic) = frame.topic.strip_suffix(".terminate") {
-            if let Some(handle) = controllers.get(topic) {
-                // Try to upgrade the weak reference
-                if let Some(_) = handle.controller.upgrade() {
-                    // Controller exists, send terminate message
-                    let _ = handle.sender.send(ControllerMessage::Terminate).await;
-                }
-                // Remove from controllers map
-                controllers.remove(topic);
-            }
-            continue;
-        }
+        // No special handling for terminate events - the RAII approach will handle cleanup
     }
 
     Ok(())
@@ -393,36 +363,42 @@ fn run_generator(store: Store, engine: nu::Engine, task: GeneratorTask) {
     };
 
     // Run the generator
-    let pipeline = engine
-        .eval(input_pipeline, task.expression.clone())
-        .unwrap();
-
-    match pipeline {
-        PipelineData::Empty => {
-            // Close the channel immediately
-        }
-        PipelineData::Value(value, _) => {
-            if let Value::String { val, .. } = value {
-                handle
-                    .block_on(async { append(store.clone(), &task, "recv", Some(val)).await })
-                    .unwrap();
-            } else {
-                tracing::error!("Unexpected Value type in PipelineData::Value");
-            }
-        }
-        PipelineData::ListStream(mut stream, _) => {
-            while let Some(value) = stream.next_value() {
-                if let Value::String { val, .. } = value {
-                    handle
-                        .block_on(async { append(store.clone(), &task, "recv", Some(val)).await })
-                        .unwrap();
-                } else {
-                    tracing::error!("Unexpected Value type in ListStream");
+    match engine.eval(input_pipeline, task.expression.clone()) {
+        Ok(pipeline) => {
+            match pipeline {
+                PipelineData::Empty => {
+                    // Close the channel immediately
+                }
+                PipelineData::Value(value, _) => {
+                    if let Value::String { val, .. } = value {
+                        let _ = handle.block_on(async {
+                            append(store.clone(), &task, "recv", Some(val)).await
+                        });
+                    } else {
+                        tracing::error!("Unexpected Value type in PipelineData::Value");
+                    }
+                }
+                PipelineData::ListStream(mut stream, _) => {
+                    while let Some(value) = stream.next_value() {
+                        if let Value::String { val, .. } = value {
+                            let _ = handle.block_on(async {
+                                append(store.clone(), &task, "recv", Some(val)).await
+                            });
+                        } else {
+                            tracing::error!("Unexpected Value type in ListStream");
+                        }
+                    }
+                }
+                PipelineData::ByteStream(_, _) => {
+                    tracing::error!("ByteStream not supported");
                 }
             }
         }
-        PipelineData::ByteStream(_, _) => {
-            tracing::error!("ByteStream not supported");
+        Err(e) => {
+            tracing::error!("Error evaluating generator expression: {}", e);
         }
     }
+
+    // When the generator is done running, it will be dropped,
+    // which will trigger cleanup via the Drop implementation on CleanupNotifier
 }
