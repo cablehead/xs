@@ -1,6 +1,11 @@
-/// manages watching for tasks command events, and then the lifecycle of these tasks
-/// this module should be renamed to generators.rs
-/// https://cablehead.github.io/xs/reference/generators/
+//! Manages the lifecycle of long-running generators based on events.
+//!
+//! This module implements a dispatcher-supervisor architecture for running
+//! generator scripts (defined by Nushell expressions) in response to events
+//! in the event store.
+//!
+//! <https://cablehead.github.io/xs/reference/generators/>
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -13,26 +18,6 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
-
-/*
-A thread that watches the event stream for <topic>.spawn and <topic>.terminate
-
-On start up reads the stream until threshold: what's it building up there: basicly a filter with a
-dedupe on a given key. When it hits thre threshold: it plays the events its saved up: and then
-responds to events in realtime.
-
-When it sees one it spawns a generator:
-- store engine, closure, runs in its own thread, so no thread pool
-- emits an <topic>.spawn.error event if bad meta data
-- emits a topic.start event {generator_id: id}
-- on stop emits a stop event: meta reason
-- restarts until terminated or replaced
-- generates topic.recv for each Value::String on pipeline: {generator_id: id}
-- topic.error
-
-If it sees an a spawn for an existing generator: it stops the current running generator, and starts
-a new one: so all events generated are now linked to the new id.
-*/
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct SpecMeta {
@@ -73,7 +58,7 @@ impl Drop for SupervisorCleanup {
 
 // The Supervisor manages the lifecycle of a generator
 struct Supervisor {
-    task: Spec,
+    spec: Spec,
     store: Store,
     engine: nu::Engine,
     _cleanup: Arc<SupervisorCleanup>, // Underscore prefix to indicate it's only kept for Drop behavior
@@ -92,9 +77,9 @@ impl Supervisor {
             registry,
         });
 
-        // Create with placeholder task until we get a spawn event
+        // Create with placeholder spec until we get a spawn event
         Self {
-            task: Spec {
+            spec: Spec {
                 id: scru128::new(),
                 context_id: scru128::new(),
                 topic,
@@ -127,11 +112,11 @@ impl Supervisor {
         let mut expression = String::new();
         reader.read_to_string(&mut expression).await?;
 
-        // Update task with new information
-        self.task = Spec {
+        // Update spec with new information
+        self.spec = Spec {
             id: frame.id,
             context_id: frame.context_id,
-            topic: self.task.topic.clone(),
+            topic: self.spec.topic.clone(),
             meta,
             expression,
         };
@@ -144,22 +129,22 @@ impl Supervisor {
 
     async fn run(&self) {
         // Emit start event
-        let _ = append(self.store.clone(), &self.task, "start", None).await;
+        let _ = append(self.store.clone(), &self.spec, "start", None).await;
 
         let store = self.store.clone();
         let engine = self.engine.clone();
-        let task = self.task.clone();
+        let spec = self.spec.clone();
 
         // Spawn the generator in a separate thread
         tokio::task::spawn_blocking(move || {
-            run_generator(store.clone(), engine.clone(), task.clone());
+            run_generator(store.clone(), engine.clone(), spec.clone());
         });
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Only emit stop event if we have a valid task (have seen a spawn event)
-        if !self.task.expression.is_empty() {
-            append(self.store.clone(), &self.task, "stop", None).await?;
+        // Only emit stop event if we have a valid spec (have seen a spawn event)
+        if !self.spec.expression.is_empty() {
+            append(self.store.clone(), &self.spec, "stop", None).await?;
         }
         Ok(())
     }
@@ -316,7 +301,7 @@ pub async fn serve(
 
 async fn append(
     store: Store,
-    task: &Spec,
+    spec: &Spec,
     suffix: &str,
     content: Option<String>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
@@ -327,11 +312,11 @@ async fn append(
     };
 
     let meta = serde_json::json!({
-        "source_id": task.id.to_string(),
+        "source_id": spec.id.to_string(),
     });
 
     let frame = store.append(
-        Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
+        Frame::builder(format!("{}.{}", spec.topic, suffix), spec.context_id)
             .maybe_hash(hash)
             .meta(meta)
             .build(),
@@ -339,13 +324,13 @@ async fn append(
     Ok(frame)
 }
 
-fn run_generator(store: Store, engine: nu::Engine, task: Spec) {
+fn run_generator(store: Store, engine: nu::Engine, spec: Spec) {
     let handle = tokio::runtime::Handle::current().clone();
 
     // Initialize input pipeline for duplex generators
-    let input_pipeline = if task.meta.duplex.unwrap_or(false) {
+    let input_pipeline = if spec.meta.duplex.unwrap_or(false) {
         let store_clone = store.clone();
-        let topic = task.topic.clone();
+        let topic = spec.topic.clone();
 
         // Setup the read channel asynchronously
         let options_builder = ReadOptions::builder()
@@ -404,7 +389,7 @@ fn run_generator(store: Store, engine: nu::Engine, task: Spec) {
     };
 
     // Run the generator
-    match engine.eval(input_pipeline, task.expression.clone()) {
+    match engine.eval(input_pipeline, spec.expression.clone()) {
         Ok(pipeline) => {
             match pipeline {
                 PipelineData::Empty => {
@@ -413,7 +398,7 @@ fn run_generator(store: Store, engine: nu::Engine, task: Spec) {
                 PipelineData::Value(value, _) => {
                     if let Value::String { val, .. } = value {
                         let _ = handle.block_on(async {
-                            append(store.clone(), &task, "recv", Some(val)).await
+                            append(store.clone(), &spec, "recv", Some(val)).await
                         });
                     } else {
                         tracing::error!("Unexpected Value type in PipelineData::Value");
@@ -423,7 +408,7 @@ fn run_generator(store: Store, engine: nu::Engine, task: Spec) {
                     while let Some(value) = stream.next_value() {
                         if let Value::String { val, .. } = value {
                             let _ = handle.block_on(async {
-                                append(store.clone(), &task, "recv", Some(val)).await
+                                append(store.clone(), &spec, "recv", Some(val)).await
                             });
                         } else {
                             tracing::error!("Unexpected Value type in ListStream");
