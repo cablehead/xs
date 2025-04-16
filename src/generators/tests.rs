@@ -218,6 +218,8 @@ async fn test_generator_lifecycle() {
         )
         .unwrap();
 
+    eprintln!("Spawned generator: {:?}", first_spawn);
+
     // Wait for the start event
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "ticker.spawn".to_string());
@@ -231,6 +233,8 @@ async fn test_generator_lifecycle() {
     assert_eq!(frame.topic, "ticker.recv");
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert_eq!(std::str::from_utf8(&content).unwrap(), "A");
+
+    eprintln!("A");
 
     // Spawn a new generator that emits "B" every second
     let second_spawn = store
