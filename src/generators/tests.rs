@@ -18,12 +18,15 @@ fn setup_test_env() -> (Store, nu::Engine, Frame) {
 async fn test_serve_basic() {
     let (store, engine, ctx) = setup_test_env();
 
-    {
+    // Store the task handle so we can abort it later
+    let task_handle = {
         let store = store.clone();
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             serve(store, engine).await.unwrap();
-        });
-    }
+        })
+    };
+
+    eprintln!("Starting test_serve_basic");
 
     let frame_generator = store
         .append(
@@ -45,10 +48,14 @@ async fn test_serve_basic() {
         .build();
     let mut recver = store.read(options).await;
 
+    eprintln!("Waiting for frames...");
+
     let frame = recver.recv().await.unwrap();
+    eprintln!("Received frame: {:?}", frame);
     assert_eq!(frame.topic, "toml.start".to_string());
 
     let frame = recver.recv().await.unwrap();
+    eprintln!("Received frame: {:?}", frame);
     assert_eq!(frame.topic, "toml.recv".to_string());
     let meta = frame.meta.unwrap();
     assert_eq!(meta["source_id"], frame_generator.id.to_string());
@@ -64,6 +71,10 @@ async fn test_serve_basic() {
         std::str::from_utf8(&content).unwrap(),
         r#"name = "cross-stream""#
     );
+    eprintln!("peace");
+
+    // Abort the task to prevent the test from hanging
+    task_handle.abort();
 }
 
 #[tokio::test]

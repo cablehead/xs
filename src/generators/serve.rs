@@ -175,14 +175,21 @@ impl Supervisor {
             let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
             self.event_sender = Some(event_tx);
 
-            // Spawn the generator in a separate thread
-            let task = tokio::task::spawn(async move {
-                // Use spawn_blocking for the Nushell execution
-                tokio::task::spawn_blocking(move || {
-                    run_generator(store.clone(), engine.clone(), spec_clone, event_rx);
-                })
-                .await
-                .ok();
+            // Get a handle to the current tokio runtime
+            let runtime_handle = tokio::runtime::Handle::current();
+
+            // Spawn the generator in a separate thread using std::thread::spawn
+            // This creates a detached OS thread that won't prevent the runtime from shutting down
+            std::thread::spawn(move || {
+                // Enter the tokio runtime context to allow async operations
+                let _guard = runtime_handle.enter();
+                run_generator(store.clone(), engine.clone(), spec_clone, event_rx);
+            });
+
+            // Since we're using a detached thread, we don't need to track the task
+            let task = tokio::task::spawn(async {
+                // This is just a placeholder task that will be aborted when the supervisor is stopped
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             });
 
             self.active_task = Some(task);
