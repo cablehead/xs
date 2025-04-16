@@ -220,6 +220,8 @@ async fn test_generator_lifecycle() {
 
     // Wait for the start event
     let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "ticker.spawn".to_string());
+    let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "ticker.start".to_string());
     let start_meta = frame.meta.unwrap();
     assert_eq!(start_meta["source_id"], first_spawn.id.to_string());
@@ -245,6 +247,8 @@ async fn test_generator_lifecycle() {
         .unwrap();
 
     // Wait for new start event
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "ticker.spawn");
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "ticker.start");
     let start_meta = frame.meta.unwrap();
