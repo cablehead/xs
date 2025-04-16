@@ -64,6 +64,7 @@ struct Supervisor {
     topic: String, // Storing the topic separately since it's needed before we have a spec
     _cleanup: Arc<SupervisorCleanup>, // Underscore prefix to indicate it's only kept for Drop behavior
     active_task: Option<tokio::task::JoinHandle<()>>, // Handle to the active generator blocking task
+    event_sender: Option<tokio::sync::mpsc::Sender<Frame>>, // Channel to send events to the generator
 }
 
 impl Supervisor {
@@ -86,6 +87,7 @@ impl Supervisor {
             topic,
             _cleanup: cleanup,
             active_task: None,
+            event_sender: None,
         }
     }
 
@@ -101,10 +103,8 @@ impl Supervisor {
                 "terminate" => self.stop().await,
                 "stop" => self.stop().await,
                 "send" => {
-                    // Events will be forwarded via the channel
-                    // Just log it for now - the actual forwarding happens elsewhere
-                    tracing::debug!("Received send event for topic {}: {:?}", self.topic, frame);
-                    Ok(())
+                    // Forward the send event to the active generator
+                    self.forward_event(frame.clone()).await
                 }
                 _ => {
                     tracing::debug!("Ignoring unknown event type: {}", suffix);
@@ -172,7 +172,8 @@ impl Supervisor {
             let _topic = self.topic.clone();
 
             // Create event channel for communicating with the generator
-            let (_event_tx, event_rx) = tokio::sync::mpsc::channel(100);
+            let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
+            self.event_sender = Some(event_tx);
 
             // Spawn the generator in a separate thread
             let task = tokio::task::spawn(async move {
@@ -194,11 +195,43 @@ impl Supervisor {
             task.abort();
         }
 
+        // Clear the event sender
+        self.event_sender = None;
+
         // Only emit stop event if we have a valid spec
         if let Some(spec) = &self.spec {
             append(self.store.clone(), spec, "stop", None).await?;
         }
         Ok(())
+    }
+
+    // Forward an event to the active generator
+    async fn forward_event(
+        &mut self,
+        frame: Frame,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(sender) = &self.event_sender {
+            match sender.send(frame.clone()).await {
+                Ok(_) => {
+                    tracing::debug!("Forwarded event {} to generator", frame.topic);
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::error!("Failed to forward event {}: {}", frame.topic, e);
+                    // Channel is closed, which suggests the generator is no longer running
+                    // Clear the sender
+                    self.event_sender = None;
+                    Err(format!("Failed to forward event: {}", e).into())
+                }
+            }
+        } else {
+            tracing::warn!(
+                "Received send event but no active generator for topic {}",
+                self.topic
+            );
+            // Not considering this an error - the generator might just be starting up
+            Ok(())
+        }
     }
 }
 
