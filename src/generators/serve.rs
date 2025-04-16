@@ -7,7 +7,6 @@
 //! <https://cablehead.github.io/xs/reference/generators/>
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use scru128::Scru128Id;
@@ -82,7 +81,7 @@ impl Supervisor {
         });
 
         Self {
-            spec: None, // No spec until we get a spawn event
+            spec: None,
             store,
             engine,
             topic,
@@ -92,17 +91,15 @@ impl Supervisor {
         }
     }
 
-    // Add a new method to handle any event for this supervisor
+    // Handle any event for this supervisor
     async fn handle_event(
         &mut self,
         frame: &Frame,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Extract the event type from the topic
         if let Some(suffix) = frame.topic.strip_prefix(&format!("{}.", self.topic)) {
             match suffix {
                 "spawn" => self.handle_spawn(frame).await,
-                "terminate" => self.stop().await,
-                "stop" => self.stop().await,
+                "terminate" | "stop" => self.stop().await,
                 "send" => {
                     // Forward the send event to the active generator
                     self.forward_event(frame.clone()).await
@@ -121,15 +118,13 @@ impl Supervisor {
         }
     }
 
-    // Handle a spawn event, which starts or replaces the generator
+    // Handle a spawn event to start or replace the generator
     async fn handle_spawn(
         &mut self,
         frame: &Frame,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Stop any existing generator first
         let _ = self.stop().await;
 
-        // Extract metadata and expression from frame
         let meta = frame
             .meta
             .clone()
@@ -141,7 +136,6 @@ impl Supervisor {
         let mut expression = String::new();
         reader.read_to_string(&mut expression).await?;
 
-        // Update spec with new information
         self.spec = Some(Spec {
             id: frame.id,
             context_id: frame.context_id,
@@ -150,16 +144,13 @@ impl Supervisor {
             expression,
         });
 
-        // Start the generator
         self.run().await;
 
         Ok(())
     }
 
     async fn run(&mut self) {
-        // Only run if we have a spec
         if let Some(spec) = &self.spec {
-            // First, cancel any existing task
             if let Some(task) = self.active_task.take() {
                 task.abort();
             }
@@ -170,43 +161,31 @@ impl Supervisor {
             let store = self.store.clone();
             let engine = self.engine.clone();
             let spec_clone = spec.clone();
-            let _topic = self.topic.clone();
 
-            // Create event channel for communicating with the generator
             let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
             self.event_sender = Some(event_tx);
 
-            // Get a handle to the current tokio runtime
             let runtime_handle = tokio::runtime::Handle::current();
 
-            // Spawn the generator in a separate thread using std::thread::spawn.
-            // This creates a detached OS thread that won't prevent the runtime from shutting down.
+            // Spawn the generator in a detached thread.
             std::thread::spawn(move || {
-                // Enter the tokio runtime context to allow async operations.
                 let _guard = runtime_handle.enter();
                 run_generator(store.clone(), engine.clone(), spec_clone, event_rx);
             });
 
-            // Since we're using a detached thread, we don't need to track the task.
-            // Here we spawn a dummy task to serve as a cancellation placeholder.
+            // Spawn a dummy placeholder task.
             let task = tokio::task::spawn(async {
                 tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             });
-
             self.active_task = Some(task);
         }
     }
 
     async fn stop(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Cancel the running task if it exists.
         if let Some(task) = self.active_task.take() {
             task.abort();
         }
-
-        // Clear the event sender.
         self.event_sender = None;
-
-        // Only emit stop event if we have a valid spec.
         if let Some(spec) = &self.spec {
             append(self.store.clone(), spec, "stop", None).await?;
         }
@@ -240,7 +219,6 @@ impl Supervisor {
     }
 }
 
-// Get or create a supervisor for a topic.
 async fn get_or_create_supervisor(
     topic: &str,
     registry: Arc<Mutex<HashMap<String, SupervisorHandle>>>,
@@ -275,7 +253,6 @@ async fn get_or_create_supervisor(
     Ok(supervisor)
 }
 
-// Handle any event for a topic by routing it to the appropriate supervisor.
 async fn handle_supervisor_event(
     topic: &str,
     frame: &Frame,
@@ -285,20 +262,15 @@ async fn handle_supervisor_event(
 ) {
     match get_or_create_supervisor(topic, registry, engine, store).await {
         Ok(supervisor) => {
-            // WARNING: This is an unsafe workaround to obtain mutable access.
+            // SAFETY: Using unsafe to obtain mutable access; consider using interior mutability.
             let supervisor_ptr = Arc::as_ptr(&supervisor) as *mut Supervisor;
-            let result = unsafe {
-                let supervisor = &mut *supervisor_ptr;
-                supervisor.handle_event(frame).await
-            };
-
+            let result = unsafe { (&mut *supervisor_ptr).handle_event(frame).await };
             if let Err(e) = result {
                 let event_type = frame.topic.split('.').nth(1).unwrap_or("event");
                 let meta = serde_json::json!({
                     "source_id": frame.id.to_string(),
                     "reason": e.to_string()
                 });
-
                 if let Err(e) = store.append(
                     Frame::builder(format!("{}.{}.error", topic, event_type), frame.context_id)
                         .meta(meta)
@@ -315,7 +287,6 @@ async fn handle_supervisor_event(
                 "source_id": frame.id.to_string(),
                 "reason": e.to_string()
             });
-
             if let Err(e) = store.append(
                 Frame::builder(format!("{}.{}.error", topic, event_type), frame.context_id)
                     .meta(meta)
@@ -334,7 +305,6 @@ pub async fn serve(
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
-    // Create shared registry.
     let registry: Arc<Mutex<HashMap<String, SupervisorHandle>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
@@ -345,7 +315,6 @@ pub async fn serve(
         if frame.topic == "xs.threshold" {
             break;
         }
-
         if frame.topic.ends_with(".spawn") {
             if let Some(topic) = frame.topic.strip_suffix(".spawn") {
                 compacted_frames.insert(topic.to_string(), frame);
@@ -353,7 +322,7 @@ pub async fn serve(
         }
     }
 
-    // Process compacted frames - create initial supervisors from compacted spawn events.
+    // Process compacted spawn events.
     for frame in compacted_frames.values() {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
             handle_supervisor_event(topic, frame, registry.clone(), &engine, &store).await;
@@ -365,7 +334,6 @@ pub async fn serve(
         if let Some(dot_pos) = frame.topic.find('.') {
             let topic_prefix = &frame.topic[..dot_pos];
             let suffix = &frame.topic[dot_pos + 1..];
-
             if ["spawn", "send", "stop", "terminate"].contains(&suffix) {
                 handle_supervisor_event(topic_prefix, &frame, registry.clone(), &engine, &store)
                     .await;
@@ -408,17 +376,13 @@ fn run_generator(
     event_rx: tokio::sync::mpsc::Receiver<Frame>,
 ) {
     let handle = tokio::runtime::Handle::current().clone();
-
-    // Retrieve the cancellation flag from the engine's signals.
-    // This flag is set via ctrlc_protection and used in other parts of the engine.
-    let cancel_flag = engine.state.signals().interrupt.clone();
+    // Instead of the non-existent get_interrupt(), retrieve the signals reference.
+    let signals = engine.state.signals();
 
     // Initialize input pipeline for duplex generators.
     let input_pipeline = if spec.meta.duplex.unwrap_or(false) {
         let topic = spec.topic.clone();
         let store_clone = store.clone();
-
-        // Create a streamed input source from events.
         let stream = ReceiverStream::new(event_rx)
             .filter_map(move |frame: Frame| {
                 let store = store_clone.clone();
@@ -435,12 +399,11 @@ fn run_generator(
                 }
             })
             .boxed();
-
         let stream_handle = handle.clone();
-        let mut stream = Some(stream);
+        // Unbox the stream instead of wrapping it in an Option.
+        let mut stream = stream;
         let iter =
-            std::iter::from_fn(move || stream_handle.block_on(async move { stream.next().await }));
-
+            std::iter::from_fn(move || stream_handle.block_on(async { stream.next().await }));
         ByteStream::from_iter(
             iter,
             Span::unknown(),
@@ -454,48 +417,40 @@ fn run_generator(
 
     // Run the generator.
     match engine.eval(input_pipeline, spec.expression.clone()) {
-        Ok(pipeline) => {
-            match pipeline {
-                PipelineData::Empty => {
-                    // Do nothing if there is no output.
+        Ok(pipeline) => match pipeline {
+            PipelineData::Empty => { /* Nothing to do */ }
+            PipelineData::Value(value, _) => {
+                if let Value::String { val, .. } = value {
+                    let _ = handle
+                        .block_on(async { append(store.clone(), &spec, "recv", Some(val)).await });
+                } else {
+                    tracing::error!("Unexpected Value type in PipelineData::Value");
                 }
-                PipelineData::Value(value, _) => {
+            }
+            PipelineData::ListStream(mut stream, _) => {
+                while let Some(value) = stream.next_value() {
+                    // Check for cancellation using the existing method.
+                    if signals.interrupted() {
+                        tracing::info!("Cancellation detected; terminating generator loop.");
+                        break;
+                    }
                     if let Value::String { val, .. } = value {
                         let _ = handle.block_on(async {
                             append(store.clone(), &spec, "recv", Some(val)).await
                         });
                     } else {
-                        tracing::error!("Unexpected Value type in PipelineData::Value");
+                        tracing::error!("Unexpected Value type in ListStream");
                     }
-                }
-                PipelineData::ListStream(mut stream, _) => {
-                    // Loop over stream values with cancellation check.
-                    while let Some(value) = stream.next_value() {
-                        if cancel_flag.load(Ordering::Relaxed) {
-                            tracing::info!(
-                                "Cancellation signal detected; terminating generator loop."
-                            );
-                            break;
-                        }
-                        if let Value::String { val, .. } = value {
-                            let _ = handle.block_on(async {
-                                append(store.clone(), &spec, "recv", Some(val)).await
-                            });
-                        } else {
-                            tracing::error!("Unexpected Value type in ListStream");
-                        }
-                    }
-                }
-                PipelineData::ByteStream(_, _) => {
-                    tracing::error!("ByteStream not supported");
                 }
             }
-        }
+            PipelineData::ByteStream(_, _) => {
+                tracing::error!("ByteStream not supported");
+            }
+        },
         Err(e) => {
             tracing::error!("Error evaluating generator expression: {}", e);
         }
     }
 
-    // When the generator is done running, it will be dropped,
-    // triggering cleanup via the Drop implementation on SupervisorCleanup.
+    // When the generator is finished, cleanup is triggered via SupervisorCleanup's Drop.
 }
