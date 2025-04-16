@@ -250,6 +250,7 @@ async fn test_generator_lifecycle() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "ticker.spawn");
     let frame = recver.recv().await.unwrap();
+    eprintln!("Received frame: {:?}", frame);
     assert_eq!(frame.topic, "ticker.start");
     let start_meta = frame.meta.unwrap();
     assert_eq!(start_meta["source_id"], second_spawn.id.to_string());
