@@ -7,6 +7,7 @@
 //! <https://cablehead.github.io/xs/reference/generators/>
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use scru128::Scru128Id;
@@ -62,7 +63,7 @@ struct Supervisor {
     store: Store,
     engine: nu::Engine,
     topic: String, // Storing the topic separately since it's needed before we have a spec
-    _cleanup: Arc<SupervisorCleanup>, // Underscore prefix to indicate it's only kept for Drop behavior
+    _cleanup: Arc<SupervisorCleanup>, // Kept only for Drop behavior
     active_task: Option<tokio::task::JoinHandle<()>>, // Handle to the active generator blocking task
     event_sender: Option<tokio::sync::mpsc::Sender<Frame>>, // Channel to send events to the generator
 }
@@ -178,17 +179,17 @@ impl Supervisor {
             // Get a handle to the current tokio runtime
             let runtime_handle = tokio::runtime::Handle::current();
 
-            // Spawn the generator in a separate thread using std::thread::spawn
-            // This creates a detached OS thread that won't prevent the runtime from shutting down
+            // Spawn the generator in a separate thread using std::thread::spawn.
+            // This creates a detached OS thread that won't prevent the runtime from shutting down.
             std::thread::spawn(move || {
-                // Enter the tokio runtime context to allow async operations
+                // Enter the tokio runtime context to allow async operations.
                 let _guard = runtime_handle.enter();
                 run_generator(store.clone(), engine.clone(), spec_clone, event_rx);
             });
 
-            // Since we're using a detached thread, we don't need to track the task
+            // Since we're using a detached thread, we don't need to track the task.
+            // Here we spawn a dummy task to serve as a cancellation placeholder.
             let task = tokio::task::spawn(async {
-                // This is just a placeholder task that will be aborted when the supervisor is stopped
                 tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             });
 
@@ -197,22 +198,22 @@ impl Supervisor {
     }
 
     async fn stop(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Cancel the running task if it exists
+        // Cancel the running task if it exists.
         if let Some(task) = self.active_task.take() {
             task.abort();
         }
 
-        // Clear the event sender
+        // Clear the event sender.
         self.event_sender = None;
 
-        // Only emit stop event if we have a valid spec
+        // Only emit stop event if we have a valid spec.
         if let Some(spec) = &self.spec {
             append(self.store.clone(), spec, "stop", None).await?;
         }
         Ok(())
     }
 
-    // Forward an event to the active generator
+    // Forward an event to the active generator.
     async fn forward_event(
         &mut self,
         frame: Frame,
@@ -225,8 +226,6 @@ impl Supervisor {
                 }
                 Err(e) => {
                     tracing::error!("Failed to forward event {}: {}", frame.topic, e);
-                    // Channel is closed, which suggests the generator is no longer running
-                    // Clear the sender
                     self.event_sender = None;
                     Err(format!("Failed to forward event: {}", e).into())
                 }
@@ -236,20 +235,18 @@ impl Supervisor {
                 "Received send event but no active generator for topic {}",
                 self.topic
             );
-            // Not considering this an error - the generator might just be starting up
             Ok(())
         }
     }
 }
 
-// Get or create a supervisor for a topic
+// Get or create a supervisor for a topic.
 async fn get_or_create_supervisor(
     topic: &str,
     registry: Arc<Mutex<HashMap<String, SupervisorHandle>>>,
     engine: &nu::Engine,
     store: &Store,
 ) -> Result<Arc<Supervisor>, Box<dyn std::error::Error + Send + Sync>> {
-    // Try to get existing supervisor
     if let Ok(supervisors) = registry.lock() {
         if let Some(handle) = supervisors.get(topic) {
             if let Some(supervisor) = handle.supervisor.upgrade() {
@@ -258,7 +255,6 @@ async fn get_or_create_supervisor(
         }
     }
 
-    // No existing supervisor, create a new one
     let supervisor = Arc::new(Supervisor::new(
         topic.to_string(),
         store.clone(),
@@ -266,7 +262,6 @@ async fn get_or_create_supervisor(
         registry.clone(),
     ));
 
-    // Add to registry
     {
         let mut supervisors = registry.lock().map_err(|_| "Failed to lock registry")?;
         supervisors.insert(
@@ -280,7 +275,7 @@ async fn get_or_create_supervisor(
     Ok(supervisor)
 }
 
-// Handle any event for a topic by routing it to the appropriate supervisor
+// Handle any event for a topic by routing it to the appropriate supervisor.
 async fn handle_supervisor_event(
     topic: &str,
     frame: &Frame,
@@ -288,21 +283,15 @@ async fn handle_supervisor_event(
     engine: &nu::Engine,
     store: &Store,
 ) {
-    // Get or create supervisor
     match get_or_create_supervisor(topic, registry, engine, store).await {
         Ok(supervisor) => {
-            // Safety: We need a mutable supervisor to handle events
-            // This is technically unsafe and a workaround for Rust's immutability rules
-            // A better approach would be to use interior mutability or a channel-based design
+            // WARNING: This is an unsafe workaround to obtain mutable access.
             let supervisor_ptr = Arc::as_ptr(&supervisor) as *mut Supervisor;
-
-            // Handle the event
             let result = unsafe {
                 let supervisor = &mut *supervisor_ptr;
                 supervisor.handle_event(frame).await
             };
 
-            // Handle errors
             if let Err(e) = result {
                 let event_type = frame.topic.split('.').nth(1).unwrap_or("event");
                 let meta = serde_json::json!({
@@ -321,7 +310,6 @@ async fn handle_supervisor_event(
         }
         Err(e) => {
             tracing::error!("Failed to get or create supervisor for {}: {}", topic, e);
-
             let event_type = frame.topic.split('.').nth(1).unwrap_or("event");
             let meta = serde_json::json!({
                 "source_id": frame.id.to_string(),
@@ -346,19 +334,18 @@ pub async fn serve(
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
-    // Create shared registry
+    // Create shared registry.
     let registry: Arc<Mutex<HashMap<String, SupervisorHandle>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
     let mut compacted_frames: HashMap<String, Frame> = HashMap::new();
 
-    // Phase 1: Collect and compact messages until threshold
+    // Phase 1: Collect and compact messages until threshold.
     while let Some(frame) = recver.recv().await {
         if frame.topic == "xs.threshold" {
             break;
         }
 
-        // Compact spawn frames
         if frame.topic.ends_with(".spawn") {
             if let Some(topic) = frame.topic.strip_suffix(".spawn") {
                 compacted_frames.insert(topic.to_string(), frame);
@@ -366,21 +353,19 @@ pub async fn serve(
         }
     }
 
-    // Process compacted frames - create initial supervisors from compacted spawn events
+    // Process compacted frames - create initial supervisors from compacted spawn events.
     for frame in compacted_frames.values() {
         if let Some(topic) = frame.topic.strip_suffix(".spawn") {
             handle_supervisor_event(topic, frame, registry.clone(), &engine, &store).await;
         }
     }
 
-    // Phase 2: Process messages as they arrive
+    // Phase 2: Process messages as they arrive.
     while let Some(frame) = recver.recv().await {
-        // Process events based on topic pattern
         if let Some(dot_pos) = frame.topic.find('.') {
             let topic_prefix = &frame.topic[..dot_pos];
             let suffix = &frame.topic[dot_pos + 1..];
 
-            // Route all generator-related events to the appropriate supervisor
             if ["spawn", "send", "stop", "terminate"].contains(&suffix) {
                 handle_supervisor_event(topic_prefix, &frame, registry.clone(), &engine, &store)
                     .await;
@@ -424,12 +409,16 @@ fn run_generator(
 ) {
     let handle = tokio::runtime::Handle::current().clone();
 
-    // Initialize input pipeline for duplex generators
+    // Retrieve the cancellation flag from the engine's signals.
+    // This flag is set via ctrlc_protection and used in other parts of the engine.
+    let cancel_flag = engine.state.signals().interrupt.clone();
+
+    // Initialize input pipeline for duplex generators.
     let input_pipeline = if spec.meta.duplex.unwrap_or(false) {
         let topic = spec.topic.clone();
         let store_clone = store.clone();
 
-        // Create a streamed input source from events
+        // Create a streamed input source from events.
         let stream = ReceiverStream::new(event_rx)
             .filter_map(move |frame: Frame| {
                 let store = store_clone.clone();
@@ -447,18 +436,10 @@ fn run_generator(
             })
             .boxed();
 
-        // Create a new handle for the stream iteration
         let stream_handle = handle.clone();
-
-        // Wrap stream in Option to allow mutable access without moving it
         let mut stream = Some(stream);
-        let iter = std::iter::from_fn(move || {
-            if let Some(ref mut stream) = stream {
-                stream_handle.block_on(async move { stream.next().await })
-            } else {
-                None
-            }
-        });
+        let iter =
+            std::iter::from_fn(move || stream_handle.block_on(async move { stream.next().await }));
 
         ByteStream::from_iter(
             iter,
@@ -471,12 +452,12 @@ fn run_generator(
         PipelineData::empty()
     };
 
-    // Run the generator
+    // Run the generator.
     match engine.eval(input_pipeline, spec.expression.clone()) {
         Ok(pipeline) => {
             match pipeline {
                 PipelineData::Empty => {
-                    // Close the channel immediately
+                    // Do nothing if there is no output.
                 }
                 PipelineData::Value(value, _) => {
                     if let Value::String { val, .. } = value {
@@ -488,7 +469,14 @@ fn run_generator(
                     }
                 }
                 PipelineData::ListStream(mut stream, _) => {
+                    // Loop over stream values with cancellation check.
                     while let Some(value) = stream.next_value() {
+                        if cancel_flag.load(Ordering::Relaxed) {
+                            tracing::info!(
+                                "Cancellation signal detected; terminating generator loop."
+                            );
+                            break;
+                        }
                         if let Value::String { val, .. } = value {
                             let _ = handle.block_on(async {
                                 append(store.clone(), &spec, "recv", Some(val)).await
@@ -509,5 +497,5 @@ fn run_generator(
     }
 
     // When the generator is done running, it will be dropped,
-    // which will trigger cleanup via the Drop implementation on SupervisorCleanup
+    // triggering cleanup via the Drop implementation on SupervisorCleanup.
 }
