@@ -159,7 +159,9 @@ export def .remove [id: string] {
 export alias .rm = .remove
 
 export def ".ctx" [] {
-  xs-context | or-else { $XS_CONTEXT_SYSTEM }
+  let id = xs-context | or-else { $XS_CONTEXT_SYSTEM }
+  let name = xs-context-collect | where id == $id | get name.0
+  $name | default $id
 }
 
 export def ".ctx list" [] {
