@@ -181,7 +181,7 @@ export alias ".ctx ls" = .ctx list
 
 export def --env ".ctx switch" [id?: string] {
   $env.XS_CONTEXT = $id | or-else { .ctx select }
-  .ctx
+  .ctx --detail | get id
 }
 
 export def --env ".ctx new" [name: string] {
