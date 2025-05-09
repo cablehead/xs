@@ -35,6 +35,8 @@ console = "0.15.8"
 chrono = "0.4.38"
 bon = "2.3"
 tempfile = "3.10.1"
+# Pin zip to a version compatible with calamine 0.26.1
+zip = "2.2.2"
 
 nu-cli = "0.103.0"
 nu-command = "0.103.0"
