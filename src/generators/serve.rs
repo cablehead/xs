@@ -49,7 +49,7 @@ struct GeneratorTask {
 async fn try_start_task(
     topic: &str,
     frame: &Frame,
-    generators: &mut HashMap<String, GeneratorTask>,
+    generators: &mut HashMap<(String, Scru128Id), GeneratorTask>,
     engine: &nu::Engine,
     store: &Store,
 ) {
@@ -80,7 +80,7 @@ async fn try_start_task(
 async fn handle_spawn_event(
     topic: &str,
     frame: Frame,
-    generators: &mut HashMap<String, GeneratorTask>,
+    generators: &mut HashMap<(String, Scru128Id), GeneratorTask>,
     engine: nu::Engine,
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -90,7 +90,8 @@ async fn handle_spawn_event(
         .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
         .unwrap_or_default();
 
-    if generators.contains_key(topic) {
+    let generator_key = (topic.to_string(), frame.context_id);
+    if generators.contains_key(&generator_key) {
         return Err("Updating existing generator is not implemented".into());
     }
 
@@ -107,7 +108,7 @@ async fn handle_spawn_event(
         expression: expression.clone(),
     };
 
-    generators.insert(topic.to_string(), task.clone());
+    generators.insert(generator_key, task.clone());
 
     spawn(engine.clone(), store.clone(), task).await;
     Ok(())
@@ -120,8 +121,8 @@ pub async fn serve(
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
-    let mut generators: HashMap<String, GeneratorTask> = HashMap::new();
-    let mut compacted_frames: HashMap<String, Frame> = HashMap::new();
+    let mut generators: HashMap<(String, Scru128Id), GeneratorTask> = HashMap::new();
+    let mut compacted_frames: HashMap<(String, Scru128Id), Frame> = HashMap::new();
 
     // Phase 1: Collect and compact messages until threshold
     while let Some(frame) = recver.recv().await {
@@ -131,32 +132,34 @@ pub async fn serve(
 
         // Compact spawn frames
         if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".spawn.error") {
-            if let Some(topic) = frame
+            if let Some(topic_prefix) = frame
                 .topic
                 .strip_suffix(".spawn.error")
                 .or_else(|| frame.topic.strip_suffix(".spawn"))
             {
-                compacted_frames.insert(topic.to_string(), frame);
+                compacted_frames.insert((topic_prefix.to_string(), frame.context_id), frame);
             }
         }
     }
 
     // Process compacted frames
-    for frame in compacted_frames.values() {
-        if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, frame, &mut generators, &engine, &store).await;
+    for ((topic_prefix, _), frame) in &compacted_frames {
+        // Only attempt to start if it's a '.spawn' frame, not '.spawn.error'
+        if frame.topic.ends_with(".spawn") {
+            try_start_task(topic_prefix, frame, &mut generators, &engine, &store).await;
         }
     }
 
     // Phase 2: Process messages as they arrive
     while let Some(frame) = recver.recv().await {
-        if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(topic, &frame, &mut generators, &engine, &store).await;
+        if let Some(topic_prefix) = frame.topic.strip_suffix(".spawn") {
+            try_start_task(topic_prefix, &frame, &mut generators, &engine, &store).await;
             continue;
         }
 
-        if let Some(topic) = frame.topic.strip_suffix(".stop") {
-            if let Some(task) = generators.get(topic) {
+        if let Some(topic_prefix) = frame.topic.strip_suffix(".stop") {
+            let generator_key = (topic_prefix.to_string(), frame.context_id);
+            if let Some(task) = generators.get(&generator_key) {
                 // respawn the task in a second
                 let engine = engine.clone();
                 let store = store.clone();
@@ -206,20 +209,22 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
 
     let input_pipeline = if task.meta.duplex.unwrap_or(false) {
         let store = store.clone();
-        let topic = task.topic.clone();
+        let base_topic_for_filter = task.topic.clone(); // e.g. "echo"
         let options = ReadOptions::builder()
             .follow(FollowOption::On)
             .last_id(start.id)
+            .context_id(task.context_id) // Crucial for context isolation
             .build();
         let rx = store.read(options).await;
 
         let stream = ReceiverStream::new(rx);
         let stream = stream
             .filter_map(move |frame: Frame| {
+                // frame is now guaranteed to be from task.context_id
                 let store = store.clone();
-                let topic = topic.clone();
+                let topic_to_match = format!("{}.send", base_topic_for_filter);
                 async move {
-                    if frame.topic == format!("{}.send", topic) {
+                    if frame.topic == topic_to_match {
                         if let Some(hash) = frame.hash {
                             if let Ok(content) = store.cas_read(&hash).await {
                                 return Some(content);
