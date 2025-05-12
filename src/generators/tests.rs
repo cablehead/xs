@@ -185,3 +185,252 @@ async fn test_serve_compact() {
         r#"edition = "2021""#
     );
 }
+
+#[tokio::test]
+async fn test_serve_duplex_context_isolation() {
+    let (store, engine, ctx_a_frame) = setup_test_env();
+
+    // Spawn serve in the background
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        let _ = tokio::spawn(async move {
+            if let Err(e) = serve(store, engine).await {
+                eprintln!("Serve task failed: {}", e);
+            }
+        });
+    }
+
+    // Subscribe to events
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    // Create two distinct contexts - setup_test_env() already creates one
+    assert_eq!(
+        recver.recv().await.unwrap().id,
+        ctx_a_frame.id,
+        "Did not receive ctx_a frame first"
+    );
+
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    let ctx_b_frame = store
+        .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().id,
+        ctx_b_frame.id,
+        "Did not receive ctx_b frame second"
+    );
+
+    let ctx_a = ctx_a_frame.id;
+    let ctx_b = ctx_b_frame.id;
+    println!("Context A: {}", ctx_a);
+    println!("Context B: {}", ctx_b);
+
+    // Define the generator script
+    let script = r#"each { |x| $"echo: ($x)" }"#;
+    let script_hash = store.cas_insert(script).await.unwrap();
+
+    // --- Generator A ---
+
+    // Spawn generator A in context A
+    println!("Spawning Gen A in Ctx A");
+    let gen_a_spawn_frame = store
+        .append(
+            Frame::builder("echo.spawn", ctx_a) // Use ctx_a
+                .hash(script_hash.clone())
+                .meta(serde_json::json!({"duplex": true}))
+                .build(),
+        )
+        .unwrap();
+    println!(
+        "Spawned Gen A ({}) in Ctx A ({})",
+        gen_a_spawn_frame.id, ctx_a
+    );
+
+    // Expect spawn event for A
+    let frame_spawn_a = recver
+        .recv()
+        .await
+        .expect("Failed to receive gen A spawn frame");
+    println!("Received: {:?}", frame_spawn_a);
+    assert_eq!(frame_spawn_a.id, gen_a_spawn_frame.id);
+    assert_eq!(frame_spawn_a.topic, "echo.spawn");
+    assert_eq!(frame_spawn_a.context_id, ctx_a);
+
+    // Expect start event for A
+    let frame_start_a = recver
+        .recv()
+        .await
+        .expect("Failed to receive gen A start frame");
+    println!("Received: {:?}", frame_start_a);
+    assert_eq!(frame_start_a.topic, "echo.start");
+    assert_eq!(
+        frame_start_a.context_id, ctx_a,
+        "Generator A start event has wrong context"
+    );
+    assert_eq!(
+        frame_start_a.meta.as_ref().unwrap()["source_id"],
+        gen_a_spawn_frame.id.to_string()
+    );
+    println!("Generator A started.");
+
+    // --- Generator B ---
+
+    // Spawn generator B in context B
+    println!("Spawning Gen B in Ctx B");
+    let gen_b_spawn_frame = store
+        .append(
+            Frame::builder("echo.spawn", ctx_b) // Use ctx_b
+                .hash(script_hash)
+                .meta(serde_json::json!({"duplex": true}))
+                .build(),
+        )
+        .unwrap();
+    println!(
+        "Spawned Gen B ({}) in Ctx B ({})",
+        gen_b_spawn_frame.id, ctx_b
+    );
+
+    // Expect spawn event for B
+    let frame_spawn_b = recver
+        .recv()
+        .await
+        .expect("Failed to receive gen B spawn frame");
+    println!("Received: {:?}", frame_spawn_b);
+    assert_eq!(frame_spawn_b.id, gen_b_spawn_frame.id);
+    assert_eq!(frame_spawn_b.topic, "echo.spawn");
+    assert_eq!(frame_spawn_b.context_id, ctx_b);
+
+    // Expect start event for B
+    let frame_start_b = recver
+        .recv()
+        .await
+        .expect("Failed to receive gen B start frame");
+    println!("Received: {:?}", frame_start_b);
+    assert_eq!(frame_start_b.topic, "echo.start");
+    assert_eq!(
+        frame_start_b.context_id, ctx_b,
+        "Generator B start event has wrong context"
+    );
+    assert_eq!(
+        frame_start_b.meta.as_ref().unwrap()["source_id"],
+        gen_b_spawn_frame.id.to_string()
+    );
+    println!("Generator B started.");
+
+    // --- Interact with Generator A ---
+
+    // Send message to generator A in context A
+    println!("Sending message to Gen A in Ctx A");
+    let msg_a_hash = store.cas_insert("message_a").await.unwrap();
+    let send_a_frame = store
+        .append(
+            Frame::builder("echo.send", ctx_a) // Send specifically to context A
+                .hash(msg_a_hash)
+                .build(),
+        )
+        .unwrap();
+    println!("Sent to Gen A in Ctx A: {:?}", send_a_frame);
+
+    // Expect the send event A itself
+    let frame_send_a = recver
+        .recv()
+        .await
+        .expect("Failed to receive ctx_a echo.send frame");
+    println!("Received: {:?}", frame_send_a);
+    assert_eq!(frame_send_a.id, send_a_frame.id);
+    assert_eq!(frame_send_a.topic, "echo.send");
+    assert_eq!(frame_send_a.context_id, ctx_a);
+
+    // Expect the receive (echo) event from A
+    let frame_recv_a = recver
+        .recv()
+        .await
+        .expect("Failed to receive ctx_a echo.recv frame");
+    println!("Received: {:?}", frame_recv_a);
+    assert_eq!(frame_recv_a.topic, "echo.recv", "Expected ctx_a echo.recv");
+    // *** This is the crucial assertion for context isolation ***
+    assert_eq!(
+        frame_recv_a.context_id, ctx_a,
+        "ctx_a echo.recv event received in wrong context!"
+    );
+    assert_eq!(
+        frame_recv_a.meta.as_ref().unwrap()["source_id"],
+        gen_a_spawn_frame.id.to_string()
+    );
+    let content_a = store.cas_read(&frame_recv_a.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content_a).unwrap(), "echo: message_a");
+    println!("Correctly received from Gen A in Ctx A");
+
+    // --- Interact with Generator B ---
+
+    // Send message to generator B in context B
+    println!("Sending message to Gen B in Ctx B");
+    let msg_b_hash = store.cas_insert("message_b").await.unwrap();
+    let send_b_frame = store
+        .append(
+            Frame::builder("echo.send", ctx_b) // Send specifically to context B
+                .hash(msg_b_hash)
+                .build(),
+        )
+        .unwrap();
+    println!("Sent to Gen B in Ctx B: {:?}", send_b_frame);
+
+    // Expect the send event B itself
+    let frame_send_b = recver
+        .recv()
+        .await
+        .expect("Failed to receive ctx_b echo.send frame");
+    println!("Received: {:?}", frame_send_b);
+    assert_eq!(frame_send_b.id, send_b_frame.id);
+    assert_eq!(frame_send_b.topic, "echo.send");
+    assert_eq!(frame_send_b.context_id, ctx_b);
+
+    // Expect the receive (echo) event from B
+    let frame_recv_b = recver
+        .recv()
+        .await
+        .expect("Failed to receive ctx_b echo.recv frame");
+    println!("Received: {:?}", frame_recv_b);
+    assert_eq!(frame_recv_b.topic, "echo.recv", "Expected ctx_b echo.recv");
+    // *** This is the crucial assertion for context isolation ***
+    assert_eq!(
+        frame_recv_b.context_id, ctx_b,
+        "ctx_b echo.recv event received in wrong context!"
+    );
+    assert_eq!(
+        frame_recv_b.meta.as_ref().unwrap()["source_id"],
+        gen_b_spawn_frame.id.to_string()
+    );
+    let content_b = store.cas_read(&frame_recv_b.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content_b).unwrap(), "echo: message_b");
+    println!("Correctly received from Gen B in Ctx B");
+
+    // Ensure no further unexpected messages
+    println!("Checking for unexpected extra frames...");
+    assert_no_more_frames(&mut recver).await;
+    println!("Test completed successfully.");
+}
+
+async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
+    let timeout = tokio::time::sleep(std::time::Duration::from_millis(100));
+    tokio::pin!(timeout);
+    tokio::select! {
+        biased;
+        maybe_frame = recver.recv() => {
+            if let Some(frame) = maybe_frame {
+                 panic!("Unexpected frame received: {:?}", frame);
+            } else {
+                 // Channel closed unexpectedly, which might indicate an issue
+                 // since follow=true should keep it open.
+                 println!("Warning: Receiver channel closed unexpectedly during assert_no_more_frames.");
+            }
+        }
+        _ = &mut timeout => {
+            // Success
+             println!("No unexpected frames received.");
+        }
+    }
+}
