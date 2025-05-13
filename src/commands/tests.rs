@@ -329,3 +329,153 @@ async fn setup_test_environment() -> (Store, Frame) {
 
     (store, ctx)
 }
+
+#[tokio::test]
+async fn test_command_definition_context_isolation() -> Result<(), Error> {
+    let (store, engine) = setup_test_environment_raw().await; // Using a raw setup
+
+    // --- Setup ---
+    // Create two distinct contexts
+    let ctx_a_frame = store
+        .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .unwrap();
+    let ctx_b_frame = store
+        .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .unwrap();
+
+    let ctx_a = ctx_a_frame.id;
+    let ctx_b = ctx_b_frame.id;
+    println!("Context A: {}", ctx_a);
+    println!("Context B: {}", ctx_b);
+
+    // Spawn command serve in the background
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        let _ = tokio::spawn(async move {
+            if let Err(e) = crate::commands::serve::serve(store, engine).await {
+                eprintln!("Command serve task failed: {}", e);
+            }
+        });
+    }
+
+    // Subscribe to events (global listener to see all frames)
+    let options_all_ctx = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver_all = store.read(options_all_ctx).await;
+
+    // Consume initial context frames and threshold
+    assert_eq!(recver_all.recv().await.unwrap().id, ctx_a_frame.id);
+    assert_eq!(recver_all.recv().await.unwrap().id, ctx_b_frame.id);
+    assert_eq!(recver_all.recv().await.unwrap().topic, "xs.threshold");
+
+
+    // --- Define Command A in Context A ---
+    let cmd_a_script = r#"{ run: {|frame| "output_from_cmd_a" } }"#;
+    let cmd_a_script_hash = store.cas_insert(cmd_a_script).await?;
+    println!("Defining Cmd A in Ctx A ({})", ctx_a);
+    let define_a_frame = store
+        .append(
+            Frame::builder("testcmd.define", ctx_a) // Define in ctx_a
+                .hash(cmd_a_script_hash)
+                .build(),
+        )
+        .unwrap();
+
+    // Expect define event for A
+    let frame_define_a = recver_all.recv().await.expect("Failed to receive cmd A define frame");
+    println!("Received Cmd A Define: {:?}", frame_define_a);
+    assert_eq!(frame_define_a.id, define_a_frame.id);
+    assert_eq!(frame_define_a.topic, "testcmd.define");
+    assert_eq!(frame_define_a.context_id, ctx_a);
+    println!("Cmd A defined.");
+
+    // --- Define Command B in Context B ---
+    let cmd_b_script = r#"{ run: {|frame| "output_from_cmd_b" } }"#;
+    let cmd_b_script_hash = store.cas_insert(cmd_b_script).await?;
+    println!("Defining Cmd B in Ctx B ({})", ctx_b);
+    let define_b_frame = store
+        .append(
+            Frame::builder("testcmd.define", ctx_b) // Define SAME NAME cmd in ctx_b
+                .hash(cmd_b_script_hash)
+                .build(),
+        )
+        .unwrap();
+
+    // Expect define event for B
+    let frame_define_b = recver_all.recv().await.expect("Failed to receive cmd B define frame");
+    println!("Received Cmd B Define: {:?}", frame_define_b);
+    assert_eq!(frame_define_b.id, define_b_frame.id);
+    assert_eq!(frame_define_b.topic, "testcmd.define");
+    assert_eq!(frame_define_b.context_id, ctx_b);
+    println!("Cmd B defined.");
+
+
+    // --- Call Command in Context A ---
+    println!("Calling testcmd in Ctx A ({})", ctx_a);
+    let call_a_frame = store
+        .append(Frame::builder("testcmd.call", ctx_a).build()) // Call in ctx_a
+        .unwrap();
+
+    // Expect call event for A
+    let frame_call_a = recver_all.recv().await.expect("Failed to receive cmd A call frame");
+    assert_eq!(frame_call_a.id, call_a_frame.id);
+    assert_eq!(frame_call_a.topic, "testcmd.call");
+    assert_eq!(frame_call_a.context_id, ctx_a);
+
+    // Expect recv event from A's command
+    let frame_recv_a = recver_all.recv().await.expect("Failed to receive cmd A recv frame");
+    println!("Received from Cmd A call: {:?}", frame_recv_a);
+    assert_eq!(frame_recv_a.topic, "testcmd.recv");
+    assert_eq!(frame_recv_a.context_id, ctx_a, "Cmd A recv event has wrong context!");
+    assert_eq!(frame_recv_a.meta.as_ref().unwrap()["command_id"], define_a_frame.id.to_string());
+    let content_a = store.cas_read(&frame_recv_a.hash.unwrap()).await?;
+    assert_eq!(String::from_utf8(content_a)?, r#""output_from_cmd_a""#);
+
+    // Expect complete event from A's command
+    let frame_complete_a = recver_all.recv().await.expect("Failed to receive cmd A complete frame");
+    assert_eq!(frame_complete_a.topic, "testcmd.complete");
+    assert_eq!(frame_complete_a.context_id, ctx_a);
+    println!("Cmd A call completed.");
+
+    // --- Call Command in Context B ---
+    println!("Calling testcmd in Ctx B ({})", ctx_b);
+    let call_b_frame = store
+        .append(Frame::builder("testcmd.call", ctx_b).build()) // Call in ctx_b
+        .unwrap();
+
+    // Expect call event for B
+    let frame_call_b = recver_all.recv().await.expect("Failed to receive cmd B call frame");
+    assert_eq!(frame_call_b.id, call_b_frame.id);
+    assert_eq!(frame_call_b.topic, "testcmd.call");
+    assert_eq!(frame_call_b.context_id, ctx_b);
+
+    // Expect recv event from B's command
+    let frame_recv_b = recver_all.recv().await.expect("Failed to receive cmd B recv frame");
+    println!("Received from Cmd B call: {:?}", frame_recv_b);
+    assert_eq!(frame_recv_b.topic, "testcmd.recv");
+    assert_eq!(frame_recv_b.context_id, ctx_b, "Cmd B recv event has wrong context!");
+    assert_eq!(frame_recv_b.meta.as_ref().unwrap()["command_id"], define_b_frame.id.to_string());
+    let content_b = store.cas_read(&frame_recv_b.hash.unwrap()).await?;
+    assert_eq!(String::from_utf8(content_b)?, r#""output_from_cmd_b""#);
+
+    // Expect complete event from B's command
+    let frame_complete_b = recver_all.recv().await.expect("Failed to receive cmd B complete frame");
+    assert_eq!(frame_complete_b.topic, "testcmd.complete");
+    assert_eq!(frame_complete_b.context_id, ctx_b);
+    println!("Cmd B call completed.");
+
+    // Ensure no further unexpected messages
+    println!("Checking for unexpected extra frames...");
+    assert_no_more_frames(&mut recver_all).await;
+    println!("Test completed successfully.");
+
+    Ok(())
+}
+
+// Helper function to setup store and engine without spawning serve
+async fn setup_test_environment_raw() -> (Store, nu::Engine) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf());
+    let engine = nu::Engine::new().unwrap();
+    (store, engine)
+}

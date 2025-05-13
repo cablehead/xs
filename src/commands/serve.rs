@@ -21,11 +21,11 @@ async fn handle_define(
     name: &str,
     base_engine: &nu::Engine,
     store: &Store,
-    commands: &mut HashMap<String, Command>,
+    commands: &mut HashMap<(String, Scru128Id), Command>,
 ) {
     match register_command(frame, base_engine, store).await {
         Ok(command) => {
-            commands.insert(name.to_string(), command);
+            commands.insert((name.to_string(), frame.context_id), command);
         }
         Err(err) => {
             let _ = store.append(
@@ -71,7 +71,8 @@ pub async fn serve(
             handle_define(&frame, name, &base_engine, &store, &mut commands).await;
         } else if let Some(name) = frame.topic.strip_suffix(".call") {
             let name = name.to_owned();
-            if let Some(command) = commands.get(&name) {
+            let command_key = (name.clone(), frame.context_id);
+            if let Some(command) = commands.get(&command_key) {
                 let store = store.clone();
                 let frame = frame.clone();
                 let command = command.clone();
