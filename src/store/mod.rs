@@ -668,8 +668,18 @@ fn idx_context_key_range_end(context_id: Scru128Id) -> Vec<u8> {
     Scru128Id::from(i).as_bytes().to_vec()
 }
 
-fn deserialize_frame<B1: AsRef<[u8]>, B2: AsRef<[u8]>>(record: (B1, B2)) -> Frame {
+fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(
+    record: (B1, B2),
+) -> Frame {
     serde_json::from_slice(record.1.as_ref()).unwrap_or_else(|e| {
+        // Try to convert the key to a Scru128Id and print in a format that can be copied for deletion
+        let key_bytes = record.0.as_ref();
+        if key_bytes.len() == 16 {
+            if let Ok(bytes) = key_bytes.try_into() {
+                let id = Scru128Id::from_bytes(bytes);
+                eprintln!("CORRUPTED_RECORD_ID: {}", id);
+            }
+        }
         let key = std::str::from_utf8(record.0.as_ref()).unwrap();
         let value = std::str::from_utf8(record.1.as_ref()).unwrap();
         panic!("Failed to deserialize frame: {} {} {}", e, key, value)
