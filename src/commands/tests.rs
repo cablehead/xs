@@ -368,7 +368,6 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     assert_eq!(recver_all.recv().await.unwrap().id, ctx_b_frame.id);
     assert_eq!(recver_all.recv().await.unwrap().topic, "xs.threshold");
 
-
     // --- Define Command A in Context A ---
     let cmd_a_script = r#"{ run: {|frame| "output_from_cmd_a" } }"#;
     let cmd_a_script_hash = store.cas_insert(cmd_a_script).await?;
@@ -382,7 +381,10 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
         .unwrap();
 
     // Expect define event for A
-    let frame_define_a = recver_all.recv().await.expect("Failed to receive cmd A define frame");
+    let frame_define_a = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd A define frame");
     println!("Received Cmd A Define: {:?}", frame_define_a);
     assert_eq!(frame_define_a.id, define_a_frame.id);
     assert_eq!(frame_define_a.topic, "testcmd.define");
@@ -402,13 +404,15 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
         .unwrap();
 
     // Expect define event for B
-    let frame_define_b = recver_all.recv().await.expect("Failed to receive cmd B define frame");
+    let frame_define_b = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd B define frame");
     println!("Received Cmd B Define: {:?}", frame_define_b);
     assert_eq!(frame_define_b.id, define_b_frame.id);
     assert_eq!(frame_define_b.topic, "testcmd.define");
     assert_eq!(frame_define_b.context_id, ctx_b);
     println!("Cmd B defined.");
-
 
     // --- Call Command in Context A ---
     println!("Calling testcmd in Ctx A ({})", ctx_a);
@@ -417,22 +421,37 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
         .unwrap();
 
     // Expect call event for A
-    let frame_call_a = recver_all.recv().await.expect("Failed to receive cmd A call frame");
+    let frame_call_a = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd A call frame");
     assert_eq!(frame_call_a.id, call_a_frame.id);
     assert_eq!(frame_call_a.topic, "testcmd.call");
     assert_eq!(frame_call_a.context_id, ctx_a);
 
     // Expect recv event from A's command
-    let frame_recv_a = recver_all.recv().await.expect("Failed to receive cmd A recv frame");
+    let frame_recv_a = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd A recv frame");
     println!("Received from Cmd A call: {:?}", frame_recv_a);
     assert_eq!(frame_recv_a.topic, "testcmd.recv");
-    assert_eq!(frame_recv_a.context_id, ctx_a, "Cmd A recv event has wrong context!");
-    assert_eq!(frame_recv_a.meta.as_ref().unwrap()["command_id"], define_a_frame.id.to_string());
+    assert_eq!(
+        frame_recv_a.context_id, ctx_a,
+        "Cmd A recv event has wrong context!"
+    );
+    assert_eq!(
+        frame_recv_a.meta.as_ref().unwrap()["command_id"],
+        define_a_frame.id.to_string()
+    );
     let content_a = store.cas_read(&frame_recv_a.hash.unwrap()).await?;
     assert_eq!(String::from_utf8(content_a)?, r#""output_from_cmd_a""#);
 
     // Expect complete event from A's command
-    let frame_complete_a = recver_all.recv().await.expect("Failed to receive cmd A complete frame");
+    let frame_complete_a = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd A complete frame");
     assert_eq!(frame_complete_a.topic, "testcmd.complete");
     assert_eq!(frame_complete_a.context_id, ctx_a);
     println!("Cmd A call completed.");
@@ -444,22 +463,37 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
         .unwrap();
 
     // Expect call event for B
-    let frame_call_b = recver_all.recv().await.expect("Failed to receive cmd B call frame");
+    let frame_call_b = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd B call frame");
     assert_eq!(frame_call_b.id, call_b_frame.id);
     assert_eq!(frame_call_b.topic, "testcmd.call");
     assert_eq!(frame_call_b.context_id, ctx_b);
 
     // Expect recv event from B's command
-    let frame_recv_b = recver_all.recv().await.expect("Failed to receive cmd B recv frame");
+    let frame_recv_b = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd B recv frame");
     println!("Received from Cmd B call: {:?}", frame_recv_b);
     assert_eq!(frame_recv_b.topic, "testcmd.recv");
-    assert_eq!(frame_recv_b.context_id, ctx_b, "Cmd B recv event has wrong context!");
-    assert_eq!(frame_recv_b.meta.as_ref().unwrap()["command_id"], define_b_frame.id.to_string());
+    assert_eq!(
+        frame_recv_b.context_id, ctx_b,
+        "Cmd B recv event has wrong context!"
+    );
+    assert_eq!(
+        frame_recv_b.meta.as_ref().unwrap()["command_id"],
+        define_b_frame.id.to_string()
+    );
     let content_b = store.cas_read(&frame_recv_b.hash.unwrap()).await?;
     assert_eq!(String::from_utf8(content_b)?, r#""output_from_cmd_b""#);
 
     // Expect complete event from B's command
-    let frame_complete_b = recver_all.recv().await.expect("Failed to receive cmd B complete frame");
+    let frame_complete_b = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd B complete frame");
     assert_eq!(frame_complete_b.topic, "testcmd.complete");
     assert_eq!(frame_complete_b.context_id, ctx_b);
     println!("Cmd B call completed.");
