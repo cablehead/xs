@@ -12,25 +12,30 @@ use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
-/*
-A thread that watches the event stream for <topic>.spawn and <topic>.terminate
-
-On start up reads the stream until threshold: what's it building up there: basicly a filter with a
-dedupe on a given key. When it hits thre threshold: it plays the events its saved up: and then
-responds to events in realtime.
-
-When it sees one it spawns a generator:
-- store engine, closure, runs in its own thread, so no thread pool
-- emits an <topic>.spawn.error event if bad meta data
-- emits a topic.start event {generator_id: id}
-- on stop emits a stop event: meta reason
-- restarts until terminated or replaced
-- generates topic.recv for each Value::String on pipeline: {generator_id: id}
-- topic.error
-
-If it sees an a spawn for an existing generator: it stops the current running generator, and starts
-a new one: so all events generated are now linked to the new id.
-*/
+/// manages watching for tasks command events, and then the lifecycle of these tasks
+/// this module should be renamed to generators.rs
+/// https://cablehead.github.io/xs/reference/generators/
+///
+/// A thread that watches the event stream for <topic>.spawn events
+///
+/// On start up reads the stream until threshold: it builds up a filter with a
+/// dedupe on a given key. When it hits the threshold: it plays the events it's saved up
+/// and then responds to events in realtime.
+///
+/// When it sees a spawn event it:
+/// - emits a <topic>.spawn.error event if bad meta data
+/// - emits a <topic>.start event {generator_id: id}
+/// - runs the generator in its own thread (not from thread pool)
+/// - generates <topic>.recv events for each Value::String on pipeline: {generator_id: id}
+/// - emits a <topic>.stop event when generator completes
+///
+/// When it sees a <topic>.stop event:
+/// - it will respawn the generator after a delay
+///
+/// Note: Currently generators cannot be terminated or replaced:
+/// - There is no implementation for terminating generators permanently
+/// - Updating existing generators is not implemented
+/// - The generator will be respawned if it stops
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct GeneratorMeta {
