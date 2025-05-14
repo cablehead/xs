@@ -248,7 +248,7 @@ impl Engine {
     /// Kill and remove every outstanding job.
     pub fn kill_all_jobs(&self) {
         if let Ok(mut jobs) = self.state.jobs.lock() {
-            let ids: Vec<_> = jobs.iter().map(|(id, _)| id.clone()).collect();
+            let ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
             for id in ids {
                 let _ = jobs.kill_and_remove(id);
             }
