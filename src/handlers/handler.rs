@@ -16,7 +16,7 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
 use crate::nu::value_to_json;
-use crate::nu::ReturnOptions;
+use crate::nu::{NuScriptConfig, ReturnOptions};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[derive(Clone)]
@@ -50,6 +50,18 @@ impl Default for ResumeFrom {
     }
 }
 
+/// Options that can be deserialized directly from a script.
+#[derive(Deserialize, Debug, Default)]
+#[serde(default)] // Use default values when fields are missing
+struct HandlerScriptOptions {
+    /// Handler can specify where to resume from: "head", "tail", or a specific ID
+    resume_from: Option<String>,
+    /// Optional heartbeat interval in milliseconds
+    pulse: Option<u64>,
+    /// Optional customizations for return frames
+    return_options: Option<ReturnOptions>,
+}
+
 impl Handler {
     pub async fn new(
         id: Scru128Id,
@@ -75,11 +87,16 @@ impl Handler {
             )),
         ])?;
 
-        // Parse configuration (this will handle module loading internally)
-        let (run, config) = parse_handler_configuration_script(&mut engine, &expression)?;
+        // Parse configuration using the new generic API
+        let nu_script_config = nu::parse_config(&mut engine, &expression)?;
+
+        // Deserialize handler-specific options from the full_config_value
+        let handler_config = extract_handler_config(&nu_script_config)?;
 
         // Validate the closure signature
-        let block = engine.state.get_block(run.block_id);
+        let block = engine
+            .state
+            .get_block(nu_script_config.run_closure.block_id);
         if block.signature.required_positional.len() != 1 {
             return Err(format!(
                 "Closure must accept exactly one frame argument, found {}",
@@ -88,13 +105,13 @@ impl Handler {
             .into());
         }
 
-        let engine_worker = Arc::new(EngineWorker::new(engine, run));
+        let engine_worker = Arc::new(EngineWorker::new(engine, nu_script_config.run_closure));
 
         Ok(Self {
             id,
             context_id,
             topic,
-            config,
+            config: handler_config,
             engine_worker,
             output,
         })
@@ -383,66 +400,25 @@ fn is_value_an_append_frame_from_handler(value: &Value, handler_id: &Scru128Id) 
         .is_some()
 }
 
-use nu_engine::eval_block_with_early_return;
-use nu_parser::parse;
-use nu_protocol::debugger::WithoutDebug;
-use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
-use nu_protocol::PipelineData;
+/// Extract handler-specific configuration from the generic NuScriptConfig
+fn extract_handler_config(script_config: &NuScriptConfig) -> Result<HandlerConfig, Error> {
+    // Deserialize the handler script options using the new deserialize_options method
+    let script_options: HandlerScriptOptions = script_config.deserialize_options()?;
 
-fn parse_handler_configuration_script(
-    engine: &mut nu::Engine,
-    script: &str,
-) -> Result<(Closure, HandlerConfig), Error> {
-    // Parse common options first (includes run, modules, return_options)
-    let common_options = nu::parse_config(engine, script)?;
-
-    // Parse handler-specific options
-    let mut working_set = StateWorkingSet::new(&engine.state);
-    let block = parse(&mut working_set, None, script.as_bytes(), false);
-
-    engine.state.merge_delta(working_set.render())?;
-
-    let mut stack = Stack::new();
-    let result = eval_block_with_early_return::<WithoutDebug>(
-        &engine.state,
-        &mut stack,
-        &block,
-        PipelineData::empty(),
-    )?;
-
-    let config = result.into_value(nu_protocol::Span::unknown())?;
-
-    // Parse resume_from (specific to handlers)
-    let resume_from = match config.get_data_by_key("resume_from") {
-        Some(val) => {
-            let resume_str = val.as_str().map_err(|_| "resume_from must be a string")?;
-            match resume_str {
-                "head" => ResumeFrom::Head,
-                "tail" => ResumeFrom::Tail,
-                id => ResumeFrom::After(
-                    Scru128Id::from_str(id)
-                        .map_err(|_| "resume_from must be 'head', 'tail' or valid scru128")?,
-                ),
-            }
-        }
-        None => ResumeFrom::default(),
+    // Process resume_from into the proper enum
+    let resume_from = match script_options.resume_from.as_deref() {
+        Some("head") => ResumeFrom::Head,
+        Some("tail") => ResumeFrom::Tail,
+        Some(id_str) => ResumeFrom::After(Scru128Id::from_str(id_str).map_err(|_| -> Error {
+            format!("Invalid scru128 ID for resume_from: {}", id_str).into()
+        })?),
+        None => ResumeFrom::default(), // Default if not specified in script
     };
 
-    // Parse pulse (specific to handlers)
-    let pulse = config
-        .get_data_by_key("pulse")
-        .map(|v| v.as_int().map_err(|_| "pulse must be an integer"))
-        .transpose()?
-        .map(|n| n as u64);
-
-    engine.state.merge_env(&mut stack)?;
-
-    Ok((
-        common_options.run,
-        HandlerConfig {
-            resume_from,
-            pulse,
-            return_options: common_options.return_options,
-        },
-    ))
+    // Build and return the HandlerConfig
+    Ok(HandlerConfig {
+        resume_from,
+        pulse: script_options.pulse,
+        return_options: script_options.return_options,
+    })
 }

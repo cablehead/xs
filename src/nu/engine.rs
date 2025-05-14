@@ -195,7 +195,11 @@ impl Engine {
 
         // -- create & register job (boilerplate) ---
         let (sender, _rx) = std::sync::mpsc::channel();
-        let job = ThreadJob::new(self.state.signals().clone(), Some(job_display_name.clone()), sender);
+        let job = ThreadJob::new(
+            self.state.signals().clone(),
+            Some(job_display_name.clone()),
+            sender,
+        );
         let job_id = {
             let mut j = self.state.jobs.lock().unwrap();
             j.add_job(Job::Thread(job.clone()))
@@ -214,8 +218,9 @@ impl Engine {
 
         match arg {
             Some(val_to_set_as_arg) => {
-                if num_required_pos == 1 { // Simplistic: assumes if an arg is given, it's for the first required one.
-                                           // Could be extended for multiple args if `arg` became `Vec<Value>`.
+                if num_required_pos == 1 {
+                    // Simplistic: assumes if an arg is given, it's for the first required one.
+                    // Could be extended for multiple args if `arg` became `Vec<Value>`.
                     if let Some(var_id) = block.signature.required_positional[0].var_id {
                         stack.add_var(var_id, val_to_set_as_arg);
                     } else {
@@ -236,8 +241,9 @@ impl Engine {
                         help: Some("Remove the argument or modify the closure to accept one.".into()),
                         inner: vec![],
                     }));
-                } else { // num_required_pos > 1
-                     return Err(Box::new(ShellError::GenericError{
+                } else {
+                    // num_required_pos > 1
+                    return Err(Box::new(ShellError::GenericError{
                         error: format!("Single argument provided to job '{}', but its run closure expects {} arguments.", job_display_name, num_required_pos),
                         msg: format!("Closure signature: {}. Provided argument type: {:?}", block.signature.name, val_to_set_as_arg.get_type()),
                         span: Some(val_to_set_as_arg.span()),
@@ -252,11 +258,20 @@ impl Engine {
                     // We could allow $in to fulfill the first argument if `pipeline_input` is Some Value,
                     // but that makes the contract less clear. Stricter is better here.
                     // If $in is supposed to be the argument, caller should convert PipelineData::Value to Option<Value> for `arg`.
-                    return Err(Box::new(ShellError::GenericError{
-                        error: format!("Job '{}' run closure expects {} argument(s), but none were provided.", job_display_name, num_required_pos),
+                    return Err(Box::new(ShellError::GenericError {
+                        error: format!(
+                            "Job '{}' run closure expects {} argument(s), but none were provided.",
+                            job_display_name, num_required_pos
+                        ),
                         msg: format!("Closure signature: {}", block.signature.name),
                         span: Some(block.span.unwrap_or_else(Span::unknown)),
-                        help: Some(format!("Provide {} argument(s) or modify the closure.", num_required_pos).into()),
+                        help: Some(
+                            format!(
+                                "Provide {} argument(s) or modify the closure.",
+                                num_required_pos
+                            )
+                            .into(),
+                        ),
                         inner: vec![],
                     }));
                 }
@@ -278,7 +293,11 @@ impl Engine {
         // -- merge env, restore job, cleanup job (boilerplate, same as before) ---
         if eval_res.is_ok() {
             if let Err(e) = self.state.merge_env(&mut stack) {
-                 tracing::error!("Failed to merge environment from job '{}': {}", job_display_name, e);
+                tracing::error!(
+                    "Failed to merge environment from job '{}': {}",
+                    job_display_name,
+                    e
+                );
             }
         }
 
