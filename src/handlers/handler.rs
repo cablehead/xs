@@ -329,37 +329,21 @@ impl EngineWorker {
             let mut engine = engine;
 
             while let Some(WorkItem { frame, resp_tx }) = work_rx.blocking_recv() {
-                let mut stack = nu_protocol::engine::Stack::new();
-                let block = engine.state.get_block(closure.block_id);
+                let arg_val = crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown());
 
-                let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
-                stack.add_var(
-                    frame_var_id,
-                    crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown()),
+                let pipeline = engine.run_closure_in_job(
+                    &closure,
+                    Some(arg_val),
+                    format!("handler {}", frame.topic),
                 );
 
-                let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-
-                let result =
-                    nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
-                        &engine.state,
-                        &mut stack,
-                        block,
-                        nu_protocol::PipelineData::empty(),
-                    );
-
-                let delta = working_set.render();
-                let _ = engine.state.merge_delta(delta);
-                let _ = engine.state.merge_env(&mut stack);
-
-                let output = result
-                    .map_err(|err| {
+                let output = pipeline
+                    .map_err(|e| {
                         let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-                        Error::from(nu_protocol::format_shell_error(&working_set, &err))
+                        Error::from(nu_protocol::format_shell_error(&working_set, &e))
                     })
-                    .and_then(|pipeline_data| {
-                        pipeline_data
-                            .into_value(nu_protocol::Span::unknown())
+                    .and_then(|pd| {
+                        pd.into_value(nu_protocol::Span::unknown())
                             .map_err(Error::from)
                     });
 
