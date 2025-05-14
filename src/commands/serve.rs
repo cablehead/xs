@@ -120,13 +120,21 @@ async fn register_command(
     ])?;
 
     // Parse the command configuration
-    let common_options = nu::parse_config(&mut engine, &definition)?;
+    let nu_config = nu::parse_config(&mut engine, &definition)?;
+
+    // Deserialize command-specific options
+    #[derive(serde::Deserialize, Default)]
+    struct CommandOptions {
+        return_options: Option<ReturnOptions>,
+    }
+
+    let cmd_options: CommandOptions = nu_config.deserialize_options().unwrap_or_default();
 
     Ok(Command {
         id: frame.id,
         engine,
         definition,
-        return_options: common_options.return_options,
+        return_options: cmd_options.return_options,
     })
 }
 
@@ -161,10 +169,10 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
         )])?;
 
         // Parse the command configuration to get the up-to-date closure with modules loaded
-        let common_options = nu::parse_config(&mut engine, &command.definition)?;
+        let nu_config = nu::parse_config(&mut engine, &command.definition)?;
 
         // Run command and process pipeline
-        match run_command(&engine, common_options.run, &frame) {
+        match run_command(&engine, nu_config.run_closure, &frame) {
             Ok(pipeline_data) => {
                 let recv_suffix = command
                     .return_options
@@ -245,5 +253,10 @@ fn run_command(
     let arg_val = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown());
 
     let mut engine_clone = engine.clone();
-    engine_clone.run_closure_in_job(&closure, Some(arg_val), format!("command {}", frame.topic))
+    engine_clone.run_closure_in_job(
+        &closure,
+        Some(arg_val),
+        None,
+        format!("command {}", frame.topic),
+    )
 }
