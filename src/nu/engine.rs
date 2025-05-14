@@ -185,7 +185,7 @@ impl Engine {
     }
 
     pub fn run_closure_in_job(
-        &self,
+        &mut self,
         closure: &nu_protocol::engine::Closure,
         arg: Option<Value>,
         job_name: impl Into<String>,
@@ -198,12 +198,12 @@ impl Engine {
             j.add_job(Job::Thread(job.clone()))
         };
 
-        // -- local state -------------------------------------------------------
-        let mut local = self.state.clone();
-        local.current_job.background_thread_job = Some(job.clone());
+        // -- temporarily attach the job to self.state --------------------------
+        let saved = self.state.current_job.background_thread_job.clone();
+        self.state.current_job.background_thread_job = Some(job.clone());
 
         // prepare stack & inject parameter if requested
-        let block = local.get_block(closure.block_id);
+        let block = self.state.get_block(closure.block_id);
         let mut stack = Stack::new();
         if let Some(val) = arg {
             if block.signature.required_positional.len() == 1 {
@@ -216,11 +216,17 @@ impl Engine {
 
         // -- run ---------------------------------------------------------------
         let eval_res = nu_engine::eval_block_with_early_return::<WithoutDebug>(
-            &local,
+            &self.state,
             &mut stack,
             block,
             PipelineData::empty(),
         );
+
+        // -- merge env after success -------------------------------------------
+        self.state.merge_env(&mut stack)?;
+
+        // -- restore previous job ----------------------------------------------
+        self.state.current_job.background_thread_job = saved;
 
         // -- cleanup -----------------------------------------------------------
         {
