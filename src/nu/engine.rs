@@ -5,7 +5,8 @@ use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Command, EngineState, Redirection, Stack, StateWorkingSet};
-use nu_protocol::{OutDest, PipelineData, ShellError, Span};
+use nu_protocol::engine::{Job, ThreadJob};
+use nu_protocol::{OutDest, PipelineData, ShellError, Span, Value};
 
 use crate::error::Error;
 
@@ -181,5 +182,76 @@ impl Engine {
         }
 
         Ok(self)
+    }
+
+    pub fn run_closure_in_job(
+        &mut self,
+        closure: &nu_protocol::engine::Closure,
+        arg: Option<Value>,
+        job_name: impl Into<String>,
+    ) -> Result<PipelineData, Box<ShellError>> {
+        // -- create & register -------------------------------------------------
+        let (sender, _rx) = std::sync::mpsc::channel();
+        let job = ThreadJob::new(self.state.signals().clone(), Some(job_name.into()), sender);
+        let job_id = {
+            let mut j = self.state.jobs.lock().unwrap();
+            j.add_job(Job::Thread(job.clone()))
+        };
+
+        // -- temporarily attach the job to self.state --------------------------
+        let saved = self.state.current_job.background_thread_job.clone();
+        self.state.current_job.background_thread_job = Some(job.clone());
+
+        // prepare stack & inject parameter if requested
+        let block = self.state.get_block(closure.block_id);
+        let mut stack = Stack::new();
+        if let Some(val) = arg {
+            if block.signature.required_positional.len() == 1 {
+                let var_id = block.signature.required_positional[0]
+                    .var_id
+                    .expect("closure expects positional param");
+                stack.add_var(var_id, val);
+            }
+        }
+
+        // -- run ---------------------------------------------------------------
+        let eval_res = nu_engine::eval_block_with_early_return::<WithoutDebug>(
+            &self.state,
+            &mut stack,
+            block,
+            PipelineData::empty(),
+        );
+
+        // -- merge env after success -------------------------------------------
+        self.state.merge_env(&mut stack)?;
+
+        // -- restore previous job ----------------------------------------------
+        self.state.current_job.background_thread_job = saved;
+
+        // -- cleanup -----------------------------------------------------------
+        {
+            let mut jobs = self.state.jobs.lock().unwrap();
+            match &eval_res {
+                Ok(_) => {
+                    let _ = jobs.remove_job(job_id);
+                }
+                Err(_) => {
+                    let _ = jobs.kill_and_remove(job_id);
+                }
+            }
+        }
+
+        // convert error type
+        eval_res.map_err(Box::new)
+    }
+
+    /// Kill and remove every outstanding job.
+    pub fn kill_all_jobs(&self) {
+        if let Ok(mut jobs) = self.state.jobs.lock() {
+            let ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
+            for id in ids {
+                let _ = jobs.kill_and_remove(id);
+            }
+        }
     }
 }
