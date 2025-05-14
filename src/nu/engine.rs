@@ -6,7 +6,7 @@ use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Command, EngineState, Redirection, Stack, StateWorkingSet};
 use nu_protocol::engine::{Job, ThreadJob};
-use nu_protocol::{OutDest, PipelineData, ShellError, Span};
+use nu_protocol::{OutDest, PipelineData, ShellError, Span, Value};
 
 use crate::error::Error;
 
@@ -187,9 +187,9 @@ impl Engine {
     pub fn run_closure_in_job(
         &self,
         closure: &nu_protocol::engine::Closure,
-        arg: Option<nu_protocol::Value>,
+        arg: Option<Value>,
         job_name: impl Into<String>,
-    ) -> Result<nu_protocol::PipelineData, Box<nu_protocol::ShellError>> {
+    ) -> Result<PipelineData, Box<ShellError>> {
         // -- create & register -------------------------------------------------
         let (sender, _rx) = std::sync::mpsc::channel();
         let job = ThreadJob::new(self.state.signals().clone(), Some(job_name.into()), sender);
@@ -198,25 +198,28 @@ impl Engine {
             j.add_job(Job::Thread(job.clone()))
         };
 
-        // -- local state & stack ----------------------------------------------
+        // -- local state -------------------------------------------------------
         let mut local = self.state.clone();
-        local.current_job.background_thread_job = Some(job);
+        local.current_job.background_thread_job = Some(job.clone());
 
+        // prepare stack & inject parameter if requested
+        let block = local.get_block(closure.block_id);
         let mut stack = Stack::new();
         if let Some(val) = arg {
-            let block = local.get_block(closure.block_id);
-            let var_id = block.signature.required_positional[0]
-                .var_id
-                .expect("closure expects a positional param");
-            stack.add_var(var_id, val);
+            if block.signature.required_positional.len() == 1 {
+                let var_id = block.signature.required_positional[0]
+                    .var_id
+                    .expect("closure expects positional param");
+                stack.add_var(var_id, val);
+            }
         }
 
         // -- run ---------------------------------------------------------------
         let eval_res = nu_engine::eval_block_with_early_return::<WithoutDebug>(
             &local,
             &mut stack,
-            local.get_block(closure.block_id),
-            nu_protocol::PipelineData::empty(),
+            block,
+            PipelineData::empty(),
         );
 
         // -- cleanup -----------------------------------------------------------
@@ -225,10 +228,10 @@ impl Engine {
             match &eval_res {
                 Ok(_) => {
                     let _ = jobs.remove_job(job_id);
-                } // ← wrap in block, return ()
+                }
                 Err(_) => {
                     let _ = jobs.kill_and_remove(job_id);
-                } // ← same
+                }
             }
         }
 
