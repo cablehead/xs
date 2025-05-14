@@ -763,32 +763,24 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_handler_context_isolation() -> Result<(), Error> {
-    let (store, _temp_dir) = setup_test_environment().await;
+    let (store, engine, _temp_dir) = setup_test_environment_raw().await;
+
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut rx = store.read(options).await;
+    assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
 
     // Create 2x contexts
     let ctx_frame1 = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
         .unwrap();
     let ctx_id1 = ctx_frame1.id;
+    assert_eq!(rx.recv().await.unwrap().topic, "xs.context");
 
     let ctx_frame2 = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
         .unwrap();
     let ctx_id2 = ctx_frame2.id;
-
-    let options = ReadOptions::builder()
-        .follow(FollowOption::On)
-        .context_id(ctx_id1)
-        .build();
-    let mut rx1 = store.read(options).await;
-    assert_eq!(rx1.recv().await.unwrap().topic, "xs.threshold");
-
-    let options = ReadOptions::builder()
-        .follow(FollowOption::On)
-        .context_id(ctx_id2)
-        .build();
-    let mut rx2 = store.read(options).await;
-    assert_eq!(rx2.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(rx.recv().await.unwrap().topic, "xs.context");
 
     // Register a malformed handler to assert unregister on error goes to the right context
     let handler_should_error = store
@@ -807,13 +799,9 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
         )
         .unwrap();
 
-    let frame = rx1.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.id, handler_should_error.id);
     assert_eq!(frame.topic, "malformed.register");
-    assert_eq!(frame.context_id, ctx_id1);
-
-    let frame = rx1.recv().await.unwrap();
-    assert_eq!(frame.topic, "malformed.unregistered");
     assert_eq!(frame.context_id, ctx_id1);
 
     // Register the same handler in both contexts
@@ -836,6 +824,10 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.id, handler_frame1.id);
+    assert_eq!(frame.topic, "echo.register");
+    assert_eq!(frame.context_id, ctx_id1);
 
     let handler_frame2 = store
         .append(
@@ -844,25 +836,29 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-
-    // Verify registration frames appear in handler's context
-    // context 2
-    let frame = rx1.recv().await.unwrap();
-    assert_eq!(frame.id, handler_frame1.id);
-    assert_eq!(frame.topic, "echo.register");
-    assert_eq!(frame.context_id, ctx_id1);
-
-    let frame = rx1.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.registered");
-    assert_eq!(frame.context_id, ctx_id1);
-
-    // context 2
-    let frame = rx2.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.id, handler_frame2.id);
     assert_eq!(frame.topic, "echo.register");
     assert_eq!(frame.context_id, ctx_id2);
 
-    let frame = rx2.recv().await.unwrap();
+    // start the handler serve now to test startup compaction
+    {
+        let store = store.clone();
+        let _ = tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    // verify handlers come online correctly
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "malformed.unregistered");
+    assert_eq!(frame.context_id, ctx_id1);
+
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.registered");
+    assert_eq!(frame.context_id, ctx_id1);
+
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.registered");
     assert_eq!(frame.context_id, ctx_id2);
 
@@ -872,35 +868,39 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
         .unwrap();
 
     // Verify trigger received
-    let frame = rx1.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.id, trigger.id);
     assert_eq!(frame.topic, "trigger");
     assert_eq!(frame.context_id, ctx_id1);
 
     // Verify handler's direct append went to its context
-    let frame = rx1.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.direct");
     assert_eq!(frame.context_id, ctx_id1);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
     assert_eq!(std::str::from_utf8(&content)?, r#"explicit append"#);
 
     // Verify handler's return value became .out in its context
-    let frame = rx1.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.out");
     assert_eq!(frame.context_id, ctx_id1);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
     assert_eq!(std::str::from_utf8(&content)?, r#""handler return""#);
 
-    assert_no_more_frames(&mut rx1).await;
-    assert_no_more_frames(&mut rx2).await;
+    assert_no_more_frames(&mut rx).await;
 
     // Trigger in ZERO_CONTEXT - should be ignored by both handlers
     let ignored_trigger = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
         .unwrap();
 
-    assert_no_more_frames(&mut rx1).await;
-    assert_no_more_frames(&mut rx2).await;
+    // Verify trigger received
+    let frame = rx.recv().await.unwrap();
+    assert_eq!(frame.id, ignored_trigger.id);
+    assert_eq!(frame.topic, "trigger");
+    assert_eq!(frame.context_id, ZERO_CONTEXT);
+
+    assert_no_more_frames(&mut rx).await;
 
     // Unregister handler 1
     let _ = store
@@ -908,16 +908,15 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
         .unwrap();
 
     // Verify unregistration frames appear only in handler 1's context
-    let frame = rx1.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.unregister");
     assert_eq!(frame.context_id, ctx_id1);
 
-    let frame = rx1.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.unregistered");
     assert_eq!(frame.context_id, ctx_id1);
 
-    assert_no_more_frames(&mut rx1).await;
-    assert_no_more_frames(&mut rx2).await;
+    assert_no_more_frames(&mut rx).await;
 
     // Trigger in the context 2's handler
     let trigger = store
@@ -925,37 +924,26 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
         .unwrap();
 
     // Verify trigger received
-    let frame = rx2.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.id, trigger.id);
     assert_eq!(frame.topic, "trigger");
     assert_eq!(frame.context_id, ctx_id2);
 
     // Verify handler's direct append went to its context
-    let frame = rx2.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.direct");
     assert_eq!(frame.context_id, ctx_id2);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
     assert_eq!(std::str::from_utf8(&content)?, r#"explicit append"#);
 
     // Verify handler's return value became .out in its context
-    let frame = rx2.recv().await.unwrap();
+    let frame = rx.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.out");
     assert_eq!(frame.context_id, ctx_id2);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
     assert_eq!(std::str::from_utf8(&content)?, r#""handler return""#);
 
-    assert_no_more_frames(&mut rx1).await;
-    assert_no_more_frames(&mut rx2).await;
-
-    // assert ZERO_CONTEXT has been isolated
-    let frames: Vec<scru128::Scru128Id> = store
-        .read_sync(None, None, Some(crate::store::ZERO_CONTEXT))
-        .map(|f| f.id)
-        .collect();
-    assert_eq!(
-        frames,
-        vec![ctx_frame1.id, ctx_frame2.id, ignored_trigger.id]
-    );
+    assert_no_more_frames(&mut rx).await;
 
     Ok(())
 }
@@ -986,4 +974,12 @@ async fn setup_test_environment() -> (Store, TempDir) {
     }
 
     (store, temp_dir)
+}
+
+async fn setup_test_environment_raw() -> (Store, nu::Engine, TempDir) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf());
+    let engine = nu::Engine::new().unwrap();
+
+    (store, engine, temp_dir)
 }
