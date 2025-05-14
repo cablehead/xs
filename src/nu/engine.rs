@@ -247,7 +247,7 @@ impl Engine {
                         error: format!("Single argument provided to job '{}', but its run closure expects {} arguments.", job_display_name, num_required_pos),
                         msg: format!("Closure signature: {}. Provided argument type: {:?}", block.signature.name, val_to_set_as_arg.get_type()),
                         span: Some(val_to_set_as_arg.span()),
-                        help: Some(format!("Provide {} arguments or modify the closure.", num_required_pos).into()),
+                        help: Some(format!("Provide {} arguments or modify the closure.", num_required_pos)),
                         inner: vec![],
                     }));
                 }
@@ -265,13 +265,10 @@ impl Engine {
                         ),
                         msg: format!("Closure signature: {}", block.signature.name),
                         span: Some(block.span.unwrap_or_else(Span::unknown)),
-                        help: Some(
-                            format!(
-                                "Provide {} argument(s) or modify the closure.",
-                                num_required_pos
-                            )
-                            .into(),
-                        ),
+                        help: Some(format!(
+                            "Provide {} argument(s) or modify the closure.",
+                            num_required_pos
+                        )),
                         inner: vec![],
                     }));
                 }
