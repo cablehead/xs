@@ -242,19 +242,8 @@ fn run_command(
     closure: nu_protocol::engine::Closure,
     frame: &Frame,
 ) -> Result<nu_protocol::PipelineData, Box<nu_protocol::ShellError>> {
-    let mut stack = nu_protocol::engine::Stack::new();
+    let arg_val = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown());
 
-    let block = engine.state.get_block(closure.block_id);
-    let frame_var_id = block.signature.required_positional[0].var_id.unwrap();
-
-    let frame_value = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown());
-    stack.add_var(frame_var_id, frame_value);
-
-    nu_engine::eval_block_with_early_return::<nu_protocol::debugger::WithoutDebug>(
-        &engine.state,
-        &mut stack,
-        block,
-        nu_protocol::PipelineData::empty(),
-    )
-    .map_err(Box::new)
+    let mut engine_clone = engine.clone();
+    engine_clone.run_closure_in_job(&closure, Some(arg_val), format!("command {}", frame.topic))
 }
