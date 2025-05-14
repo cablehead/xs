@@ -245,5 +245,5 @@ fn run_command(
     let arg_val = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown());
 
     let mut engine_clone = engine.clone();
-    engine_clone.run_closure_in_job(&closure, Some(arg_val), format!("command {}", frame.topic))
+    engine_clone.run_closure_in_job(&closure, Some(arg_val), None, format!("command {}", frame.topic))
 }

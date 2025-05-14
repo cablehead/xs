@@ -333,7 +333,8 @@ impl EngineWorker {
 
                 let pipeline = engine.run_closure_in_job(
                     &closure,
-                    Some(arg_val),
+                    Some(arg_val), // The frame value for the closure's argument
+                    None,          // No separate $in pipeline
                     format!("handler {}", frame.topic),
                 );
 
