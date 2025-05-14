@@ -256,55 +256,51 @@ async fn spawn_follower(
 }
 
 /// Wrapper to capture caller location for better error reporting
-pub fn assert_frame_received_sync<'a>(
+pub async fn assert_frame_received_sync<'a>(
     rx: &'a mut mpsc::Receiver<Frame>,
     expected_topic: Option<&'a str>,
     caller_location: &'static Location<'static>,
-) -> impl std::future::Future<Output = ()> + 'a {
-    async move {
-        let timeout_duration = if expected_topic.is_some() {
-            Duration::from_secs(1) // Wait longer if we expect a frame
-        } else {
-            Duration::from_millis(100) // Short wait if we expect no frame
-        };
+) {
+    let timeout_duration = if expected_topic.is_some() {
+        Duration::from_secs(1) // Wait longer if we expect a frame
+    } else {
+        Duration::from_millis(100) // Short wait if we expect no frame
+    };
 
-        if let Some(expected) = expected_topic {
-            let frame = timeout(timeout_duration, rx.recv())
-                .await
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Timed out waiting for frame at {}:{}",
-                        caller_location.file(),
-                        caller_location.line()
-                    )
-                })
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Receiver closed unexpectedly at {}:{}",
-                        caller_location.file(),
-                        caller_location.line()
-                    )
-                });
-
-            assert_eq!(
-                frame.topic,
-                expected,
-                "Unexpected frame topic at {}:{}\nExpected: {}\nReceived: {}",
-                caller_location.file(),
-                caller_location.line(),
-                expected,
-                frame.topic
-            );
-        } else {
-            if let Ok(Some(frame)) = timeout(timeout_duration, rx.recv()).await {
+    if let Some(expected) = expected_topic {
+        let frame = timeout(timeout_duration, rx.recv())
+            .await
+            .unwrap_or_else(|_| {
                 panic!(
-                    "Expected no frame but received one at {}:{}\nReceived topic: {}",
+                    "Timed out waiting for frame at {}:{}",
                     caller_location.file(),
-                    caller_location.line(),
-                    frame.topic
-                );
-            }
-        }
+                    caller_location.line()
+                )
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "Receiver closed unexpectedly at {}:{}",
+                    caller_location.file(),
+                    caller_location.line()
+                )
+            });
+
+        assert_eq!(
+            frame.topic,
+            expected,
+            "Unexpected frame topic at {}:{}\nExpected: {}\nReceived: {}",
+            caller_location.file(),
+            caller_location.line(),
+            expected,
+            frame.topic
+        );
+    } else if let Ok(Some(frame)) = timeout(timeout_duration, rx.recv()).await {
+        panic!(
+            "Expected no frame but received one at {}:{}\nReceived topic: {}",
+            caller_location.file(),
+            caller_location.line(),
+            frame.topic
+        );
     }
 }
 

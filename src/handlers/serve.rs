@@ -64,7 +64,7 @@ pub async fn serve(
                 "register" => {
                     // Store new registration
                     topic_states.insert(
-                        (topic.to_string(), frame.context_id.clone()),
+                        (topic.to_string(), frame.context_id),
                         TopicState {
                             register_frame: frame.clone(),
                             handler_id: frame.id.to_string(),
@@ -75,7 +75,7 @@ pub async fn serve(
                     // Only remove if handler_id matches
                     if let Some(meta) = &frame.meta {
                         if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {
-                            let key = (topic.to_string(), frame.context_id.clone());
+                            let key = (topic.to_string(), frame.context_id);
                             if let Some(state) = topic_states.get(&key) {
                                 if state.handler_id == handler_id {
                                     topic_states.remove(&key);
