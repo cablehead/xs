@@ -10,7 +10,8 @@ use tokio::io::AsyncReadExt;
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
 
 use crate::nu;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::nu::ReturnOptions;
+use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
 
 /// manages watching for tasks command events, and then the lifecycle of these tasks
 /// this module should be renamed to generators.rs
@@ -38,17 +39,20 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 /// - The generator will be respawned if it stops
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
-pub struct GeneratorMeta {
+struct GeneratorScriptOptions {
     duplex: Option<bool>,
+    return_options: Option<ReturnOptions>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct GeneratorTask {
     id: Scru128Id,
     context_id: Scru128Id,
     topic: String,
-    meta: GeneratorMeta,
-    expression: String,
+    duplex: bool,
+    return_options: Option<ReturnOptions>,
+    engine: nu::Engine,
+    run_closure: nu_protocol::engine::Closure,
 }
 
 async fn try_start_task(
@@ -89,12 +93,6 @@ async fn handle_spawn_event(
     engine: nu::Engine,
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let meta = frame
-        .meta
-        .clone()
-        .and_then(|meta| serde_json::from_value::<GeneratorMeta>(meta).ok())
-        .unwrap_or_default();
-
     let generator_key = (topic.to_string(), frame.context_id);
     if generators.contains_key(&generator_key) {
         return Err("Updating existing generator is not implemented".into());
@@ -102,20 +100,26 @@ async fn handle_spawn_event(
 
     let hash = frame.hash.clone().ok_or("Missing hash")?;
     let mut reader = store.cas_reader(hash).await?;
-    let mut expression = String::new();
-    reader.read_to_string(&mut expression).await?;
+    let mut script = String::new();
+    reader.read_to_string(&mut script).await?;
+
+    let mut engine = engine.clone();
+    let nu_config = nu::parse_config(&mut engine, &script)?;
+    let opts: GeneratorScriptOptions = nu_config.deserialize_options().unwrap_or_default();
 
     let task = GeneratorTask {
         id: frame.id,
         context_id: frame.context_id,
         topic: topic.to_string(),
-        meta: meta.clone(),
-        expression: expression.clone(),
+        duplex: opts.duplex.unwrap_or(false),
+        return_options: opts.return_options,
+        engine,
+        run_closure: nu_config.run_closure,
     };
 
     generators.insert(generator_key, task.clone());
 
-    spawn(engine.clone(), store.clone(), task).await;
+    spawn(store.clone(), task).await;
     Ok(())
 }
 
@@ -166,12 +170,11 @@ pub async fn serve(
             let generator_key = (topic_prefix.to_string(), frame.context_id);
             if let Some(task) = generators.get(&generator_key) {
                 // respawn the task in a second
-                let engine = engine.clone();
                 let store = store.clone();
                 let task = task.clone();
                 tokio::task::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    spawn(engine.clone(), store.clone(), task.clone()).await;
+                    spawn(store.clone(), task.clone()).await;
                 });
             }
             continue;
@@ -185,6 +188,7 @@ async fn append(
     store: Store,
     task: &GeneratorTask,
     suffix: &str,
+    ttl: Option<TTL>,
     content: Option<String>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
     let hash = if let Some(content) = content {
@@ -200,19 +204,22 @@ async fn append(
     let frame = store.append(
         Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
             .maybe_hash(hash)
+            .maybe_ttl(ttl)
             .meta(meta)
             .build(),
     )?;
     Ok(frame)
 }
 
-async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
-    let start = append(store.clone(), &task, "start", None).await.unwrap();
+async fn spawn(store: Store, mut task: GeneratorTask) {
+    let start = append(store.clone(), &task, "start", None, None)
+        .await
+        .unwrap();
 
     use futures::StreamExt;
     use tokio_stream::wrappers::ReceiverStream;
 
-    let input_pipeline = if task.meta.duplex.unwrap_or(false) {
+    let input_pipeline = if task.duplex {
         let store = store.clone();
         let base_topic_for_filter = task.topic.clone(); // e.g. "echo"
         let options = ReadOptions::builder()
@@ -255,7 +262,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
         ByteStream::from_iter(
             iter,
             Span::unknown(),
-            engine.state.signals().clone(),
+            task.engine.state.signals().clone(),
             ByteStreamType::Unknown,
         )
         .into()
@@ -265,9 +272,25 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
 
     let handle = tokio::runtime::Handle::current().clone();
 
+    let recv_suffix = task
+        .return_options
+        .as_ref()
+        .and_then(|opts| opts.suffix.clone())
+        .unwrap_or_else(|| "recv".to_string());
+    let ttl = task
+        .return_options
+        .as_ref()
+        .and_then(|opts| opts.ttl.clone());
+
     std::thread::spawn(move || {
-        let pipeline = engine
-            .eval(input_pipeline, task.expression.clone())
+        let pipeline = task
+            .engine
+            .run_closure_in_job(
+                &task.run_closure,
+                None,
+                Some(input_pipeline),
+                format!("generator {}", task.topic),
+            )
             .unwrap();
 
         match pipeline {
@@ -277,7 +300,9 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
             PipelineData::Value(value, _) => {
                 if let Value::String { val, .. } = value {
                     handle
-                        .block_on(async { append(store.clone(), &task, "recv", Some(val)).await })
+                        .block_on(async {
+                            append(store.clone(), &task, &recv_suffix, ttl.clone(), Some(val)).await
+                        })
                         .unwrap();
                 } else {
                     panic!("Unexpected Value type in PipelineData::Value");
@@ -288,7 +313,8 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
                     if let Value::String { val, .. } = value {
                         handle
                             .block_on(async {
-                                append(store.clone(), &task, "recv", Some(val)).await
+                                append(store.clone(), &task, &recv_suffix, ttl.clone(), Some(val))
+                                    .await
                             })
                             .unwrap();
                     } else {
@@ -302,7 +328,7 @@ async fn spawn(engine: nu::Engine, store: Store, task: GeneratorTask) {
         }
 
         handle
-            .block_on(async { append(store.clone(), &task, "stop", None).await })
+            .block_on(async { append(store.clone(), &task, "stop", None, None).await })
             .unwrap();
     });
 }

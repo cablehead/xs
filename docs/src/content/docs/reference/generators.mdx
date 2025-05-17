@@ -7,16 +7,18 @@ sidebar:
 
 import { Link } from '../../../utils/links';
 
-cross.stream generators use <Link to="nu" /> expressions to create streams of
-data that are emitted as frames into the store.
+cross.stream generators use <Link to="nu" /> closures to create streams of data
+that are emitted as frames into the store.
 
 ## Basic Usage
 
-To create a generator, append a Nushell expression with the topic
-`<topic>.spawn`:
+To create a generator, append a Nushell script that evaluates to a configuration
+record with a `run` closure using the topic `<topic>.spawn`:
 
 ```nushell
-"tail -F http.log | lines" | .append log.spawn
+{
+  run: {|| ^tail -F http.log | lines }
+} | .append log.spawn
 ```
 
 The generator will:
@@ -44,6 +46,9 @@ All events include `source_id` which is the ID of the generator instance.
 | Option   | Type    | Default | Description                                                         |
 | -------- | ------- | ------- | ------------------------------------------------------------------- |
 | `duplex` | boolean | false   | Enable sending input to the generator's pipeline via `<topic>.send` |
+| `return_options` | record | — | Customize output frames (see Return Options) |
+
+The `return_options` field controls the suffix and TTL for the `.recv` frames produced by the generator.
 
 ## Bi-directional Communication
 
@@ -52,7 +57,10 @@ via `<topic>.send` frames:
 
 ```nushell
 # Create a websocket connection
-"websocat wss://echo.websocket.org | lines" | .append echo.spawn --meta {duplex: true}
+{
+  run: {|| websocat wss://echo.websocket.org | lines },
+  duplex: true
+} | .append echo.spawn
 
 # Send input to the websocket: note the "\n", wss://echo.websocket.org won't
 # reply until it sees a complete line
