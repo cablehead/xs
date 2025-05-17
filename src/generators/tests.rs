@@ -25,15 +25,11 @@ async fn test_serve_basic() {
         });
     }
 
+    let script = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
     let frame_generator = store
         .append(
             Frame::builder("toml.spawn", ctx.id)
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
+                .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
         .unwrap();
@@ -77,11 +73,11 @@ async fn test_serve_duplex() {
         });
     }
 
+    let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true }"#;
     let frame_generator = store
         .append(
             Frame::builder("greeter.spawn".to_string(), ctx.id)
-                .maybe_hash(store.cas_insert(r#"each { |x| $"hi: ($x)" }"#).await.ok())
-                .meta(serde_json::json!({"duplex": true}))
+                .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
         .unwrap();
@@ -120,29 +116,21 @@ async fn test_serve_duplex() {
 async fn test_serve_compact() {
     let (store, engine, ctx) = setup_test_env();
 
+    let script1 = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
     let _ = store
         .append(
             Frame::builder("toml.spawn", ctx.id)
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n+0 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
+                .maybe_hash(store.cas_insert(script1).await.ok())
                 .build(),
         )
         .unwrap();
 
     // replaces the previous generator
+    let script2 = r#"{ run: {|| ^tail -n +2 -F Cargo.toml | lines } }"#;
     let frame_generator = store
         .append(
             Frame::builder("toml.spawn", ctx.id)
-                .maybe_hash(
-                    store
-                        .cas_insert(r#"^tail -n +2 -F Cargo.toml | lines"#)
-                        .await
-                        .ok(),
-                )
+                .maybe_hash(store.cas_insert(script2).await.ok())
                 .build(),
         )
         .unwrap();
@@ -229,7 +217,7 @@ async fn test_serve_duplex_context_isolation() {
     println!("Context B: {}", ctx_b);
 
     // Define the generator script
-    let script = r#"each { |x| $"echo: ($x)" }"#;
+    let script = r#"{ run: {|| each { |x| $"echo: ($x)" } }, duplex: true }"#;
     let script_hash = store.cas_insert(script).await.unwrap();
 
     // --- Generator A ---
@@ -240,7 +228,6 @@ async fn test_serve_duplex_context_isolation() {
         .append(
             Frame::builder("echo.spawn", ctx_a) // Use ctx_a
                 .hash(script_hash.clone())
-                .meta(serde_json::json!({"duplex": true}))
                 .build(),
         )
         .unwrap();
@@ -284,7 +271,6 @@ async fn test_serve_duplex_context_isolation() {
         .append(
             Frame::builder("echo.spawn", ctx_b) // Use ctx_b
                 .hash(script_hash)
-                .meta(serde_json::json!({"duplex": true}))
                 .build(),
         )
         .unwrap();
