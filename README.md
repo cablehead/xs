@@ -7,11 +7,20 @@ Think of it like [`sqlite`](https://sqlite.org/cli.html) but specializing in the
 See the [documentation](https://cablehead.github.io/xs/) for detailed
 installation instructions, tutorials and examples.
 
+<img src="https://github.com/user-attachments/assets/12c9cce5-44ab-4a64-ab1c-d83bf6c28cad" style="height:400px;" alt="Pixel art heroes cross proton streams, saving gritty, shadowy Toronto street beneath glowing CN Tower backdrop.">
+
 ## Quick start
 
 ```sh
-brew install cablehead/tap/cross-stream   # or: cargo install cross-stream --locked
-xs serve ./store &
+# install
+brew install cablehead/tap/cross-stream
+# or:
+cargo install cross-stream --locked
+
+# start a server
+xs serve ./store
+
+# in another window
 echo "hello" | xs append ./store notes
 xs cat ./store
 ```
@@ -23,7 +32,7 @@ xs cat ./store
 - Real-time subscriptions to new events
 - Generators and handlers for background processing
 
-<img src="https://github.com/user-attachments/assets/12c9cce5-44ab-4a64-ab1c-d83bf6c28cad" style="max-width:100%; height:auto;" alt="Pixel art heroes cross proton streams, saving gritty, shadowy Toronto street beneath glowing CN Tower backdrop.">
+## Connect
 
 Join our [Discord](https://discord.com/invite/YNbScHBHrh) to ask questions or share ideas.
 
