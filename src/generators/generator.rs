@@ -81,6 +81,16 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
             ) {
                 tracing::error!("Error appending spawn error frame: {}", err);
             }
+            // emit a corresponding stop frame so ServeLoop can evict the failed generator
+            let stop_frame = Frame::builder(format!("{}.stop", topic), spawn_frame.context_id)
+                .meta(serde_json::json!({
+                    "source_id": spawn_frame.id.to_string(),
+                    "reason": "spawn.error"
+                }))
+                .build();
+            if let Err(err) = store.append(stop_frame) {
+                tracing::error!("Error appending stop frame after spawn error: {}", err);
+            }
             return;
         }
     };
