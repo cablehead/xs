@@ -23,7 +23,7 @@ Bootstrap the store:
 
 ```nushell
 # register x-macos-pasteboard as a frame generator
-"x-macos-pasteboard | lines" | .append pb.spawn
+{ run: {|| x-macos-pasteboard | lines } } | .append pb.spawn
 
 # register a handler to map raw clipboard data to content
 cat handler-pb.map.nu | .append pb.map.register
@@ -48,7 +48,7 @@ and dump as much data as the system will give you.
 Replace the bootstrap step with:
 
 ```bash
-echo "<your-cli> | lines" | xs append ./store pb.spawn
+echo '{ run: {|| <your-cli> | lines } }' | xs append ./store pb.spawn
 ```
 
 That's it! As you copy stuff to the clipboard, you'll see your raw data in the
