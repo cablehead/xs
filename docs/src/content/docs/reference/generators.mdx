@@ -39,7 +39,7 @@ Generators emit lifecycle events to track their state:
 | --------------------- | --------------------------------------- |
 | `<topic>.start`       | Generator has started processing        |
 | `<topic>.recv`        | Output value from the generator         |
-| `<topic>.stop` | Generator pipeline has stopped. The \`meta.reason\` field indicates the cause: \`finished\` or \`error\` means the pipeline stopped automatically and will be restarted; \`terminate\` means it was stopped manually and the generator loop for this topic/context will shut down. |
+| `<topic>.stop` | Generator pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error` and `terminate`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the generator loop for this topic/context will shut down. |
 | `<topic>.spawn.error` | Error occurred while spawning generator |
 
 All events include `source_id` which is the ID of the generator instance.

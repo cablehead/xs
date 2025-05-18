@@ -28,6 +28,23 @@ pub struct GeneratorLoop {
     pub run_closure: nu_protocol::engine::Closure,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StopReason {
+    Finished,
+    Error,
+    Terminate,
+}
+
+impl StopReason {
+    fn as_str(&self) -> &'static str {
+        match self {
+            StopReason::Finished => "finished",
+            StopReason::Error => "error",
+            StopReason::Terminate => "terminate",
+        }
+    }
+}
+
 pub fn spawn(store: Store, engine: nu::Engine, spawn_frame: Frame) -> JoinHandle<()> {
     tokio::spawn(async move { run(store, engine, spawn_frame).await })
 }
@@ -87,61 +104,71 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
 }
 
 async fn run_loop(store: Store, task: GeneratorLoop) {
-    let start = append(&store, &task, "start", None, None, None)
-        .await
-        .expect("append start");
-
-    let options = ReadOptions::builder()
-        .follow(FollowOption::On)
-        .last_id(start.id)
-        .context_id(task.context_id)
-        .build();
-
-    let mut control_rx = store.read(options.clone()).await;
-    let send_rx = store.read(options).await;
-
-    let input_pipeline = if task.duplex {
-        build_input_pipeline(store.clone(), &task, send_rx).await
-    } else {
-        PipelineData::empty()
-    };
-
-    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
-    spawn_thread(store.clone(), task.clone(), input_pipeline, done_tx);
-
-    let terminate_topic = format!("{}.terminate", task.topic);
-    tokio::pin!(done_rx);
-    let reason;
+    let mut control_rx = None;
     loop {
-        tokio::select! {
-            biased;
-            maybe = control_rx.recv() => {
-                match maybe {
-                    Some(frame) if frame.topic == terminate_topic => {
-                        task.engine.state.signals().trigger();
-                        task.engine.kill_all_jobs();
-                        let _ = (&mut done_rx).await;
-                        reason = "terminate";
-                        break;
-                    }
-                    Some(_) => {}
-                    None => {
-                        reason = "error";
-                        break;
+        let start = append(&store, &task, "start", None, None, None)
+            .await
+            .expect("append start");
+
+        let options = ReadOptions::builder()
+            .follow(FollowOption::On)
+            .last_id(start.id)
+            .context_id(task.context_id)
+            .build();
+
+        if control_rx.is_none() {
+            control_rx = Some(store.read(options.clone()).await);
+        }
+
+        let send_rx = store.read(options).await;
+
+        let input_pipeline = if task.duplex {
+            build_input_pipeline(store.clone(), &task, send_rx).await
+        } else {
+            PipelineData::empty()
+        };
+
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        spawn_thread(store.clone(), task.clone(), input_pipeline, done_tx);
+
+        let terminate_topic = format!("{}.terminate", task.topic);
+        let reason;
+        let control_rx_mut = control_rx.as_mut().unwrap();
+        tokio::pin!(done_rx);
+        loop {
+            tokio::select! {
+                biased;
+                maybe = control_rx_mut.recv() => {
+                    match maybe {
+                        Some(frame) if frame.topic == terminate_topic => {
+                            task.engine.state.signals().trigger();
+                            task.engine.kill_all_jobs();
+                            let _ = (&mut done_rx).await;
+                            reason = StopReason::Terminate;
+                            break;
+                        }
+                        Some(_) => {}
+                        None => {
+                            reason = StopReason::Error;
+                            break;
+                        }
                     }
                 }
-            }
-            res = &mut done_rx => {
-                reason = match res.unwrap_or(Err("thread failed".into())) {
-                    Ok(()) => "finished",
-                    Err(_) => "error",
-                };
-                break;
+                res = &mut done_rx => {
+                    reason = match res.unwrap_or(Err("thread failed".into())) {
+                        Ok(()) => StopReason::Finished,
+                        Err(_) => StopReason::Error,
+                    };
+                    break;
+                }
             }
         }
-    }
 
-    let _ = append(&store, &task, "stop", None, None, Some(reason)).await;
+        let _ = append(&store, &task, "stop", None, None, Some(reason.as_str())).await;
+        if matches!(reason, StopReason::Terminate) {
+            break;
+        }
+    }
 }
 
 async fn build_input_pipeline(

@@ -453,6 +453,58 @@ async fn test_serve_terminate_respawn() {
 }
 
 #[tokio::test]
+async fn test_serve_restart_until_terminated() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| "hi" } }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+
+    store
+        .append(Frame::builder("restarter.spawn", ctx.id).hash(hash).build())
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    // first iteration
+    assert_eq!(recver.recv().await.unwrap().topic, "restarter.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
+    let stop1 = recver.recv().await.unwrap();
+    assert_eq!(stop1.topic, "restarter.stop");
+    assert_eq!(stop1.meta.unwrap()["reason"], "finished");
+
+    // second iteration should happen automatically
+    assert_eq!(recver.recv().await.unwrap().topic, "restarter.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
+
+    store
+        .append(Frame::builder("restarter.terminate", ctx.id).build())
+        .unwrap();
+
+    // Wait until we receive a stop frame with reason "terminate"
+    loop {
+        let frame = recver.recv().await.unwrap();
+        if frame.topic == "restarter.stop" {
+            if frame.meta.as_ref().unwrap()["reason"] == "terminate" {
+                break;
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn test_spawn_error_eviction() {
     let (store, engine, ctx) = setup_test_env();
 
