@@ -26,7 +26,10 @@ The generator will:
 - Execute the provided Nushell expression
 - Each line written to `http.log` will be emitted as a frame with topic
   `log.recv`
-- Automatically restarts if it exits
+- Automatically restarts if it exits until a terminate frame is seen
+
+All frames produced by the generator use the same context as the `.spawn` frame
+so multiple contexts can run generators with the same topic independently.
 
 ## Lifecycle Events
 
@@ -36,7 +39,7 @@ Generators emit lifecycle events to track their state:
 | --------------------- | --------------------------------------- |
 | `<topic>.start`       | Generator has started processing        |
 | `<topic>.recv`        | Output value from the generator         |
-| `<topic>.stop`        | Generator has stopped                   |
+| `<topic>.stop` | Generator pipeline has stopped. The \`meta.reason\` field indicates the cause: \`finished\` or \`error\` means the pipeline stopped automatically and will be restarted; \`terminate\` means it was stopped manually and the generator loop for this topic/context will shut down. |
 | `<topic>.spawn.error` | Error occurred while spawning generator |
 
 All events include `source_id` which is the ID of the generator instance.
@@ -79,3 +82,12 @@ is emitted with:
 
 - `source_id`: ID of the failed spawn attempt
 - `reason`: Error message describing what went wrong
+
+## Stopping Generators
+
+To stop a running generator, append a frame with the topic `<topic>.terminate`.
+The generator will stop and emit a `<topic>.stop` frame with `meta.reason` set to
+`terminate`.
+
+Attempting to spawn a generator while another of the same topic and context is
+active will produce a `<topic>.spawn.error` frame.
