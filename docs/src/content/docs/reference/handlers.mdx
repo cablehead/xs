@@ -65,8 +65,18 @@ r###'{
 }'### | .append echo.register
 ```
 
+The `run` closure must accept **exactly one positional argument** which is the
+incoming frame.
+
 The registration script is stored in CAS and evaluated to obtain the handler's
 configuration.
+
+Upon a successful start the handler appends a `<handler-name>.registered` frame
+with metadata:
+
+- `handler_id` – the ID of the handler instance
+- `tail` – whether processing started from the end of the topic
+- `last_id` – the frame ID that processing resumed after (if any)
 
 ### Configuration Record Fields
 
@@ -150,6 +160,8 @@ All output frames automatically include:
 
 - `handler_id`: ID of the handler that created the frame
 - `frame_id`: ID of the frame that triggered the handler
+- Frames with `meta.handler_id` equal to the handler's ID are ignored to avoid
+  reacting to the handler's own output
 
 ## Lifecycle
 
