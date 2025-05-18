@@ -400,6 +400,111 @@ async fn test_serve_duplex_context_isolation() {
     println!("Test completed successfully.");
 }
 
+#[tokio::test]
+async fn test_serve_terminate_respawn() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| ^sleep 1000 } }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+
+    store
+        .append(
+            Frame::builder("sleeper.spawn", ctx.id)
+                .hash(hash.clone())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    // expect start
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.start");
+
+    store
+        .append(Frame::builder("sleeper.terminate", ctx.id).build())
+        .unwrap();
+
+    // first see the terminate event itself
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.terminate");
+
+    let stop = recver.recv().await.unwrap();
+    assert_eq!(stop.topic, "sleeper.stop");
+    assert_eq!(stop.meta.unwrap()["reason"], "terminate");
+
+    store
+        .append(Frame::builder("sleeper.spawn", ctx.id).hash(hash).build())
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.start");
+}
+
+#[tokio::test]
+async fn test_spawn_error_eviction() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let bad_script = "{}";
+    store
+        .append(
+            Frame::builder("oops.spawn", ctx.id)
+                .hash(store.cas_insert(bad_script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let err_frame = recver.recv().await.unwrap();
+    assert_eq!(err_frame.topic, "oops.spawn.error");
+    println!("first error reason: {}", err_frame.meta.unwrap()["reason"]);
+
+    // Allow ServeLoop to process the spawn.error and evict the generator
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let good_script = r#"{ run: {|| "ok" } }"#;
+    store
+        .append(
+            Frame::builder("oops.spawn", ctx.id)
+                .hash(store.cas_insert(good_script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let frame = recver.recv().await.unwrap();
+    println!("after respawn got: {}", frame.topic);
+    if frame.topic == "oops.spawn.error" {
+        println!("respawn error reason: {}", frame.meta.unwrap()["reason"]);
+    }
+    assert_eq!(frame.topic, "oops.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "oops.start");
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(100));
     tokio::pin!(timeout);
