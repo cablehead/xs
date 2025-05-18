@@ -42,6 +42,10 @@ r#'{
 }'# | .append repeat.define
 ```
 
+The `return_options` field controls the suffix and TTL for the `.recv` frames
+produced by the command. TTL only applies to `.recv` frames—`.complete` and
+`.error` events never expire.
+
 The command definition requires:
 
 - `run`: A closure that receives the call frame and can return a pipeline of
@@ -104,6 +108,29 @@ r#'{
 ```
 
 This allows you to modularize your commands and reuse code across different commands.
+
+## Contexts
+
+Command definitions and calls are scoped by context. Defining the same command
+name in two different contexts creates two independent commands. Calls are
+processed only when a matching definition exists in the same context;
+otherwise the call is ignored.
+
+## Built-in Store Commands
+
+When the `run` closure executes it can use several helper commands provided by
+cross.stream:
+
+- `.append` – append a new frame. Metadata you provide is merged with
+  `command_id` and `frame_id`.
+- `.cat` – read frames from the command’s context.
+- `.head` – fetch the most recent frame for a topic in this context.
+- `.cas` – read content from CAS by hash.
+- `.get` – retrieve a frame by ID.
+- `.remove` – delete a frame from the stream.
+
+`cat` and `head` default to the command’s context, while `append` accepts an
+explicit context flag if you need to write elsewhere.
 
 ## Key Differences
 
