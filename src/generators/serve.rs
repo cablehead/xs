@@ -41,8 +41,12 @@ async fn handle_spawn_event(
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let key = (topic.to_string(), frame.context_id);
-    if active.contains_key(&key) {
-        return Err("Updating existing generator is not implemented".into());
+    if let Some(handle) = active.get(&key) {
+        if handle.is_finished() {
+            active.remove(&key);
+        } else {
+            return Err("Updating existing generator is not implemented".into());
+        }
     }
 
     let handle = generator::spawn(store.clone(), engine.clone(), frame);
@@ -84,6 +88,12 @@ pub async fn serve(
     while let Some(frame) = recver.recv().await {
         if let Some(prefix) = frame.topic.strip_suffix(".spawn") {
             try_start_task(prefix, &frame, &mut active, &engine, &store).await;
+            continue;
+        }
+
+        if let Some(prefix) = frame.topic.strip_suffix(".spawn.error") {
+            let key = (prefix.to_string(), frame.context_id);
+            active.remove(&key);
             continue;
         }
 

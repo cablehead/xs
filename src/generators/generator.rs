@@ -48,7 +48,24 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
 
     let nu_config = match nu::parse_config(&mut engine, &script) {
         Ok(cfg) => cfg,
-        Err(_) => return,
+        Err(e) => {
+            let topic = spawn_frame
+                .topic
+                .strip_suffix(".spawn")
+                .unwrap_or(&spawn_frame.topic);
+            let meta = serde_json::json!({
+                "source_id": spawn_frame.id.to_string(),
+                "reason": e.to_string(),
+            });
+            if let Err(err) = store.append(
+                Frame::builder(format!("{}.spawn.error", topic), spawn_frame.context_id)
+                    .meta(meta)
+                    .build(),
+            ) {
+                tracing::error!("Error appending spawn error frame: {}", err);
+            }
+            return;
+        }
     };
     let opts: GeneratorScriptOptions = nu_config.deserialize_options().unwrap_or_default();
 
