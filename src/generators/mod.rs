@@ -1,7 +1,7 @@
-mod actor;
+mod generator;
 mod serve;
 
-pub use actor::{spawn as spawn_actor, GeneratorScriptOptions, GeneratorTask};
+pub use generator::{spawn as spawn_generator_loop, GeneratorLoop, GeneratorScriptOptions};
 
 #[cfg(test)]
 mod tests;

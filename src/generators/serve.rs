@@ -2,10 +2,9 @@ use std::collections::HashMap;
 
 use scru128::Scru128Id;
 use serde_json::json;
-use tokio::io::AsyncReadExt;
 use tokio::task::JoinHandle;
 
-use crate::generators::actor::{self, GeneratorScriptOptions, GeneratorTask};
+use crate::generators::generator;
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
@@ -46,26 +45,7 @@ async fn handle_spawn_event(
         return Err("Updating existing generator is not implemented".into());
     }
 
-    let hash = frame.hash.clone().ok_or("Missing hash")?;
-    let mut reader = store.cas_reader(hash).await?;
-    let mut script = String::new();
-    reader.read_to_string(&mut script).await?;
-
-    let mut engine = engine.clone();
-    let nu_config = nu::parse_config(&mut engine, &script)?;
-    let opts: GeneratorScriptOptions = nu_config.deserialize_options().unwrap_or_default();
-
-    let task = GeneratorTask {
-        id: frame.id,
-        context_id: frame.context_id,
-        topic: topic.to_string(),
-        duplex: opts.duplex.unwrap_or(false),
-        return_options: opts.return_options,
-        engine,
-        run_closure: nu_config.run_closure,
-    };
-
-    let handle = actor::spawn(store.clone(), task);
+    let handle = generator::spawn(store.clone(), engine.clone(), frame);
     active.insert(key, handle);
     Ok(())
 }

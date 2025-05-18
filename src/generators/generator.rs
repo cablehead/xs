@@ -2,6 +2,7 @@ use scru128::Scru128Id;
 use tokio::task::JoinHandle;
 
 use futures::StreamExt;
+use tokio::io::AsyncReadExt;
 use tokio_stream::wrappers::ReceiverStream;
 
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
@@ -17,7 +18,7 @@ pub struct GeneratorScriptOptions {
 }
 
 #[derive(Clone)]
-pub struct GeneratorTask {
+pub struct GeneratorLoop {
     pub id: Scru128Id,
     pub context_id: Scru128Id,
     pub topic: String,
@@ -27,11 +28,48 @@ pub struct GeneratorTask {
     pub run_closure: nu_protocol::engine::Closure,
 }
 
-pub fn spawn(store: Store, task: GeneratorTask) -> JoinHandle<()> {
-    tokio::spawn(async move { run(store, task).await })
+pub fn spawn(store: Store, engine: nu::Engine, spawn_frame: Frame) -> JoinHandle<()> {
+    tokio::spawn(async move { run(store, engine, spawn_frame).await })
 }
 
-async fn run(store: Store, task: GeneratorTask) {
+async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
+    let hash = match spawn_frame.hash.clone() {
+        Some(h) => h,
+        None => return,
+    };
+    let mut reader = match store.cas_reader(hash).await {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let mut script = String::new();
+    if reader.read_to_string(&mut script).await.is_err() {
+        return;
+    }
+
+    let nu_config = match nu::parse_config(&mut engine, &script) {
+        Ok(cfg) => cfg,
+        Err(_) => return,
+    };
+    let opts: GeneratorScriptOptions = nu_config.deserialize_options().unwrap_or_default();
+
+    let task = GeneratorLoop {
+        id: spawn_frame.id,
+        context_id: spawn_frame.context_id,
+        topic: spawn_frame
+            .topic
+            .strip_suffix(".spawn")
+            .unwrap_or(&spawn_frame.topic)
+            .to_string(),
+        duplex: opts.duplex.unwrap_or(false),
+        return_options: opts.return_options,
+        engine,
+        run_closure: nu_config.run_closure,
+    };
+
+    run_loop(store, task).await;
+}
+
+async fn run_loop(store: Store, task: GeneratorLoop) {
     let start = append(&store, &task, "start", None, None, None)
         .await
         .expect("append start");
@@ -90,7 +128,7 @@ async fn run(store: Store, task: GeneratorTask) {
 
 async fn build_input_pipeline(
     store: Store,
-    task: &GeneratorTask,
+    task: &GeneratorLoop,
     rx: tokio::sync::mpsc::Receiver<Frame>,
 ) -> PipelineData {
     let base_topic = task.topic.clone();
@@ -133,7 +171,7 @@ async fn build_input_pipeline(
 
 fn spawn_thread(
     store: Store,
-    mut task: GeneratorTask,
+    mut task: GeneratorLoop,
     input_pipeline: PipelineData,
     done_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
 ) {
@@ -192,7 +230,7 @@ fn spawn_thread(
 
 async fn append(
     store: &Store,
-    task: &GeneratorTask,
+    task: &GeneratorLoop,
     suffix: &str,
     ttl: Option<TTL>,
     content: Option<String>,
