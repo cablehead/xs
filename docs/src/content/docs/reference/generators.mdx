@@ -89,5 +89,8 @@ To stop a running generator, append a frame with the topic `<topic>.terminate`.
 The generator will stop and emit a `<topic>.stop` frame with `meta.reason` set to
 `terminate`.
 
+The `meta.reason` field on `.stop` events may be `finished`, `error` or
+`terminate`.
+
 Attempting to spawn a generator while another of the same topic and context is
 active will produce a `<topic>.spawn.error` frame.

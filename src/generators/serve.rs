@@ -99,7 +99,14 @@ pub async fn serve(
 
         if let Some(prefix) = frame.topic.strip_suffix(".stop") {
             let key = (prefix.to_string(), frame.context_id);
-            active.remove(&key);
+            let reason = frame
+                .meta
+                .as_ref()
+                .and_then(|m| m.get("reason"))
+                .and_then(|v| v.as_str());
+            if matches!(reason, Some("terminate")) {
+                active.remove(&key);
+            }
             continue;
         }
     }

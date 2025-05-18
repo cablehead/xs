@@ -505,6 +505,65 @@ async fn test_spawn_error_eviction() {
     assert_eq!(recver.recv().await.unwrap().topic, "oops.start");
 }
 
+#[tokio::test]
+async fn test_restart_on_natural_stop() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| "hi" } }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+
+    store
+        .append(
+            Frame::builder("repeat.spawn", ctx.id)
+                .hash(hash.clone())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "repeat.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "repeat.recv");
+    let stop = recver.recv().await.unwrap();
+    assert_eq!(stop.topic, "repeat.stop");
+    assert_eq!(stop.meta.unwrap()["reason"], "finished");
+
+    assert_eq!(recver.recv().await.unwrap().topic, "repeat.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "repeat.recv");
+
+    store
+        .append(Frame::builder("repeat.terminate", ctx.id).build())
+        .unwrap();
+
+    // We should see the terminate event we just appended and the final stop.
+    // The order is not guaranteed so read two frames and verify both topics.
+    let first = recver.recv().await.unwrap();
+    let second = recver.recv().await.unwrap();
+    let (stop, term) = if first.topic.ends_with(".stop") {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert_eq!(term.topic, "repeat.terminate");
+    assert_eq!(stop.topic, "repeat.stop");
+    assert_eq!(stop.meta.unwrap()["reason"], "terminate");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(100));
     tokio::pin!(timeout);
