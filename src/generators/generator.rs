@@ -114,13 +114,7 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
     let reason;
     loop {
         tokio::select! {
-            res = &mut done_rx => {
-                reason = match res.unwrap_or(Err("thread failed".into())) {
-                    Ok(()) => "finished",
-                    Err(_) => "error",
-                };
-                break;
-            }
+            biased;
             maybe = control_rx.recv() => {
                 match maybe {
                     Some(frame) if frame.topic == terminate_topic => {
@@ -136,6 +130,13 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
                         break;
                     }
                 }
+            }
+            res = &mut done_rx => {
+                reason = match res.unwrap_or(Err("thread failed".into())) {
+                    Ok(()) => "finished",
+                    Err(_) => "error",
+                };
+                break;
             }
         }
     }
