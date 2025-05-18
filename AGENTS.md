@@ -1,12 +1,10 @@
 ## Testing
 
-Before pushing or creating a PR, run:
+Before pushing or creating a PR:
+- For Rust changes run `./scripts/check.sh`
+- For docs changes run `cd ./docs && npm run build`
 
-```
-./scripts/check.sh
-```
-
-All changes must pass this check.
+All changes must pass these checks.
 
 ## Commits
 
