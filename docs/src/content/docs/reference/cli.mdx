@@ -68,7 +68,7 @@ xs cat <addr> [options]
 Example:
 
 ```sh
-xs cat ./store/sock --follow
+xs cat ./store --follow
 ```
 
 ### `append`
@@ -90,7 +90,7 @@ xs append <addr> <topic> [options]
 Example:
 
 ```sh
-echo "hello" | xs append ./store/sock chat --meta '{"user":"bob"}'
+echo "hello" | xs append ./store chat --meta '{"user":"bob"}'
 ```
 
 ### `cas`
@@ -121,7 +121,7 @@ xs cas-post <addr>
 Example:
 
 ```sh
-echo "content" | xs cas-post ./store/sock
+echo "content" | xs cas-post ./store
 ```
 
 ### `remove`
@@ -180,7 +180,7 @@ xs import <addr>
 Example:
 
 ```sh
-cat dump.jsonl | xs import ./store/sock
+cat dump.jsonl | xs import ./store
 ```
 
 ### `version`
