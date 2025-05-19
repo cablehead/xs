@@ -91,22 +91,22 @@ pub async fn serve(
             continue;
         }
 
-        if let Some(prefix) = frame.topic.strip_suffix(".spawn.error") {
-            let key = (prefix.to_string(), frame.context_id);
-            active.remove(&key);
+        if let Some(_prefix) = frame.topic.strip_suffix(".spawn.error") {
+            // spawn.error frames are informational; ignore them
             continue;
         }
 
         if let Some(prefix) = frame.topic.strip_suffix(".stop") {
-            let reason = frame
+            if let Some(reason) = frame
                 .meta
                 .as_ref()
                 .and_then(|m| m.get("reason"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if reason == "terminate" {
-                let key = (prefix.to_string(), frame.context_id);
-                active.remove(&key);
+            {
+                if reason == "terminate" || reason == "spawn.error" {
+                    let key = (prefix.to_string(), frame.context_id);
+                    active.remove(&key);
+                }
             }
             continue;
         }
