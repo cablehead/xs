@@ -4,18 +4,214 @@ sidebar:
   order: 1
 ---
 
+The `xs` CLI provides a collection of subcommands for interacting with a cross.stream store.
+
 ## Usage
 
 ```sh
-Usage: xs <COMMAND>
+xs <COMMAND> [OPTIONS]
+```
 
-Commands:
-  serve   Provides an API to interact with a local store
-  cat     `cat` the event stream
-  append  Append an event to the stream
-  cas     Retrieve content from Content-Addressable Storage
-  remove  Remove an item from the stream
-  head    Get the head frame for a topic
-  get     Get a frame by ID
-  help    Print this message or the help of the given subcommand(s)
+### Commands
+
+- `serve` – Provides an API to interact with a local store
+- `cat` – `cat` the event stream
+- `append` – Append an event to the stream
+- `cas` – Retrieve content from Content-Addressable Storage
+- `cas-post` – Store content in Content-Addressable Storage
+- `remove` – Remove an item from the stream
+- `head` – Get the head frame for a topic
+- `get` – Get a frame by ID
+- `import` – Import a frame directly into the store
+- `version` – Get the version of the server
+- `nu` – Manage the embedded xs.nu module
+
+### `serve`
+
+Start the supervisor process.
+
+```sh
+xs serve <path> [--expose <LISTEN_ADDR>]
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<path>` | Path to the store |
+| `--expose <LISTEN_ADDR>` | Expose the API on an additional address ([HOST]:PORT or `<PATH>`) |
+
+Example:
+
+```sh
+xs serve ./store --expose 127.0.0.1:8080
+```
+
+### `cat`
+
+Stream frames from the store.
+
+```sh
+xs cat <addr> [options]
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to `[HOST]:PORT` or `<PATH>` |
+| `--follow`, `-f` | Follow the stream for new events |
+| `--pulse <ms>`, `-p <ms>` | Send synthetic `xs.pulse` events at interval |
+| `--tail`, `-t` | Begin reading from the end of the stream |
+| `--last-id <id>`, `-l <id>` | Start after the given frame ID |
+| `--limit <n>` | Maximum number of events to return |
+| `--sse` | Use Server-Sent Events format |
+| `--context <id>`, `-c <id>` | Context ID (defaults to system context) |
+| `--all`, `-a` | Retrieve frames across all contexts |
+
+Example:
+
+```sh
+xs cat ./store/sock --follow
+```
+
+### `append`
+
+Append an event to a topic.
+
+```sh
+xs append <addr> <topic> [options]
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+| `<topic>` | Topic to append to |
+| `--meta <json>` | JSON metadata to include |
+| `--ttl <ttl>` | Time-to-live: `forever`, `ephemeral`, `time:<ms>`, `head:<n>` |
+| `--context <id>`, `-c <id>` | Context ID (defaults to system context) |
+
+Example:
+
+```sh
+echo "hello" | xs append ./store/sock chat --meta '{"user":"bob"}'
+```
+
+### `cas`
+
+Retrieve content from CAS.
+
+```sh
+xs cas <addr> <hash>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+| `<hash>` | Hash of the content to retrieve |
+
+### `cas-post`
+
+Store content in CAS.
+
+```sh
+xs cas-post <addr>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+
+Example:
+
+```sh
+echo "content" | xs cas-post ./store/sock
+```
+
+### `remove`
+
+Remove a frame from the store.
+
+```sh
+xs remove <addr> <id>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+| `<id>` | ID of the item to remove |
+
+### `head`
+
+Get the most recent frame for a topic.
+
+```sh
+xs head <addr> <topic> [--follow]
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+| `<topic>` | Topic to inspect |
+| `--follow`, `-f` | Follow for updates |
+| `--context <id>`, `-c <id>` | Context ID (defaults to system context) |
+
+### `get`
+
+Retrieve a frame by ID.
+
+```sh
+xs get <addr> <id>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+| `<id>` | ID of the frame to get |
+
+### `import`
+
+Import a frame dump from standard input.
+
+```sh
+xs import <addr>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+
+Example:
+
+```sh
+cat dump.jsonl | xs import ./store/sock
+```
+
+### `version`
+
+Get version information from the server.
+
+```sh
+xs version <addr>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<addr>` | Address to connect to |
+
+### `nu`
+
+Manage the embedded `xs.nu` module.
+
+```sh
+xs nu [--install] [--clean]
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `--install` | Install `xs.nu` into your Nushell config |
+| `--clean` | Remove previously installed files |
+
+Without options the command prints the module contents so it can be redirected or piped.
+
+Example:
+
+```sh
+xs nu --install
 ```
