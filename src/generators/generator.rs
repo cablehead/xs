@@ -1,7 +1,9 @@
 use scru128::Scru128Id;
 use tokio::task::JoinHandle;
 
-use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
+use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Signals, Span, Value};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 
 use crate::nu;
@@ -92,6 +94,10 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
         }
     };
     let opts: GeneratorScriptOptions = nu_config.deserialize_options().unwrap_or_default();
+
+    // Create and set the interrupt signal on the engine state
+    let interrupt = Arc::new(AtomicBool::new(false));
+    engine.state.set_signals(Signals::new(interrupt.clone()));
 
     let task = GeneratorLoop {
         id: spawn_frame.id,

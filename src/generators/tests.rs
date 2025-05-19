@@ -532,29 +532,26 @@ async fn test_duplex_terminate_stops() {
     let mut recver = store.read(options).await;
 
     // expect start
-    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
-        .await
-        .unwrap()
-        .unwrap();
+    let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.start");
 
     // terminate while generator waits for input
     store
         .append(Frame::builder("echo.terminate", ctx.id).build())
         .unwrap();
-    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
-        .await
-        .unwrap()
-        .unwrap();
+    let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.terminate");
 
     // expect stop frame with reason terminate
-    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
-        .await
-        .unwrap()
-        .unwrap();
+    let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.stop");
     assert_eq!(frame.meta.unwrap()["reason"], "terminate");
+
+    store
+        .append(Frame::builder("echo.send", ctx.id).build())
+        .unwrap();
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "echo.send");
 
     // ensure no additional frames after stop
     assert_no_more_frames(&mut recver).await;
@@ -601,7 +598,7 @@ async fn test_spawn_error_eviction() {
     assert_eq!(stop_frame.meta.as_ref().unwrap()["reason"], "spawn.error");
 
     // Allow ServeLoop to process the spawn.error and evict the generator
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     let good_script = r#"{ run: {|| "ok" } }"#;
     store
