@@ -1,11 +1,8 @@
 use scru128::Scru128Id;
 use tokio::task::JoinHandle;
 
-use futures::StreamExt;
-use tokio::io::AsyncReadExt;
-use tokio_stream::wrappers::ReceiverStream;
-
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Span, Value};
+use tokio::io::AsyncReadExt;
 
 use crate::nu;
 use crate::nu::ReturnOptions;
@@ -186,32 +183,33 @@ async fn build_input_pipeline(
     task: &GeneratorLoop,
     rx: tokio::sync::mpsc::Receiver<Frame>,
 ) -> PipelineData {
-    let base_topic = task.topic.clone();
-    let stream = ReceiverStream::new(rx);
-    let stream = stream
-        .filter_map(move |frame: Frame| {
-            let store = store.clone();
-            let topic = format!("{}.send", base_topic);
-            async move {
+    let topic = format!("{}.send", task.topic);
+    let signals = task.engine.state.signals().clone();
+    let mut rx = rx;
+    let iter = std::iter::from_fn(move || loop {
+        if signals.interrupted() {
+            return None;
+        }
+
+        match rx.try_recv() {
+            Ok(frame) => {
                 if frame.topic == topic {
                     if let Some(hash) = frame.hash {
-                        if let Ok(content) = store.cas_read(&hash).await {
-                            return Some(content);
+                        if let Ok(bytes) = store.cas_read_sync(&hash) {
+                            if let Ok(content) = String::from_utf8(bytes) {
+                                return Some(content);
+                            }
                         }
                     }
                 }
-                None
             }
-        })
-        .boxed();
-
-    let handle = tokio::runtime::Handle::current();
-    let mut stream = Some(stream);
-    let iter = std::iter::from_fn(move || {
-        if let Some(ref mut s) = stream {
-            handle.block_on(async { s.next().await })
-        } else {
-            None
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            }
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                return None;
+            }
         }
     });
 
