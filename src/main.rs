@@ -1,8 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use dirs::config_dir;
 
 use tokio::io::AsyncWriteExt;
 
@@ -38,6 +39,8 @@ enum Command {
     Import(CommandImport),
     /// Get the version of the server
     Version(CommandVersion),
+    /// Manage the embedded xs.nu module
+    Nu(CommandNu),
 }
 
 #[derive(Parser, Debug)]
@@ -187,6 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Get(args) => get(args).await,
         Command::Import(args) => import(args).await,
         Command::Version(args) => version(args).await,
+        Command::Nu(args) => run_nu(args),
     };
     if let Err(err) = res {
         eprintln!("command error: {:?}", err);
@@ -455,4 +459,201 @@ async fn version(args: CommandVersion) -> Result<(), Box<dyn std::error::Error +
     let response = xs::client::version(&args.addr).await?;
     println!("{}", String::from_utf8_lossy(&response));
     Ok(())
+}
+
+#[derive(Parser, Debug)]
+struct CommandNu {
+    /// Install xs.nu into your Nushell config
+    #[clap(long)]
+    install: bool,
+    /// Remove previously installed xs.nu files
+    #[clap(long)]
+    clean: bool,
+}
+
+const XS_NU: &str = include_str!("../xs.nu");
+
+fn lib_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(conf) = config_dir() {
+        dirs.push(conf.join("nushell").join("scripts"));
+    }
+    if let Ok(extra) = std::env::var("NU_LIB_DIRS") {
+        dirs.extend(std::env::split_paths(&extra));
+    }
+    dirs
+}
+
+fn autoload_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(conf) = config_dir() {
+        dirs.push(conf.join("nushell").join("vendor").join("autoload"));
+    }
+    dirs.extend(nu_vendor_autoload_dirs());
+    dirs
+}
+
+fn nu_vendor_autoload_dirs() -> Vec<PathBuf> {
+    let output = std::process::Command::new("nu")
+        .args(["-n", "-c", "$nu.vendor-autoload-dirs | to json"])
+        .output();
+    if let Ok(out) = output {
+        if out.status.success() {
+            if let Ok(list) = serde_json::from_slice::<Vec<String>>(&out.stdout) {
+                return list.into_iter().map(PathBuf::from).collect();
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn confirm(path: &Path, action: &str) -> bool {
+    if path.exists() {
+        eprint!("{} {}? (y/N) ", action, path.display());
+        let mut input = String::new();
+        let _ = std::io::stdin().read_line(&mut input);
+        matches!(input.trim(), "y" | "Y")
+    } else {
+        true
+    }
+}
+
+fn test_write(path: &Path) -> bool {
+    if let Some(parent) = path.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return false;
+        }
+    }
+    let tmp = path.with_extension("tmp");
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&tmp)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&tmp);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn find_paths() -> Result<(PathBuf, PathBuf), String> {
+    let mut xs_path = None;
+    let mut stub_path = None;
+
+    let lib_candidates: Vec<PathBuf> = {
+        let mut v = Vec::new();
+        if let Some(conf) = config_dir() {
+            v.push(conf.join("nushell").join("scripts").join("xs.nu"));
+        }
+        if let Ok(extra) = std::env::var("NU_LIB_DIRS") {
+            for dir in std::env::split_paths(&extra) {
+                let candidate = if dir.ends_with("scripts") {
+                    dir.join("xs.nu")
+                } else {
+                    dir.join("scripts").join("xs.nu")
+                };
+                v.push(candidate);
+            }
+        }
+        v
+    };
+
+    for cand in lib_candidates {
+        if test_write(&cand) {
+            xs_path = Some(cand);
+            break;
+        }
+    }
+
+    let auto_candidates: Vec<PathBuf> = {
+        let mut v = Vec::new();
+        if let Some(conf) = config_dir() {
+            v.push(
+                conf.join("nushell")
+                    .join("vendor")
+                    .join("autoload")
+                    .join("xs-use.nu"),
+            );
+        }
+        for dir in nu_vendor_autoload_dirs() {
+            v.push(dir.join("xs-use.nu"));
+        }
+        v
+    };
+
+    for cand in auto_candidates {
+        if test_write(&cand) {
+            stub_path = Some(cand);
+            break;
+        }
+    }
+
+    match (xs_path, stub_path) {
+        (Some(xs), Some(stub)) => Ok((xs, stub)),
+        _ => Err("Could not find writable install locations".into()),
+    }
+}
+
+fn install() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (xs_path, stub_path) = find_paths().map_err(std::io::Error::other)?;
+
+    let mut wrote = false;
+    if confirm(&xs_path, "overwrite") {
+        std::fs::create_dir_all(xs_path.parent().unwrap())?;
+        std::fs::write(&xs_path, XS_NU)?;
+        println!("installed {}", xs_path.display());
+        wrote = true;
+    }
+
+    let stub_content =
+        "# Autogenerated by `xs nu --install`\n# Load xs’s commands every session\nuse xs *\n";
+    if confirm(&stub_path, "overwrite") {
+        std::fs::create_dir_all(stub_path.parent().unwrap())?;
+        std::fs::write(&stub_path, stub_content)?;
+        println!("installed {}", stub_path.display());
+        wrote = true;
+    }
+
+    if !wrote {
+        return Err("installation aborted".into());
+    }
+    Ok(())
+}
+
+fn clean() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut removed = false;
+    for dir in lib_dirs() {
+        let p = dir.join("xs.nu");
+        if p.exists() && confirm(&p, "remove") {
+            std::fs::remove_file(&p)?;
+            println!("removed {}", p.display());
+            removed = true;
+        }
+    }
+    for dir in autoload_dirs() {
+        let p = dir.join("xs-use.nu");
+        if p.exists() && confirm(&p, "remove") {
+            std::fs::remove_file(&p)?;
+            println!("removed {}", p.display());
+            removed = true;
+        }
+    }
+    if !removed {
+        println!("no installed files found");
+    }
+    Ok(())
+}
+
+fn run_nu(cmd: CommandNu) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if cmd.clean {
+        clean()
+    } else if cmd.install {
+        install()
+    } else {
+        print!("{}", XS_NU);
+        Ok(())
+    }
 }
