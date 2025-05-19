@@ -25,6 +25,7 @@ pub struct GeneratorLoop {
     pub duplex: bool,
     pub return_options: Option<ReturnOptions>,
     pub engine: nu::Engine,
+    pub pristine_engine: nu::Engine,
     pub run_closure: nu_protocol::engine::Closure,
 }
 
@@ -50,6 +51,7 @@ pub fn spawn(store: Store, engine: nu::Engine, spawn_frame: Frame) -> JoinHandle
 }
 
 async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
+    let pristine_engine = engine.clone();
     let hash = match spawn_frame.hash.clone() {
         Some(h) => h,
         None => return,
@@ -97,16 +99,17 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
         duplex: opts.duplex.unwrap_or(false),
         return_options: opts.return_options,
         engine,
+        pristine_engine,
         run_closure: nu_config.run_closure,
     };
 
     run_loop(store, task).await;
 }
 
-async fn run_loop(store: Store, task: GeneratorLoop) {
+async fn run_loop(store: Store, mut task: GeneratorLoop) {
     let mut control_rx = None;
     loop {
-        let start = append(&store, &task, "start", None, None, None)
+        let start = append(&store, &task, "start", None, None, None, None)
             .await
             .expect("append start");
 
@@ -132,7 +135,9 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
         spawn_thread(store.clone(), task.clone(), input_pipeline, done_tx);
 
         let terminate_topic = format!("{}.terminate", task.topic);
-        let reason;
+        let spawn_topic = format!("{}.spawn", task.topic);
+        let mut reason = StopReason::Finished;
+        let mut updated = false;
         let control_rx_mut = control_rx.as_mut().unwrap();
         tokio::pin!(done_rx);
         loop {
@@ -146,6 +151,45 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
                             let _ = (&mut done_rx).await;
                             reason = StopReason::Terminate;
                             break;
+                        }
+                        Some(frame) if frame.topic == spawn_topic => {
+                            if let Some(hash) = frame.hash.clone() {
+                                if let Ok(mut reader) = store.cas_reader(hash).await {
+                                    let mut script = String::new();
+                                    if reader.read_to_string(&mut script).await.is_ok() {
+                                        let mut new_engine = task.pristine_engine.clone();
+                                        match nu::parse_config(&mut new_engine, &script) {
+                                            Ok(cfg) => {
+                                                let opts: GeneratorScriptOptions = cfg.deserialize_options().unwrap_or_default();
+                                                task.engine.state.signals().trigger();
+                                                task.engine.kill_all_jobs();
+                                                let _ = (&mut done_rx).await;
+                                                let _ = append(&store, &task, "stop", None, None, Some("update"), Some(frame.id)).await;
+                                                task.id = frame.id;
+                                                task.engine = new_engine;
+                                                task.run_closure = cfg.run_closure;
+                                                task.duplex = opts.duplex.unwrap_or(false);
+                                                task.return_options = opts.return_options;
+                                                updated = true;
+                                                break;
+                                            }
+                                            Err(e) => {
+                                                let meta = serde_json::json!({
+                                                    "source_id": frame.id.to_string(),
+                                                    "reason": e.to_string(),
+                                                });
+                                                if let Err(err) = store.append(
+                                                    Frame::builder(format!("{}.spawn.error", task.topic), frame.context_id)
+                                                        .meta(meta)
+                                                        .build(),
+                                                ) {
+                                                    tracing::error!("Error appending spawn error frame: {}", err);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Some(_) => {}
                         None => {
@@ -164,7 +208,20 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
             }
         }
 
-        let _ = append(&store, &task, "stop", None, None, Some(reason.as_str())).await;
+        if updated {
+            continue;
+        }
+
+        let _ = append(
+            &store,
+            &task,
+            "stop",
+            None,
+            None,
+            Some(reason.as_str()),
+            None,
+        )
+        .await;
         if matches!(reason, StopReason::Terminate) {
             break;
         }
@@ -240,9 +297,16 @@ fn spawn_thread(
                                 .unwrap_or_else(|| "recv".into());
                             let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                             handle.block_on(async {
-                                let _ =
-                                    append(&store, &task, &suffix, ttl, Some(val.clone()), None)
-                                        .await;
+                                let _ = append(
+                                    &store,
+                                    &task,
+                                    &suffix,
+                                    ttl,
+                                    Some(val.clone()),
+                                    None,
+                                    None,
+                                )
+                                .await;
                             });
                         }
                     }
@@ -257,7 +321,8 @@ fn spawn_thread(
                                 let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                                 handle.block_on(async {
                                     let _ =
-                                        append(&store, &task, &suffix, ttl, Some(val), None).await;
+                                        append(&store, &task, &suffix, ttl, Some(val), None, None)
+                                            .await;
                                 });
                             }
                         }
@@ -280,6 +345,7 @@ async fn append(
     ttl: Option<TTL>,
     content: Option<String>,
     reason: Option<&str>,
+    update_id: Option<Scru128Id>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
     let hash = if let Some(content) = content {
         Some(store.cas_insert(&content).await?)
@@ -292,6 +358,9 @@ async fn append(
     });
     if let Some(r) = reason {
         meta["reason"] = serde_json::Value::String(r.to_string());
+    }
+    if let Some(u) = update_id {
+        meta["update_id"] = serde_json::Value::String(u.to_string());
     }
 
     let frame = store.append(

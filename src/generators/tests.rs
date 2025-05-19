@@ -537,7 +537,7 @@ async fn test_spawn_error_eviction() {
     println!("first error reason: {}", err_frame.meta.unwrap()["reason"]);
 
     // Allow ServeLoop to process the spawn.error and evict the generator
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     let good_script = r#"{ run: {|| "ok" } }"#;
     store
@@ -555,6 +555,95 @@ async fn test_spawn_error_eviction() {
     }
     assert_eq!(frame.topic, "oops.spawn");
     assert_eq!(recver.recv().await.unwrap().topic, "oops.start");
+}
+
+#[tokio::test]
+async fn test_double_update() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let script_a = r#"{ run: {|| ^tail -f /dev/null } }"#;
+    let spawn_a = store
+        .append(
+            Frame::builder("echo.spawn", ctx.id)
+                .hash(store.cas_insert(script_a).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.start");
+
+    let script_b = r#"{ run: {|| ^tail -f /dev/null } }"#;
+    let spawn_b = store
+        .append(
+            Frame::builder("echo.spawn", ctx.id)
+                .hash(store.cas_insert(script_b).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let mut frame_b = recver.recv().await.unwrap();
+    while frame_b.topic != "echo.spawn" {
+        frame_b = recver.recv().await.unwrap();
+    }
+    println!("first after update: {:?}", frame_b);
+    assert_eq!(frame_b.id, spawn_b.id);
+
+    let stop1 = recver.recv().await.unwrap();
+    assert_eq!(stop1.topic, "echo.stop");
+    let meta1 = stop1.meta.unwrap();
+    assert_eq!(meta1["reason"], "update");
+    assert_eq!(meta1["source_id"], spawn_a.id.to_string());
+    assert_eq!(meta1["update_id"], spawn_b.id.to_string());
+
+    let start_b = recver.recv().await.unwrap();
+    assert_eq!(start_b.topic, "echo.start");
+    assert_eq!(start_b.meta.unwrap()["source_id"], spawn_b.id.to_string());
+
+    let script_c = r#"{ run: {|| ^tail -f /dev/null } }"#;
+    let spawn_c = store
+        .append(
+            Frame::builder("echo.spawn", ctx.id)
+                .hash(store.cas_insert(script_c).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let mut frame_c = recver.recv().await.unwrap();
+    while frame_c.topic != "echo.spawn" {
+        frame_c = recver.recv().await.unwrap();
+    }
+    println!("second spawn: {:?}", frame_c);
+    assert_eq!(frame_c.id, spawn_c.id);
+
+    let stop2 = recver.recv().await.unwrap();
+    assert_eq!(stop2.topic, "echo.stop");
+    let meta2 = stop2.meta.unwrap();
+    assert_eq!(meta2["reason"], "update");
+    assert_eq!(meta2["source_id"], spawn_b.id.to_string());
+    assert_eq!(meta2["update_id"], spawn_c.id.to_string());
+
+    let start_c = recver.recv().await.unwrap();
+    assert_eq!(start_c.topic, "echo.start");
+    assert_eq!(start_c.meta.unwrap()["source_id"], spawn_c.id.to_string());
+    // allow any trailing frames to arrive
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 }
 
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {

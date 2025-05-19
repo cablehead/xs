@@ -45,7 +45,8 @@ async fn handle_spawn_event(
         if handle.is_finished() {
             active.remove(&key);
         } else {
-            return Err("Updating existing generator is not implemented".into());
+            // Running generator will handle update
+            return Ok(());
         }
     }
 
@@ -91,9 +92,8 @@ pub async fn serve(
             continue;
         }
 
-        if let Some(prefix) = frame.topic.strip_suffix(".spawn.error") {
-            let key = (prefix.to_string(), frame.context_id);
-            active.remove(&key);
+        if frame.topic.ends_with(".spawn.error") {
+            // ignore
             continue;
         }
 
@@ -104,7 +104,7 @@ pub async fn serve(
                 .and_then(|m| m.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            if reason == "terminate" {
+            if reason == "terminate" || reason == "spawn.error" {
                 let key = (prefix.to_string(), frame.context_id);
                 active.remove(&key);
             }
