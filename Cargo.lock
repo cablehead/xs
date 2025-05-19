@@ -742,6 +742,7 @@ dependencies = [
  "clap",
  "console",
  "crossbeam-channel",
+ "dirs",
  "duct",
  "fjall",
  "futures",
