@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 use tempfile::TempDir;
 
 use crate::nu;
@@ -502,6 +503,61 @@ async fn test_serve_restart_until_terminated() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn test_duplex_terminate_stops() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| each { |x| $"echo: ($x)" } }, duplex: true }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+
+    store
+        .append(Frame::builder("echo.spawn", ctx.id).hash(hash).build())
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    // expect start
+    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(frame.topic, "echo.start");
+
+    // terminate while generator waits for input
+    store
+        .append(Frame::builder("echo.terminate", ctx.id).build())
+        .unwrap();
+    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(frame.topic, "echo.terminate");
+
+    // expect stop frame with reason terminate
+    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(frame.topic, "echo.stop");
+    assert_eq!(frame.meta.unwrap()["reason"], "terminate");
+
+    // ensure no additional frames after stop
+    assert_no_more_frames(&mut recver).await;
 }
 
 #[tokio::test]
