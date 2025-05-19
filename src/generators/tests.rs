@@ -534,7 +534,15 @@ async fn test_spawn_error_eviction() {
 
     let err_frame = recver.recv().await.unwrap();
     assert_eq!(err_frame.topic, "oops.spawn.error");
-    println!("first error reason: {}", err_frame.meta.unwrap()["reason"]);
+    println!(
+        "first error reason: {}",
+        err_frame.meta.as_ref().unwrap()["reason"]
+    );
+
+    // expect a stop frame indicating the spawn error
+    let stop_frame = recver.recv().await.unwrap();
+    assert_eq!(stop_frame.topic, "oops.stop");
+    assert_eq!(stop_frame.meta.as_ref().unwrap()["reason"], "spawn.error");
 
     // Allow ServeLoop to process the spawn.error and evict the generator
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
