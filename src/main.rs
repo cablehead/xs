@@ -606,7 +606,8 @@ fn install() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
     if !ask("Proceed? (y/N) ") {
-        return Err("installation aborted".into());
+        println!("aborted");
+        return Ok(());
     }
 
     std::fs::create_dir_all(xs_path.parent().unwrap())?;
@@ -623,17 +624,19 @@ fn install() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn clean() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut targets = Vec::new();
+    use std::collections::BTreeSet;
+
+    let mut targets = BTreeSet::new();
     for dir in lib_dirs() {
         let p = dir.join("xs.nu");
         if p.exists() {
-            targets.push(p);
+            targets.insert(p);
         }
     }
     for dir in autoload_dirs() {
         let p = dir.join("xs-use.nu");
         if p.exists() {
-            targets.push(p);
+            targets.insert(p);
         }
     }
 
@@ -647,11 +650,12 @@ fn clean() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("  {}", t.display());
     }
     if !ask("Proceed? (y/N) ") {
-        return Err("clean aborted".into());
+        println!("aborted");
+        return Ok(());
     }
 
-    for t in targets {
-        std::fs::remove_file(&t)?;
+    for t in &targets {
+        std::fs::remove_file(t)?;
         println!("removed {}", t.display());
     }
     Ok(())
