@@ -36,23 +36,23 @@ r#'{
 
   # Optional: Control output frame behavior
   return_options: {
-    suffix: ".output" # Output topic suffix (default: ".recv")
+    suffix: ".output" # Output topic suffix (default: ".response")
     ttl: "head:1" # Keep only most recent frame
   }
 }'# | .append repeat.define
 ```
 
-The `return_options` field controls the suffix and TTL for the `.recv` frames
-produced by the command. TTL only applies to `.recv` frames—`.complete` and
-`.error` events never expire.
+The `return_options` field controls the suffix and TTL for the `.response` frame
+produced by the command. TTL only applies to this `.response` frame—`.error`
+events never expire.
 
 The command definition requires:
 
 - `run`: A closure that receives the call frame and can return a pipeline of
   results
 
-Each value in the closure's output pipeline becomes a `.recv` event
-automatically.
+All values produced by the closure's output pipeline are collected into a single
+`.response` event automatically.
 
 ## Calling Commands
 
@@ -70,8 +70,7 @@ Commands emit events to track their execution:
 
 | Event                | Description                              |
 | -------------------- | ---------------------------------------- |
-| `<command>.recv`     | Output value from the command's pipeline |
-| `<command>.complete` | Command execution finished successfully  |
+| `<command>.response` | Collected result of the command pipeline |
 | `<command>.error`    | Error occurred during command execution  |
 
 All events include:
