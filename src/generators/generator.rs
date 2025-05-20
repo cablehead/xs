@@ -32,6 +32,7 @@ enum StopReason {
     Finished,
     Error,
     Terminate,
+    Update,
 }
 
 impl StopReason {
@@ -40,6 +41,7 @@ impl StopReason {
             StopReason::Finished => "finished",
             StopReason::Error => "error",
             StopReason::Terminate => "terminate",
+            StopReason::Update => "update",
         }
     }
 }
@@ -49,6 +51,7 @@ pub fn spawn(store: Store, engine: nu::Engine, spawn_frame: Frame) -> JoinHandle
 }
 
 async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
+    let pristine = engine.clone();
     let hash = match spawn_frame.hash.clone() {
         Some(h) => h,
         None => return,
@@ -113,13 +116,13 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
         run_closure: nu_config.run_closure,
     };
 
-    run_loop(store, task).await;
+    run_loop(store, task, pristine).await;
 }
 
-async fn run_loop(store: Store, task: GeneratorLoop) {
+async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
     let mut control_rx = None;
     loop {
-        let start = append(&store, &task, "start", None, None, None)
+        let start = append(&store, &task, "start", None, None, None, None)
             .await
             .expect("append start");
 
@@ -145,7 +148,11 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
         spawn_thread(store.clone(), task.clone(), input_pipeline, done_tx);
 
         let terminate_topic = format!("{}.terminate", task.topic);
-        let reason;
+        let spawn_topic = format!("{}.spawn", task.topic);
+        let mut update_id = None;
+        let mut next_task: Option<GeneratorLoop> = None;
+        #[allow(unused_assignments)]
+        let mut reason = StopReason::Finished;
         let control_rx_mut = control_rx.as_mut().unwrap();
         tokio::pin!(done_rx);
         loop {
@@ -159,6 +166,55 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
                             let _ = (&mut done_rx).await;
                             reason = StopReason::Terminate;
                             break;
+                        }
+                        Some(frame) if frame.topic == spawn_topic => {
+                            if let Some(hash) = frame.hash.clone() {
+                                if let Ok(mut reader) = store.cas_reader(hash).await {
+                                    let mut script = String::new();
+                                    if reader.read_to_string(&mut script).await.is_ok() {
+                                        let mut new_engine = pristine.clone();
+                                        match nu::parse_config(&mut new_engine, &script) {
+                                            Ok(cfg) => {
+                                                let opts: GeneratorScriptOptions = cfg.deserialize_options().unwrap_or_default();
+                                                let interrupt = Arc::new(AtomicBool::new(false));
+                                                new_engine.state.set_signals(Signals::new(interrupt.clone()));
+
+                                                task.engine.state.signals().trigger();
+                                                task.engine.kill_all_jobs();
+                                                let _ = (&mut done_rx).await;
+
+                                                reason = StopReason::Update;
+                                                update_id = Some(frame.id);
+
+                                                next_task = Some(GeneratorLoop {
+                                                    id: frame.id,
+                                                    context_id: task.context_id,
+                                                    topic: task.topic.clone(),
+                                                    duplex: opts.duplex.unwrap_or(false),
+                                                    return_options: opts.return_options,
+                                                    engine: new_engine,
+                                                    run_closure: cfg.run_closure,
+                                                });
+                                                break;
+                                            }
+                                            Err(e) => {
+                                                let meta = serde_json::json!({
+                                                    "source_id": frame.id.to_string(),
+                                                    "reason": e.to_string(),
+                                                });
+                                                let _ = store.append(
+                                                    Frame::builder(
+                                                        format!("{}.spawn.error", task.topic),
+                                                        frame.context_id,
+                                                    )
+                                                    .meta(meta)
+                                                    .build(),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Some(_) => {}
                         None => {
@@ -177,9 +233,23 @@ async fn run_loop(store: Store, task: GeneratorLoop) {
             }
         }
 
-        let _ = append(&store, &task, "stop", None, None, Some(reason.as_str())).await;
+        let _ = append(
+            &store,
+            &task,
+            "stop",
+            None,
+            None,
+            Some(reason.as_str()),
+            update_id,
+        )
+        .await;
         if matches!(reason, StopReason::Terminate) {
             break;
+        } else if matches!(reason, StopReason::Update) {
+            if let Some(nt) = next_task.take() {
+                task = nt;
+                continue;
+            }
         }
     }
 }
@@ -254,9 +324,16 @@ fn spawn_thread(
                                 .unwrap_or_else(|| "recv".into());
                             let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                             handle.block_on(async {
-                                let _ =
-                                    append(&store, &task, &suffix, ttl, Some(val.clone()), None)
-                                        .await;
+                                let _ = append(
+                                    &store,
+                                    &task,
+                                    &suffix,
+                                    ttl,
+                                    Some(val.clone()),
+                                    None,
+                                    None,
+                                )
+                                .await;
                             });
                         }
                     }
@@ -271,7 +348,8 @@ fn spawn_thread(
                                 let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                                 handle.block_on(async {
                                     let _ =
-                                        append(&store, &task, &suffix, ttl, Some(val), None).await;
+                                        append(&store, &task, &suffix, ttl, Some(val), None, None)
+                                            .await;
                                 });
                             }
                         }
@@ -294,6 +372,7 @@ async fn append(
     ttl: Option<TTL>,
     content: Option<String>,
     reason: Option<&str>,
+    update_id: Option<Scru128Id>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
     let hash = if let Some(content) = content {
         Some(store.cas_insert(&content).await?)
@@ -306,6 +385,9 @@ async fn append(
     });
     if let Some(r) = reason {
         meta["reason"] = serde_json::Value::String(r.to_string());
+    }
+    if let Some(id) = update_id {
+        meta["update_id"] = serde_json::Value::String(id.to_string());
     }
 
     let frame = store.append(
