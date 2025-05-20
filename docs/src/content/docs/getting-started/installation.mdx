@@ -40,20 +40,25 @@ great with any POSIX shell, so this step is optional.
 
 </Aside>
 
-If you've never used <Link to="nu" /> before, you're in for a treat. If you're
-ready to give it a try, visit their site and install it.
+If you've never used <Link to="nu" /> before, you're in for a treat. Visit the
+Nushell site to install it, then install the `xs.nu` helper module:
 
-You'll then want to import `xs.nu`.
+```sh
+xs nu --install
+```
 
-This will add some `.command` conveniences to your session. The commands
-default to working with a `./store` in your current directory. You can
-customize this by setting `$env.XS_ADDR`.
+This copies `xs.nu` into your Nushell scripts directory and creates an
+autoload stub so the commands are available in every session. You can also run
+`xs nu` without options to print the module contents and install it manually.
 
-(TODO: add a reference for `Nushell` and `xs.nu`).
+After installation, import the module:
 
 ```nushell
 use xs.nu *
 ```
+
+The commands default to working with a `./store` in your current directory. You
+can customize this by setting `$env.XS_ADDR`.
 
 ## Troubleshooting
 
