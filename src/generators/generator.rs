@@ -120,25 +120,27 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
 }
 
 async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
-    let mut control_rx = None;
+    // Create the first start frame and set up a persistent control subscription
+    let mut start = append(&store, &task, "start", None, None, None, None)
+        .await
+        .expect("append start");
+
+    let control_rx_options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .last_id(start.id)
+        .context_id(task.context_id)
+        .build();
+
+    let mut control_rx = store.read(control_rx_options).await;
+
     loop {
-        let start = append(&store, &task, "start", None, None, None, None)
-            .await
-            .expect("append start");
-
-        let options = ReadOptions::builder()
-            .follow(FollowOption::On)
-            .last_id(start.id)
-            .context_id(task.context_id)
-            .build();
-
-        if control_rx.is_none() {
-            control_rx = Some(store.read(options.clone()).await);
-        }
-
-        let send_rx = store.read(options).await;
-
         let input_pipeline = if task.duplex {
+            let options = ReadOptions::builder()
+                .follow(FollowOption::On)
+                .last_id(start.id)
+                .context_id(task.context_id)
+                .build();
+            let send_rx = store.read(options).await;
             build_input_pipeline(store.clone(), &task, send_rx).await
         } else {
             PipelineData::empty()
@@ -153,12 +155,11 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
         let mut next_task: Option<GeneratorLoop> = None;
         #[allow(unused_assignments)]
         let mut reason = StopReason::Finished;
-        let control_rx_mut = control_rx.as_mut().unwrap();
         tokio::pin!(done_rx);
         loop {
             tokio::select! {
                 biased;
-                maybe = control_rx_mut.recv() => {
+                maybe = control_rx.recv() => {
                     match maybe {
                         Some(frame) if frame.topic == terminate_topic => {
                             task.engine.state.signals().trigger();
@@ -248,9 +249,12 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
         } else if matches!(reason, StopReason::Update) {
             if let Some(nt) = next_task.take() {
                 task = nt;
-                continue;
             }
         }
+
+        start = append(&store, &task, "start", None, None, None, None)
+            .await
+            .expect("append start");
     }
 }
 
