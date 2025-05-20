@@ -33,7 +33,7 @@ xs cat ./store
 
 # the xs.nu helpers fall back to ~/.local/share/cross.stream/store
 # to use a different location temporarily:
-with-env {XS_ADDR: "./store"} { xs cat }
+with-env {XS_ADDR: "./store"} { .cat }
 ```
 
 ## Features
