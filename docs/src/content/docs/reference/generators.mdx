@@ -83,6 +83,9 @@ is emitted with:
 - `source_id`: ID of the failed spawn attempt
 - `reason`: Error message describing what went wrong
 
+The generator also appends a `<topic>.stop` frame with `meta.reason` set to
+`spawn.error` so the failed instance can be cleaned up.
+
 ## Stopping Generators
 
 To stop a running generator, append a frame with the topic `<topic>.terminate`.
