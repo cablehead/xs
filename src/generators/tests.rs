@@ -618,6 +618,74 @@ async fn test_spawn_error_eviction() {
     assert_eq!(recver.recv().await.unwrap().topic, "oops.start");
 }
 
+#[tokio::test]
+async fn test_refresh_on_new_spawn() {
+    // Verify that a new `.spawn` triggers a stop with `update_id` and restarts the generator.
+    let (store, engine, ctx) = setup_test_env();
+
+    // Spawn serve in the background
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let script1 = r#"{ run: {|| ^sleep 1000 } }"#;
+    let spawn1 = store
+        .append(
+            Frame::builder("reload.spawn", ctx.id)
+                .hash(store.cas_insert(script1).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    // Expect the first start
+    assert_eq!(recver.recv().await.unwrap().topic, "reload.start");
+
+    // Send a new spawn to refresh the generator while it's running
+    let script2 = r#"{ run: {|| "v2" } }"#;
+    let spawn2 = store
+        .append(
+            Frame::builder("reload.spawn", ctx.id)
+                .hash(store.cas_insert(script2).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    // The new spawn event arrives first
+    assert_eq!(recver.recv().await.unwrap().topic, "reload.spawn");
+
+    // We should then see a stop with reason "update" referencing the new spawn
+    let mut stop;
+    loop {
+        stop = recver.recv().await.unwrap();
+        if stop.topic == "reload.stop" {
+            if stop.meta.as_ref().unwrap()["reason"] == "update" {
+                break;
+            }
+        }
+    }
+    let meta = stop.meta.unwrap();
+    assert_eq!(meta["source_id"], spawn1.id.to_string());
+    assert_eq!(meta["update_id"], spawn2.id.to_string());
+
+    // And the generator should restart with the new script
+    assert_eq!(recver.recv().await.unwrap().topic, "reload.start");
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "reload.recv");
+    let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "v2");
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(100));
     tokio::pin!(timeout);
