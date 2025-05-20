@@ -174,44 +174,31 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
         // Run command and process pipeline
         match run_command(&engine, nu_config.run_closure, &frame) {
             Ok(pipeline_data) => {
-                let recv_suffix = command
+                let resp_suffix = command
                     .return_options
                     .as_ref()
                     .and_then(|opts| opts.suffix.as_deref())
-                    .unwrap_or(".recv");
+                    .unwrap_or(".response");
                 let ttl = command
                     .return_options
                     .as_ref()
                     .and_then(|opts| opts.ttl.clone());
 
-                // Process each value as a .recv event
-                for value in pipeline_data {
-                    let hash = store.cas_insert_sync(nu::value_to_json(&value).to_string())?;
-                    let _ = store.append(
-                        Frame::builder(
-                            format!(
-                                "{}{}",
-                                frame.topic.strip_suffix(".call").unwrap(),
-                                recv_suffix
-                            ),
-                            frame.context_id,
-                        )
-                        .maybe_ttl(ttl.clone())
-                        .hash(hash)
-                        .meta(serde_json::json!({
-                            "command_id": command.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                        }))
-                        .build(),
-                    );
-                }
+                let values: Vec<_> = pipeline_data.into_iter().collect();
+                let json_values: Vec<_> = values.iter().map(nu::value_to_json).collect();
+                let hash = store.cas_insert_sync(serde_json::to_string(&json_values)?)?;
 
-                // Emit completion event
                 let _ = store.append(
                     Frame::builder(
-                        format!("{}.complete", frame.topic.strip_suffix(".call").unwrap()),
+                        format!(
+                            "{}{}",
+                            frame.topic.strip_suffix(".call").unwrap(),
+                            resp_suffix
+                        ),
                         frame.context_id,
                     )
+                    .maybe_ttl(ttl.clone())
+                    .hash(hash)
                     .meta(serde_json::json!({
                         "command_id": command.id.to_string(),
                         "frame_id": frame.id.to_string(),

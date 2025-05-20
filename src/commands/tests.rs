@@ -45,30 +45,18 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     )?;
     assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
 
-    // Validate the output events
-    let expected = vec!["1: foo", "2: foo", "3: foo"];
-    for expected_content in expected {
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "echo.recv");
-        let meta = frame.meta.as_ref().expect("Meta should be present");
-        assert_eq!(meta["command_id"], frame_command.id.to_string());
-        assert_eq!(meta["frame_id"], frame_call.id.to_string());
-
-        // Verify content
-        let content = store.cas_read(&frame.hash.unwrap()).await?;
-        let content_str = String::from_utf8(content)?;
-        assert_eq!(
-            content_str,
-            serde_json::to_string(expected_content).unwrap()
-        );
-    }
-
-    // Should get completion event
+    // Validate the response event with all outputs
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.complete");
+    assert_eq!(frame.topic, "echo.response");
     let meta = frame.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta["command_id"], frame_command.id.to_string());
     assert_eq!(meta["frame_id"], frame_call.id.to_string());
+
+    let hash = frame.hash.as_ref().expect("Hash should be present");
+    let content = store.cas_read(hash).await?;
+    let content_str = String::from_utf8(content)?;
+    let values: Vec<String> = serde_json::from_str(&content_str)?;
+    assert_eq!(values, vec!["1: foo", "2: foo", "3: foo"]);
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -157,35 +145,18 @@ async fn test_command_single_value() -> Result<(), Error> {
     let frame_call = store.append(Frame::builder("single.call", ctx.id).build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "single.call");
 
-    // Expect .recv with hash for the single value
-    let frame_recv = recver.recv().await.unwrap();
-    assert_eq!(frame_recv.topic, "single.recv");
-    let meta_recv = frame_recv.meta.as_ref().expect("Meta should be present");
-    assert_eq!(meta_recv["command_id"], frame_command.id.to_string());
-    assert_eq!(meta_recv["frame_id"], frame_call.id.to_string());
+    // Expect single response event
+    let frame_resp = recver.recv().await.unwrap();
+    assert_eq!(frame_resp.topic, "single.response");
+    let meta_resp = frame_resp.meta.as_ref().expect("Meta should be present");
+    assert_eq!(meta_resp["command_id"], frame_command.id.to_string());
+    assert_eq!(meta_resp["frame_id"], frame_call.id.to_string());
 
-    // Verify content of .recv
-    let hash = frame_recv.hash.as_ref().expect("Hash should be present");
+    let hash = frame_resp.hash.as_ref().expect("Hash should be present");
     let content = store.cas_read(hash).await?;
     let content_str = String::from_utf8(content)?;
-    assert_eq!(
-        content_str,
-        serde_json::to_string("single value output").unwrap()
-    );
-
-    // Expect .complete with no hash
-    let frame_complete = recver.recv().await.unwrap();
-    assert_eq!(frame_complete.topic, "single.complete");
-    let meta_complete = frame_complete
-        .meta
-        .as_ref()
-        .expect("Meta should be present");
-    assert_eq!(meta_complete["command_id"], frame_command.id.to_string());
-    assert_eq!(meta_complete["frame_id"], frame_call.id.to_string());
-    assert!(
-        frame_complete.hash.is_none(),
-        "Complete event should have no hash"
-    );
+    let values: Vec<String> = serde_json::from_str(&content_str)?;
+    assert_eq!(values, vec!["single value output".to_string()]);
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -221,13 +192,14 @@ async fn test_command_empty_output() -> Result<(), Error> {
     let frame_call = store.append(Frame::builder("empty.call", ctx.id).build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "empty.call");
 
-    // Expect only .complete with no hash
+    // Expect single response event with empty array
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "empty.complete");
+    assert_eq!(frame.topic, "empty.response");
     let meta = frame.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta["command_id"], frame_command.id.to_string());
     assert_eq!(meta["frame_id"], frame_call.id.to_string());
-    assert!(frame.hash.is_none(), "Complete event should have no hash");
+    let content = store.cas_read(frame.hash.as_ref().unwrap()).await?;
+    assert_eq!(String::from_utf8(content)?, "[]");
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -267,19 +239,7 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
 
     let expected_meta = json!({"command_id": frame_command.id, "frame_id": frame_call.id});
 
-    // Validate the output events
-    let expected = vec!["1", "2", "3"];
-    for expected_content in expected {
-        let frame = recver.recv().await.unwrap();
-        assert_eq!(frame.topic, "numbers.recv");
-        assert_eq!(frame.meta.unwrap(), expected_meta);
-        // Verify content
-        let content = store.cas_read(&frame.hash.unwrap()).await?;
-        let content_str = String::from_utf8(content)?;
-        assert_eq!(content_str, expected_content);
-    }
-
-    // Should get sum event
+    // Expect sum event from tee side pipeline
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "sum");
     assert_eq!(frame.meta.unwrap(), expected_meta);
@@ -287,11 +247,14 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
     let content_str = String::from_utf8(content)?;
     assert_eq!(content_str, "6");
 
-    // Should get completion event
+    // Then expect response with the collected pipeline
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "numbers.complete");
+    assert_eq!(frame.topic, "numbers.response");
     assert_eq!(frame.meta.unwrap(), expected_meta);
-    assert!(frame.hash.is_none(), "Complete event should have no hash");
+    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    let content_str = String::from_utf8(content)?;
+    let values: Vec<i64> = serde_json::from_str(&content_str)?;
+    assert_eq!(values, vec![1, 2, 3]);
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -429,32 +392,21 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     assert_eq!(frame_call_a.topic, "testcmd.call");
     assert_eq!(frame_call_a.context_id, ctx_a);
 
-    // Expect recv event from A's command
-    let frame_recv_a = recver_all
+    // Expect response from A's command
+    let frame_resp_a = recver_all
         .recv()
         .await
-        .expect("Failed to receive cmd A recv frame");
-    println!("Received from Cmd A call: {:?}", frame_recv_a);
-    assert_eq!(frame_recv_a.topic, "testcmd.recv");
+        .expect("Failed to receive cmd A response frame");
+    println!("Received from Cmd A call: {:?}", frame_resp_a);
+    assert_eq!(frame_resp_a.topic, "testcmd.response");
+    assert_eq!(frame_resp_a.context_id, ctx_a);
     assert_eq!(
-        frame_recv_a.context_id, ctx_a,
-        "Cmd A recv event has wrong context!"
-    );
-    assert_eq!(
-        frame_recv_a.meta.as_ref().unwrap()["command_id"],
+        frame_resp_a.meta.as_ref().unwrap()["command_id"],
         define_a_frame.id.to_string()
     );
-    let content_a = store.cas_read(&frame_recv_a.hash.unwrap()).await?;
-    assert_eq!(String::from_utf8(content_a)?, r#""output_from_cmd_a""#);
-
-    // Expect complete event from A's command
-    let frame_complete_a = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd A complete frame");
-    assert_eq!(frame_complete_a.topic, "testcmd.complete");
-    assert_eq!(frame_complete_a.context_id, ctx_a);
-    println!("Cmd A call completed.");
+    let content_a = store.cas_read(&frame_resp_a.hash.unwrap()).await?;
+    let values_a: Vec<String> = serde_json::from_slice(&content_a)?;
+    assert_eq!(values_a, vec!["output_from_cmd_a".to_string()]);
 
     // --- Call Command in Context B ---
     println!("Calling testcmd in Ctx B ({})", ctx_b);
@@ -471,31 +423,24 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     assert_eq!(frame_call_b.topic, "testcmd.call");
     assert_eq!(frame_call_b.context_id, ctx_b);
 
-    // Expect recv event from B's command
-    let frame_recv_b = recver_all
+    // Expect response from B's command
+    let frame_resp_b = recver_all
         .recv()
         .await
-        .expect("Failed to receive cmd B recv frame");
-    println!("Received from Cmd B call: {:?}", frame_recv_b);
-    assert_eq!(frame_recv_b.topic, "testcmd.recv");
+        .expect("Failed to receive cmd B response frame");
+    println!("Received from Cmd B call: {:?}", frame_resp_b);
+    assert_eq!(frame_resp_b.topic, "testcmd.response");
     assert_eq!(
-        frame_recv_b.context_id, ctx_b,
-        "Cmd B recv event has wrong context!"
+        frame_resp_b.context_id, ctx_b,
+        "Cmd B response event has wrong context!"
     );
     assert_eq!(
-        frame_recv_b.meta.as_ref().unwrap()["command_id"],
+        frame_resp_b.meta.as_ref().unwrap()["command_id"],
         define_b_frame.id.to_string()
     );
-    let content_b = store.cas_read(&frame_recv_b.hash.unwrap()).await?;
-    assert_eq!(String::from_utf8(content_b)?, r#""output_from_cmd_b""#);
-
-    // Expect complete event from B's command
-    let frame_complete_b = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd B complete frame");
-    assert_eq!(frame_complete_b.topic, "testcmd.complete");
-    assert_eq!(frame_complete_b.context_id, ctx_b);
+    let content_b = store.cas_read(&frame_resp_b.hash.unwrap()).await?;
+    let values_b: Vec<String> = serde_json::from_slice(&content_b)?;
+    assert_eq!(values_b, vec!["output_from_cmd_b".to_string()]);
     println!("Cmd B call completed.");
 
     // Ensure no further unexpected messages
