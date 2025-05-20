@@ -19,6 +19,11 @@ brew install cablehead/tap/cross-stream
 # or:
 cargo install cross-stream --locked
 
+# optional Nushell helpers
+xs nu --install
+# then in Nushell
+use xs.nu *
+
 # start a server
 xs serve ./store
 
