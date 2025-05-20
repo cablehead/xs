@@ -22,7 +22,7 @@ xs serve ./store --expose :3021
 Bootstrap the store:
 
 ```nushell
-# register x-macos-pasteboard as a frame generator
+# register x-macos-pasteboard as a generator
 { run: {|| x-macos-pasteboard | lines } } | .append pb.spawn
 
 # register a handler to map raw clipboard data to content
