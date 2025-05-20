@@ -30,6 +30,10 @@ xs serve ./store
 # in another window
 echo "hello" | xs append ./store notes
 xs cat ./store
+
+# the xs.nu helpers fall back to ~/.local/share/cross.stream/store
+# to use a different location temporarily:
+with-env {XS_ADDR: "./store"} { xs cat }
 ```
 
 ## Features

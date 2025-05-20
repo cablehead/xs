@@ -57,8 +57,16 @@ After installation, import the module:
 use xs.nu *
 ```
 
-The commands default to working with a `./store` in your current directory. You
-can customize this by setting `$env.XS_ADDR`.
+The commands default to working with a store at `~/.local/share/cross.stream/store`.
+You can point commands at another location by setting `$env.XS_ADDR`.
+For quick, ad-hoc changes use `with-env`:
+
+```nushell
+with-env {XS_ADDR: "./store"} { .cat }
+```
+
+The `xs` command-line tool still requires the store path to be specified
+explicitly (for example `xs serve ./store`).
 
 ## Troubleshooting
 

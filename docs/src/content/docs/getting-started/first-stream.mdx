@@ -27,12 +27,22 @@ Start an `xs` store in a dedicated window:
 
 ```bash withOutput
 > xs serve ./store
-13:35:16.868 TRACE         event src/main.rs:185 Starting server with path: "./store                                                                    xs:185
+13:35:16.868 TRACE         event src/main.rs:185 Starting server with path: "./store"                                                                    xs:185
 13:35:16.957  INFO         read options=ReadOptions { follow: On, tail: false, last_id: None, limit: None }                                      xs::store:174
 13:35:16.957  INFO         read options=ReadOptions { follow: On, tail: true, last_id: None, limit: None }                                       xs::store:174
 13:35:16.963  INFO     5ms insert_frame frame=Frame { id: "03d4por2p16i05i81fjy0fx8u", topic: "xs.start", hash: None, meta: None, ttl: None }    xs::store:410
 13:35:16.963 0fx8u xs.start
 13:35:16.968  INFO         read options=ReadOptions { follow: On, tail: false, last_id: None, limit: None }                                      xs::store:174
+```
+
+For a long-running setup you might run `xs serve ~/.local/share/cross.stream/store`
+under a process supervisor. This is also the fallback location used by
+`xs.nu` when `$env.XS_ADDR` isn't set. Here we keep the demo scoped to `./store`.
+
+To point tools at another store, set `XS_ADDR`. This can be done temporarily with `with-env`:
+
+```bash
+with-env {XS_ADDR: "./store"} { xs cat }
 ```
 
 ## Client
