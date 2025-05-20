@@ -45,7 +45,10 @@ async fn handle_spawn_event(
         if handle.is_finished() {
             active.remove(&key);
         } else {
-            return Err("Updating existing generator is not implemented".into());
+            // A generator for this topic/context is already running. Ignore the
+            // new spawn frame; the running generator will handle it as a hot
+            // reload.
+            return Ok(());
         }
     }
 
