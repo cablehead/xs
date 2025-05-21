@@ -402,7 +402,7 @@ async fn test_serve_duplex_context_isolation() {
 }
 
 #[tokio::test]
-async fn test_serve_terminate_respawn() {
+async fn test_respawn_after_terminate() {
     let (store, engine, ctx) = setup_test_env();
 
     {
@@ -412,6 +412,13 @@ async fn test_serve_terminate_respawn() {
             serve(store, engine).await.unwrap();
         });
     }
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
 
     let script = r#"{ run: {|| ^sleep 1000 } }"#;
     let hash = store.cas_insert(script).await.unwrap();
@@ -424,20 +431,14 @@ async fn test_serve_terminate_respawn() {
         )
         .unwrap();
 
-    let options = ReadOptions::builder()
-        .context_id(ctx.id)
-        .follow(FollowOption::On)
-        .tail(true)
-        .build();
-    let mut recver = store.read(options).await;
-
     // expect start
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.spawn");
     assert_eq!(recver.recv().await.unwrap().topic, "sleeper.start");
+    assert_no_more_frames(&mut recver).await;
 
     store
         .append(Frame::builder("sleeper.terminate", ctx.id).build())
         .unwrap();
-
     // first see the terminate event itself
     assert_eq!(recver.recv().await.unwrap().topic, "sleeper.terminate");
 
