@@ -23,7 +23,7 @@ Bootstrap the store:
 
 ```nushell
 # register x-macos-pasteboard as a generator
-{ run: {|| x-macos-pasteboard | lines } } | .append pb.spawn
+r#'{ run: {|| x-macos-pasteboard | lines } }'# | .append pb.spawn
 
 # register a handler to map raw clipboard data to content
 cat handler-pb.map.nu | .append pb.map.register

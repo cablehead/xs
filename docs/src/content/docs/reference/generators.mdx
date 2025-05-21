@@ -16,9 +16,9 @@ To create a generator, append a Nushell script that evaluates to a configuration
 record with a `run` closure using the topic `<topic>.spawn`:
 
 ```nushell
-{
+r#'{
   run: {|| ^tail -F http.log | lines }
-} | .append log.spawn
+}'# | .append log.spawn
 ```
 
 The generator will:
@@ -60,10 +60,10 @@ via `<topic>.send` frames:
 
 ```nushell
 # Create a websocket connection
-{
+r#'{
   run: {|| websocat wss://echo.websocket.org | lines },
   duplex: true
-} | .append echo.spawn
+}'# | .append echo.spawn
 
 # Send input to the websocket: note the "\n", wss://echo.websocket.org won't
 # reply until it sees a complete line

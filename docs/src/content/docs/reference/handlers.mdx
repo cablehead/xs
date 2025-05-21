@@ -120,13 +120,13 @@ Handlers can maintain state using environment variables which persist between
 calls:
 
 ```nushell
-{
+r#'{
   run: {|frame|
     # Initialize or increment counter
     let env.count = ($env | get -i count | default 0) + 1
     $"Processed ($env.count) frames"
   }
-} | .append counter.register
+}'# | .append counter.register
 ```
 
 ## Output
