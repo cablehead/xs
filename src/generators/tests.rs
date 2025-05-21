@@ -756,7 +756,6 @@ async fn test_bytestream_ping() {
         tokio::spawn(async move { serve(store, engine).await.unwrap() });
     }
 
-    let script = r#"{ run: {|| ^ping -c 2 -i 0.1 127.0.0.1 | into binary } }"#;
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
@@ -764,6 +763,7 @@ async fn test_bytestream_ping() {
         .build();
     let mut recver = store.read(options).await;
 
+    let script = r#"{ run: {|| ^ping -i 0.1 127.0.0.1 } }"#;
     let spawn = store
         .append(
             Frame::builder("pinger.spawn", ctx.id)
