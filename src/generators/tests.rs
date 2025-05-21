@@ -745,6 +745,57 @@ async fn test_terminate_one_of_two_generators() {
     assert_no_more_frames(&mut recver).await;
 }
 
+#[tokio::test]
+async fn test_bytestream_ping() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move { serve(store, engine).await.unwrap() });
+    }
+
+    let script = r#"{ run: {|| ^ping -c 2 -i 0.1 127.0.0.1 | into binary } }"#;
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let spawn = store
+        .append(
+            Frame::builder("pinger.spawn", ctx.id)
+                .hash(store.cas_insert(script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "pinger.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "pinger.start");
+
+    for _ in 0..2 {
+        let frame = recver.recv().await.unwrap();
+        assert_eq!(frame.topic, "pinger.recv");
+        let meta = frame.meta.as_ref().unwrap();
+        assert_eq!(meta["source_id"], spawn.id.to_string());
+        let bytes = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+        assert!(!bytes.is_empty());
+    }
+
+    store
+        .append(Frame::builder("pinger.terminate", ctx.id).build())
+        .unwrap();
+
+    let stop = loop {
+        let frame = recver.recv().await.unwrap();
+        if frame.topic == "pinger.stop" {
+            break frame;
+        }
+    };
+    assert_eq!(stop.meta.unwrap()["reason"], "terminate");
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(100));
     tokio::pin!(timeout);
