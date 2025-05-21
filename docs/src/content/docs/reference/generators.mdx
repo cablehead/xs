@@ -24,8 +24,8 @@ record with a `run` closure using the topic `<topic>.spawn`:
 The generator will:
 
 - Execute the provided Nushell expression
-- Each line written to `http.log` will be emitted as a frame with topic
-  `log.recv`
+- Output from the pipeline is streamed as `log.recv` frames. Text pipelines emit
+  one frame per line, while `ByteStream` pipelines send binary chunks.
 - Automatically restarts if it exits until a terminate frame is seen
 
 All frames produced by the generator use the same context as the `.spawn` frame

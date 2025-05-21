@@ -95,7 +95,7 @@ The `return_options` field controls how return values are handled:
 - `suffix`: String appended to handler's name for output topic (default: ".out")
 - `ttl`: Time-to-live for output frames
   - `"forever"`: Never expire
-  - `"ephemeral"`: Remove after reading
+  - `"ephemeral"`: Not stored; only active subscribers receive it
   - `"time:<milliseconds>"`: Expire after duration
   - `"head:<n>"`: Keep only N most recent frames
 
