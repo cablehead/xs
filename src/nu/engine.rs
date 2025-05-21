@@ -315,12 +315,17 @@ impl Engine {
         eval_res.map_err(Box::new)
     }
 
-    /// Kill and remove every outstanding job.
-    pub fn kill_all_jobs(&self) {
+    /// Kill the background ThreadJob whose name equals `name`.
+    pub fn kill_job_by_name(&self, name: &str) {
         if let Ok(mut jobs) = self.state.jobs.lock() {
-            let ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
-            for id in ids {
-                let _ = jobs.kill_and_remove(id);
+            let job_id = {
+                jobs.iter().find_map(|(jid, job)| {
+                    job.tag()
+                        .and_then(|tag| if tag == name { Some(jid) } else { None })
+                })
+            };
+            if let Some(job_id) = job_id {
+                let _ = jobs.kill_and_remove(job_id);
             }
         }
     }

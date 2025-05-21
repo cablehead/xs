@@ -163,7 +163,7 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
                     match maybe {
                         Some(frame) if frame.topic == terminate_topic => {
                             task.engine.state.signals().trigger();
-                            task.engine.kill_all_jobs();
+                            task.engine.kill_job_by_name(&task.id.to_string());
                             let _ = (&mut done_rx).await;
                             reason = StopReason::Terminate;
                             break;
@@ -181,7 +181,7 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
                                                 new_engine.state.set_signals(Signals::new(interrupt.clone()));
 
                                                 task.engine.state.signals().trigger();
-                                                task.engine.kill_all_jobs();
+                                                task.engine.kill_job_by_name(&task.id.to_string());
                                                 let _ = (&mut done_rx).await;
 
                                                 reason = StopReason::Update;
@@ -314,7 +314,7 @@ fn spawn_thread(
             &task.run_closure,
             None,
             Some(input_pipeline),
-            format!("generator {}", task.topic),
+            task.id.to_string(),
         ) {
             Ok(pipeline) => {
                 match pipeline {
