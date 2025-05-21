@@ -464,6 +464,14 @@ impl Store {
         cacache::write_hash_sync(self.path.join("cacache"), content)
     }
 
+    pub async fn cas_insert_bytes(&self, bytes: &[u8]) -> cacache::Result<ssri::Integrity> {
+        self.cas_insert(bytes).await
+    }
+
+    pub fn cas_insert_bytes_sync(&self, bytes: &[u8]) -> cacache::Result<ssri::Integrity> {
+        self.cas_insert_sync(bytes)
+    }
+
     pub async fn cas_read(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }

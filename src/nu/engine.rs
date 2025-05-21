@@ -200,7 +200,7 @@ impl Engine {
             Some(job_display_name.clone()),
             sender,
         );
-        let job_id = {
+        let _job_id = {
             let mut j = self.state.jobs.lock().unwrap();
             j.add_job(Job::Thread(job.clone()))
         };
@@ -212,6 +212,8 @@ impl Engine {
         // -- prepare stack & validate/inject optional single Value argument ---
         let block = self.state.get_block(closure.block_id);
         let mut stack = Stack::new();
+        let mut stack =
+            stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
 
         let num_required_pos = block.signature.required_positional.len();
         // let num_optional_pos = block.signature.optional_positional.len(); // Not checking optional for now
@@ -299,19 +301,6 @@ impl Engine {
         }
 
         self.state.current_job.background_thread_job = saved_bg_job;
-
-        {
-            let mut jobs = self.state.jobs.lock().unwrap();
-            match &eval_res {
-                Ok(_) => {
-                    let _ = jobs.remove_job(job_id);
-                }
-                Err(_) => {
-                    let _ = jobs.kill_and_remove(job_id);
-                }
-            }
-        }
-
         eval_res.map_err(Box::new)
     }
 

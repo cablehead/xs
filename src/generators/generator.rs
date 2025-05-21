@@ -2,6 +2,7 @@ use scru128::Scru128Id;
 use tokio::task::JoinHandle;
 
 use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Signals, Span, Value};
+use std::io::Read;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
@@ -358,7 +359,36 @@ fn spawn_thread(
                             }
                         }
                     }
-                    PipelineData::ByteStream(_, _) => {}
+                    PipelineData::ByteStream(stream, _) => {
+                        if let Some(mut reader) = stream.reader() {
+                            let suffix = task
+                                .return_options
+                                .as_ref()
+                                .and_then(|o| o.suffix.clone())
+                                .unwrap_or_else(|| "recv".into());
+                            let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
+                            let mut buf = [0u8; 8192];
+                            loop {
+                                match reader.read(&mut buf) {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        let chunk = &buf[..n];
+                                        handle.block_on(async {
+                                            let _ = append_bytes(
+                                                &store,
+                                                &task,
+                                                &suffix,
+                                                ttl.clone(),
+                                                chunk,
+                                            )
+                                            .await;
+                                        });
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -397,6 +427,29 @@ async fn append(
     let frame = store.append(
         Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
             .maybe_hash(hash)
+            .maybe_ttl(ttl)
+            .meta(meta)
+            .build(),
+    )?;
+    Ok(frame)
+}
+
+async fn append_bytes(
+    store: &Store,
+    task: &GeneratorLoop,
+    suffix: &str,
+    ttl: Option<TTL>,
+    bytes: &[u8],
+) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
+    let hash = store.cas_insert_bytes(bytes).await?;
+
+    let meta = serde_json::json!({
+        "source_id": task.id.to_string(),
+    });
+
+    let frame = store.append(
+        Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
+            .hash(hash)
             .maybe_ttl(ttl)
             .meta(meta)
             .build(),
