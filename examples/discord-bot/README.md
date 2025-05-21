@@ -35,10 +35,10 @@ In another session:
 ```nushell
 use xs.nu *
 
-{
+r#'{
   run: {|| websocat "wss://gateway.discord.gg/?v=10&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines },
   duplex: true
-} | .append discord.ws.spawn
+}'# | .append discord.ws.spawn
 
 # append the access token to use to the stream
 "<token>" | .append discord.ws.token
