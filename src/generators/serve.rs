@@ -79,6 +79,8 @@ pub async fn serve(
             {
                 compacted.insert((prefix.to_string(), frame.context_id), frame);
             }
+        } else if let Some(prefix) = frame.topic.strip_suffix(".terminate") {
+            compacted.remove(&(prefix.to_string(), frame.context_id));
         }
     }
 
