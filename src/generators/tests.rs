@@ -686,6 +686,65 @@ async fn test_refresh_on_new_spawn() {
     assert_eq!(std::str::from_utf8(&content).unwrap(), "v2");
 }
 
+#[tokio::test]
+async fn test_terminate_one_of_two_generators() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move { serve(store, engine).await.unwrap() });
+    }
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+
+    store
+        .append(
+            Frame::builder("gen1.spawn", ctx.id)
+                .hash(hash.clone())
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "gen1.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "gen1.start");
+
+    store
+        .append(Frame::builder("gen2.spawn", ctx.id).hash(hash).build())
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "gen2.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "gen2.start");
+
+    store
+        .append(Frame::builder("gen1.terminate", ctx.id).build())
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "gen1.terminate");
+    let stop1 = recver.recv().await.unwrap();
+    assert_eq!(stop1.topic, "gen1.stop");
+    assert_eq!(stop1.meta.unwrap()["reason"], "terminate");
+
+    let msg_hash = store.cas_insert("ping").await.unwrap();
+    store
+        .append(Frame::builder("gen2.send", ctx.id).hash(msg_hash).build())
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "gen2.send");
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "gen2.recv");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(100));
     tokio::pin!(timeout);
