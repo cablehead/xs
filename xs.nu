@@ -171,7 +171,7 @@ export def ".ctx" [
 }
 
 export def ".ctx list" [] {
-  let active = .ctx
+  let active = .ctx -d | get id
   xs-context-collect | insert active {
     $in.id == $active
   }
