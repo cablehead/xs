@@ -155,8 +155,8 @@ async fn test_command_single_value() -> Result<(), Error> {
     let hash = frame_resp.hash.as_ref().expect("Hash should be present");
     let content = store.cas_read(hash).await?;
     let content_str = String::from_utf8(content)?;
-    let values: Vec<String> = serde_json::from_str(&content_str)?;
-    assert_eq!(values, vec!["single value output".to_string()]);
+    let value: String = serde_json::from_str(&content_str)?;
+    assert_eq!(value, "single value output".to_string());
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -405,8 +405,8 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
         define_a_frame.id.to_string()
     );
     let content_a = store.cas_read(&frame_resp_a.hash.unwrap()).await?;
-    let values_a: Vec<String> = serde_json::from_slice(&content_a)?;
-    assert_eq!(values_a, vec!["output_from_cmd_a".to_string()]);
+    let value_a: String = serde_json::from_slice(&content_a)?;
+    assert_eq!(value_a, "output_from_cmd_a".to_string());
 
     // --- Call Command in Context B ---
     println!("Calling testcmd in Ctx B ({})", ctx_b);
@@ -439,8 +439,8 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
         define_b_frame.id.to_string()
     );
     let content_b = store.cas_read(&frame_resp_b.hash.unwrap()).await?;
-    let values_b: Vec<String> = serde_json::from_slice(&content_b)?;
-    assert_eq!(values_b, vec!["output_from_cmd_b".to_string()]);
+    let value_b: String = serde_json::from_slice(&content_b)?;
+    assert_eq!(value_b, "output_from_cmd_b".to_string());
     println!("Cmd B call completed.");
 
     // Ensure no further unexpected messages

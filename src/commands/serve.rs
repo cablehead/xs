@@ -184,9 +184,13 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
                     .as_ref()
                     .and_then(|opts| opts.ttl.clone());
 
-                let values: Vec<_> = pipeline_data.into_iter().collect();
-                let json_values: Vec<_> = values.iter().map(nu::value_to_json).collect();
-                let hash = store.cas_insert_sync(serde_json::to_string(&json_values)?)?;
+                let hash = if pipeline_data.is_nothing() {
+                    store.cas_insert_sync("[]")?
+                } else {
+                    let value = pipeline_data.into_value(nu_protocol::Span::unknown())?;
+                    let json_value = nu::value_to_json(&value);
+                    store.cas_insert_sync(serde_json::to_string(&json_value)?)?
+                };
 
                 let _ = store.append(
                     Frame::builder(
