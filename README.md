@@ -15,9 +15,10 @@ installation instructions, tutorials and examples.
 
 ```sh
 # install
-brew install cablehead/tap/cross-stream
-# or:
 cargo install cross-stream --locked
+# or:
+brew install cablehead/tap/cross-stream
+brew services start cablehead/tap/cross-stream  # starts a store in ~/.local/share/cross.stream/store
 
 # optional Nushell helpers
 xs nu --install
