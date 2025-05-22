@@ -4,9 +4,10 @@ let PREVIOUS_RELEASE = "0.1.0"
 $env.RELEASE = open Cargo.toml  | get package.version
 
 # grab the raw commit messages between the previous release and now
+# create the release notes
 git log --format=%s $"v($PREVIOUS_RELEASE)..HEAD" | vipe | save $"changes/($env.RELEASE).md"
 
-git commit -a -m "chore: release $env.RELEASE"
+git commit -a -m $"chore: release ($env.RELEASE)"
 git push
 
 cargo publish
@@ -24,6 +25,9 @@ mkdir $pkgdir
 cp /Users/andy/.cargo/bin/xs $pkgdir
 tar -czvf $tarball -C $pkgdir xs 
 
+# git tag $"v($env.RELEASE)"
+# git push --tags
+# ^^ not needed, as the next line will create the tags -->
 gh release create $"v($env.RELEASE)" -F $"changes/($env.RELEASE).md" $tarball
 
 shasum -a 256 $tarball
