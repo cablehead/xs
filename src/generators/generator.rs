@@ -122,7 +122,7 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
 
 async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
     // Create the first start frame and set up a persistent control subscription
-    let mut start = append(&store, &task, "start", None, None, None, None)
+    let mut start = append(&store, &task, "start", None, None, None, None, None)
         .await
         .expect("append start");
 
@@ -156,6 +156,7 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
         let mut next_task: Option<GeneratorLoop> = None;
         #[allow(unused_assignments)]
         let mut reason = StopReason::Finished;
+        let mut details: Option<String> = None;
         tokio::pin!(done_rx);
         loop {
             tokio::select! {
@@ -226,10 +227,15 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
                     }
                 }
                 res = &mut done_rx => {
-                    reason = match res.unwrap_or(Err("thread failed".into())) {
-                        Ok(()) => StopReason::Finished,
-                        Err(_) => StopReason::Error,
-                    };
+                    match res.unwrap_or(Err("thread failed".into())) {
+                        Ok(()) => {
+                            reason = StopReason::Finished;
+                        }
+                        Err(e) => {
+                            reason = StopReason::Error;
+                            details = Some(e);
+                        }
+                    }
                     break;
                 }
             }
@@ -243,6 +249,7 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
             None,
             Some(reason.as_str()),
             update_id,
+            details.as_deref(),
         )
         .await;
         if matches!(reason, StopReason::Terminate) {
@@ -253,7 +260,7 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
             }
         }
 
-        start = append(&store, &task, "start", None, None, None, None)
+        start = append(&store, &task, "start", None, None, None, None, None)
             .await
             .expect("append start");
     }
@@ -337,6 +344,7 @@ fn spawn_thread(
                                     Some(val.clone()),
                                     None,
                                     None,
+                                    None,
                                 )
                                 .await;
                             });
@@ -352,9 +360,17 @@ fn spawn_thread(
                                     .unwrap_or_else(|| "recv".into());
                                 let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                                 handle.block_on(async {
-                                    let _ =
-                                        append(&store, &task, &suffix, ttl, Some(val), None, None)
-                                            .await;
+                                    let _ = append(
+                                        &store,
+                                        &task,
+                                        &suffix,
+                                        ttl,
+                                        Some(val),
+                                        None,
+                                        None,
+                                        None,
+                                    )
+                                    .await;
                                 });
                             }
                         }
@@ -399,6 +415,7 @@ fn spawn_thread(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn append(
     store: &Store,
     task: &GeneratorLoop,
@@ -407,6 +424,7 @@ async fn append(
     content: Option<String>,
     reason: Option<&str>,
     update_id: Option<Scru128Id>,
+    details: Option<&str>,
 ) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
     let hash = if let Some(content) = content {
         Some(store.cas_insert(&content).await?)
@@ -422,6 +440,9 @@ async fn append(
     }
     if let Some(id) = update_id {
         meta["update_id"] = serde_json::Value::String(id.to_string());
+    }
+    if let Some(d) = details {
+        meta["details"] = serde_json::Value::String(d.to_string());
     }
 
     let frame = store.append(

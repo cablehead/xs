@@ -620,6 +620,60 @@ async fn test_spawn_error_eviction() {
 }
 
 #[tokio::test]
+async fn test_pipeline_error_details() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| error make {msg: "boom"} } }"#;
+    store
+        .append(
+            Frame::builder("bad.spawn", ctx.id)
+                .hash(store.cas_insert(script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "bad.start");
+
+    let stop = loop {
+        let frame = recver.recv().await.unwrap();
+        if frame.topic == "bad.stop" {
+            break frame;
+        }
+    };
+    let meta = stop.meta.unwrap();
+    assert_eq!(meta["reason"], "error");
+    assert!(meta["details"].as_str().unwrap().contains("boom"));
+
+    store
+        .append(Frame::builder("bad.terminate", ctx.id).build())
+        .unwrap();
+
+    loop {
+        let frame = recver.recv().await.unwrap();
+        if frame.topic == "bad.stop" {
+            if frame.meta.as_ref().unwrap()["reason"] == "terminate" {
+                break;
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn test_refresh_on_new_spawn() {
     // Verify that a new `.spawn` triggers a stop with `update_id` and restarts the generator.
     let (store, engine, ctx) = setup_test_env();
