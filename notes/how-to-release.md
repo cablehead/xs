@@ -1,13 +1,17 @@
 ```nushell
+
 # update version in Cargo.toml
-let PREVIOUS_RELEASE = "0.1.0"
-$env.RELEASE = open Cargo.toml  | get package.version
+cargo b # to update Cargo.lock
+
+let PREVIOUS_RELEASE = git tag | lines | where {$in | str starts-with "v"} | sort | last
+let RELEASE = open Cargo.toml  | get package.version
 
 # grab the raw commit messages between the previous release and now
 # create the release notes
-git log --format=%s $"v($PREVIOUS_RELEASE)..HEAD" | vipe | save $"changes/($env.RELEASE).md"
+git log --format=%s $"($PREVIOUS_RELEASE)..HEAD" | vipe | save -f $"changes/($RELEASE).md"
+git add changes
 
-git commit -a -m $"chore: release ($env.RELEASE)"
+git commit -a -m $"chore: release ($RELEASE)"
 git push
 
 cargo publish
@@ -18,17 +22,17 @@ brew uninstall cross-stream
 which xs # should be /Users/andy/.cargo/bin/xs
 # test the new version
 
-let pkgdir = $"cross-stream-($env.RELEASE)"
-let tarball = $"cross-stream-($env.RELEASE)-macos.tar.gz"
+let pkgdir = $"cross-stream-($RELEASE)"
+let tarball = $"cross-stream-($RELEASE)-macos.tar.gz"
 
 mkdir $pkgdir
 cp /Users/andy/.cargo/bin/xs $pkgdir
 tar -czvf $tarball -C $pkgdir xs 
 
-# git tag $"v($env.RELEASE)"
+# git tag $"v($RELEASE)"
 # git push --tags
 # ^^ not needed, as the next line will create the tags -->
-gh release create $"v($env.RELEASE)" -F $"changes/($env.RELEASE).md" $tarball
+gh release create $"v($RELEASE)" -F $"changes/($RELEASE).md" $tarball
 
 shasum -a 256 $tarball
 
