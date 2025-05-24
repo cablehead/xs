@@ -306,23 +306,32 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
                             None => break,
                         }
                     },
+
                     Ok(mut guard) = async_fd.writable() => {
-                        // Try a zero-byte write to check if stdout is closed
-                        match guard.try_io(|inner| {
-                            // We're just doing a test write to check for EPIPE
-                            match inner.get_ref().write(&[]) {
-                                Ok(_) => Ok(false), // Stdout is still open
-                                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(true), // Stdout closed
-                                Err(e) => Err(e), // Other error
-                            }
-                        }) {
-                            Ok(Ok(true)) => break, // Stdout is closed
-                            Ok(Ok(false)) => { /* Stdout still open */ },
-                            Ok(Err(e)) => return Err(e), // Error occurred
-                            Err(_) => { /* Would block, try again later */ }
+                        // On Linux, after the read end of a pipe closes, the kernel keeps EPOLLOUT
+                        // set together with ERR/HUP, so AsyncFd wakes immediately and will re-poll
+                        // unless all readiness bits are cleared.
+                        let ready = guard.ready();
+
+                        // Tokio exposes "write closed" (EPOLLHUP/ERR) via is_write_closed().
+                        // If set, the output is definitely gone and we should exit.
+                        if ready.is_write_closed() {
+                            break;
                         }
 
-                        guard.clear_ready();
+                        // Platform differences:
+                        //   - macOS/BSD: a zero-length write to a closed pipe returns EPIPE.
+                        //   - Linux: a zero-length write to a closed pipe just returns 0 (no error).
+                        // Check both—treat either a closed write side or EPIPE as termination.
+                        match guard.try_io(|inner| inner.get_ref().write(&[])) {
+                            Ok(Err(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => break,
+                            Ok(Err(e)) => return Err(e), // genuine error
+                            _ => {} // success or WouldBlock
+                        }
+
+                        // Always clear exactly the bits we observed—Linux will keep signaling WRITABLE
+                        // together with HUP/ERR, and not clearing all of them causes a spin loop.
+                        guard.clear_ready_matching(ready);
                     }
                 }
             }
