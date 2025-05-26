@@ -96,13 +96,16 @@ pub(crate) fn emit_event(
         }
 
         GeneratorEventKind::Stop(reason) => {
+            let mut meta = json!({
+                "source_id": source_id.to_string(),
+                "reason": stop_reason_str(reason),
+            });
+            if let StopReason::Update { update_id } = reason {
+                meta["update_id"] = json!(update_id.to_string());
+            }
             store.append(
                 Frame::builder(format!("{}.stop", loop_ctx.topic), loop_ctx.context_id)
-                    .meta(json!({
-                        "source_id": source_id.to_string(),
-                        "reason": stop_reason_str(reason),
-                        "update_id": match reason { StopReason::Update {update_id} => update_id.to_string(), _ => String::new() }
-                    }))
+                    .meta(meta)
                     .build(),
             )?;
         }

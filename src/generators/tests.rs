@@ -565,7 +565,7 @@ async fn test_duplex_terminate_stops() {
 }
 
 #[tokio::test]
-async fn test_spawn_error_eviction() {
+async fn test_parse_error_eviction() {
     let (store, engine, ctx) = setup_test_env();
 
     {
