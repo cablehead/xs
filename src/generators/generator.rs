@@ -227,6 +227,35 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
 
     let mut control_rx = store.read(control_rx_options).await;
 
+    enum LoopOutcome {
+        Continue,
+        Update(Box<Task>, Scru128Id),
+        Terminate,
+        Error(String),
+    }
+
+    impl core::fmt::Debug for LoopOutcome {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                LoopOutcome::Continue => write!(f, "Continue"),
+                LoopOutcome::Update(_, id) => f.debug_tuple("Update").field(id).finish(),
+                LoopOutcome::Terminate => write!(f, "Terminate"),
+                LoopOutcome::Error(e) => f.debug_tuple("Error").field(e).finish(),
+            }
+        }
+    }
+
+    impl From<&LoopOutcome> for StopReason {
+        fn from(value: &LoopOutcome) -> Self {
+            match value {
+                LoopOutcome::Continue => StopReason::Finished,
+                LoopOutcome::Update(_, id) => StopReason::Update { update_id: *id },
+                LoopOutcome::Terminate => StopReason::Terminate,
+                LoopOutcome::Error(e) => StopReason::Error { message: e.clone() },
+            }
+        }
+    }
+
     loop {
         let input_pipeline = if task.duplex {
             let options = ReadOptions::builder()
@@ -251,11 +280,9 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
 
         let terminate_topic = format!("{}.terminate", loop_ctx.topic);
         let spawn_topic = format!("{}.spawn", loop_ctx.topic);
-        let mut next_task: Option<Task> = None;
-        #[allow(unused_assignments)]
-        let mut reason = StopReason::Finished;
         tokio::pin!(done_rx);
-        loop {
+
+        let outcome = 'ctrl: loop {
             tokio::select! {
                 biased;
                 maybe = control_rx.recv() => {
@@ -264,8 +291,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                             task.engine.state.signals().trigger();
                             task.engine.kill_job_by_name(&task.id.to_string());
                             let _ = (&mut done_rx).await;
-                            reason = StopReason::Terminate;
-                            break;
+                            break 'ctrl LoopOutcome::Terminate;
                         }
                         Some(frame) if frame.topic == spawn_topic => {
                             if let Some(hash) = frame.hash.clone() {
@@ -283,16 +309,15 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                                                 task.engine.kill_job_by_name(&task.id.to_string());
                                                 let _ = (&mut done_rx).await;
 
-                                                reason = StopReason::Update { update_id: frame.id };
-
-                                                next_task = Some(Task {
+                                                let new_task = Task {
                                                     id: frame.id,
                                                     run_closure: cfg.run_closure,
                                                     return_options: opts.return_options,
                                                     duplex: opts.duplex.unwrap_or(false),
                                                     engine: new_engine,
-                                                });
-                                                break;
+                                                };
+
+                                                break 'ctrl LoopOutcome::Update(Box::new(new_task), frame.id);
                                             }
                                             Err(e) => {
                                                 let _ = emit_event(
@@ -309,22 +334,19 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                             }
                         }
                         Some(_) => {}
-                        None => {
-                            reason = StopReason::Error { message: "control".into() };
-                            break;
-                        }
+                        None => break 'ctrl LoopOutcome::Error("control".into()),
                     }
                 }
                 res = &mut done_rx => {
-                    reason = match res.unwrap_or(Err("thread failed".into())) {
-                        Ok(()) => StopReason::Finished,
-                        Err(e) => StopReason::Error { message: e },
+                    break 'ctrl match res.unwrap_or(Err("thread failed".into())) {
+                        Ok(()) => LoopOutcome::Continue,
+                        Err(e) => LoopOutcome::Error(e),
                     };
-                    break;
                 }
             }
-        }
+        };
 
+        let reason: StopReason = (&outcome).into();
         let _ = emit_event(
             &store,
             &loop_ctx,
@@ -332,28 +354,39 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             task.return_options.as_ref(),
             GeneratorEventKind::Stop(reason.clone()),
         );
-        if matches!(reason, StopReason::Terminate) || matches!(reason, StopReason::Error { .. }) {
-            let _ = emit_event(
-                &store,
-                &loop_ctx,
-                task.id,
-                task.return_options.as_ref(),
-                GeneratorEventKind::Shutdown,
-            );
-            break;
-        } else if let StopReason::Update { .. } = reason {
-            if let Some(nt) = next_task.take() {
-                task = nt;
+
+        match outcome {
+            LoopOutcome::Continue => {
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    task.id,
+                    task.return_options.as_ref(),
+                    GeneratorEventKind::Start,
+                );
+            }
+            LoopOutcome::Update(new_task, _) => {
+                task = *new_task;
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    task.id,
+                    task.return_options.as_ref(),
+                    GeneratorEventKind::Start,
+                );
+            }
+            LoopOutcome::Terminate | LoopOutcome::Error(_) => {
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    task.id,
+                    task.return_options.as_ref(),
+                    GeneratorEventKind::Shutdown,
+                );
+                break;
             }
         }
 
-        let _ = emit_event(
-            &store,
-            &loop_ctx,
-            task.id,
-            task.return_options.as_ref(),
-            GeneratorEventKind::Start,
-        );
         if let Some(f) = store.head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id) {
             start_id = f.id;
         }
