@@ -1,7 +1,10 @@
 mod generator;
 mod serve;
 
-pub use generator::{spawn as spawn_generator_loop, GeneratorLoop, GeneratorScriptOptions};
+pub use generator::{
+    spawn as spawn_generator_loop, GeneratorEventKind, GeneratorLoop, GeneratorScriptOptions,
+    StopReason, Task,
+};
 
 #[cfg(test)]
 mod tests;

@@ -40,7 +40,7 @@ Generators emit lifecycle events to track their state:
 | `<topic>.start`       | Generator has started processing        |
 | `<topic>.recv`        | Output value from the generator         |
 | `<topic>.stop` | Generator pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate` and `update`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the generator loop for this topic/context will shut down. `update` indicates the generator reloaded due to a new `.spawn` frame. |
-| `<topic>.spawn.error` | Error occurred while spawning generator |
+| `<topic>.parse.error` | Script failed to parse |
 
 All events include `source_id` which is the ID of the generator instance. When a `.stop` frame has `meta.reason` set to `update`, it also includes `update_id` referencing the spawn that triggered the reload.
 
@@ -77,14 +77,13 @@ When running this generator:
 
 ## Error Handling
 
-If a generator encounters an error during spawning a `<topic>.spawn.error` frame
+If a generator encounters an error during spawning a `<topic>.parse.error` frame
 is emitted with:
 
 - `source_id`: ID of the failed spawn attempt
 - `reason`: Error message describing what went wrong
 
-The generator also appends a `<topic>.stop` frame with `meta.reason` set to
-`spawn.error` so the failed instance can be cleaned up.
+The generator does not start and no stop frame is produced.
 
 ## Stopping Generators
 
@@ -94,5 +93,5 @@ The generator will stop and emit a `<topic>.stop` frame with `meta.reason` set t
 
 Appending a new `<topic>.spawn` frame while a generator of the same topic and
 context is running reloads it with the new script. If the reload fails to parse,
-you'll see a `<topic>.spawn.error` frame, and the previous generator continues
+you'll see a `<topic>.parse.error` frame, and the previous generator continues
 running.
