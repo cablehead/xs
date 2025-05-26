@@ -120,7 +120,13 @@ pub(crate) fn emit_event(
             )?;
         }
 
-        GeneratorEventKind::Shutdown => { /* no frame */ }
+        GeneratorEventKind::Shutdown => {
+            store.append(
+                Frame::builder(format!("{}.shutdown", loop_ctx.topic), loop_ctx.context_id)
+                    .meta(json!({ "source_id": task.id.to_string() }))
+                    .build(),
+            )?;
+        }
     }
 
     Ok(GeneratorEvent {
@@ -333,7 +339,8 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             &task,
             GeneratorEventKind::Stop(reason.clone()),
         );
-        if matches!(reason, StopReason::Terminate) {
+        if matches!(reason, StopReason::Terminate) || matches!(reason, StopReason::Error { .. }) {
+            let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Shutdown);
             break;
         } else if let StopReason::Update { .. } = reason {
             if let Some(nt) = next_task.take() {
