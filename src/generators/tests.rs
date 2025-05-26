@@ -2,7 +2,7 @@ use super::*;
 use crate::generators::generator::emit_event;
 use crate::nu::ReturnOptions;
 use nu_protocol;
-use scru128::{self, Scru128Id};
+use scru128;
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -449,6 +449,7 @@ async fn test_respawn_after_terminate() {
     let stop = recver.recv().await.unwrap();
     assert_eq!(stop.topic, "sleeper.stop");
     assert_eq!(stop.meta.unwrap()["reason"], "terminate");
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.shutdown");
 
     store
         .append(Frame::builder("sleeper.spawn", ctx.id).hash(hash).build())
@@ -551,6 +552,7 @@ async fn test_duplex_terminate_stops() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.stop");
     assert_eq!(frame.meta.unwrap()["reason"], "terminate");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.shutdown");
 
     store
         .append(Frame::builder("echo.send", ctx.id).build())
@@ -734,6 +736,8 @@ async fn test_terminate_one_of_two_generators() {
     let stop1 = recver.recv().await.unwrap();
     assert_eq!(stop1.topic, "gen1.stop");
     assert_eq!(stop1.meta.unwrap()["reason"], "terminate");
+    let shutdown1 = recver.recv().await.unwrap();
+    assert_eq!(shutdown1.topic, "gen1.shutdown");
 
     let msg_hash = store.cas_insert("ping").await.unwrap();
     store
@@ -868,4 +872,7 @@ fn test_emit_event_helper() {
     )
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Stop(_)));
+
+    let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Shutdown).unwrap();
+    assert_eq!(store.head("helper.shutdown", ZERO_CONTEXT).is_some(), true);
 }

@@ -101,18 +101,8 @@ pub async fn serve(
             continue;
         }
 
-        if let Some(prefix) = frame.topic.strip_suffix(".stop") {
-            if let Some(reason) = frame
-                .meta
-                .as_ref()
-                .and_then(|m| m.get("reason"))
-                .and_then(|v| v.as_str())
-            {
-                if reason == "terminate" || reason == "error" {
-                    let key = (prefix.to_string(), frame.context_id);
-                    active.remove(&key);
-                }
-            }
+        if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
+            active.remove(&(prefix.to_string(), frame.context_id));
             continue;
         }
     }
