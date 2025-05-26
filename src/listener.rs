@@ -1,7 +1,9 @@
 use std::io;
 
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
+use tokio::net::{TcpListener, UnixListener};
+#[cfg(test)]
+use tokio::net::{TcpStream, UnixStream};
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -46,7 +48,7 @@ impl Listener {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub async fn connect(&self) -> io::Result<AsyncReadWriteBox> {
         match self {
             Listener::Tcp(listener) => {
