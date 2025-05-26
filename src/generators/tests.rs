@@ -846,13 +846,21 @@ fn test_emit_event_helper() {
         engine,
     };
 
-    let ev = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Start).unwrap();
+    let ev = emit_event(
+        &store,
+        &loop_ctx,
+        task.id,
+        task.return_options.as_ref(),
+        GeneratorEventKind::Start,
+    )
+    .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Start));
 
     let ev = emit_event(
         &store,
         &loop_ctx,
-        &task,
+        task.id,
+        task.return_options.as_ref(),
         GeneratorEventKind::Recv {
             suffix: "data".into(),
             data: b"hi".to_vec(),
@@ -867,12 +875,20 @@ fn test_emit_event_helper() {
     let ev = emit_event(
         &store,
         &loop_ctx,
-        &task,
+        task.id,
+        task.return_options.as_ref(),
         GeneratorEventKind::Stop(StopReason::Finished),
     )
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Stop(_)));
 
-    let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Shutdown).unwrap();
+    let _ = emit_event(
+        &store,
+        &loop_ctx,
+        task.id,
+        task.return_options.as_ref(),
+        GeneratorEventKind::Shutdown,
+    )
+    .unwrap();
     assert_eq!(store.head("helper.shutdown", ZERO_CONTEXT).is_some(), true);
 }
