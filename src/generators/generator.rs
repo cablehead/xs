@@ -390,15 +390,6 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         if let Some(f) = store.head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id) {
             start_id = f.id;
         }
-        control_rx = store
-            .read(
-                ReadOptions::builder()
-                    .follow(FollowOption::On)
-                    .last_id(start_id)
-                    .context_id(loop_ctx.context_id)
-                    .build(),
-            )
-            .await;
     }
 }
 
