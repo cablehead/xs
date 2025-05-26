@@ -41,8 +41,9 @@ Generators emit lifecycle events to track their state:
 | `<topic>.recv`        | Output value from the generator         |
 | `<topic>.stop` | Generator pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate` and `update`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the generator loop for this topic/context will shut down. `update` indicates the generator reloaded due to a new `.spawn` frame. |
 | `<topic>.parse.error` | Script failed to parse |
+| `<topic>.shutdown` | Generator loop has fully exited; ServeLoop evicts it |
 
-All events include `source_id` which is the ID of the generator instance. When a `.stop` frame has `meta.reason` set to `update`, it also includes `update_id` referencing the spawn that triggered the reload.
+All events include `source_id` which is the ID of the generator instance. When a `.stop` frame has `meta.reason` set to `update`, it also includes `update_id` referencing the spawn that triggered the reload. ServeLoop evicts a generator when it receives a `<topic>.shutdown` frame.
 
 ## Configuration Options
 
