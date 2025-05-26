@@ -68,14 +68,15 @@ pub enum StopReason {
 pub(crate) fn emit_event(
     store: &Store,
     loop_ctx: &GeneratorLoop,
-    task: &Task,
+    source_id: Scru128Id,
+    return_opts: Option<&ReturnOptions>,
     kind: GeneratorEventKind,
 ) -> Result<GeneratorEvent, Box<dyn std::error::Error + Send + Sync>> {
     match &kind {
         GeneratorEventKind::Start => {
             store.append(
                 Frame::builder(format!("{}.start", loop_ctx.topic), loop_ctx.context_id)
-                    .meta(json!({ "source_id": task.id.to_string() }))
+                    .meta(json!({ "source_id": source_id.to_string() }))
                     .build(),
             )?;
         }
@@ -88,8 +89,8 @@ pub(crate) fn emit_event(
                     loop_ctx.context_id,
                 )
                 .hash(hash)
-                .maybe_ttl(task.return_options.as_ref().and_then(|o| o.ttl.clone()))
-                .meta(json!({ "source_id": task.id.to_string() }))
+                .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
+                .meta(json!({ "source_id": source_id.to_string() }))
                 .build(),
             )?;
         }
@@ -98,7 +99,7 @@ pub(crate) fn emit_event(
             store.append(
                 Frame::builder(format!("{}.stop", loop_ctx.topic), loop_ctx.context_id)
                     .meta(json!({
-                        "source_id": task.id.to_string(),
+                        "source_id": source_id.to_string(),
                         "reason": stop_reason_str(reason),
                         "update_id": match reason { StopReason::Update {update_id} => update_id.to_string(), _ => String::new() }
                     }))
@@ -113,7 +114,7 @@ pub(crate) fn emit_event(
                     loop_ctx.context_id,
                 )
                 .meta(json!({
-                    "source_id": task.id.to_string(),
+                    "source_id": source_id.to_string(),
                     "reason": message,
                 }))
                 .build(),
@@ -123,16 +124,13 @@ pub(crate) fn emit_event(
         GeneratorEventKind::Shutdown => {
             store.append(
                 Frame::builder(format!("{}.shutdown", loop_ctx.topic), loop_ctx.context_id)
-                    .meta(json!({ "source_id": task.id.to_string() }))
+                    .meta(json!({ "source_id": source_id.to_string() }))
                     .build(),
             )?;
         }
     }
 
-    Ok(GeneratorEvent {
-        source_id: task.id,
-        kind,
-    })
+    Ok(GeneratorEvent { source_id, kind })
 }
 
 fn stop_reason_str(r: &StopReason) -> &'static str {
@@ -175,20 +173,11 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
     let nu_config = match nu::parse_config(&mut engine, &script) {
         Ok(cfg) => cfg,
         Err(e) => {
-            let dummy_task = Task {
-                id: spawn_frame.id,
-                run_closure: nu_protocol::engine::Closure {
-                    block_id: nu_protocol::Id::new(0),
-                    captures: vec![],
-                },
-                return_options: None,
-                duplex: false,
-                engine,
-            };
             let _ = emit_event(
                 &store,
                 &loop_ctx,
-                &dummy_task,
+                spawn_frame.id,
+                None,
                 GeneratorEventKind::ParseError {
                     message: e.to_string(),
                 },
@@ -215,7 +204,13 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
 
 async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristine: nu::Engine) {
     // Create the first start frame and set up a persistent control subscription
-    let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Start);
+    let _ = emit_event(
+        &store,
+        &loop_ctx,
+        task.id,
+        task.return_options.as_ref(),
+        GeneratorEventKind::Start,
+    );
     let start_frame = store
         .head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id)
         .expect("start frame");
@@ -297,17 +292,11 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                                                 break;
                                             }
                                             Err(e) => {
-                                                let dummy_task = Task {
-                                                    id: frame.id,
-                                                    run_closure: nu_protocol::engine::Closure { block_id: nu_protocol::Id::new(0), captures: vec![] },
-                                                    return_options: None,
-                                                    duplex: false,
-                                                    engine: new_engine,
-                                                };
                                                 let _ = emit_event(
                                                     &store,
                                                     &loop_ctx,
-                                                    &dummy_task,
+                                                    frame.id,
+                                                    None,
                                                     GeneratorEventKind::ParseError { message: e.to_string() },
                                                 );
                                             }
@@ -336,11 +325,18 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         let _ = emit_event(
             &store,
             &loop_ctx,
-            &task,
+            task.id,
+            task.return_options.as_ref(),
             GeneratorEventKind::Stop(reason.clone()),
         );
         if matches!(reason, StopReason::Terminate) || matches!(reason, StopReason::Error { .. }) {
-            let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Shutdown);
+            let _ = emit_event(
+                &store,
+                &loop_ctx,
+                task.id,
+                task.return_options.as_ref(),
+                GeneratorEventKind::Shutdown,
+            );
             break;
         } else if let StopReason::Update { .. } = reason {
             if let Some(nt) = next_task.take() {
@@ -348,7 +344,13 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             }
         }
 
-        let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Start);
+        let _ = emit_event(
+            &store,
+            &loop_ctx,
+            task.id,
+            task.return_options.as_ref(),
+            GeneratorEventKind::Start,
+        );
         if let Some(f) = store.head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id) {
             start_id = f.id;
         }
@@ -438,7 +440,8 @@ fn spawn_thread(
                                 let _ = emit_event(
                                     &store,
                                     &loop_ctx,
-                                    &task,
+                                    task.id,
+                                    task.return_options.as_ref(),
                                     GeneratorEventKind::Recv {
                                         suffix: suffix.clone(),
                                         data: val.into_bytes(),
@@ -459,7 +462,8 @@ fn spawn_thread(
                                     let _ = emit_event(
                                         &store,
                                         &loop_ctx,
-                                        &task,
+                                        task.id,
+                                        task.return_options.as_ref(),
                                         GeneratorEventKind::Recv {
                                             suffix: suffix.clone(),
                                             data: val.into_bytes(),
@@ -486,7 +490,8 @@ fn spawn_thread(
                                             let _ = emit_event(
                                                 &store,
                                                 &loop_ctx,
-                                                &task,
+                                                task.id,
+                                                task.return_options.as_ref(),
                                                 GeneratorEventKind::Recv {
                                                     suffix: suffix.clone(),
                                                     data: chunk.to_vec(),
