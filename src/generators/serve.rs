@@ -24,7 +24,7 @@ async fn try_start_task(
         });
 
         if let Err(e) = store.append(
-            Frame::builder(format!("{}.spawn.error", topic), frame.context_id)
+            Frame::builder(format!("{}.parse.error", topic), frame.context_id)
                 .meta(meta)
                 .build(),
         ) {
@@ -71,10 +71,10 @@ pub async fn serve(
         if frame.topic == "xs.threshold" {
             break;
         }
-        if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".spawn.error") {
+        if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".parse.error") {
             if let Some(prefix) = frame
                 .topic
-                .strip_suffix(".spawn.error")
+                .strip_suffix(".parse.error")
                 .or_else(|| frame.topic.strip_suffix(".spawn"))
             {
                 compacted.insert((prefix.to_string(), frame.context_id), frame);
@@ -96,8 +96,8 @@ pub async fn serve(
             continue;
         }
 
-        if let Some(_prefix) = frame.topic.strip_suffix(".spawn.error") {
-            // spawn.error frames are informational; ignore them
+        if let Some(_prefix) = frame.topic.strip_suffix(".parse.error") {
+            // parse.error frames are informational; ignore them
             continue;
         }
 
@@ -108,7 +108,7 @@ pub async fn serve(
                 .and_then(|m| m.get("reason"))
                 .and_then(|v| v.as_str())
             {
-                if reason == "terminate" || reason == "spawn.error" {
+                if reason == "terminate" || reason == "error" {
                     let key = (prefix.to_string(), frame.context_id);
                     active.remove(&key);
                 }
