@@ -9,7 +9,8 @@ use tokio::io::AsyncReadExt;
 
 use crate::nu;
 use crate::nu::ReturnOptions;
-use crate::store::{FollowOption, Frame, ReadOptions, Store, TTL};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use serde_json::json;
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct GeneratorScriptOptions {
@@ -19,31 +20,121 @@ pub struct GeneratorScriptOptions {
 
 #[derive(Clone)]
 pub struct GeneratorLoop {
-    pub id: Scru128Id,
-    pub context_id: Scru128Id,
     pub topic: String,
-    pub duplex: bool,
-    pub return_options: Option<ReturnOptions>,
-    pub engine: nu::Engine,
+    pub context_id: Scru128Id,
+}
+
+#[derive(Clone)]
+pub struct Task {
+    pub id: Scru128Id,
     pub run_closure: nu_protocol::engine::Closure,
+    pub return_options: Option<ReturnOptions>,
+    pub duplex: bool,
+    pub engine: nu::Engine,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StopReason {
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone)]
+pub enum GeneratorEventKind {
+    Start,
+    /// output frame flushed; payload is raw bytes
+    Recv {
+        suffix: String,
+        data: Vec<u8>,
+    },
+    Stop(StopReason),
+    ParseError {
+        message: String,
+    },
+    Shutdown,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone)]
+pub struct GeneratorEvent {
+    pub source_id: Scru128Id,
+    pub kind: GeneratorEventKind,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone)]
+pub enum StopReason {
     Finished,
-    Error,
+    Error { message: String },
     Terminate,
-    Update,
+    Update { update_id: Scru128Id },
 }
 
-impl StopReason {
-    fn as_str(&self) -> &'static str {
-        match self {
-            StopReason::Finished => "finished",
-            StopReason::Error => "error",
-            StopReason::Terminate => "terminate",
-            StopReason::Update => "update",
+pub(crate) fn emit_event(
+    store: &Store,
+    loop_ctx: &GeneratorLoop,
+    task: &Task,
+    kind: GeneratorEventKind,
+) -> Result<GeneratorEvent, Box<dyn std::error::Error + Send + Sync>> {
+    match &kind {
+        GeneratorEventKind::Start => {
+            store.append(
+                Frame::builder(format!("{}.start", loop_ctx.topic), loop_ctx.context_id)
+                    .meta(json!({ "source_id": task.id.to_string() }))
+                    .build(),
+            )?;
         }
+
+        GeneratorEventKind::Recv { suffix, data } => {
+            let hash = store.cas_insert_bytes_sync(data)?;
+            store.append(
+                Frame::builder(
+                    format!("{}.{}", loop_ctx.topic, suffix),
+                    loop_ctx.context_id,
+                )
+                .hash(hash)
+                .maybe_ttl(task.return_options.as_ref().and_then(|o| o.ttl.clone()))
+                .meta(json!({ "source_id": task.id.to_string() }))
+                .build(),
+            )?;
+        }
+
+        GeneratorEventKind::Stop(reason) => {
+            store.append(
+                Frame::builder(format!("{}.stop", loop_ctx.topic), loop_ctx.context_id)
+                    .meta(json!({
+                        "source_id": task.id.to_string(),
+                        "reason": stop_reason_str(reason),
+                        "update_id": match reason { StopReason::Update {update_id} => update_id.to_string(), _ => String::new() }
+                    }))
+                    .build(),
+            )?;
+        }
+
+        GeneratorEventKind::ParseError { message } => {
+            store.append(
+                Frame::builder(
+                    format!("{}.parse.error", loop_ctx.topic),
+                    loop_ctx.context_id,
+                )
+                .meta(json!({
+                    "source_id": task.id.to_string(),
+                    "reason": message,
+                }))
+                .build(),
+            )?;
+        }
+
+        GeneratorEventKind::Shutdown => { /* no frame */ }
+    }
+
+    Ok(GeneratorEvent {
+        source_id: task.id,
+        kind,
+    })
+}
+
+fn stop_reason_str(r: &StopReason) -> &'static str {
+    match r {
+        StopReason::Finished => "finished",
+        StopReason::Error { .. } => "error",
+        StopReason::Terminate => "terminate",
+        StopReason::Update { .. } => "update",
     }
 }
 
@@ -66,34 +157,36 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
         return;
     }
 
+    let loop_ctx = GeneratorLoop {
+        topic: spawn_frame
+            .topic
+            .strip_suffix(".spawn")
+            .unwrap_or(&spawn_frame.topic)
+            .to_string(),
+        context_id: spawn_frame.context_id,
+    };
+
     let nu_config = match nu::parse_config(&mut engine, &script) {
         Ok(cfg) => cfg,
         Err(e) => {
-            let topic = spawn_frame
-                .topic
-                .strip_suffix(".spawn")
-                .unwrap_or(&spawn_frame.topic);
-            let meta = serde_json::json!({
-                "source_id": spawn_frame.id.to_string(),
-                "reason": e.to_string(),
-            });
-            if let Err(err) = store.append(
-                Frame::builder(format!("{}.spawn.error", topic), spawn_frame.context_id)
-                    .meta(meta)
-                    .build(),
-            ) {
-                tracing::error!("Error appending spawn error frame: {}", err);
-            }
-            // emit a corresponding stop frame so ServeLoop can evict the failed generator
-            let stop_frame = Frame::builder(format!("{}.stop", topic), spawn_frame.context_id)
-                .meta(serde_json::json!({
-                    "source_id": spawn_frame.id.to_string(),
-                    "reason": "spawn.error"
-                }))
-                .build();
-            if let Err(err) = store.append(stop_frame) {
-                tracing::error!("Error appending stop frame after spawn error: {}", err);
-            }
+            let dummy_task = Task {
+                id: spawn_frame.id,
+                run_closure: nu_protocol::engine::Closure {
+                    block_id: nu_protocol::Id::new(0),
+                    captures: vec![],
+                },
+                return_options: None,
+                duplex: false,
+                engine,
+            };
+            let _ = emit_event(
+                &store,
+                &loop_ctx,
+                &dummy_task,
+                GeneratorEventKind::ParseError {
+                    message: e.to_string(),
+                },
+            );
             return;
         }
     };
@@ -103,33 +196,29 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
     let interrupt = Arc::new(AtomicBool::new(false));
     engine.state.set_signals(Signals::new(interrupt.clone()));
 
-    let task = GeneratorLoop {
+    let task = Task {
         id: spawn_frame.id,
-        context_id: spawn_frame.context_id,
-        topic: spawn_frame
-            .topic
-            .strip_suffix(".spawn")
-            .unwrap_or(&spawn_frame.topic)
-            .to_string(),
-        duplex: opts.duplex.unwrap_or(false),
-        return_options: opts.return_options,
-        engine,
         run_closure: nu_config.run_closure,
+        return_options: opts.return_options,
+        duplex: opts.duplex.unwrap_or(false),
+        engine,
     };
 
-    run_loop(store, task, pristine).await;
+    run_loop(store, loop_ctx, task, pristine).await;
 }
 
-async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
+async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristine: nu::Engine) {
     // Create the first start frame and set up a persistent control subscription
-    let mut start = append(&store, &task, "start", None, None, None, None)
-        .await
-        .expect("append start");
+    let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Start);
+    let start_frame = store
+        .head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id)
+        .expect("start frame");
+    let mut start_id = start_frame.id;
 
     let control_rx_options = ReadOptions::builder()
         .follow(FollowOption::On)
-        .last_id(start.id)
-        .context_id(task.context_id)
+        .last_id(start_id)
+        .context_id(loop_ctx.context_id)
         .build();
 
     let mut control_rx = store.read(control_rx_options).await;
@@ -138,22 +227,27 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
         let input_pipeline = if task.duplex {
             let options = ReadOptions::builder()
                 .follow(FollowOption::On)
-                .last_id(start.id)
-                .context_id(task.context_id)
+                .last_id(start_id)
+                .context_id(loop_ctx.context_id)
                 .build();
             let send_rx = store.read(options).await;
-            build_input_pipeline(store.clone(), &task, send_rx).await
+            build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx).await
         } else {
             PipelineData::empty()
         };
 
         let (done_tx, done_rx) = tokio::sync::oneshot::channel();
-        spawn_thread(store.clone(), task.clone(), input_pipeline, done_tx);
+        spawn_thread(
+            store.clone(),
+            loop_ctx.clone(),
+            task.clone(),
+            input_pipeline,
+            done_tx,
+        );
 
-        let terminate_topic = format!("{}.terminate", task.topic);
-        let spawn_topic = format!("{}.spawn", task.topic);
-        let mut update_id = None;
-        let mut next_task: Option<GeneratorLoop> = None;
+        let terminate_topic = format!("{}.terminate", loop_ctx.topic);
+        let spawn_topic = format!("{}.spawn", loop_ctx.topic);
+        let mut next_task: Option<Task> = None;
         #[allow(unused_assignments)]
         let mut reason = StopReason::Finished;
         tokio::pin!(done_rx);
@@ -185,32 +279,30 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
                                                 task.engine.kill_job_by_name(&task.id.to_string());
                                                 let _ = (&mut done_rx).await;
 
-                                                reason = StopReason::Update;
-                                                update_id = Some(frame.id);
+                                                reason = StopReason::Update { update_id: frame.id };
 
-                                                next_task = Some(GeneratorLoop {
+                                                next_task = Some(Task {
                                                     id: frame.id,
-                                                    context_id: task.context_id,
-                                                    topic: task.topic.clone(),
-                                                    duplex: opts.duplex.unwrap_or(false),
-                                                    return_options: opts.return_options,
-                                                    engine: new_engine,
                                                     run_closure: cfg.run_closure,
+                                                    return_options: opts.return_options,
+                                                    duplex: opts.duplex.unwrap_or(false),
+                                                    engine: new_engine,
                                                 });
                                                 break;
                                             }
                                             Err(e) => {
-                                                let meta = serde_json::json!({
-                                                    "source_id": frame.id.to_string(),
-                                                    "reason": e.to_string(),
-                                                });
-                                                let _ = store.append(
-                                                    Frame::builder(
-                                                        format!("{}.spawn.error", task.topic),
-                                                        frame.context_id,
-                                                    )
-                                                    .meta(meta)
-                                                    .build(),
+                                                let dummy_task = Task {
+                                                    id: frame.id,
+                                                    run_closure: nu_protocol::engine::Closure { block_id: nu_protocol::Id::new(0), captures: vec![] },
+                                                    return_options: None,
+                                                    duplex: false,
+                                                    engine: new_engine,
+                                                };
+                                                let _ = emit_event(
+                                                    &store,
+                                                    &loop_ctx,
+                                                    &dummy_task,
+                                                    GeneratorEventKind::ParseError { message: e.to_string() },
                                                 );
                                             }
                                         }
@@ -220,7 +312,7 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
                         }
                         Some(_) => {}
                         None => {
-                            reason = StopReason::Error;
+                            reason = StopReason::Error { message: "control".into() };
                             break;
                         }
                     }
@@ -228,43 +320,50 @@ async fn run_loop(store: Store, mut task: GeneratorLoop, pristine: nu::Engine) {
                 res = &mut done_rx => {
                     reason = match res.unwrap_or(Err("thread failed".into())) {
                         Ok(()) => StopReason::Finished,
-                        Err(_) => StopReason::Error,
+                        Err(e) => StopReason::Error { message: e },
                     };
                     break;
                 }
             }
         }
 
-        let _ = append(
+        let _ = emit_event(
             &store,
+            &loop_ctx,
             &task,
-            "stop",
-            None,
-            None,
-            Some(reason.as_str()),
-            update_id,
-        )
-        .await;
+            GeneratorEventKind::Stop(reason.clone()),
+        );
         if matches!(reason, StopReason::Terminate) {
             break;
-        } else if matches!(reason, StopReason::Update) {
+        } else if let StopReason::Update { .. } = reason {
             if let Some(nt) = next_task.take() {
                 task = nt;
             }
         }
 
-        start = append(&store, &task, "start", None, None, None, None)
-            .await
-            .expect("append start");
+        let _ = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Start);
+        if let Some(f) = store.head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id) {
+            start_id = f.id;
+        }
+        control_rx = store
+            .read(
+                ReadOptions::builder()
+                    .follow(FollowOption::On)
+                    .last_id(start_id)
+                    .context_id(loop_ctx.context_id)
+                    .build(),
+            )
+            .await;
     }
 }
 
 async fn build_input_pipeline(
     store: Store,
-    task: &GeneratorLoop,
+    loop_ctx: &GeneratorLoop,
+    task: &Task,
     rx: tokio::sync::mpsc::Receiver<Frame>,
 ) -> PipelineData {
-    let topic = format!("{}.send", task.topic);
+    let topic = format!("{}.send", loop_ctx.topic);
     let signals = task.engine.state.signals().clone();
     let mut rx = rx;
     let iter = std::iter::from_fn(move || loop {
@@ -305,7 +404,8 @@ async fn build_input_pipeline(
 
 fn spawn_thread(
     store: Store,
-    mut task: GeneratorLoop,
+    loop_ctx: GeneratorLoop,
+    mut task: Task,
     input_pipeline: PipelineData,
     done_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
 ) {
@@ -327,18 +427,16 @@ fn spawn_thread(
                                 .as_ref()
                                 .and_then(|o| o.suffix.clone())
                                 .unwrap_or_else(|| "recv".into());
-                            let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                             handle.block_on(async {
-                                let _ = append(
+                                let _ = emit_event(
                                     &store,
+                                    &loop_ctx,
                                     &task,
-                                    &suffix,
-                                    ttl,
-                                    Some(val.clone()),
-                                    None,
-                                    None,
-                                )
-                                .await;
+                                    GeneratorEventKind::Recv {
+                                        suffix: suffix.clone(),
+                                        data: val.into_bytes(),
+                                    },
+                                );
                             });
                         }
                     }
@@ -350,11 +448,16 @@ fn spawn_thread(
                                     .as_ref()
                                     .and_then(|o| o.suffix.clone())
                                     .unwrap_or_else(|| "recv".into());
-                                let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                                 handle.block_on(async {
-                                    let _ =
-                                        append(&store, &task, &suffix, ttl, Some(val), None, None)
-                                            .await;
+                                    let _ = emit_event(
+                                        &store,
+                                        &loop_ctx,
+                                        &task,
+                                        GeneratorEventKind::Recv {
+                                            suffix: suffix.clone(),
+                                            data: val.into_bytes(),
+                                        },
+                                    );
                                 });
                             }
                         }
@@ -366,7 +469,6 @@ fn spawn_thread(
                                 .as_ref()
                                 .and_then(|o| o.suffix.clone())
                                 .unwrap_or_else(|| "recv".into());
-                            let ttl = task.return_options.as_ref().and_then(|o| o.ttl.clone());
                             let mut buf = [0u8; 8192];
                             loop {
                                 match reader.read(&mut buf) {
@@ -374,14 +476,15 @@ fn spawn_thread(
                                     Ok(n) => {
                                         let chunk = &buf[..n];
                                         handle.block_on(async {
-                                            let _ = append_bytes(
+                                            let _ = emit_event(
                                                 &store,
+                                                &loop_ctx,
                                                 &task,
-                                                &suffix,
-                                                ttl.clone(),
-                                                chunk,
-                                            )
-                                            .await;
+                                                GeneratorEventKind::Recv {
+                                                    suffix: suffix.clone(),
+                                                    data: chunk.to_vec(),
+                                                },
+                                            );
                                         });
                                     }
                                     Err(_) => break,
@@ -397,62 +500,4 @@ fn spawn_thread(
 
         let _ = done_tx.send(res);
     });
-}
-
-async fn append(
-    store: &Store,
-    task: &GeneratorLoop,
-    suffix: &str,
-    ttl: Option<TTL>,
-    content: Option<String>,
-    reason: Option<&str>,
-    update_id: Option<Scru128Id>,
-) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
-    let hash = if let Some(content) = content {
-        Some(store.cas_insert(&content).await?)
-    } else {
-        None
-    };
-
-    let mut meta = serde_json::json!({
-        "source_id": task.id.to_string(),
-    });
-    if let Some(r) = reason {
-        meta["reason"] = serde_json::Value::String(r.to_string());
-    }
-    if let Some(id) = update_id {
-        meta["update_id"] = serde_json::Value::String(id.to_string());
-    }
-
-    let frame = store.append(
-        Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
-            .maybe_hash(hash)
-            .maybe_ttl(ttl)
-            .meta(meta)
-            .build(),
-    )?;
-    Ok(frame)
-}
-
-async fn append_bytes(
-    store: &Store,
-    task: &GeneratorLoop,
-    suffix: &str,
-    ttl: Option<TTL>,
-    bytes: &[u8],
-) -> Result<Frame, Box<dyn std::error::Error + Send + Sync>> {
-    let hash = store.cas_insert_bytes(bytes).await?;
-
-    let meta = serde_json::json!({
-        "source_id": task.id.to_string(),
-    });
-
-    let frame = store.append(
-        Frame::builder(format!("{}.{}", task.topic, suffix), task.context_id)
-            .hash(hash)
-            .maybe_ttl(ttl)
-            .meta(meta)
-            .build(),
-    )?;
-    Ok(frame)
 }

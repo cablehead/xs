@@ -1,4 +1,8 @@
 use super::*;
+use crate::generators::generator::emit_event;
+use crate::nu::ReturnOptions;
+use nu_protocol;
+use scru128::{self, Scru128Id};
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -587,18 +591,15 @@ async fn test_spawn_error_eviction() {
     let mut recver = store.read(options).await;
 
     let err_frame = recver.recv().await.unwrap();
-    assert_eq!(err_frame.topic, "oops.spawn.error");
+    assert_eq!(err_frame.topic, "oops.parse.error");
     println!(
         "first error reason: {}",
         err_frame.meta.as_ref().unwrap()["reason"]
     );
 
-    // expect a stop frame indicating the spawn error
-    let stop_frame = recver.recv().await.unwrap();
-    assert_eq!(stop_frame.topic, "oops.stop");
-    assert_eq!(stop_frame.meta.as_ref().unwrap()["reason"], "spawn.error");
+    // no stop frame should be emitted on parse error
 
-    // Allow ServeLoop to process the spawn.error and evict the generator
+    // Allow ServeLoop to process the parse.error and evict the generator
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let good_script = r#"{ run: {|| "ok" } }"#;
@@ -612,7 +613,7 @@ async fn test_spawn_error_eviction() {
 
     let frame = recver.recv().await.unwrap();
     println!("after respawn got: {}", frame.topic);
-    if frame.topic == "oops.spawn.error" {
+    if frame.topic == "oops.parse.error" {
         println!("respawn error reason: {}", frame.meta.unwrap()["reason"]);
     }
     assert_eq!(frame.topic, "oops.spawn");
@@ -816,4 +817,55 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
              println!("No unexpected frames received.");
         }
     }
+}
+
+#[test]
+fn test_emit_event_helper() {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.into_path());
+    let engine = nu::Engine::new().unwrap();
+    let loop_ctx = GeneratorLoop {
+        topic: "helper".into(),
+        context_id: ZERO_CONTEXT,
+    };
+    let task = Task {
+        id: scru128::new(),
+        run_closure: nu_protocol::engine::Closure {
+            block_id: nu_protocol::Id::new(0),
+            captures: vec![],
+        },
+        return_options: Some(ReturnOptions {
+            suffix: Some("data".into()),
+            ttl: None,
+        }),
+        duplex: false,
+        engine,
+    };
+
+    let ev = emit_event(&store, &loop_ctx, &task, GeneratorEventKind::Start).unwrap();
+    assert!(matches!(ev.kind, GeneratorEventKind::Start));
+
+    let ev = emit_event(
+        &store,
+        &loop_ctx,
+        &task,
+        GeneratorEventKind::Recv {
+            suffix: "data".into(),
+            data: b"hi".to_vec(),
+        },
+    )
+    .unwrap();
+    assert!(matches!(ev.kind, GeneratorEventKind::Recv { .. }));
+    let frame = store.head("helper.data", ZERO_CONTEXT).unwrap();
+    let bytes = store.cas_read_sync(&frame.hash.unwrap());
+    assert_eq!(bytes.unwrap(), b"hi".to_vec());
+
+    let ev = emit_event(
+        &store,
+        &loop_ctx,
+        &task,
+        GeneratorEventKind::Stop(StopReason::Finished),
+    )
+    .unwrap();
+    assert!(matches!(ev.kind, GeneratorEventKind::Stop(_)));
 }
