@@ -141,6 +141,19 @@ mod tests_read_options {
                     .build(),
                 reencoded: None,
             },
+            TestCase {
+                input: Some("topic=foo"),
+                expected: ReadOptions::builder().topic("foo".to_string()).build(),
+                reencoded: None,
+            },
+            TestCase {
+                input: Some("follow&topic=foo"),
+                expected: ReadOptions::builder()
+                    .follow(FollowOption::On)
+                    .topic("foo".to_string())
+                    .build(),
+                reencoded: Some("follow=true&topic=foo"),
+            },
         ];
 
         for case in &test_cases {
@@ -1009,6 +1022,63 @@ mod tests_context {
 
         let frames2: Vec<_> = store.read_sync(None, None, Some(ctx2)).collect();
         assert_eq!(frames2, vec![frame2], "Should only return frames from ctx2");
+    }
+
+    #[tokio::test]
+    async fn test_topic_filter_historical() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        let foo1 = store
+            .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .unwrap();
+        let _bar1 = store
+            .append(Frame::builder("bar", ZERO_CONTEXT).build())
+            .unwrap();
+        let foo2 = store
+            .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .unwrap();
+
+        let options = ReadOptions::builder()
+            .topic("foo".to_string())
+            .context_id(ZERO_CONTEXT)
+            .build();
+        let rx = store.read(options).await;
+        let frames: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        assert_eq!(frames, vec![foo1, foo2]);
+    }
+
+    #[tokio::test]
+    async fn test_topic_filter_live() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.into_path());
+
+        let foo1 = store
+            .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .unwrap();
+        let _bar1 = store
+            .append(Frame::builder("bar", ZERO_CONTEXT).build())
+            .unwrap();
+
+        let options = ReadOptions::builder()
+            .topic("foo".to_string())
+            .context_id(ZERO_CONTEXT)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        assert_eq!(rx.recv().await, Some(foo1));
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold".to_string());
+
+        let foo2 = store
+            .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .unwrap();
+        let _bar2 = store
+            .append(Frame::builder("bar", ZERO_CONTEXT).build())
+            .unwrap();
+
+        assert_eq!(rx.recv().await, Some(foo2));
     }
 }
 

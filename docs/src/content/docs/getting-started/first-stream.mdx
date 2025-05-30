@@ -224,14 +224,13 @@ Finally, let's pull a list of all our notes.
 
 <TabItem label="nushell">
 
-We can use `where` to filter the stream for only the `notes` topic, and then use
-the `each` command to pull out the content of each note:
+We can filter directly by topic using `--topic` and then use the `each` command to pull out the content of each note:
 
 ```nushell withOutput
-> .cat | where topic == "notes" | each {.cas}
+> .cat --topic notes | each {.cas}
 ───┬───────────────────
- 0 │ a quick note
- 1 │ submit TPS report
+0 │ a quick note
+1 │ submit TPS report
 ───┴───────────────────
 ```
 
@@ -242,7 +241,7 @@ Fun! 🎉
 <TabItem label="bash">
 
 ```bash withOutput
-> xs cat ./store | jq -r 'select(.topic == "notes") | .hash' | xargs -I{} xs cas ./store {}
+> xs cat ./store --topic notes | jq -r .hash | xargs -I{} xs cas ./store {}
 a quick note
 submit TPS report
 ```

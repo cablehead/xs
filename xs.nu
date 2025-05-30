@@ -71,6 +71,7 @@ def _cat [options: record] {
     (if $options.limit? != null { ["--limit" $options.limit] })
     (if $options.pulse? != null { ["--pulse" $options.pulse] })
     (if $options.context? != null { ["--context" $options.context] })
+    (if $options.topic? != null { ["--topic" $options.topic] })
   ] | compact | flatten
 
   xs cat (xs-addr) ...$params | lines | each {|x| $x | from json }
@@ -85,6 +86,7 @@ export def .cat [
   --limit: int
   --context (-c): string # the context to read from
   --all (-a) # cat across all contexts
+  --topic (-T): string # filter by topic
 ] {
   _cat {
     follow: $follow
@@ -94,6 +96,7 @@ export def .cat [
     limit: $limit
     context: (if not $all { (xs-context $context (metadata $context).span) })
     all: $all
+    topic: $topic
   } | conditional-pipe (not ($detail or $all)) { each { reject context_id ttl } }
 }
 
