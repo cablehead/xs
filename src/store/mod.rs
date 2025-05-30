@@ -95,6 +95,7 @@ pub struct ReadOptions {
     pub limit: Option<usize>,
     #[serde(rename = "context-id")]
     pub context_id: Option<Scru128Id>,
+    pub topic: Option<String>,
 }
 
 impl ReadOptions {
@@ -134,6 +135,10 @@ impl ReadOptions {
         // Add limit if present
         if let Some(limit) = self.limit {
             params.push(("limit", limit.to_string()));
+        }
+
+        if let Some(topic) = &self.topic {
+            params.push(("topic", topic.clone()));
         }
 
         // Return empty string if no params
@@ -267,7 +272,13 @@ impl Store {
                 let mut last_id = None;
                 let mut count = 0;
 
-                for frame in store.iter_frames(options.context_id, options.last_id.as_ref()) {
+                let iter: Box<dyn Iterator<Item = Frame>> = if let Some(ref topic) = options.topic {
+                    store.iter_frames_by_topic(options.context_id, topic, options.last_id.as_ref())
+                } else {
+                    store.iter_frames(options.context_id, options.last_id.as_ref())
+                };
+
+                for frame in iter {
                     if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                         if is_expired(&frame.id, ttl) {
                             let _ = gc_tx.send(GCTask::Remove(frame.id));
@@ -331,6 +342,12 @@ impl Store {
                         // Skip frames that do not match the context_id
                         if let Some(context_id) = options.context_id {
                             if frame.context_id != context_id {
+                                continue;
+                            }
+                        }
+
+                        if let Some(ref topic) = options.topic {
+                            if frame.topic != *topic {
                                 continue;
                             }
                         }
@@ -577,6 +594,41 @@ impl Store {
                         .map(|r| deserialize_frame(r.unwrap())),
                 )
             }
+        }
+    }
+
+    fn iter_frames_by_topic<'a>(
+        &'a self,
+        context_id: Option<Scru128Id>,
+        topic: &'a str,
+        last_id: Option<&'a Scru128Id>,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        if let Some(ctx_id) = context_id {
+            let prefix = idx_topic_key_prefix(ctx_id, topic);
+            Box::new(self.idx_topic.prefix(prefix).filter_map(move |r| {
+                let (key, _) = r.ok()?;
+                let frame_id = idx_topic_frame_id_from_key(&key);
+                if let Some(last) = last_id {
+                    if frame_id <= *last {
+                        return None;
+                    }
+                }
+                self.get(&frame_id)
+            }))
+        } else {
+            let range = match last_id {
+                Some(id) => (Bound::Excluded(id.as_bytes().to_vec()), Bound::Unbounded),
+                None => (Bound::Unbounded, Bound::Unbounded),
+            };
+
+            Box::new(self.frame_partition.range(range).filter_map(move |r| {
+                let frame = deserialize_frame(r.unwrap());
+                if frame.topic == topic {
+                    Some(frame)
+                } else {
+                    None
+                }
+            }))
         }
     }
 }

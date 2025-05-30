@@ -92,6 +92,10 @@ struct CommandCat {
     /// Retrieve all frames, across contexts
     #[clap(long, short = 'a')]
     all: bool,
+
+    /// Filter by topic
+    #[clap(long = "topic", short = 'T')]
+    topic: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -272,6 +276,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .maybe_last_id(last_id)
         .maybe_limit(args.limit.map(|l| l as usize))
         .maybe_context_id(context_id)
+        .maybe_topic(args.topic.clone())
         .build();
     let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
     let mut stdout = tokio::io::stdout();
