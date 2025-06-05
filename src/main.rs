@@ -580,14 +580,6 @@ fn find_paths() -> Result<(PathBuf, PathBuf), String> {
 
     let auto_candidates: Vec<PathBuf> = {
         let mut v = Vec::new();
-        if let Some(conf) = config_dir() {
-            v.push(
-                conf.join("nushell")
-                    .join("vendor")
-                    .join("autoload")
-                    .join("xs-use.nu"),
-            );
-        }
         for dir in nu_vendor_autoload_dirs() {
             v.push(dir.join("xs-use.nu"));
         }
