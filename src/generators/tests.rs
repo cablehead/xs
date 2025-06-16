@@ -3,7 +3,7 @@ use crate::generators::generator::emit_event;
 use crate::nu::ReturnOptions;
 use nu_protocol;
 use scru128;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 use crate::nu;
@@ -488,12 +488,17 @@ async fn test_serve_restart_until_terminated() {
     // first iteration
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.start");
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
+    let t_before_stop = Instant::now();
     let stop1 = recver.recv().await.unwrap();
     assert_eq!(stop1.topic, "restarter.stop");
     assert_eq!(stop1.meta.unwrap()["reason"], "finished");
 
     // second iteration should happen automatically
-    assert_eq!(recver.recv().await.unwrap().topic, "restarter.start");
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let start2 = recver.recv().await.unwrap();
+    let t_after_start = Instant::now();
+    assert_eq!(start2.topic, "restarter.start");
+    assert!(t_after_start.duration_since(t_before_stop) >= Duration::from_secs(1));
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
 
     store

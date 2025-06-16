@@ -77,7 +77,7 @@ A command might:
 | Execution        | Continuous background process        | Event-driven                  | Called on-demand             |
 | State            | Stateless                            | Maintains state between calls | Stateless                    |
 | Output           | Immediate streaming                  | Buffered until completion     | Immediate streaming          |
-| Error Handling   | Auto-restarts                        | Unregisters                   | Per-invocation               |
+| Error Handling   | Auto-restarts (with a 1-second delay) | Unregisters          | Per-invocation               |
 | Typical Use Case | Watch external sources               | Transform/react to events     | Reusable operations          |
 
 ## Incremental Adoption

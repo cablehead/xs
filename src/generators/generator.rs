@@ -5,6 +5,7 @@ use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Signals, Span, Value
 use std::io::Read;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
 
 use crate::nu;
@@ -357,6 +358,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
 
         match outcome {
             LoopOutcome::Continue => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
                 let _ = emit_event(
                     &store,
                     &loop_ctx,
