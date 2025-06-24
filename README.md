@@ -1,6 +1,6 @@
 # xs (cross-stream) [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml) [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
 
-<img src="https://github.com/user-attachments/assets/12c9cce5-44ab-4a64-ab1c-d83bf6c28cad" alt="Pixel art heroes cross proton streams, saving gritty, shadowy Toronto street beneath glowing CN Tower backdrop.">
+<img src="https://github.com/user-attachments/assets/f0c019ad-885d-4837-b72b-ef6ff1f85c0f" alt="Pixel art heroes cross proton streams, saving gritty, shadowy Toronto street beneath glowing CN Tower backdrop.">
 
 ---
 
