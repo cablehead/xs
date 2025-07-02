@@ -182,9 +182,10 @@ struct CommandGet {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .expect("failed to install default rustls CryptoProvider");
+    nu_command::tls::CRYPTO_PROVIDER
+        .default()
+        .then_some(())
+        .expect("failed to set nu_command crypto provider");
 
     let args = Args::parse();
     let res = match args.command {
