@@ -182,6 +182,11 @@ struct CommandGet {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    nu_command::tls::CRYPTO_PROVIDER
+        .default()
+        .then_some(())
+        .expect("failed to set nu_command crypto provider");
+
     let args = Args::parse();
     let res = match args.command {
         Command::Serve(args) => serve(args).await,
