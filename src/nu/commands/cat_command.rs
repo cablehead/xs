@@ -36,6 +36,7 @@ impl Command for CatCommand {
                 "start from a specific frame ID",
                 None,
             )
+            .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
             .category(Category::Experimental)
     }
 
@@ -57,9 +58,16 @@ impl Command for CatCommand {
             .as_deref()
             .map(|s| s.parse().expect("Failed to parse Scru128Id"));
 
+        let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
+
         let frames = self
             .store
-            .read_sync(last_id.as_ref(), limit, Some(self.context_id))
+            .read_sync(last_id.as_ref(), None, Some(self.context_id))
+            .filter(|frame| match &topic {
+                Some(t) => frame.topic == *t,
+                None => true,
+            })
+            .take(limit.unwrap_or(usize::MAX))
             .collect::<Vec<_>>();
 
         use nu_protocol::Value;
