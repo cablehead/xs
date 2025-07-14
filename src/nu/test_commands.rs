@@ -180,7 +180,7 @@ mod tests {
 
         let _frame1 = store
             .append(
-                Frame::builder("topic", ctx.id)
+                Frame::builder("topic1", ctx.id)
                     .hash(store.cas_insert_sync("content1")?)
                     .build(),
             )
@@ -188,7 +188,7 @@ mod tests {
 
         let _frame2 = store
             .append(
-                Frame::builder("topic", ctx.id)
+                Frame::builder("topic2", ctx.id)
                     .hash(store.cas_insert_sync("content2")?)
                     .build(),
             )
@@ -203,6 +203,19 @@ mod tests {
         let value = nu_eval(&engine, PipelineData::empty(), ".cat --limit 1");
         let frames = value.as_list().unwrap();
         assert_eq!(frames.len(), 1);
+
+        // Test .cat with topic filter
+        let value = nu_eval(&engine, PipelineData::empty(), ".cat --topic topic2");
+        let frames = value.as_list().unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0]
+                .get_data_by_key("topic")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "topic2"
+        );
 
         Ok(())
     }
