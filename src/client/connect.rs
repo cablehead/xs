@@ -1,5 +1,6 @@
 use crate::listener::{AsyncReadWriteBox, IrohStream};
-use iroh::{Endpoint, NodeAddr, RelayMode};
+use iroh::{Endpoint, RelayMode};
+use iroh_base::ticket::NodeTicket;
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
@@ -46,13 +47,14 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
                     Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
                 })?;
 
-            // Parse the JSON ticket to get the node address
-            let node_addr: NodeAddr = serde_json::from_str(ticket).map_err(|e| {
+            // Parse the ticket string to get the NodeTicket, then extract NodeAddr
+            let node_ticket: NodeTicket = ticket.parse().map_err(|e| {
                 Box::new(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Invalid ticket JSON: {}", e),
+                    format!("Invalid ticket format: {}", e),
                 )) as BoxError
             })?;
+            let node_addr = node_ticket.node_addr().clone();
 
             // Connect to the node
             let conn = endpoint.connect(node_addr, b"xs").await.map_err(|e| {

@@ -4,6 +4,7 @@ use std::task::{Context, Poll};
 
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{Endpoint, RelayMode};
+use iroh_base::ticket::NodeTicket;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, UnixListener};
 #[cfg(test)]
@@ -139,9 +140,8 @@ impl Listener {
                 .node_addr()
                 .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            // Try using serde serialization for the ticket
-            let ticket = serde_json::to_string(&node_addr)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            // Create a proper NodeTicket
+            let ticket = NodeTicket::new(node_addr).to_string();
 
             Ok(Listener::Iroh(endpoint, ticket))
         } else if addr.starts_with('/') || addr.starts_with('.') {
