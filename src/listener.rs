@@ -1,9 +1,13 @@
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, UnixListener};
 #[cfg(test)]
 use tokio::net::{TcpStream, UnixStream};
+use iroh::{Endpoint, RelayMode};
+use iroh::endpoint::Connection;
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -11,9 +15,57 @@ impl<T: AsyncRead + AsyncWrite> AsyncReadWrite for T {}
 
 pub type AsyncReadWriteBox = Box<dyn AsyncReadWrite + Unpin + Send>;
 
+pub struct IrohStream {
+    // TODO: Implement proper iroh stream handling
+    // For now, use a placeholder that compiles
+    _placeholder: (),
+}
+
+impl IrohStream {
+    pub fn new() -> Self {
+        Self { _placeholder: () }
+    }
+
+    pub fn from_connection(_conn: Connection) -> Self {
+        // TODO: Wrap the actual iroh connection
+        Self { _placeholder: () }
+    }
+}
+
+impl AsyncRead for IrohStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        // For now, return pending - we'll implement this properly later
+        Poll::Pending
+    }
+}
+
+impl AsyncWrite for IrohStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        // For now, return pending - we'll implement this properly later
+        Poll::Pending
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 pub enum Listener {
     Tcp(TcpListener),
     Unix(UnixListener),
+    Iroh(Endpoint, String), // Endpoint and ticket
 }
 
 impl Listener {
@@ -29,11 +81,36 @@ impl Listener {
                 let (stream, _) = listener.accept().await?;
                 Ok((Box::new(stream), None))
             }
+            Listener::Iroh(endpoint, _) => {
+                // Accept incoming connections
+                let incoming = endpoint.accept().await
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "No incoming connection"))?;
+                
+                let conn = incoming.await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                
+                let stream = IrohStream::from_connection(conn);
+                Ok((Box::new(stream), None))
+            }
         }
     }
 
     pub async fn bind(addr: &str) -> io::Result<Self> {
-        if addr.starts_with('/') || addr.starts_with('.') {
+        if addr.starts_with("iroh://") {
+            let endpoint = Endpoint::builder()
+                .alpns(vec![b"xs".to_vec()])
+                .relay_mode(RelayMode::Default)
+                .bind()
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            
+            // Generate ticket from endpoint node_addr
+            let node_addr = endpoint.node_addr().await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let ticket = format!("{:?}", node_addr);
+            
+            Ok(Listener::Iroh(endpoint, ticket))
+        } else if addr.starts_with('/') || addr.starts_with('.') {
             // attempt to remove the socket unconditionally
             let _ = std::fs::remove_file(addr);
             let listener = UnixListener::bind(addr)?;
@@ -45,6 +122,13 @@ impl Listener {
             };
             let listener = TcpListener::bind(addr).await?;
             Ok(Listener::Tcp(listener))
+        }
+    }
+
+    pub fn get_ticket(&self) -> Option<&str> {
+        match self {
+            Listener::Iroh(_, ticket) => Some(ticket),
+            _ => None,
         }
     }
 
@@ -75,6 +159,9 @@ impl std::fmt::Display for Listener {
                 let addr = listener.local_addr().unwrap();
                 let path = addr.as_pathname().unwrap();
                 write!(f, "{}", path.display())
+            }
+            Listener::Iroh(_, ticket) => {
+                write!(f, "iroh://{}", ticket)
             }
         }
     }

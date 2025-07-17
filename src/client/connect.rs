@@ -1,10 +1,11 @@
-use crate::listener::AsyncReadWriteBox;
+use crate::listener::{AsyncReadWriteBox, IrohStream};
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
 use std::sync::Arc;
 use tokio::net::{TcpStream, UnixStream};
 use tokio_rustls::TlsConnector;
+use iroh::{Endpoint, NodeAddr, RelayMode};
 
 use super::types::{BoxError, ConnectionKind, RequestParts};
 
@@ -33,6 +34,27 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
             let server_name = ServerName::try_from(host.clone())?; // Clone the host string
             let tls_stream = connector.connect(server_name, tcp_stream).await?;
             Ok(Box::new(tls_stream))
+        }
+        ConnectionKind::Iroh { ticket } => {
+            // Create an iroh endpoint for connecting
+            let endpoint = Endpoint::builder()
+                .alpns(vec![b"xs".to_vec()])
+                .relay_mode(RelayMode::Default)
+                .bind()
+                .await
+                .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError)?;
+            
+            // Parse the ticket to get the node address
+            let node_addr: NodeAddr = ticket.parse()
+                .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError)?;
+            
+            // Connect to the node
+            let conn = endpoint.connect(node_addr, b"xs")
+                .await
+                .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError)?;
+            
+            let stream = IrohStream::from_connection(conn);
+            Ok(Box::new(stream))
         }
     }
 }
