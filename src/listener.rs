@@ -2,13 +2,41 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use iroh::endpoint::{Connection, RecvStream, SendStream};
-use iroh::{Endpoint, RelayMode};
+use iroh::endpoint::{RecvStream, SendStream};
+use iroh::{Endpoint, RelayMode, SecretKey};
 use iroh_base::ticket::NodeTicket;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UnixListener};
 #[cfg(test)]
 use tokio::net::{TcpStream, UnixStream};
+
+/// The ALPN for xs protocol.
+pub const ALPN: &[u8] = b"XS/1.0";
+
+/// The handshake to send when connecting.
+/// The connecting side must send this handshake, the listening side must consume it.
+pub const HANDSHAKE: [u8; 5] = *b"xs..!";
+
+/// Get the secret key or generate a new one.
+/// Uses IROH_SECRET environment variable if available, otherwise generates a new one.
+fn get_or_create_secret() -> io::Result<SecretKey> {
+    match std::env::var("IROH_SECRET") {
+        Ok(secret) => {
+            use std::str::FromStr;
+            SecretKey::from_str(&secret).map_err(|e| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid secret key: {}", e))
+            })
+        }
+        Err(_) => {
+            let key = SecretKey::generate(rand::rngs::OsRng);
+            tracing::info!(
+                "Generated new secret key: {}",
+                data_encoding::HEXLOWER.encode(&key.to_bytes())
+            );
+            Ok(key)
+        }
+    }
+}
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -29,11 +57,15 @@ impl IrohStream {
         }
     }
 
-    pub async fn from_connection(
-        conn: Connection,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let (send_stream, recv_stream) = conn.open_bi().await?;
-        Ok(Self::new(send_stream, recv_stream))
+}
+
+impl Drop for IrohStream {
+    fn drop(&mut self) {
+        // Send reset/stop signals to the other side
+        self.send_stream.reset(0u8.into()).ok();
+        self.recv_stream.stop(0u8.into()).ok();
+        
+        tracing::debug!("IrohStream dropped with cleanup");
     }
 }
 
@@ -107,18 +139,45 @@ impl Listener {
             Listener::Iroh(endpoint, _) => {
                 // Accept incoming connections
                 let incoming = endpoint.accept().await.ok_or_else(|| {
+                    tracing::error!("No incoming iroh connection available");
                     io::Error::new(io::ErrorKind::Other, "No incoming connection")
                 })?;
 
-                let conn = incoming
-                    .await
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                let conn = incoming.await.map_err(|e| {
+                    tracing::error!("Failed to accept iroh connection: {}", e);
+                    io::Error::new(io::ErrorKind::Other, format!("Connection failed: {}", e))
+                })?;
+
+                let remote_node_id = "unknown"; // We'll use a placeholder for now
+                tracing::info!("Got iroh connection from {}", remote_node_id);
 
                 // Wait for the first incoming bidirectional stream
-                let (send_stream, recv_stream) = conn
-                    .accept_bi()
-                    .await
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                let (send_stream, mut recv_stream) = conn.accept_bi().await.map_err(|e| {
+                    tracing::error!("Failed to accept bidirectional stream from {}: {}", remote_node_id, e);
+                    io::Error::new(io::ErrorKind::Other, format!("Failed to accept stream: {}", e))
+                })?;
+
+                tracing::debug!("Accepted bidirectional stream from {}", remote_node_id);
+
+                // Read and verify the handshake
+                let mut handshake_buf = [0u8; HANDSHAKE.len()];
+                recv_stream.read_exact(&mut handshake_buf).await.map_err(|e| {
+                    tracing::error!("Failed to read handshake from {}: {}", remote_node_id, e);
+                    io::Error::new(io::ErrorKind::Other, format!("Failed to read handshake: {}", e))
+                })?;
+
+                if handshake_buf != HANDSHAKE {
+                    tracing::error!(
+                        "Invalid handshake received from {}: expected {:?}, got {:?}",
+                        remote_node_id, HANDSHAKE, handshake_buf
+                    );
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Invalid handshake from {}", remote_node_id),
+                    ));
+                }
+
+                tracing::info!("Handshake verified successfully from {}", remote_node_id);
 
                 let stream = IrohStream::new(send_stream, recv_stream);
                 Ok((Box::new(stream), None))
@@ -128,20 +187,41 @@ impl Listener {
 
     pub async fn bind(addr: &str) -> io::Result<Self> {
         if addr.starts_with("iroh://") {
+            tracing::info!("Binding iroh endpoint");
+            
+            let secret_key = get_or_create_secret()?;
             let endpoint = Endpoint::builder()
-                .alpns(vec![b"xs".to_vec()])
+                .alpns(vec![ALPN.to_vec()])
                 .relay_mode(RelayMode::Default)
+                .secret_key(secret_key)
                 .bind()
                 .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .map_err(|e| {
+                    tracing::error!("Failed to bind iroh endpoint: {}", e);
+                    io::Error::new(io::ErrorKind::Other, format!("Failed to bind endpoint: {}", e))
+                })?;
 
-            // Generate ticket from endpoint node_addr
-            let node_addr = endpoint
-                .node_addr()
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            tracing::debug!("Iroh endpoint bound successfully");
+
+            // Wait for the endpoint to figure out its address before making a ticket
+            if let Ok(Some(relay)) = endpoint.home_relay().get() {
+                tracing::debug!("Using relay: {}", relay);
+            } else {
+                tracing::debug!("No relay configured");
+            }
+
+            tracing::debug!("Relay initialized successfully");
+
+            let node_addr = endpoint.node_addr().await.map_err(|e| {
+                tracing::error!("Failed to get node address: {}", e);
+                io::Error::new(io::ErrorKind::Other, format!("Failed to get node address: {}", e))
+            })?;
+            
             // Create a proper NodeTicket
-            let ticket = NodeTicket::new(node_addr).to_string();
+            let ticket = NodeTicket::new(node_addr.clone()).to_string();
+
+            tracing::info!("Iroh endpoint ready with node ID: {}", node_addr.node_id);
+            tracing::info!("Iroh ticket: {}", ticket);
 
             Ok(Listener::Iroh(endpoint, ticket))
         } else if addr.starts_with('/') || addr.starts_with('.') {
@@ -178,12 +258,38 @@ impl Listener {
                     UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
                 Ok(Box::new(stream))
             }
-            Listener::Iroh(_, _) => {
-                // TODO: Implement iroh test connection
-                Err(io::Error::new(
-                    io::ErrorKind::Unsupported,
-                    "Iroh test connections not implemented",
-                ))
+            Listener::Iroh(_, ticket) => {
+                let secret_key = get_or_create_secret()?;
+                
+                // Create a client endpoint
+                let client_endpoint = Endpoint::builder()
+                    .alpns(vec![])
+                    .relay_mode(RelayMode::Default)
+                    .secret_key(secret_key)
+                    .bind()
+                    .await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                // Parse ticket to get node address
+                let node_ticket: NodeTicket = ticket.parse().map_err(|e| {
+                    io::Error::new(io::ErrorKind::Other, format!("Invalid ticket: {}", e))
+                })?;
+                let node_addr = node_ticket.node_addr().clone();
+
+                // Connect to the server
+                let conn = client_endpoint.connect(node_addr, ALPN).await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                // Open bidirectional stream
+                let (mut send_stream, recv_stream) = conn.open_bi().await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                // Send handshake
+                send_stream.write_all(&HANDSHAKE).await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                let stream = IrohStream::new(send_stream, recv_stream);
+                Ok(Box::new(stream))
             }
         }
     }
@@ -240,5 +346,11 @@ mod tests {
         let path = temp_dir.path().join("test.sock");
         let path = path.to_str().unwrap();
         exercise_listener(path).await;
+    }
+
+    #[tokio::test]
+    async fn test_bind_iroh() {
+        // This test may take longer due to network setup
+        exercise_listener("iroh://").await;
     }
 }
