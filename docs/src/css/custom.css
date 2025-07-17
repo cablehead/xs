@@ -5,3 +5,15 @@ html[data-theme="light"] .beoe-dark {
 html[data-theme="dark"] .beoe-light {
   display: none;
 }
+
+[data-has-hero] body {
+  background-image: url('../assets/splash.gif');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+[data-has-hero] .hero {
+  width: 100%;
+}
