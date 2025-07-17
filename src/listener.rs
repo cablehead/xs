@@ -2,12 +2,12 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::{Endpoint, RelayMode};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, UnixListener};
 #[cfg(test)]
 use tokio::net::{TcpStream, UnixStream};
-use iroh::{Endpoint, RelayMode};
-use iroh::endpoint::Connection;
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -16,49 +16,71 @@ impl<T: AsyncRead + AsyncWrite> AsyncReadWrite for T {}
 pub type AsyncReadWriteBox = Box<dyn AsyncReadWrite + Unpin + Send>;
 
 pub struct IrohStream {
-    // TODO: Implement proper iroh stream handling
-    // For now, use a placeholder that compiles
-    _placeholder: (),
+    send_stream: SendStream,
+    recv_stream: RecvStream,
 }
 
 impl IrohStream {
-    pub fn new() -> Self {
-        Self { _placeholder: () }
+    pub fn new(send_stream: SendStream, recv_stream: RecvStream) -> Self {
+        Self {
+            send_stream,
+            recv_stream,
+        }
     }
 
-    pub fn from_connection(_conn: Connection) -> Self {
-        // TODO: Wrap the actual iroh connection
-        Self { _placeholder: () }
+    pub async fn from_connection(
+        conn: Connection,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let (send_stream, recv_stream) = conn.open_bi().await?;
+        Ok(Self::new(send_stream, recv_stream))
     }
 }
 
 impl AsyncRead for IrohStream {
     fn poll_read(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        _buf: &mut tokio::io::ReadBuf<'_>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        // For now, return pending - we'll implement this properly later
-        Poll::Pending
+        let this = self.get_mut();
+        match Pin::new(&mut this.recv_stream).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
 impl AsyncWrite for IrohStream {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        _buf: &[u8],
+        cx: &mut Context<'_>,
+        buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // For now, return pending - we'll implement this properly later
-        Poll::Pending
+        let this = self.get_mut();
+        match Pin::new(&mut this.send_stream).poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => Poll::Ready(Ok(n)),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        match Pin::new(&mut this.send_stream).poll_flush(cx) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        match Pin::new(&mut this.send_stream).poll_shutdown(cx) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -83,13 +105,21 @@ impl Listener {
             }
             Listener::Iroh(endpoint, _) => {
                 // Accept incoming connections
-                let incoming = endpoint.accept().await
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "No incoming connection"))?;
-                
-                let conn = incoming.await
+                let incoming = endpoint.accept().await.ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::Other, "No incoming connection")
+                })?;
+
+                let conn = incoming
+                    .await
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                
-                let stream = IrohStream::from_connection(conn);
+
+                // Wait for the first incoming bidirectional stream
+                let (send_stream, recv_stream) = conn
+                    .accept_bi()
+                    .await
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                let stream = IrohStream::new(send_stream, recv_stream);
                 Ok((Box::new(stream), None))
             }
         }
@@ -103,12 +133,16 @@ impl Listener {
                 .bind()
                 .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            
+
             // Generate ticket from endpoint node_addr
-            let node_addr = endpoint.node_addr().await
+            let node_addr = endpoint
+                .node_addr()
+                .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            let ticket = format!("{:?}", node_addr);
-            
+            // Try using serde serialization for the ticket
+            let ticket = serde_json::to_string(&node_addr)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
             Ok(Listener::Iroh(endpoint, ticket))
         } else if addr.starts_with('/') || addr.starts_with('.') {
             // attempt to remove the socket unconditionally
@@ -143,6 +177,13 @@ impl Listener {
                 let stream =
                     UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
                 Ok(Box::new(stream))
+            }
+            Listener::Iroh(_, _) => {
+                // TODO: Implement iroh test connection
+                Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "Iroh test connections not implemented",
+                ))
             }
         }
     }

@@ -1,11 +1,11 @@
 use crate::listener::{AsyncReadWriteBox, IrohStream};
+use iroh::{Endpoint, NodeAddr, RelayMode};
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
 use std::sync::Arc;
 use tokio::net::{TcpStream, UnixStream};
 use tokio_rustls::TlsConnector;
-use iroh::{Endpoint, NodeAddr, RelayMode};
 
 use super::types::{BoxError, ConnectionKind, RequestParts};
 
@@ -42,18 +42,28 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
                 .relay_mode(RelayMode::Default)
                 .bind()
                 .await
-                .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError)?;
-            
-            // Parse the ticket to get the node address
-            let node_addr: NodeAddr = ticket.parse()
-                .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError)?;
-            
+                .map_err(|e| {
+                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
+                })?;
+
+            // Parse the JSON ticket to get the node address
+            let node_addr: NodeAddr = serde_json::from_str(ticket).map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Invalid ticket JSON: {}", e),
+                )) as BoxError
+            })?;
+
             // Connect to the node
-            let conn = endpoint.connect(node_addr, b"xs")
-                .await
-                .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError)?;
-            
-            let stream = IrohStream::from_connection(conn);
+            let conn = endpoint.connect(node_addr, b"xs").await.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
+            })?;
+
+            // Create a bidirectional stream
+            let stream = IrohStream::from_connection(conn).await.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
+            })?;
+
             Ok(Box::new(stream))
         }
     }

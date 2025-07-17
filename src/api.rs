@@ -394,14 +394,14 @@ pub async fn serve(
 
     if let Some(expose) = expose {
         let expose_listener = Listener::bind(&expose).await?;
-        
+
         // Check if this is an iroh listener and get the ticket
         if let Some(ticket) = expose_listener.get_ticket() {
             expose_meta = Some(serde_json::json!({"expose": format!("iroh://{}", ticket)}));
         } else {
             expose_meta = Some(serde_json::json!({"expose": expose}));
         }
-        
+
         listeners.push(expose_listener);
     }
 
