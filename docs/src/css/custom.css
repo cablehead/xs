@@ -6,6 +6,7 @@ html[data-theme="dark"] .beoe-light {
   display: none;
 }
 
+[data-has-hero] html,
 [data-has-hero] body {
   background-image: url('../assets/splash.gif');
   background-size: cover;
@@ -100,4 +101,45 @@ html[data-theme="dark"] .beoe-light {
   backdrop-filter: blur(4px);
   color: white;
   display: inline-block;
+}
+
+[data-has-hero][data-theme="dark"] header {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+}
+
+[data-has-hero][data-theme="light"] header {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+[data-has-hero] .kudos {
+  display: none;
+}
+
+@media (max-width: 50rem) {
+  [data-has-hero] .hero .stack {
+    text-align: left;
+  }
+  
+  [data-has-hero] .hero .copy {
+    align-items: flex-start;
+  }
+  
+  [data-has-hero] .hero .actions {
+    justify-content: flex-start;
+    gap: 0rem !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  
+  [data-has-hero] .hero .actions a {
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-right: 0.5rem;
+  }
+  
+  [data-has-hero] .hero .actions a:last-child {
+    margin-right: 0;
+  }
 }
