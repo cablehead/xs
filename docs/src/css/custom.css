@@ -5,3 +5,102 @@ html[data-theme="light"] .beoe-dark {
 html[data-theme="dark"] .beoe-light {
   display: none;
 }
+
+/* Smooth theme transitions */
+html, body {
+  transition: background-color 0.3s ease-out, color 0.3s ease-out;
+}
+
+header {
+  transition: background-color 0.3s ease-out, backdrop-filter 0.3s ease-out;
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="dark"] header {
+  background: rgba(0, 0, 0, 0.1) !important;
+  backdrop-filter: blur(8px);
+}
+
+/* Starlight component transitions */
+nav, .sidebar, .main-frame, .content-panel {
+  transition: background-color 0.3s ease-out, border-color 0.3s ease-out;
+}
+
+a, button {
+  transition: color 0.3s ease-out, background-color 0.3s ease-out, border-color 0.3s ease-out;
+}
+
+.hero h1, .hero p, .hero .tagline {
+  transition: color 0.3s ease-out;
+}
+
+[data-has-hero][data-theme="dark"] html,
+[data-has-hero][data-theme="dark"] body {
+  background-image: url('../assets/splash.gif');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+[data-has-hero][data-theme="dark"] header {
+  background: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(4px);
+}
+
+[data-has-hero] footer .kudos {
+  display: none;
+}
+
+[data-has-hero] .hero .tagline .xs {
+  font-family: ui-monospace, Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Roboto Mono",
+    "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono",
+    "Courier New", monospace;
+  font-style: italic;
+}
+
+/* Title styling */
+[data-has-hero] .cross {
+  color: #4a5568;
+}
+
+[data-has-hero][data-theme="dark"] .cross {
+  color: #e2e8f0;
+}
+
+[data-has-hero] .dot {
+  color: #4a5568;
+}
+
+[data-has-hero][data-theme="dark"] .dot {
+  color: #cbd5e0;
+}
+
+[data-has-hero] .stream {
+  color: #0284c7;
+}
+
+/* Top nav title styling - remove flex gap and use simpler approach */
+.site-title {
+  gap: 0 !important;
+  display: inline !important;
+  font-size: 0;
+}
+
+.site-title::before {
+  content: "cross.";
+  color: #4a5568;
+  font-size: 1rem;
+}
+
+[data-theme="dark"] .site-title::before {
+  color: #e2e8f0;
+}
+
+.site-title::after {
+  content: "stream";
+  color: #0284c7;
+  font-size: 1rem;
+}
+

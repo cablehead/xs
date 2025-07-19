@@ -10,12 +10,13 @@ import solid from "@astrojs/solid-js";
 // https://astro.build/config
 export default defineConfig({
   base: "/xs/",
+  devToolbar: { enabled: false },
 
   integrations: [
     solid(),
 
     starlight({
-      title: "xs",
+      title: "cross.stream",
 
       customCss: [
         "./src/css/custom.css",
@@ -49,7 +50,7 @@ export default defineConfig({
         plugins: [pluginCodeOutput()],
       },
 
-      lastUpdated: true,
+      lastUpdated: false,
       credits: true,
     }),
   ],
