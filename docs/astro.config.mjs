@@ -50,7 +50,7 @@ export default defineConfig({
         plugins: [pluginCodeOutput()],
       },
 
-      lastUpdated: true,
+      lastUpdated: false,
       credits: true,
     }),
   ],
