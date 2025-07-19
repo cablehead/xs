@@ -6,8 +6,8 @@ html[data-theme="dark"] .beoe-light {
   display: none;
 }
 
-[data-has-hero] html,
-[data-has-hero] body {
+[data-has-hero][data-theme="dark"] html,
+[data-has-hero][data-theme="dark"] body {
   background-image: url('../assets/splash.gif');
   background-size: cover;
   background-position: center;
@@ -52,48 +52,6 @@ html[data-theme="dark"] .beoe-light {
   gap: 2.5rem !important;
 }
 
-[data-has-hero][data-theme="light"] .hero h1 {
-  background: rgba(255, 255, 255, 0.6);
-  padding: 0.25rem 1.5rem 1rem 1.5rem;
-  border-radius: 0.5rem;
-  backdrop-filter: blur(4px);
-  color: black;
-  display: inline-block;
-  margin: 0.5rem 0;
-  line-height: 1.2;
-}
-
-[data-has-hero][data-theme="light"] .hero p,
-[data-has-hero][data-theme="light"] .hero .tagline {
-  background: rgba(255, 255, 255, 0.6);
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  backdrop-filter: blur(4px);
-  color: black;
-  display: inline-block;
-  margin: 0.5rem 0;
-  line-height: 1.2;
-}
-
-[data-has-hero][data-theme="light"] .hero .actions {
-  background: rgba(255, 255, 255, 0.6);
-  padding: 1rem 1.5rem;
-  border-radius: 0.5rem;
-  backdrop-filter: blur(4px);
-  display: flex;
-  margin: 1rem 0;
-  gap: 2.5rem !important;
-}
-
-[data-has-hero][data-theme="light"] footer p {
-  background: rgba(255, 255, 255, 0.6);
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  backdrop-filter: blur(4px);
-  color: black;
-  display: inline-block;
-}
-
 [data-has-hero][data-theme="dark"] footer p {
   background: rgba(0, 0, 0, 0.6);
   padding: 0.5rem 1rem;
@@ -105,11 +63,6 @@ html[data-theme="dark"] .beoe-light {
 
 [data-has-hero][data-theme="dark"] header {
   background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-}
-
-[data-has-hero][data-theme="light"] header {
-  background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(4px);
 }
 
