@@ -1,37 +1,10 @@
-# xs Documentation
+# cross.stream Documentation
 
-[![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
+The official documentation site for **xs** - an event stream store for personal, local-first use.
 
-This directory contains the documentation site for xs, built with Astro and
-Starlight.
+Documentation is written in Markdown (`.md`) or MDX (`.mdx`) files in the `src/content/docs/` directory.
 
-## 🚀 Project Structure
-
-Inside of your Astro + Starlight project, you'll see the following folders and
-files:
-
-```
-.
-├── public/
-├── src/
-│   ├── assets/
-│   ├── content/
-│   │   ├── docs/
-│   └── content.config.ts
-├── astro.config.mjs
-├── package.json
-└── tsconfig.json
-```
-
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory.
-Each file is exposed as a route based on its file name.
-
-Images can be added to `src/assets/` and embedded in Markdown with a relative
-link.
-
-Static assets, like favicons, can be placed in the `public/` directory.
-
-## 🧞 Development Commands
+## Development Commands
 
 All commands are run from the `docs/` directory:
 
@@ -100,8 +73,3 @@ pushed to the `main` branch. The deployment workflow:
 
 The workflow configuration is in `.github/workflows/deploy-docs.yml`.
 
-## 👀 Want to learn more?
-
-Check out [Starlight’s docs](https://starlight.astro.build/), read
-[the Astro documentation](https://docs.astro.build), or jump into the
-[Astro Discord server](https://astro.build/chat).
