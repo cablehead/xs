@@ -15,3 +15,8 @@ html[data-theme="dark"] .beoe-light {
   background-attachment: fixed;
 }
 
+[data-has-hero][data-theme="dark"] header {
+  background: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(4px);
+}
+
