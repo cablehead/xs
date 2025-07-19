@@ -8,7 +8,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "postinstall": "playwright install chromium"
+    "postinstall": "playwright install chromium && playwright install-deps"
   },
   "dependencies": {
     "@astrojs/solid-js": "^5.0.1",
