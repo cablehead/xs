@@ -16,7 +16,7 @@ export default defineConfig({
     solid(),
 
     starlight({
-      title: "xs",
+      title: "cross.stream",
 
       customCss: [
         "./src/css/custom.css",

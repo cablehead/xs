@@ -42,3 +42,58 @@ a, button {
   backdrop-filter: blur(4px);
 }
 
+[data-has-hero] footer .kudos {
+  display: none;
+}
+
+[data-has-hero] .hero .tagline .xs {
+  font-family: ui-monospace, Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Roboto Mono",
+    "Oxygen Mono", "Ubuntu Monospace", "Source Code Pro", "Fira Mono", "Droid Sans Mono",
+    "Courier New", monospace;
+  font-style: italic;
+}
+
+/* Title styling */
+[data-has-hero] .cross {
+  color: #4a5568;
+}
+
+[data-has-hero][data-theme="dark"] .cross {
+  color: #e2e8f0;
+}
+
+[data-has-hero] .dot {
+  color: #4a5568;
+}
+
+[data-has-hero][data-theme="dark"] .dot {
+  color: #cbd5e0;
+}
+
+[data-has-hero] .stream {
+  color: #0284c7;
+}
+
+/* Top nav title styling - remove flex gap and use simpler approach */
+.site-title {
+  gap: 0 !important;
+  display: inline !important;
+  font-size: 0;
+}
+
+.site-title::before {
+  content: "cross.";
+  color: #4a5568;
+  font-size: 1rem;
+}
+
+[data-theme="dark"] .site-title::before {
+  color: #e2e8f0;
+}
+
+.site-title::after {
+  content: "stream";
+  color: #0284c7;
+  font-size: 1rem;
+}
+
