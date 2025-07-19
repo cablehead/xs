@@ -11,6 +11,12 @@ import { Link } from '../../../utils/links';
 A *thread* is a chain of conversation turns where each turn knows which message it follows.
 We'll use cross.stream to store those turns so we can rebuild the conversation history at any point.
 
+
+<Aside>
+For a full-featured project that manages LLM conversations this way, see
+<a href="https://github.com/cablehead/gpt2099.nu" target="_blank" rel="noopener noreferrer">gpt2099</a>.
+</Aside>
+
 ## Serve
 
 Start a local store in a separate terminal:
@@ -111,9 +117,4 @@ flowchart TD
     G -->|continues| H[Message ID 8: Detail Thread 2]
     H -->|continues| I[Message ID 9: Detail Thread 2]
 ```
-
-<Aside>
-For a full-featured project that manages LLM conversations this way, see
-<a href="https://github.com/cablehead/gpt2099.nu" target="_blank" rel="noopener noreferrer">gpt2099</a>.
-</Aside>
 
