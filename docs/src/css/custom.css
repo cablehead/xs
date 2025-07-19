@@ -13,6 +13,13 @@ html, body {
 
 header {
   transition: background-color 0.3s ease-out, backdrop-filter 0.3s ease-out;
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="dark"] header {
+  background: rgba(0, 0, 0, 0.1) !important;
+  backdrop-filter: blur(8px);
 }
 
 /* Starlight component transitions */
