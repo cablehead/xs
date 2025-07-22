@@ -22,6 +22,10 @@ export default defineConfig({
         "./src/css/custom.css",
       ],
 
+      components: {
+        Hero: './src/components/Hero.astro',
+      },
+
       social: {
         github: "https://github.com/cablehead/xs",
         discord: "https://discord.com/invite/YNbScHBHrh",
