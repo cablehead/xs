@@ -1,0 +1,170 @@
+---
+import type { Props } from '@astrojs/starlight/props';
+
+const { data } = Astro.props.entry;
+const { title = data.title, tagline, actions = [] } = data.hero || {};
+---
+
+<div class="hero">
+	<div class="sl-flex stack">
+		<div class="sl-flex copy">
+			<h1 id="_top" data-page-title>cross.<span class="stream-blue">stream</span></h1>
+			<div class="tagline"><span class='xs'>`xs`</span> is an event stream store for personal, local-first use</div>
+		</div>
+		{
+			actions.length > 0 && (
+				<div class="sl-flex actions">
+					{actions.map(({ link: href, text, variant, icon }) => (
+						<a 
+							href={href}
+							class={`sl-link-button not-content ${variant || 'primary'}`}
+							target={href?.startsWith('http') ? '_blank' : undefined}
+							rel={href?.startsWith('http') ? 'noopener noreferrer' : undefined}
+						>
+							{text}
+							{icon?.name === 'right-arrow' && (
+								<svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 4rem;">
+									<path d="M17.92 11.62a1.001 1.001 0 0 0-.21-.33l-5-5a1.003 1.003 0 1 0-1.42 1.42l3.3 3.29H7a1 1 0 0 0 0 2h7.59l-3.3 3.29a1.002 1.002 0 0 0 .325 1.639 1 1 0 0 0 1.095-.219l5-5a1 1 0 0 0 .21-.33 1 1 0 0 0 0-.76Z"/>
+								</svg>
+							)}
+							{icon?.name === 'external' && (
+								<svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 4rem;">
+									<path d="M19.33 10.18a1 1 0 0 1-.77 0 1 1 0 0 1-.62-.93l.01-1.83-8.2 8.2a1 1 0 0 1-1.41-1.42l8.2-8.2H14.7a1 1 0 0 1 0-2h4.25a1 1 0 0 1 1 1v4.25a1 1 0 0 1-.62.93Z"/><path d="M11 4a1 1 0 1 1 0 2H7a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4a1 1 0 1 1 2 0v4a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h4Z"/>
+								</svg>
+							)}
+							{icon?.name === 'rocket' && (
+								<svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 4rem;">
+									<path fill-rule="evenodd" d="M1.44 8.855v-.001l3.527-3.516c.34-.344.802-.541 1.285-.548h6.649l.947-.947c3.07-3.07 6.207-3.072 7.62-2.868a1.821 1.821 0 0 1 1.557 1.557c.204 1.413.203 4.55-2.868 7.62l-.946.946v6.649a1.845 1.845 0 0 1-.549 1.286l-3.516 3.528a1.844 1.844 0 0 1-3.11-.944l-.858-4.275-4.52-4.52-2.31-.463-1.964-.394A1.847 1.847 0 0 1 .98 10.693a1.843 1.843 0 0 1 .46-1.838Zm5.379 2.017-3.873-.776L6.32 6.733h4.638l-4.14 4.14Zm8.403-5.655c2.459-2.46 4.856-2.463 5.89-2.33.134 1.035.13 3.432-2.329 5.891l-6.71 6.71-3.561-3.56 6.71-6.711Zm-1.318 15.837-.776-3.873 4.14-4.14v4.639l-3.364 3.374Z" clip-rule="evenodd"/><path d="M9.318 18.345a.972.972 0 0 0-1.86-.561c-.482 1.435-1.687 2.204-2.934 2.619a8.22 8.22 0 0 1-1.23.302c.062-.365.157-.79.303-1.229.415-1.247 1.184-2.452 2.62-2.935a.971.971 0 1 0-.62-1.842c-.12.04-.236.084-.35.13-2.02.828-3.012 2.588-3.493 4.033a10.383 10.383 0 0 0-.51 2.845l-.001.016v.063c0 .536.434.972.97.972H2.24a7.21 7.21 0 0 0 .878-.065c.527-.063 1.248-.19 2.02-.447 1.445-.48 3.205-1.472 4.033-3.494a5.828 5.828 0 0 0 .147-.407Z"/>
+								</svg>
+							)}
+						</a>
+					))}
+				</div>
+			)
+		}
+	</div>
+</div>
+
+<style>
+	.hero {
+		display: grid;
+		align-items: center;
+		gap: 1rem;
+		padding-bottom: 1rem;
+	}
+
+	.hero > img,
+	.hero > .hero-html {
+		object-fit: contain;
+		width: min(70%, 20rem);
+		height: auto;
+		margin-inline: auto;
+	}
+
+	.stack {
+		flex-direction: column;
+		gap: clamp(1.5rem, calc(1.5rem + 1vw), 2rem);
+		text-align: center;
+	}
+
+	.copy {
+		flex-direction: column;
+		gap: 1rem;
+		align-items: center;
+	}
+
+	.copy > * {
+		max-width: 50ch;
+	}
+
+	h1 {
+		font-size: clamp(var(--sl-text-3xl), calc(0.25rem + 5vw), var(--sl-text-6xl));
+		line-height: var(--sl-line-height-headings);
+		font-weight: 600;
+		color: var(--sl-color-white);
+	}
+
+	.tagline {
+		font-size: clamp(var(--sl-text-base), calc(0.0625rem + 2vw), var(--sl-text-xl));
+		color: var(--sl-color-gray-2);
+	}
+
+	.actions {
+		gap: 1rem 2rem;
+		flex-wrap: wrap;
+		justify-content: center;
+	}
+
+	/* Button styling from Starlight LinkButton */
+	.sl-link-button {
+		align-items: center;
+		border: 1px solid transparent;
+		border-radius: 999rem;
+		display: inline-flex;
+		font-size: var(--sl-text-sm);
+		gap: 0.5em;
+		line-height: 1.1875;
+		outline-offset: 0.25rem;
+		padding: 0.4375rem 1.125rem;
+		text-decoration: none;
+	}
+
+	.sl-link-button.primary {
+		background: var(--sl-color-text-accent);
+		border-color: var(--sl-color-text-accent);
+		color: var(--sl-color-black);
+	}
+
+	.sl-link-button.primary:hover {
+		color: var(--sl-color-black);
+	}
+
+	.sl-link-button.secondary {
+		border-color: inherit;
+		color: var(--sl-color-white);
+	}
+
+	.sl-link-button.minimal {
+		color: var(--sl-color-white);
+		padding-inline: 0;
+	}
+
+	.sl-link-button svg {
+		flex-shrink: 0;
+	}
+
+	.stream-blue {
+		color: #0284c7;
+	}
+
+	@media (min-width: 50rem) {
+		.hero {
+			grid-template-columns: 7fr 4fr;
+			gap: 3%;
+			padding-block: clamp(2.5rem, calc(1rem + 10vmin), 10rem);
+		}
+
+		.hero > img,
+		.hero > .hero-html {
+			order: 2;
+			width: min(100%, 25rem);
+		}
+
+		.stack {
+			text-align: start;
+		}
+
+		.copy {
+			align-items: flex-start;
+		}
+
+		.actions {
+			justify-content: flex-start;
+		}
+
+		.sl-link-button {
+			font-size: var(--sl-text-base);
+			padding: 0.9375rem 1.25rem;
+		}
+	}
+</style>
