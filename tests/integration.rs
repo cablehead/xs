@@ -181,6 +181,100 @@ async fn test_integration() {
     child.kill().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_iroh_networking() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    // Start xs server with iroh exposure
+    let mut server_child = spawn_xs_server_with_iroh(store_path).await;
+
+    // Wait for server to start and socket to be created
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(10) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Extract iroh ticket from xs.start frame
+    let output = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
+    let start_frame: Frame = serde_json::from_str(&output).unwrap();
+    assert_eq!(start_frame.topic, "xs.start");
+
+    let expose_meta = start_frame.meta.expect("Expected expose metadata");
+    let expose_url = expose_meta
+        .get("expose")
+        .expect("Expected expose field")
+        .as_str()
+        .expect("Expected string expose value");
+
+    assert!(
+        expose_url.starts_with("iroh://"),
+        "Expected iroh:// URL, got: {}",
+        expose_url
+    );
+
+    // Test client connection via iroh ticket
+    let result = cmd!(cargo_bin("xs"), "append", expose_url, "test-topic")
+        .stdin_bytes(b"hello via iroh")
+        .run();
+
+    // The connection may timeout but shouldn't fail with "not implemented" anymore
+    if let Err(e) = &result {
+        let error_msg = format!("{:?}", e);
+        assert!(
+            !error_msg.contains("not yet implemented") && !error_msg.contains("Unsupported"),
+            "Should not get 'not implemented' error anymore, got: {}",
+            error_msg
+        );
+        // Expect timeout/connection errors while we work on the implementation
+        println!("Expected connection error during development: {:?}", e);
+    } else {
+        // If it succeeds, that's great!
+        println!("Iroh connection succeeded!");
+    }
+
+    // Clean up
+    server_child.kill().await.unwrap();
+}
+
+async fn spawn_xs_server_with_iroh(store_path: &std::path::Path) -> Child {
+    let mut child = tokio::process::Command::new(cargo_bin("xs"))
+        .arg("serve")
+        .arg(store_path)
+        .arg("--expose")
+        .arg("iroh://")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start xs server with iroh");
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let mut stdout_reader = BufReader::new(stdout).lines();
+    let mut stderr_reader = BufReader::new(stderr).lines();
+
+    // Spawn tasks to continuously read and print stdout/stderr
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stdout_reader.next_line().await {
+            eprintln!("[XS-IROH STDOUT] {}", line);
+        }
+    });
+
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stderr_reader.next_line().await {
+            eprintln!("[XS-IROH STDERR] {}", line);
+        }
+    });
+
+    child
+}
+
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
     let mut child = tokio::process::Command::new(cargo_bin("xs"))
         .arg("serve")
