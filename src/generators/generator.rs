@@ -53,7 +53,6 @@ pub enum GeneratorEventKind {
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub struct GeneratorEvent {
-    pub source_id: Scru128Id,
     pub kind: GeneratorEventKind,
 }
 
@@ -143,7 +142,7 @@ pub(crate) fn emit_event(
         }
     }
 
-    Ok(GeneratorEvent { source_id, kind })
+    Ok(GeneratorEvent { kind })
 }
 
 fn stop_reason_str(r: &StopReason) -> &'static str {
