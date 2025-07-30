@@ -24,7 +24,7 @@ where
 
     tokio::spawn(async move {
         if let Err(e) = conn.await {
-            eprintln!("Connection error: {}", e);
+            eprintln!("Connection error: {e}");
         }
     });
 
@@ -54,7 +54,7 @@ where
     if res.status() != hyper::StatusCode::OK && res.status() != hyper::StatusCode::NO_CONTENT {
         let status = res.status();
         let body = res.collect().await?.to_bytes();
-        return Err(format!("{}:: {}", status, String::from_utf8_lossy(&body)).into());
+        return Err(format!("{status}:: {}", String::from_utf8_lossy(&body)).into());
     }
 
     Ok(res)

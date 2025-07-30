@@ -67,7 +67,7 @@ impl Command for AppendCommand {
         let ttl_str: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
 
         let ttl = ttl_str
-           .map(|s| TTL::from_query(Some(&format!("ttl={}", s))))
+           .map(|s| TTL::from_query(Some(&format!("ttl={s}"))))
            .transpose()
            .map_err(|e| ShellError::GenericError {
                error: "Invalid TTL format".into(),

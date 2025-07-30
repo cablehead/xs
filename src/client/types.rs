@@ -33,9 +33,9 @@ impl RequestParts {
 
             return Ok(RequestParts {
                 uri: if let Some(q) = query {
-                    format!("http://localhost/{}?{}", path, q)
+                    format!("http://localhost/{path}?{q}")
                 } else {
-                    format!("http://localhost/{}", path)
+                    format!("http://localhost/{path}")
                 },
                 host: None,
                 authorization: None,
@@ -45,9 +45,9 @@ impl RequestParts {
 
         // Normalize URL
         let addr = if addr.starts_with(':') {
-            format!("http://127.0.0.1{}", addr)
+            format!("http://127.0.0.1{addr}")
         } else if !addr.contains("://") {
-            format!("http://{}", addr)
+            format!("http://{addr}")
         } else {
             addr.to_string()
         };
@@ -61,14 +61,14 @@ impl RequestParts {
         let port_str = if (scheme == "http" && port == 80) || (scheme == "https" && port == 443) {
             "".to_string()
         } else {
-            format!(":{}", port)
+            format!(":{port}")
         };
 
         // Build clean request URI (no auth)
         let uri = if let Some(q) = query {
-            format!("{}://{}{}/{}?{}", scheme, host, port_str, path, q)
+            format!("{scheme}://{host}{port_str}/{path}?{q}")
         } else {
-            format!("{}://{}{}/{}", scheme, host, port_str, path)
+            format!("{scheme}://{host}{port_str}/{path}")
         };
 
         // Set auth if present
@@ -90,7 +90,7 @@ impl RequestParts {
 
         Ok(RequestParts {
             uri,
-            host: Some(format!("{}{}", host, port_str)),
+            host: Some(format!("{host}{port_str}")),
             authorization,
             connection: if scheme == "https" {
                 ConnectionKind::Tls { host, port }

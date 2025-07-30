@@ -51,7 +51,7 @@ pub async fn cat(
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error reading body: {}", e);
+                    eprintln!("Error reading body: {e}");
                     break;
                 }
             }
@@ -120,7 +120,7 @@ pub async fn cas_get<W>(
 where
     W: AsyncWrite + Unpin,
 {
-    let parts = super::types::RequestParts::parse(addr, &format!("cas/{}", integrity), None)?;
+    let parts = super::types::RequestParts::parse(addr, &format!("cas/{integrity}"), None)?;
 
     match parts.connection {
         super::types::ConnectionKind::Unix(path) => {
@@ -137,7 +137,7 @@ where
             let res = request::request(
                 addr,
                 Method::GET,
-                &format!("cas/{}", integrity),
+                &format!("cas/{integrity}"),
                 None,
                 empty(),
                 None,
@@ -216,7 +216,7 @@ pub async fn head(
     let res = request::request(
         addr,
         Method::GET,
-        &format!("head/{}", topic),
+        &format!("head/{topic}"),
         query.as_deref(),
         empty(),
         None,

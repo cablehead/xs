@@ -93,9 +93,9 @@ impl Command for AppendCommand {
 
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {
-            Some(ttl_str) => Some(TTL::from_query(Some(&format!("ttl={}", ttl_str))).map_err(
+            Some(ttl_str) => Some(TTL::from_query(Some(&format!("ttl={ttl_str}"))).map_err(
                 |e| ShellError::TypeMismatch {
-                    err_message: format!("Invalid TTL value: {}. {}", ttl_str, e),
+                    err_message: format!("Invalid TTL value: {ttl_str}. {e}"),
                     span: call.span(),
                 },
             )?),

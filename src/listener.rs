@@ -41,7 +41,7 @@ impl Listener {
         } else {
             let mut addr = addr.to_owned();
             if addr.starts_with(':') {
-                addr = format!("127.0.0.1{}", addr);
+                addr = format!("127.0.0.1{addr}");
             };
             let listener = TcpListener::bind(addr).await?;
             Ok(Listener::Tcp(listener))

@@ -76,9 +76,12 @@ pub(crate) fn emit_event(
     match &kind {
         GeneratorEventKind::Start => {
             store.append(
-                Frame::builder(format!("{}.start", loop_ctx.topic), loop_ctx.context_id)
-                    .meta(json!({ "source_id": source_id.to_string() }))
-                    .build(),
+                Frame::builder(
+                    format!("{topic}.start", topic = loop_ctx.topic),
+                    loop_ctx.context_id,
+                )
+                .meta(json!({ "source_id": source_id.to_string() }))
+                .build(),
             )?;
         }
 
@@ -86,7 +89,7 @@ pub(crate) fn emit_event(
             let hash = store.cas_insert_bytes_sync(data)?;
             store.append(
                 Frame::builder(
-                    format!("{}.{}", loop_ctx.topic, suffix),
+                    format!("{topic}.{suffix}", topic = loop_ctx.topic, suffix = suffix),
                     loop_ctx.context_id,
                 )
                 .hash(hash)
@@ -105,16 +108,19 @@ pub(crate) fn emit_event(
                 meta["update_id"] = json!(update_id.to_string());
             }
             store.append(
-                Frame::builder(format!("{}.stop", loop_ctx.topic), loop_ctx.context_id)
-                    .meta(meta)
-                    .build(),
+                Frame::builder(
+                    format!("{topic}.stop", topic = loop_ctx.topic),
+                    loop_ctx.context_id,
+                )
+                .meta(meta)
+                .build(),
             )?;
         }
 
         GeneratorEventKind::ParseError { message } => {
             store.append(
                 Frame::builder(
-                    format!("{}.parse.error", loop_ctx.topic),
+                    format!("{topic}.parse.error", topic = loop_ctx.topic),
                     loop_ctx.context_id,
                 )
                 .meta(json!({
@@ -127,9 +133,12 @@ pub(crate) fn emit_event(
 
         GeneratorEventKind::Shutdown => {
             store.append(
-                Frame::builder(format!("{}.shutdown", loop_ctx.topic), loop_ctx.context_id)
-                    .meta(json!({ "source_id": source_id.to_string() }))
-                    .build(),
+                Frame::builder(
+                    format!("{topic}.shutdown", topic = loop_ctx.topic),
+                    loop_ctx.context_id,
+                )
+                .meta(json!({ "source_id": source_id.to_string() }))
+                .build(),
             )?;
         }
     }
@@ -216,7 +225,10 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         GeneratorEventKind::Start,
     );
     let start_frame = store
-        .head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id)
+        .head(
+            &format!("{topic}.start", topic = loop_ctx.topic),
+            loop_ctx.context_id,
+        )
         .expect("start frame");
     let mut start_id = start_frame.id;
 
@@ -279,8 +291,8 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             done_tx,
         );
 
-        let terminate_topic = format!("{}.terminate", loop_ctx.topic);
-        let spawn_topic = format!("{}.spawn", loop_ctx.topic);
+        let terminate_topic = format!("{topic}.terminate", topic = loop_ctx.topic);
+        let spawn_topic = format!("{topic}.spawn", topic = loop_ctx.topic);
         tokio::pin!(done_rx);
 
         let outcome = 'ctrl: loop {
@@ -389,7 +401,10 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             }
         }
 
-        if let Some(f) = store.head(&format!("{}.start", loop_ctx.topic), loop_ctx.context_id) {
+        if let Some(f) = store.head(
+            &format!("{topic}.start", topic = loop_ctx.topic),
+            loop_ctx.context_id,
+        ) {
             start_id = f.id;
         }
     }
@@ -401,7 +416,7 @@ async fn build_input_pipeline(
     task: &Task,
     rx: tokio::sync::mpsc::Receiver<Frame>,
 ) -> PipelineData {
-    let topic = format!("{}.send", loop_ctx.topic);
+    let topic = format!("{loop_topic}.send", loop_topic = loop_ctx.topic);
     let signals = task.engine.state.signals().clone();
     let mut rx = rx;
     let iter = std::iter::from_fn(move || loop {

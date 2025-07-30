@@ -41,10 +41,13 @@ use std::fmt;
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Frame")
-            .field("id", &format!("{}", self.id))
-            .field("context_id", &format!("{}", self.context_id))
+            .field("id", &format!("{id}", id = self.id))
+            .field(
+                "context_id",
+                &format!("{context_id}", context_id = self.context_id),
+            )
             .field("topic", &self.topic)
-            .field("hash", &self.hash.as_ref().map(|x| format!("{}", x)))
+            .field("hash", &self.hash.as_ref().map(|x| format!("{x}")))
             .field("meta", &self.meta)
             .field("ttl", &self.ttl)
             .finish()
@@ -527,7 +530,11 @@ impl Store {
             // Validate context exists
             let contexts = self.contexts.read().unwrap();
             if !contexts.contains(&frame.context_id) {
-                return Err(format!("Invalid context: {}", frame.context_id).into());
+                return Err(format!(
+                    "Invalid context: {context_id}",
+                    context_id = frame.context_id
+                )
+                .into());
             }
         }
 
@@ -737,11 +744,11 @@ fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(
         if key_bytes.len() == 16 {
             if let Ok(bytes) = key_bytes.try_into() {
                 let id = Scru128Id::from_bytes(bytes);
-                eprintln!("CORRUPTED_RECORD_ID: {}", id);
+                eprintln!("CORRUPTED_RECORD_ID: {id}");
             }
         }
         let key = std::str::from_utf8(record.0.as_ref()).unwrap();
         let value = std::str::from_utf8(record.1.as_ref()).unwrap();
-        panic!("Failed to deserialize frame: {} {} {}", e, key, value)
+        panic!("Failed to deserialize frame: {e} {key} {value}")
     })
 }

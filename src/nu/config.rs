@@ -33,7 +33,7 @@ impl NuScriptConfig {
     {
         let json_value = value_to_json(&self.full_config_value);
         serde_json::from_value(json_value)
-            .map_err(|e| format!("Failed to deserialize script options: {}", e).into())
+            .map_err(|e| format!("Failed to deserialize script options: {e}").into())
     }
 }
 
@@ -79,14 +79,15 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
         if let Some(err) = temp_working_set.parse_errors.first() {
             let shell_error = ShellError::GenericError {
                 error: "Parse error in script (initial pass)".into(),
-                msg: format!("{:?}", err),
+                msg: format!("{err:?}"),
                 span: Some(err.span()),
                 help: None,
                 inner: vec![],
             };
-            return Err(Error::from(nu_protocol::format_shell_error(
+            return Err(Error::from(nu_protocol::format_cli_error(
                 &temp_working_set,
                 &shell_error,
+                None,
             )));
         }
         temp_engine_state.merge_delta(temp_working_set.render())?;
@@ -100,7 +101,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
         )
         .map_err(|err| {
             let working_set = nu_protocol::engine::StateWorkingSet::new(&temp_engine_state);
-            Error::from(nu_protocol::format_shell_error(&working_set, &err))
+            Error::from(nu_protocol::format_cli_error(&working_set, &err, None))
         })?;
         let val = eval_result.into_value(Span::unknown())?;
 
@@ -116,9 +117,9 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
                             .as_str()
                             .map_err(|_| -> Error {
                                 format!(
-                                    "Module '{}' content must be a string, got {:?}",
-                                    name,
-                                    content_val.get_type()
+                                    "Module '{name}' content must be a string, got {typ:?}",
+                                    name = name,
+                                    typ = content_val.get_type()
                                 )
                                 .into()
                             })?
@@ -137,9 +138,9 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     if !modules_to_load.is_empty() {
         for (name, content) in &modules_to_load {
             tracing::debug!("Loading module '{}' into main engine", name);
-            engine.add_module(name, content).map_err(|e| -> Error {
-                format!("Failed to load module '{}': {}", name, e).into()
-            })?;
+            engine
+                .add_module(name, content)
+                .map_err(|e| -> Error { format!("Failed to load module '{name}': {e}").into() })?;
         }
     }
 
@@ -153,14 +154,15 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     if let Some(err) = working_set.parse_errors.first() {
         let shell_error = ShellError::GenericError {
             error: "Parse error in script (final pass)".into(),
-            msg: format!("{:?}", err),
+            msg: format!("{err:?}"),
             span: Some(err.span()),
             help: None,
             inner: vec![],
         };
-        return Err(Error::from(nu_protocol::format_shell_error(
+        return Err(Error::from(nu_protocol::format_cli_error(
             &working_set,
             &shell_error,
+            None,
         )));
     }
 
@@ -168,14 +170,15 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     if let Some(err) = working_set.compile_errors.first() {
         let shell_error = ShellError::GenericError {
             error: "Compile error in script".into(),
-            msg: format!("{:?}", err),
+            msg: format!("{err:?}"),
             span: None,
             help: None,
             inner: vec![],
         };
-        return Err(Error::from(nu_protocol::format_shell_error(
+        return Err(Error::from(nu_protocol::format_cli_error(
             &working_set,
             &shell_error,
+            None,
         )));
     }
 
@@ -190,7 +193,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     )
     .map_err(|err| {
         let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state); // Use main engine for error formatting
-        Error::from(nu_protocol::format_shell_error(&working_set, &err))
+        Error::from(nu_protocol::format_cli_error(&working_set, &err, None))
     })?;
 
     let final_config_value = final_eval_result.into_value(Span::unknown())?;
@@ -200,7 +203,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
         .ok_or_else(|| -> Error { "Script must define a 'run' closure.".into() })?;
     let run_closure = run_val
         .as_closure()
-        .map_err(|e| -> Error { format!("'run' field must be a closure: {}", e).into() })?;
+        .map_err(|e| -> Error { format!("'run' field must be a closure: {e}").into() })?;
 
     engine.state.merge_env(&mut stack)?; // Merge env from final pass to main engine
 
@@ -231,7 +234,7 @@ pub fn parse_config_legacy(
                     let content = content
                         .as_str()
                         .map_err(|_| -> Error {
-                            format!("module '{}' content must be a string", name).into()
+                            format!("module '{name}' content must be a string").into()
                         })?
                         .to_string();
                     Ok((name.to_string(), content))
@@ -263,7 +266,7 @@ pub fn parse_config_legacy(
             .get("ttl")
             .map(|v| serde_json::from_str(&value_to_json(v).to_string()))
             .transpose()
-            .map_err(|e| -> Error { format!("invalid TTL: {}", e).into() })?;
+            .map_err(|e| -> Error { format!("invalid TTL: {e}").into() })?;
 
         Some(ReturnOptions { suffix, ttl })
     } else {
