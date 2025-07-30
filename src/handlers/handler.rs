@@ -99,8 +99,8 @@ impl Handler {
             .get_block(nu_script_config.run_closure.block_id);
         if block.signature.required_positional.len() != 1 {
             return Err(format!(
-                "Closure must accept exactly one frame argument, found {}",
-                block.signature.required_positional.len()
+                "Closure must accept exactly one frame argument, found {count}",
+                count = block.signature.required_positional.len()
             )
             .into());
         }
@@ -126,8 +126,8 @@ impl Handler {
         skip(self, frame, store),
         fields(
             message = %format!(
-                "handler={}:{} frame={}:{}",
-                self.id, self.topic, frame.id, frame.topic)
+                "handler={handler_id}:{topic} frame={frame_id}:{frame_topic}",
+                handler_id = self.id, topic = self.topic, frame_id = frame.id, frame_topic = frame.topic)
         )
     )]
     async fn process_frame(&mut self, frame: &Frame, store: &Store) -> Result<(), Error> {
@@ -146,10 +146,13 @@ impl Handler {
 
             let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
             Some(
-                Frame::builder(format!("{}{}", self.topic, suffix), self.context_id)
-                    .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
-                    .maybe_hash(Some(hash))
-                    .build(),
+                Frame::builder(
+                    format!("{topic}{suffix}", topic = self.topic, suffix = suffix),
+                    self.context_id,
+                )
+                .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
+                .maybe_hash(Some(hash))
+                .build(),
             )
         } else {
             None
@@ -193,23 +196,26 @@ impl Handler {
 
         while let Some(frame) = recver.recv().await {
             // Skip registration activity that occurred before this handler was registered
-            if (frame.topic == format!("{}.register", self.topic)
-                || frame.topic == format!("{}.unregister", self.topic))
+            if (frame.topic == format!("{topic}.register", topic = self.topic)
+                || frame.topic == format!("{topic}.unregister", topic = self.topic))
                 && frame.id <= self.id
             {
                 continue;
             }
 
-            if frame.topic == format!("{}.register", &self.topic)
-                || frame.topic == format!("{}.unregister", &self.topic)
+            if frame.topic == format!("{topic}.register", topic = &self.topic)
+                || frame.topic == format!("{topic}.unregister", topic = &self.topic)
             {
                 let _ = store.append(
-                    Frame::builder(format!("{}.unregistered", &self.topic), self.context_id)
-                        .meta(serde_json::json!({
-                            "handler_id": self.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                        }))
-                        .build(),
+                    Frame::builder(
+                        format!("{topic}.unregistered", topic = &self.topic),
+                        self.context_id,
+                    )
+                    .meta(serde_json::json!({
+                        "handler_id": self.id.to_string(),
+                        "frame_id": frame.id.to_string(),
+                    }))
+                    .build(),
                 );
                 break;
             }
@@ -228,13 +234,16 @@ impl Handler {
 
             if let Err(err) = self.process_frame(&frame, store).await {
                 let _ = store.append(
-                    Frame::builder(format!("{}.unregistered", self.topic), self.context_id)
-                        .meta(serde_json::json!({
-                            "handler_id": self.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                            "error": err.to_string(),
-                        }))
-                        .build(),
+                    Frame::builder(
+                        format!("{topic}.unregistered", topic = self.topic),
+                        self.context_id,
+                    )
+                    .meta(serde_json::json!({
+                        "handler_id": self.id.to_string(),
+                        "frame_id": frame.id.to_string(),
+                        "error": err.to_string(),
+                    }))
+                    .build(),
                 );
                 break;
             }
@@ -255,13 +264,16 @@ impl Handler {
         }
 
         let _ = store.append(
-            Frame::builder(format!("{}.registered", &self.topic), self.context_id)
-                .meta(serde_json::json!({
-                    "handler_id": self.id.to_string(),
-                    "tail": options.tail,
-                    "last_id": options.last_id.map(|id| id.to_string()),
-                }))
-                .build(),
+            Frame::builder(
+                format!("{topic}.registered", topic = &self.topic),
+                self.context_id,
+            )
+            .meta(serde_json::json!({
+                "handler_id": self.id.to_string(),
+                "tail": options.tail,
+                "last_id": options.last_id.map(|id| id.to_string()),
+            }))
+            .build(),
         );
 
         Ok(())
@@ -282,13 +294,13 @@ impl Handler {
         let mut reader = store
             .cas_reader(hash.clone())
             .await
-            .map_err(|e| format!("Failed to get cas reader: {}", e))?;
+            .map_err(|e| format!("Failed to get cas reader: {e}"))?;
 
         let mut expression = String::new();
         reader
             .read_to_string(&mut expression)
             .await
-            .map_err(|e| format!("Failed to read expression: {}", e))?;
+            .map_err(|e| format!("Failed to read expression: {e}"))?;
 
         let handler = Handler::new(
             frame.id,
@@ -352,13 +364,13 @@ impl EngineWorker {
                     &closure,
                     Some(arg_val), // The frame value for the closure's argument
                     None,          // No separate $in pipeline
-                    format!("handler {}", frame.topic),
+                    format!("handler {topic}", topic = frame.topic),
                 );
 
                 let output = pipeline
                     .map_err(|e| {
                         let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-                        Error::from(nu_protocol::format_shell_error(&working_set, &e))
+                        Error::from(nu_protocol::format_cli_error(&working_set, &*e, None))
                     })
                     .and_then(|pd| {
                         pd.into_value(nu_protocol::Span::unknown())
@@ -410,7 +422,7 @@ fn extract_handler_config(script_config: &NuScriptConfig) -> Result<HandlerConfi
         Some("head") => ResumeFrom::Head,
         Some("tail") => ResumeFrom::Tail,
         Some(id_str) => ResumeFrom::After(Scru128Id::from_str(id_str).map_err(|_| -> Error {
-            format!("Invalid scru128 ID for resume_from: {}", id_str).into()
+            format!("Invalid scru128 ID for resume_from: {id_str}").into()
         })?),
         None => ResumeFrom::default(), // Default if not specified in script
     };

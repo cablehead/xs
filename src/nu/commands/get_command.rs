@@ -41,7 +41,7 @@ impl Command for GetCommand {
     ) -> Result<PipelineData, ShellError> {
         let id_str: String = call.req(engine_state, stack, 0)?;
         let id = id_str.parse().map_err(|e| ShellError::TypeMismatch {
-            err_message: format!("Invalid ID format: {}", e),
+            err_message: format!("Invalid ID format: {e}"),
             span: call.span(),
         })?;
 
@@ -55,7 +55,7 @@ impl Command for GetCommand {
         } else {
             Err(ShellError::GenericError {
                 error: "Frame not found".into(),
-                msg: format!("No frame found with ID: {}", id_str),
+                msg: format!("No frame found with ID: {id_str}"),
                 span: Some(call.head),
                 help: None,
                 inner: vec![],

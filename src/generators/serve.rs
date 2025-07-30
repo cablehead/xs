@@ -24,7 +24,7 @@ async fn try_start_task(
         });
 
         if let Err(e) = store.append(
-            Frame::builder(format!("{}.parse.error", topic), frame.context_id)
+            Frame::builder(format!("{topic}.parse.error"), frame.context_id)
                 .meta(meta)
                 .build(),
         ) {

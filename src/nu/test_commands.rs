@@ -106,7 +106,7 @@ mod tests {
 
         let hash = store.cas_insert_sync("test content").unwrap();
 
-        let value = nu_eval(&engine, PipelineData::empty(), format!(".cas {}", hash));
+        let value = nu_eval(&engine, PipelineData::empty(), format!(".cas {hash}"));
 
         let content = value.as_str().unwrap();
         assert_eq!(content, "test content");
@@ -125,7 +125,7 @@ mod tests {
         let binary_data = vec![0, 159, 146, 150]; // Non-UTF8 bytes
         let hash = store.cas_insert_sync(&binary_data).unwrap();
 
-        let value = nu_eval(&engine, PipelineData::empty(), format!(".cas {}", hash));
+        let value = nu_eval(&engine, PipelineData::empty(), format!(".cas {hash}"));
 
         // The value should be returned as binary
         assert!(matches!(value, Value::Binary { .. }));

@@ -202,7 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Nu(args) => run_nu(args),
     };
     if let Err(err) = res {
-        eprintln!("command error: {:?}", err);
+        eprintln!("command error: {err:?}");
         std::process::exit(1);
     }
     Ok(())
@@ -263,7 +263,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     let last_id = if let Some(last_id) = &args.last_id {
         match scru128::Scru128Id::from_str(last_id) {
             Ok(id) => Some(id),
-            Err(_) => return Err(format!("Invalid last-id: {}", last_id).into()),
+            Err(_) => return Err(format!("Invalid last-id: {last_id}").into()),
         }
     } else {
         None
@@ -527,7 +527,7 @@ fn nu_vendor_autoload_dirs() -> Vec<PathBuf> {
 }
 
 fn ask(prompt: &str) -> bool {
-    eprint!("{}", prompt);
+    eprint!("{prompt}");
     let mut input = String::new();
     let _ = std::io::stdin().read_line(&mut input);
     matches!(input.trim(), "y" | "Y")
@@ -678,7 +678,7 @@ fn run_nu(cmd: CommandNu) -> Result<(), Box<dyn std::error::Error + Send + Sync>
     } else if cmd.install {
         install()
     } else {
-        print!("{}", XS_NU);
+        print!("{XS_NU}");
         Ok(())
     }
 }

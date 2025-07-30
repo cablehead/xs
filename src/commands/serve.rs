@@ -29,7 +29,7 @@ async fn handle_define(
         }
         Err(err) => {
             let _ = store.append(
-                Frame::builder(format!("{}.error", name), frame.context_id)
+                Frame::builder(format!("{name}.error"), frame.context_id)
                     .meta(serde_json::json!({
                         "command_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -80,7 +80,7 @@ pub async fn serve(
                     if let Err(e) = execute_command(command, &frame, &store).await {
                         tracing::error!("Failed to execute command '{}': {:?}", name, e);
                         let _ = store.append(
-                            Frame::builder(format!("{}.error", name), frame.context_id)
+                            Frame::builder(format!("{name}.error"), frame.context_id)
                                 .meta(serde_json::json!({
                                     "error": e.to_string(),
                                 }))
@@ -143,8 +143,8 @@ async fn register_command(
     skip(command, frame, store),
     fields(
         message = %format!(
-            "command={} frame={}:{}",
-            command.id, frame.id, frame.topic
+            "command={id} frame={frame_id}:{topic}",
+            id = command.id, frame_id = frame.id, topic = frame.topic
         )
     )
 )]
@@ -195,9 +195,9 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
                 let _ = store.append(
                     Frame::builder(
                         format!(
-                            "{}{}",
-                            frame.topic.strip_suffix(".call").unwrap(),
-                            resp_suffix
+                            "{topic}{suffix}",
+                            topic = frame.topic.strip_suffix(".call").unwrap(),
+                            suffix = resp_suffix
                         ),
                         frame.context_id,
                     )
@@ -216,13 +216,16 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
                 let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
                 let _ = store.append(
                     Frame::builder(
-                        format!("{}.error", frame.topic.strip_suffix(".call").unwrap()),
+                        format!(
+                            "{topic}.error",
+                            topic = frame.topic.strip_suffix(".call").unwrap()
+                        ),
                         frame.context_id,
                     )
                     .meta(serde_json::json!({
                         "command_id": command.id.to_string(),
                         "frame_id": frame.id.to_string(),
-                        "error": nu_protocol::format_shell_error(&working_set, &err)
+                        "error": nu_protocol::format_cli_error(&working_set, &*err, None)
                     }))
                     .build(),
                 );
@@ -248,6 +251,6 @@ fn run_command(
         &closure,
         Some(arg_val),
         None,
-        format!("command {}", frame.topic),
+        format!("command {topic}", topic = frame.topic),
     )
 }

@@ -48,7 +48,7 @@ impl Command for CasCommand {
         let hash: String = call.req(engine_state, stack, 0)?;
         let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::GenericError {
             error: "I/O Error".into(),
-            msg: format!("Malformed ssri::Integrity:: {}", e),
+            msg: format!("Malformed ssri::Integrity:: {e}"),
             span: Some(span),
             help: None,
             inner: vec![],

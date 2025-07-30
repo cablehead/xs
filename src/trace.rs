@@ -39,7 +39,7 @@ enum Child {
 impl Visit for TraceNode {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         self.fields
-            .insert(field.name().to_string(), format!("{:?}", value));
+            .insert(field.name().to_string(), format!("{value:?}"));
     }
 }
 
@@ -66,7 +66,7 @@ impl TraceNode {
 
     fn duration_text(&self) -> String {
         match self.took {
-            Some(micros) if micros >= 1000 => format!("{}ms", micros / 1000),
+            Some(micros) if micros >= 1000 => format!("{ms}ms", ms = micros / 1000),
             _ => String::new(),
         }
     }
@@ -91,7 +91,7 @@ impl TraceNode {
             .fields
             .iter()
             .filter(|(k, _)| *k != "message")
-            .map(|(k, v)| format!("{}={}", k, v.trim_matches('"')))
+            .map(|(k, v)| format!("{k}={value}", k = k, value = v.trim_matches('"')))
             .collect::<Vec<_>>()
             .join(" ");
 
@@ -130,7 +130,7 @@ impl HierarchicalSubscriber {
         // Format location info using module_path instead of file
         let loc = if let Some(module_path) = &node.module_path {
             if let Some(line) = node.line {
-                format!("{}:{}", module_path, line)
+                format!("{module_path}:{line}")
             } else {
                 module_path.clone()
             }
@@ -146,16 +146,16 @@ impl HierarchicalSubscriber {
         }
 
         // Format duration with proper alignment
-        let duration_text = format!("{:>7}", node.duration_text());
+        let duration_text = format!("{dur:>7}", dur = node.duration_text());
 
         // Build the message content
         let mut message = format!(
-            "{} {:>5} {} {}{}",
-            formatted_time,
-            node.level,
-            duration_text,
-            prefix,
-            node.format_message()
+            "{time} {level:>5} {duration} {prefix}{msg}",
+            time = formatted_time,
+            level = node.level,
+            duration = duration_text,
+            prefix = prefix,
+            msg = node.format_message()
         );
 
         // Add right-aligned module path
@@ -217,7 +217,7 @@ impl HierarchicalSubscriber {
 
         let loc = if let Some(module_path) = &node.module_path {
             if let Some(line) = node.line {
-                format!("{}:{}", module_path, line)
+                format!("{module_path}:{line}")
             } else {
                 module_path.clone()
             }
@@ -227,17 +227,17 @@ impl HierarchicalSubscriber {
 
         // Highlight incomplete spans
         let duration_text = format!(
-            "{}{:>7}ms",
-            style(">").yellow(),
-            style(duration.as_millis()).yellow()
+            "{arrow}{millis:>7}ms",
+            arrow = style(">").yellow(),
+            millis = style(duration.as_millis()).yellow()
         );
 
         let mut message = format!(
-            "{} {:>5} {} {}",
-            formatted_time,
-            node.level,
-            duration_text,
-            style(&node.name).yellow()
+            "{time} {level:>5} {duration} {name}",
+            time = formatted_time,
+            level = node.level,
+            duration = duration_text,
+            name = style(&node.name).yellow()
         );
 
         let terminal_width = Term::stdout().size().1 as usize;

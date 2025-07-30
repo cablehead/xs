@@ -179,8 +179,8 @@ pub fn write_pipeline_to_cas(
             }
             _ => Err(Box::new(ShellError::PipelineMismatch {
                 exp_input_type: format!(
-                    "expected: string, binary, record, or nothing :: received: {:?}",
-                    value.get_type()
+                    "expected: string, binary, record, or nothing :: received: {typ:?}",
+                    typ = value.get_type()
                 ),
                 dst_span: span,
                 src_span: value.span(),

@@ -44,7 +44,7 @@ impl Command for RemoveCommand {
     ) -> Result<PipelineData, ShellError> {
         let id_str: String = call.req(engine_state, stack, 0)?;
         let id = Scru128Id::from_str(&id_str).map_err(|e| ShellError::TypeMismatch {
-            err_message: format!("Invalid ID format: {}", e),
+            err_message: format!("Invalid ID format: {e}"),
             span: call.span(),
         })?;
 

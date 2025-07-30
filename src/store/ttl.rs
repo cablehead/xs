@@ -19,8 +19,8 @@ impl TTL {
         match self {
             TTL::Forever => "ttl=forever".to_string(),
             TTL::Ephemeral => "ttl=ephemeral".to_string(),
-            TTL::Time(duration) => format!("ttl=time:{}", duration.as_millis()),
-            TTL::Head(n) => format!("ttl=head:{}", n),
+            TTL::Time(duration) => format!("ttl=time:{millis}", millis = duration.as_millis()),
+            TTL::Head(n) => format!("ttl=head:{n}"),
         }
     }
 
@@ -51,9 +51,9 @@ impl Serialize for TTL {
             TTL::Forever => serializer.serialize_str("forever"),
             TTL::Ephemeral => serializer.serialize_str("ephemeral"),
             TTL::Time(duration) => {
-                serializer.serialize_str(&format!("time:{}", duration.as_millis()))
+                serializer.serialize_str(&format!("time:{millis}", millis = duration.as_millis()))
             }
-            TTL::Head(n) => serializer.serialize_str(&format!("head:{}", n)),
+            TTL::Head(n) => serializer.serialize_str(&format!("head:{n}")),
         }
     }
 }

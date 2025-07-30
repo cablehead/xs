@@ -117,7 +117,7 @@ fn match_route(
                 None => crate::store::ZERO_CONTEXT,
                 Some(ctx) => match ctx.parse() {
                     Ok(id) => id,
-                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {}", e)),
+                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {e}")),
                 },
             };
             Routes::HeadGet {
@@ -134,10 +134,10 @@ fn match_route(
                         if validate_integrity(&integrity) {
                             Routes::CasGet(integrity)
                         } else {
-                            Routes::BadRequest(format!("Invalid CAS hash format: {}", hash))
+                            Routes::BadRequest(format!("Invalid CAS hash format: {hash}"))
                         }
                     }
-                    Err(e) => Routes::BadRequest(format!("Invalid CAS hash: {}", e)),
+                    Err(e) => Routes::BadRequest(format!("Invalid CAS hash: {e}")),
                 }
             } else {
                 Routes::NotFound
@@ -149,12 +149,12 @@ fn match_route(
 
         (&Method::GET, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
             Ok(id) => Routes::StreamItemGet(id),
-            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {}", e)),
+            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {e}")),
         },
 
         (&Method::DELETE, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
             Ok(id) => Routes::StreamItemRemove(id),
-            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {}", e)),
+            Err(e) => Routes::BadRequest(format!("Invalid frame ID: {e}")),
         },
 
         (&Method::POST, path) if path.starts_with('/') => {
@@ -163,7 +163,7 @@ fn match_route(
                 None => crate::store::ZERO_CONTEXT,
                 Some(ctx) => match ctx.parse() {
                     Ok(id) => id,
-                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {}", e)),
+                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {e}")),
                 },
             };
 
@@ -256,9 +256,9 @@ async fn handle_stream_cat(
                 encoded
             }
             AcceptType::EventStream => format!(
-                "id: {}\ndata: {}\n\n",
-                frame.id,
-                serde_json::to_string(&frame).unwrap_or_default()
+                "id: {id}\ndata: {data}\n\n",
+                id = frame.id,
+                data = serde_json::to_string(&frame).unwrap_or_default()
             )
             .into_bytes(),
         };
@@ -315,15 +315,15 @@ async fn handle_stream_append(
             // First decode the Base64-encoded string
             base64::prelude::BASE64_STANDARD
                 .decode(s)
-                .map_err(|e| format!("xs-meta isn't valid Base64: {}", e))
+                .map_err(|e| format!("xs-meta isn't valid Base64: {e}"))
                 .and_then(|decoded| {
                     // Then parse the decoded bytes as UTF-8 string
                     String::from_utf8(decoded)
-                        .map_err(|e| format!("xs-meta isn't valid UTF-8: {}", e))
+                        .map_err(|e| format!("xs-meta isn't valid UTF-8: {e}"))
                         .and_then(|json_str| {
                             // Finally parse the UTF-8 string as JSON
                             serde_json::from_str(&json_str)
-                                .map_err(|e| format!("xs-meta isn't valid JSON: {}", e))
+                                .map_err(|e| format!("xs-meta isn't valid JSON: {e}"))
                         })
                 })
         })
@@ -530,7 +530,7 @@ async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPRe
     let bytes = body.collect().await?.to_bytes();
     let frame: Frame = match serde_json::from_slice(&bytes) {
         Ok(frame) => frame,
-        Err(e) => return response_400(format!("Invalid frame JSON: {}", e)),
+        Err(e) => return response_400(format!("Invalid frame JSON: {e}")),
     };
 
     store.insert_frame(&frame)?;

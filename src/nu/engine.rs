@@ -43,7 +43,7 @@ impl Engine {
         let _ = parse(
             &mut working_set,
             None,
-            format!("alias {} = {}", name, target).as_bytes(),
+            format!("alias {name} = {target}").as_bytes(),
             false,
         );
         self.state.merge_delta(working_set.render())?;
@@ -115,16 +115,13 @@ impl Engine {
         let temp_dir = tempfile::TempDir::new().map_err(|e| {
             Box::new(ShellError::GenericError {
                 error: "I/O Error".into(),
-                msg: format!(
-                    "Failed to create temporary directory for module '{}': {}",
-                    name, e
-                ),
+                msg: format!("Failed to create temporary directory for module '{name}': {e}"),
                 span: Some(Span::unknown()),
                 help: None,
                 inner: vec![],
             })
         })?;
-        let module_path = temp_dir.path().join(format!("{}.nu", name));
+        let module_path = temp_dir.path().join(format!("{name}.nu"));
         std::fs::write(&module_path, content).map_err(|e| {
             Box::new(ShellError::GenericError {
                 error: "I/O Error".into(),
@@ -228,7 +225,7 @@ impl Engine {
                     } else {
                         // This case should ideally not happen if parsing is correct.
                         return Err(Box::new(ShellError::GenericError{
-                            error: format!("Closure for job '{}' expects an argument but its definition is missing a variable ID.", job_display_name),
+                            error: format!("Closure for job '{job_display_name}' expects an argument but its definition is missing a variable ID."),
                             msg: "Internal error: argument variable ID not found.".into(),
                             span: Some(block.span.unwrap_or_else(Span::unknown)),
                             help: None,
@@ -237,8 +234,8 @@ impl Engine {
                     }
                 } else if num_required_pos == 0 {
                     return Err(Box::new(ShellError::GenericError{
-                        error: format!("Argument provided to job '{}', but its run closure takes no arguments.", job_display_name),
-                        msg: format!("Closure signature: {}. Provided argument type: {:?}", block.signature.name, val_to_set_as_arg.get_type()),
+                        error: format!("Argument provided to job '{job_display_name}', but its run closure takes no arguments."),
+                        msg: format!("Closure signature: {name}. Provided argument type: {typ:?}", name = block.signature.name, typ = val_to_set_as_arg.get_type()),
                         span: Some(val_to_set_as_arg.span()),
                         help: Some("Remove the argument or modify the closure to accept one.".into()),
                         inner: vec![],
@@ -246,10 +243,10 @@ impl Engine {
                 } else {
                     // num_required_pos > 1
                     return Err(Box::new(ShellError::GenericError{
-                        error: format!("Single argument provided to job '{}', but its run closure expects {} arguments.", job_display_name, num_required_pos),
-                        msg: format!("Closure signature: {}. Provided argument type: {:?}", block.signature.name, val_to_set_as_arg.get_type()),
+                        error: format!("Single argument provided to job '{job_display_name}', but its run closure expects {num_required_pos} arguments."),
+                        msg: format!("Closure signature: {name}. Provided argument type: {typ:?}", name = block.signature.name, typ = val_to_set_as_arg.get_type()),
                         span: Some(val_to_set_as_arg.span()),
-                        help: Some(format!("Provide {} arguments or modify the closure.", num_required_pos)),
+                        help: Some(format!("Provide {num_required_pos} arguments or modify the closure.")),
                         inner: vec![],
                     }));
                 }
@@ -262,14 +259,12 @@ impl Engine {
                     // If $in is supposed to be the argument, caller should convert PipelineData::Value to Option<Value> for `arg`.
                     return Err(Box::new(ShellError::GenericError {
                         error: format!(
-                            "Job '{}' run closure expects {} argument(s), but none were provided.",
-                            job_display_name, num_required_pos
+                            "Job '{job_display_name}' run closure expects {num_required_pos} argument(s), but none were provided."
                         ),
-                        msg: format!("Closure signature: {}", block.signature.name),
+                        msg: format!("Closure signature: {name}", name = block.signature.name),
                         span: Some(block.span.unwrap_or_else(Span::unknown)),
                         help: Some(format!(
-                            "Provide {} argument(s) or modify the closure.",
-                            num_required_pos
+                            "Provide {num_required_pos} argument(s) or modify the closure."
                         )),
                         inner: vec![],
                     }));
