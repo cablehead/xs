@@ -196,10 +196,9 @@ fn extract_addr_from_command(command: &Command) -> Option<String> {
 }
 
 fn is_connection_error(err: &(dyn std::error::Error + Send + Sync)) -> bool {
-    // Check if the error message contains indicators of connection issues
+    // Check if the error message contains the specific OS error pattern
     let err_str = format!("{err:?}");
-    err_str.contains("NotFound")
-        || err_str.contains("No such file or directory")
+    err_str.contains("Os { code: 2")
         || err_str.contains("ConnectionRefused")
         || err_str.contains("Connection refused")
 }
