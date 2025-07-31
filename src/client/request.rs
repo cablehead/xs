@@ -53,6 +53,9 @@ where
     // Handle non-OK responses
     if res.status() != hyper::StatusCode::OK && res.status() != hyper::StatusCode::NO_CONTENT {
         let status = res.status();
+        if status == hyper::StatusCode::NOT_FOUND {
+            return Err(Box::new(crate::error::NotFound));
+        }
         let body = res.collect().await?.to_bytes();
         return Err(format!("{status}:: {}", String::from_utf8_lossy(&body)).into());
     }

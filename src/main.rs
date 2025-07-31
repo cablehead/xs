@@ -195,14 +195,6 @@ fn extract_addr_from_command(command: &Command) -> Option<String> {
     }
 }
 
-fn is_connection_error(err: &(dyn std::error::Error + Send + Sync)) -> bool {
-    // Check if the error message contains the specific OS error pattern
-    let err_str = format!("{err:?}");
-    err_str.contains("Os { code: 2")
-        || err_str.contains("ConnectionRefused")
-        || err_str.contains("Connection refused")
-}
-
 fn format_connection_error(addr: &str) -> String {
     let default_path = dirs::home_dir()
         .map(|home| home.join(".local/share/cross.stream/store"))
@@ -251,16 +243,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Nu(args) => run_nu(args),
     };
     if let Err(err) = res {
-        if is_connection_error(err.as_ref()) {
+        // Check if it's a NotFound error - exit silently with status 1
+        if xs::error::NotFound::is_not_found(&err) {
+            std::process::exit(1);
+        }
+        // Check if it's a file not found error (connection failure)
+        else if xs::error::has_not_found_io_error(&err) {
             if let Some(addr) = addr {
                 eprintln!("{}", format_connection_error(&addr));
             } else {
                 eprintln!("command error: {err:?}");
             }
-        } else {
-            eprintln!("command error: {err:?}");
+            std::process::exit(1);
         }
-        std::process::exit(1);
+        // All other errors
+        else {
+            eprintln!("command error: {err:?}");
+            std::process::exit(1);
+        }
     }
     Ok(())
 }

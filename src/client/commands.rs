@@ -127,10 +127,21 @@ where
             // Direct CAS access for local path
             let store_path = path.parent().unwrap_or(&path).to_path_buf();
             let cas_path = store_path.join("cacache");
-            let mut reader = cacache::Reader::open_hash(&cas_path, integrity).await?;
-            tokio::io::copy(&mut reader, writer).await?;
-            writer.flush().await?;
-            Ok(())
+            match cacache::Reader::open_hash(&cas_path, integrity).await {
+                Ok(mut reader) => {
+                    tokio::io::copy(&mut reader, writer).await?;
+                    writer.flush().await?;
+                    Ok(())
+                }
+                Err(e) => {
+                    // Check if this is a file not found error and convert to NotFound
+                    let boxed_err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
+                    if crate::error::has_not_found_io_error(&boxed_err) {
+                        return Err(Box::new(crate::error::NotFound));
+                    }
+                    Err(boxed_err)
+                }
+            }
         }
         _ => {
             // Remote HTTP access
@@ -264,7 +275,7 @@ pub async fn version(addr: &str) -> Result<Bytes, Box<dyn std::error::Error + Se
         }
         Err(e) => {
             // this was the version before the /version endpoint was added
-            if e.to_string().contains("404 Not Found") {
+            if crate::error::NotFound::is_not_found(&e) {
                 Ok(Bytes::from(r#"{"version":"0.0.9"}"#))
             } else {
                 Err(e)
@@ -277,4 +288,29 @@ fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_cas_get_not_found_local() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_path = temp_dir.path().to_str().unwrap();
+
+        // Create a fake hash that doesn't exist
+        let fake_hash = "sha256-fakehashnotfound0000000000000000000000000000000=";
+        let integrity = Integrity::from_str(fake_hash).unwrap();
+
+        let mut output = Vec::new();
+        let result = cas_get(store_path, integrity, &mut output).await;
+
+        // Should return NotFound error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(crate::error::NotFound::is_not_found(&err));
+    }
 }
