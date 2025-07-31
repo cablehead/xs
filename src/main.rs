@@ -180,6 +180,55 @@ struct CommandGet {
     id: String,
 }
 
+fn extract_addr_from_command(command: &Command) -> Option<String> {
+    match command {
+        Command::Cat(cmd) => Some(cmd.addr.clone()),
+        Command::Append(cmd) => Some(cmd.addr.clone()),
+        Command::Cas(cmd) => Some(cmd.addr.clone()),
+        Command::CasPost(cmd) => Some(cmd.addr.clone()),
+        Command::Remove(cmd) => Some(cmd.addr.clone()),
+        Command::Head(cmd) => Some(cmd.addr.clone()),
+        Command::Get(cmd) => Some(cmd.addr.clone()),
+        Command::Import(cmd) => Some(cmd.addr.clone()),
+        Command::Version(cmd) => Some(cmd.addr.clone()),
+        Command::Serve(_) | Command::Nu(_) => None,
+    }
+}
+
+fn is_connection_error(err: &(dyn std::error::Error + Send + Sync)) -> bool {
+    // Check if the error message contains indicators of connection issues
+    let err_str = format!("{err:?}");
+    err_str.contains("NotFound")
+        || err_str.contains("No such file or directory")
+        || err_str.contains("ConnectionRefused")
+        || err_str.contains("Connection refused")
+}
+
+fn format_connection_error(addr: &str) -> String {
+    let default_path = dirs::home_dir()
+        .map(|home| home.join(".local/share/cross.stream/store"))
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "~/.local/share/cross.stream/store".to_string());
+
+    format!(
+        "No running xs store found at: {addr}
+
+To start a store at this location, run:
+  xs serve {addr}
+
+If using xs.nu conveniences (.cat, .append, etc.), the address is determined by:
+  1. $env.XS_ADDR if set
+  2. ~/.config/cross.stream/XS_ADDR file if it exists
+  3. {default_path} (default)
+
+To use a different address temporarily:
+  with-env {{XS_ADDR: \"./my-store\"}} {{ .cat }}
+
+To set permanently:
+  $env.XS_ADDR = \"./my-store\""
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     nu_command::tls::CRYPTO_PROVIDER
@@ -188,6 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .expect("failed to set nu_command crypto provider");
 
     let args = Args::parse();
+    let addr = extract_addr_from_command(&args.command);
     let res = match args.command {
         Command::Serve(args) => serve(args).await,
         Command::Cat(args) => cat(args).await,
@@ -202,7 +252,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Nu(args) => run_nu(args),
     };
     if let Err(err) = res {
-        eprintln!("command error: {err:?}");
+        if is_connection_error(err.as_ref()) {
+            if let Some(addr) = addr {
+                eprintln!("{}", format_connection_error(&addr));
+            } else {
+                eprintln!("command error: {err:?}");
+            }
+        } else {
+            eprintln!("command error: {err:?}");
+        }
         std::process::exit(1);
     }
     Ok(())
