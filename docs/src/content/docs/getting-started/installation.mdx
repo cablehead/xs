@@ -24,6 +24,43 @@ brew services start cablehead/tap/cross-stream  # starts a store in ~/.local/sha
 ```
 </TabItem>
 
+<TabItem label="nix">
+This method helps avoid potential OpenSSL linking issues during compilation.
+
+Create a `flake.nix` file:
+
+```nix
+{
+  description = "Development environment for xs.";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+      let
+        system = "x86_64-linux";
+        pkgs = nixpkgs.legacyPackages.${system};
+
+
+      in
+      {
+        devShell.x86_64-linux = pkgs.mkShell {
+            buildInputs = [ pkgs.openssl pkgs.rustc pkgs.cargo ];
+            nativeBuildInputs = [ pkgs.pkg-config ];
+        };
+      };
+}
+```
+
+Then run:
+
+```sh
+nix develop
+cargo install cross-stream --locked
+```
+</TabItem>
+
 </Tabs>
 
 ## Verifying Installation
