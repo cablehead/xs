@@ -54,6 +54,36 @@ All events include `source_id` which is the ID of the generator instance. When a
 
 The `return_options` field controls the suffix and TTL for the `.recv` frames produced by the generator.
 
+## Return Options
+
+The `return_options` record allows you to customize the output frames produced by the generator:
+
+| Option   | Type   | Default   | Description                                           |
+| -------- | ------ | --------- | ----------------------------------------------------- |
+| `suffix` | string | ".recv"   | Custom suffix for output frames (e.g., ".output")    |
+| `ttl`    | string | "forever" | Time-to-live for output frames                        |
+
+### TTL Options
+
+- `"forever"` - Frames never expire (default)
+- `"ephemeral"` - Frames are removed immediately after processing
+- `"time:<ms>"` - Frames expire after specified milliseconds
+- `"head:<n>"` - Keep only the N most recent frames for each topic
+
+Example with custom return options:
+
+```nushell
+r#'{
+  run: {|| ^tail -F access.log | lines },
+  return_options: {
+    suffix: ".line",
+    ttl: "head:100"  # Keep only last 100 log lines
+  }
+}'# | .append logs.spawn
+```
+
+This generator will emit frames with the topic `logs.line` and automatically maintain only the 100 most recent log entries.
+
 ## Bi-directional Communication
 
 When `duplex` is enabled, you can send data into the generator's input pipeline
