@@ -222,6 +222,11 @@ To set permanently:
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Install the default rustls crypto provider first
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     nu_command::tls::CRYPTO_PROVIDER
         .default()
         .then_some(())
