@@ -126,39 +126,6 @@ p, h1, h2, h3, h4, h5, h6 {
   font-size: 12px;
 }
 
-/* Event Bubble Styles */
-.event-bubble {
-  padding: 10px 14px;
-  border-radius: 4px;
-  width: 100%;
-  text-align: left;
-  position: relative;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  transform: scale(1);
-  font-family: monospace;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1px;
-}
-
-.event-bubble:hover {
-  transform: scale(1.02);
-}
-
-.event-bubble.goal {
-  background: rgba(165, 162, 255, 0.15);
-  border: 1px solid var(--accent-purple);
-  color: var(--accent-purple);
-}
-
-.event-bubble.notes {
-  background: rgba(121, 192, 255, 0.15);
-  border: 1px solid var(--accent-blue-light);
-  color: var(--accent-blue-light);
-}
-
 .event-id {
   font-size: 10px;
   opacity: 0.7;
