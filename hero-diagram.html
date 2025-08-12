@@ -77,24 +77,34 @@
         display: block;
       }
 
-      /* Input commands styling */
-      .input-commands {
+      /* Terminal Panel Component System */
+      .terminal-panel {
         background: #1e1e1e;
-        border: 1px solid #3c3c3c;
+        border: 1px solid #30363d;
         border-radius: 8px;
-        padding: 30px 24px 20px 24px;
-        font-size: 1em;
+        overflow: hidden;
         font-family:
           "Courier New", "Courier", "Lucida Console", "Liberation Mono",
           "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Monaco", monospace;
-        overflow-x: auto;
-        position: relative;
       }
-      .input-commands::before {
+
+      .terminal-header {
+        background: #21262d;
+        border-bottom: 1px solid #30363d;
+        padding: 8px 20px 8px 85px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        position: relative;
+        min-height: 44px;
+        box-sizing: border-box;
+      }
+
+      .terminal-header::before {
         content: "";
         position: absolute;
-        top: 12px;
-        left: 12px;
+        top: 16px;
+        left: 16px;
         width: 12px;
         height: 12px;
         border-radius: 50%;
@@ -102,25 +112,48 @@
         box-shadow: 20px 0 0 #ffbd2e, 40px 0 0 #27ca3f;
       }
 
-      /* Input commands styling */
-      .input-commands {
-        white-space: nowrap;
+      .terminal-title {
+        color: #ffa657;
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0;
       }
-      .command {
+
+      .terminal-actions {
+        display: flex;
+        gap: 10px;
+        margin-left: auto;
+      }
+
+      .terminal-content {
+        min-height: 200px;
+        padding: 20px;
+        background: #1e1e1e;
+        color: #c9d1d9;
+        line-height: 1.4;
+        overflow-x: auto;
+      }
+
+      .terminal-line {
         margin: 10px 0;
         color: #8b949e;
         line-height: 1.4;
+        white-space: nowrap;
       }
-      .command .prompt {
+
+      .terminal-line .prompt {
         color: #79c0ff;
       }
-      .command .text {
+
+      .terminal-line .command {
         color: #a5d6ff;
       }
-      .command .pipe {
+
+      .terminal-line .pipe {
         color: #ff7b72;
       }
-      .command .topic {
+
+      .terminal-line .topic {
         color: #ffa657;
       }
 
@@ -171,40 +204,6 @@
         letter-spacing: -0.5px;
       }
 
-      /* Command Selector as Header */
-      .command-selector {
-        background: #21262d;
-        border: 1px solid #30363d;
-        border-bottom: none;
-        border-radius: 8px 8px 0 0;
-        padding: 8px 20px 8px 85px;
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        position: relative;
-      }
-      .command-selector::before {
-        content: '';
-        position: absolute;
-        top: 16px;
-        left: 16px;
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: #ff5f56;
-        box-shadow: 20px 0 0 #ffbd2e, 40px 0 0 #27ca3f;
-      }
-      .selector-title {
-        color: #ffa657;
-        font-size: 14px;
-        font-weight: 600;
-        margin: 0;
-      }
-      .command-options {
-        display: flex;
-        gap: 10px;
-        margin-left: auto;
-      }
       .command-option {
         background: #0d1117;
         border: 1px solid #30363d;
@@ -213,60 +212,50 @@
         cursor: pointer;
         transition: all 0.3s ease;
       }
+
       .command-option:hover {
         border-color: #58a6ff;
         background: rgba(88, 166, 255, 0.05);
       }
+
       .command-option.selected {
         border-color: #58a6ff;
         background: rgba(88, 166, 255, 0.1);
       }
+
       .command-title {
         color: #58a6ff;
         font-weight: 500;
         margin: 0;
         font-size: 12px;
       }
-      /* Query results styling */
-      .query-results {
-        border: 1px solid #30363d;
-        border-radius: 8px;
-        overflow: hidden;
-      }
-      .terminal-content {
-        min-height: 400px;
-        padding: 20px;
-        background: #1e1e1e;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      .terminal-prompt {
-        color: #79c0ff;
-        margin-bottom: 16px;
-      }
-      .terminal-content {
-        color: #c9d1d9;
-        line-height: 1.4;
+      .terminal-output {
+        margin-top: 16px;
         white-space: pre-wrap;
         font-family: inherit;
-        margin-top: 10px;
       }
-      .table-row {
-        margin: 0;
+
+      .terminal-output[data-variant="table"] {
+        color: #c9d1d9;
         line-height: 1.2;
       }
-      .table-header {
-        color: #ffa657;
-        margin: 0;
-        line-height: 1.2;
-      }
-      .current-goal {
+
+      .terminal-output[data-variant="text"] {
         color: #a5a2ff;
         font-size: 16px;
-        margin-top: 16px;
         font-weight: 500;
       }
+
+      .embedded-component {
+        margin-top: 16px;
+      }
+
+      .embedded-component[data-variant="store"] {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
       .no-output {
         color: #8b949e;
         font-style: italic;
@@ -295,7 +284,7 @@
         .arrow {
           display: none;
         }
-        .input-commands {
+        .terminal-line {
           white-space: pre-wrap;
         }
       }
@@ -310,12 +299,10 @@
 
       <!-- Query Section -->
       <div class="query-section">
-        <!-- Query Results with Header -->
-        <div class="query-results">
-          <!-- Command Selector as Header -->
-          <div class="command-selector">
-            <div class="selector-title">Query the Event Store</div>
-            <div class="command-options">
+        <div class="terminal-panel">
+          <div class="terminal-header">
+            <div class="terminal-title">Query the Event Store</div>
+            <div class="terminal-actions">
               <div class="command-option" id="command-notes">
                 <div class="command-title">Get all notes</div>
               </div>
@@ -324,9 +311,9 @@
               </div>
             </div>
           </div>
-          
-          <!-- Output Content -->
-          <div class="terminal-content" id="query-output"></div>
+          <div class="terminal-content">
+            <div id="query-output"></div>
+          </div>
         </div>
       </div>
 
@@ -334,51 +321,60 @@
         <!-- Top row with console, arrow, and store -->
         <div class="input-store-row">
           <!-- Input commands showing executed commands -->
-          <div class="input-commands">
-            <div class="command">
-              <span class="prompt">$</span> <span class="text"
-              >"buy groceries"</span> <span class="pipe">|</span> <span
-                class="topic"
-              >.append goal</span>
+          <div class="terminal-panel">
+            <div class="terminal-header">
+              <!-- Blank title as requested -->
             </div>
-            <div class="command">
-              <span class="prompt">$</span> <span class="text"
-              >"quick note about meeting"</span> <span class="pipe">|</span>
-              <span class="topic">.append notes</span>
-            </div>
-            <div class="command">
-              <span class="prompt">$</span> <span class="text"
-              >"submit TPS report"</span> <span class="pipe">|</span> <span
-                class="topic"
-              >.append notes</span>
-            </div>
-            <div class="command">
-              <span class="prompt">$</span> <span class="text"
-              >"learn cross.stream"</span> <span class="pipe">|</span> <span
-                class="topic"
-              >.append goal</span>
-            </div>
-            <div class="command">
-              <span class="prompt">$</span> <span class="text"
-              >"review project docs"</span> <span class="pipe">|</span> <span
-                class="topic"
-              >.append notes</span>
+            <div class="terminal-content">
+              <div class="terminal-line">
+                <span class="prompt">$</span> <span class="command"
+                >"buy groceries"</span> <span class="pipe">|</span> <span
+                  class="topic"
+                >.append goal</span>
+              </div>
+              <div class="terminal-line">
+                <span class="prompt">$</span> <span class="command"
+                >"quick note about meeting"</span> <span class="pipe">|</span>
+                <span class="topic">.append notes</span>
+              </div>
+              <div class="terminal-line">
+                <span class="prompt">$</span> <span class="command"
+                >"submit TPS report"</span> <span class="pipe">|</span> <span
+                  class="topic"
+                >.append notes</span>
+              </div>
+              <div class="terminal-line">
+                <span class="prompt">$</span> <span class="command"
+                >"learn cross.stream"</span> <span class="pipe">|</span> <span
+                  class="topic"
+                >.append goal</span>
+              </div>
+              <div class="terminal-line">
+                <span class="prompt">$</span> <span class="command"
+                >"review project docs"</span> <span class="pipe">|</span> <span
+                  class="topic"
+                >.append notes</span>
+              </div>
             </div>
             <div class="arrow"></div>
           </div>
 
           <!-- Store with event bubbles -->
           <div class="store">
-            <div class="query-results">
-              <!-- Store Header with Terminal Chrome -->
-              <div class="command-selector">
-                <div class="selector-title">./store</div>
+            <div class="terminal-panel">
+              <div class="terminal-header">
+                <div class="terminal-title">./store</div>
               </div>
-              
-              <!-- Store Content -->
               <div class="terminal-content">
-                <span class="terminal-prompt">$ job spawn { xs serve (xs-addr) }</span>
-                <div class="events-container" id="events-container">
+                <div class="terminal-line">
+                  <span class="prompt">$</span>
+                  <span class="command">job spawn { xs serve (xs-addr) }</span>
+                </div>
+                <div
+                  class="embedded-component"
+                  data-variant="store"
+                  id="events-container"
+                >
                   <div
                     class="event-bubble goal"
                     data-topic="goal"
@@ -501,21 +497,23 @@
         let output = "";
 
         if (type === "notes") {
-          output =
-            `<span class="terminal-prompt">$ .cat | where topic == "notes" | insert content { .cas $in.hash }</span>
-
-┌───┬───────┬─────────────────────────────────────────┐
+          output = `<div class="terminal-line">
+              <span class="prompt">$</span>
+              <span class="command">.cat | where topic == "notes" | insert content { .cas $in.hash }</span>
+            </div>
+            <div class="terminal-output" data-variant="table">┌───┬───────┬─────────────────────────────────────────┐
 │ # │ topic │                content                  │
 ├───┼───────┼─────────────────────────────────────────┤
 │ 0 │ notes │ quick note about meeting                │
 │ 1 │ notes │ submit TPS report                       │
 │ 2 │ notes │ review project docs                     │
-└───┴───────┴─────────────────────────────────────────┘`;
+└───┴───────┴─────────────────────────────────────────┘</div>`;
         } else if (type === "goal") {
-          output =
-            `<span class="terminal-prompt">$ .head goal | .cas</span>
-
-learn cross.stream`;
+          output = `<div class="terminal-line">
+              <span class="prompt">$</span>
+              <span class="command">.head goal | .cas</span>
+            </div>
+            <div class="terminal-output" data-variant="text">learn cross.stream</div>`;
         }
 
         queryOutput.innerHTML = output;

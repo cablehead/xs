@@ -1,60 +1,60 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>cross.stream</title>
     <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            background: #0d1117;
-        }
-        .container {
-            margin: 0 auto;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-        .row-1 {
-            max-width: 1024px;
-            margin: 0 auto;
-        }
-        .row {
-            display: flex;
-            gap: 20px;
-        }
-        .screenshot {
-            max-width: 100%;
-            height: auto;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-        }
-        .row-1 img {
-            width: 100%;
-        }
-        .row-2 {
-            align-items: flex-start;
-        }
-        .row-2 img:first-child {
-            flex: 768;
-            width: calc(65.75% - 10px);
-        }
-        .row-2 img:last-child {
-            flex: 400;
-            width: calc(34.25% - 10px);
-        }
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #0d1117;
+      }
+      .container {
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .row-1 {
+        max-width: 1024px;
+        margin: 0 auto;
+      }
+      .row {
+        display: flex;
+        gap: 20px;
+      }
+      .screenshot {
+        max-width: 100%;
+        height: auto;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+      }
+      .row-1 img {
+        width: 100%;
+      }
+      .row-2 {
+        align-items: flex-start;
+      }
+      .row-2 img:first-child {
+        flex: 768;
+        width: calc(65.75% - 10px);
+      }
+      .row-2 img:last-child {
+        flex: 400;
+        width: calc(34.25% - 10px);
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <div class="row row-1">
-            <img src="screenshot-1024.png" alt="Desktop view" class="screenshot">
-        </div>
-        <div class="row row-2">
-            <img src="screenshot-768.png" alt="Tablet view" class="screenshot">
-            <img src="screenshot-400.png" alt="Mobile view" class="screenshot">
-        </div>
+      <div class="row row-1">
+        <img src="screenshot-1024.png" alt="Desktop view" class="screenshot">
+      </div>
+      <div class="row row-2">
+        <img src="screenshot-768.png" alt="Tablet view" class="screenshot">
+        <img src="screenshot-400.png" alt="Mobile view" class="screenshot">
+      </div>
     </div>
-</body>
+  </body>
 </html>
