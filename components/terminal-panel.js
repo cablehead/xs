@@ -63,7 +63,6 @@ export class TerminalPanel extends LitElement {
       display: flex;
       flex-direction: row;
       gap: 10px;
-      border: 2px solid red;
       flex: 1;
       justify-content: flex-end;
     }
@@ -105,6 +104,12 @@ export class TerminalPanel extends LitElement {
   `;
 
   _handleActionClick(action) {
+    // Update selection state
+    this.actions = this.actions.map((a) => ({
+      ...a,
+      selected: a.id === action.id,
+    }));
+
     this.dispatchEvent(
       new CustomEvent("action-click", {
         detail: { actionId: action.id, action },
