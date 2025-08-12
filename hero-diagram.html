@@ -37,7 +37,7 @@
         min-height: 400px;
       }
 
-      .top-row {
+      .input-store-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 60px;
@@ -93,7 +93,7 @@
       .input-commands::before {
         content: "";
         position: absolute;
-        top: 8px;
+        top: 12px;
         left: 12px;
         width: 12px;
         height: 12px;
@@ -128,25 +128,12 @@
       .store {
         text-align: left;
       }
-      .store-container {
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 8px;
-        padding: 24px;
-        position: relative;
-      }
-      .store-title {
-        color: #ffa657;
-        font-size: 16px;
-        font-weight: normal;
-        margin-bottom: 24px;
-        font-family: monospace;
-      }
       .events-container {
         display: flex;
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
+        margin-top: 16px;
       }
       .event-bubble {
         padding: 10px 14px;
@@ -190,7 +177,7 @@
         border: 1px solid #30363d;
         border-bottom: none;
         border-radius: 8px 8px 0 0;
-        padding: 8px 20px 8px 60px;
+        padding: 8px 20px 8px 85px;
         display: flex;
         align-items: center;
         gap: 20px;
@@ -199,8 +186,8 @@
       .command-selector::before {
         content: '';
         position: absolute;
-        top: 8px;
-        left: 12px;
+        top: 16px;
+        left: 16px;
         width: 12px;
         height: 12px;
         border-radius: 50%;
@@ -249,6 +236,10 @@
       .terminal-content {
         min-height: 400px;
         padding: 20px;
+        background: #1e1e1e;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
       }
       .terminal-prompt {
         color: #79c0ff;
@@ -292,7 +283,7 @@
       }
 
       @media (max-width: 400px) {
-        .top-row {
+        .input-store-row {
           grid-template-columns: 1fr;
           gap: 30px;
           text-align: center;
@@ -316,6 +307,28 @@
       <p class="subtitle">
         Events sit in the store, ready to be queried by different pipelines
       </p>
+
+      <!-- Query Section -->
+      <div class="query-section">
+        <!-- Query Results with Header -->
+        <div class="query-results">
+          <!-- Command Selector as Header -->
+          <div class="command-selector">
+            <div class="selector-title">Query the Event Store</div>
+            <div class="command-options">
+              <div class="command-option" id="command-notes">
+                <div class="command-title">Get all notes</div>
+              </div>
+              <div class="command-option" id="command-goal">
+                <div class="command-title">Get current goal</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Output Content -->
+          <div class="terminal-content" id="query-output"></div>
+        </div>
+      </div>
 
       <div class="hero-layout">
         <!-- Top row with console, arrow, and store -->
@@ -356,74 +369,60 @@
 
           <!-- Store with event bubbles -->
           <div class="store">
-            <div class="store-container">
-              <div class="store-title">./store</div>
-              <div class="events-container" id="events-container">
-                <div
-                  class="event-bubble goal"
-                  data-topic="goal"
-                  data-content="buy groceries"
-                >
-                  <span>goal</span>
-                  <span class="event-id">03d4q1o70y6ek0ig8hwy9q00n</span>
-                </div>
-                <div
-                  class="event-bubble notes"
-                  data-topic="notes"
-                  data-content="quick note about meeting"
-                >
-                  <span>notes</span>
-                  <span class="event-id">03d4q1qhbiv09ovtuhokw5yxv</span>
-                </div>
-                <div
-                  class="event-bubble notes"
-                  data-topic="notes"
-                  data-content="submit TPS report"
-                >
-                  <span>notes</span>
-                  <span class="event-id">03d4qbrxizqgav09m7hicksb0</span>
-                </div>
-                <div
-                  class="event-bubble goal"
-                  data-topic="goal"
-                  data-content="learn cross.stream"
-                >
-                  <span>goal</span>
-                  <span class="event-id">03d4qic9vqkve1krajjtlbavd</span>
-                </div>
-                <div
-                  class="event-bubble notes"
-                  data-topic="notes"
-                  data-content="review project docs"
-                >
-                  <span>notes</span>
-                  <span class="event-id">03d4qjwnhwudlfyg1ygemmt7b</span>
+            <div class="query-results">
+              <!-- Store Header with Terminal Chrome -->
+              <div class="command-selector">
+                <div class="selector-title">./store</div>
+              </div>
+              
+              <!-- Store Content -->
+              <div class="terminal-content">
+                <span class="terminal-prompt">$ job spawn { xs serve (xs-addr) }</span>
+                <div class="events-container" id="events-container">
+                  <div
+                    class="event-bubble goal"
+                    data-topic="goal"
+                    data-content="buy groceries"
+                  >
+                    <span>goal</span>
+                    <span class="event-id">03d4q1o70y6ek0ig8hwy9q00n</span>
+                  </div>
+                  <div
+                    class="event-bubble notes"
+                    data-topic="notes"
+                    data-content="quick note about meeting"
+                  >
+                    <span>notes</span>
+                    <span class="event-id">03d4q1qhbiv09ovtuhokw5yxv</span>
+                  </div>
+                  <div
+                    class="event-bubble notes"
+                    data-topic="notes"
+                    data-content="submit TPS report"
+                  >
+                    <span>notes</span>
+                    <span class="event-id">03d4qbrxizqgav09m7hicksb0</span>
+                  </div>
+                  <div
+                    class="event-bubble goal"
+                    data-topic="goal"
+                    data-content="learn cross.stream"
+                  >
+                    <span>goal</span>
+                    <span class="event-id">03d4qic9vqkve1krajjtlbavd</span>
+                  </div>
+                  <div
+                    class="event-bubble notes"
+                    data-topic="notes"
+                    data-content="review project docs"
+                  >
+                    <span>notes</span>
+                    <span class="event-id">03d4qjwnhwudlfyg1ygemmt7b</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- Query Section -->
-      <div class="query-section">
-        <!-- Query Results with Header -->
-        <div class="query-results">
-          <!-- Command Selector as Header -->
-          <div class="command-selector">
-            <div class="selector-title">Query the Event Store:</div>
-            <div class="command-options">
-              <div class="command-option" id="command-notes">
-                <div class="command-title">Get all notes</div>
-              </div>
-              <div class="command-option" id="command-goal">
-                <div class="command-title">Get current goal</div>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Output Content -->
-          <div class="terminal-content" id="query-output"></div>
         </div>
       </div>
     </div>
