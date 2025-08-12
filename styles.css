@@ -1,4 +1,25 @@
-/* CSS Reset - Best Practices */
+/* CSS Custom Properties */
+:root {
+  /* Terminal Colors */
+  --terminal-bg: #1e1e1e;
+  --terminal-border: #30363d;
+  --terminal-header-bg: #21262d;
+  --terminal-text: #c9d1d9;
+  --terminal-title: #ffa657;
+
+  /* Terminal UI Elements */
+  --terminal-radius: 8px;
+  --terminal-font:
+    "Courier New", "Courier", "Lucida Console", "Liberation Mono",
+    "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Monaco", monospace;
+
+  /* Traffic Light Colors */
+  --terminal-red: #ff5f56;
+  --terminal-yellow: #ffbd2e;
+  --terminal-green: #27ca3f;
+}
+
+/* CSS Reset */
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -32,86 +53,8 @@ p, h1, h2, h3, h4, h5, h6 {
 
 /* Shared Terminal Component Styles */
 
-/* Terminal Panel Component System */
-.terminal-panel {
-  background: #1e1e1e;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  overflow: hidden;
-  font-family:
-    "Courier New", "Courier", "Lucida Console", "Liberation Mono",
-    "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Monaco", monospace;
-}
-
-.terminal-header {
-  background: #21262d;
-  border-bottom: 1px solid #30363d;
-  padding: 8px 20px 8px 85px;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  position: relative;
-  min-height: 44px;
-}
-
-.terminal-header::before {
-  content: "";
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ff5f56;
-  box-shadow: 20px 0 0 #ffbd2e, 40px 0 0 #27ca3f;
-}
-
-.terminal-title {
-  color: #ffa657;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.terminal-actions {
-  display: flex;
-  gap: 10px;
-  margin-left: auto;
-}
-
-.terminal-content {
-  min-height: 200px;
-  padding: 20px;
-  background: #1e1e1e;
-  color: #c9d1d9;
-  line-height: 1.4;
-  overflow-x: auto;
-}
-
-/* Mobile terminal content improvements */
+/* Mobile responsive adjustments */
 @media (max-width: 500px) {
-  .terminal-content {
-    padding: 15px 12px;
-    min-height: 150px;
-    font-size: 12px;
-  }
-
-  .terminal-header {
-    padding: 6px 15px 6px 70px;
-    min-height: 36px;
-  }
-
-  .terminal-title {
-    font-size: 13px;
-  }
-
-  /* Keep actions horizontal on mobile */
-  .terminal-actions {
-    display: flex;
-    flex-direction: row;
-    gap: 8px;
-    margin-left: auto;
-  }
-
   .command-option {
     padding: 6px 8px;
     font-size: 11px;

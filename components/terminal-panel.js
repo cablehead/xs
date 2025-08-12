@@ -12,120 +12,118 @@ export class TerminalPanel extends LitElement {
     }
 
     .terminal-panel {
-      background: #1e1e1e;
-      border: 1px solid #30363d;
-      border-radius: 8px;
+      background: var(--terminal-bg);
+      border: 1px solid var(--terminal-border);
+      border-radius: var(--terminal-radius);
       overflow: hidden;
-      font-family:
-        "Courier New", "Courier", "Lucida Console", "Liberation Mono",
-        "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Monaco", monospace;
-      }
+      font-family: var(--terminal-font);
+    }
 
+    .terminal-header {
+      background: var(--terminal-header-bg);
+      border-bottom: 1px solid var(--terminal-border);
+      padding: 8px 20px 8px 85px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      min-height: 44px;
+      box-sizing: border-box;
+      width: 100%;
+    }
+
+    .terminal-header::before {
+      content: "";
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--terminal-red);
+      box-shadow: 20px 0 0 var(--terminal-yellow), 40px 0 0 var(--terminal-green);
+    }
+
+    .terminal-title {
+      color: var(--terminal-title);
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0;
+      flex-shrink: 1;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .terminal-actions {
+      display: flex;
+      flex-direction: row;
+      gap: 10px;
+      border: 2px solid red;
+      flex: 0 0 auto;
+    }
+
+    .terminal-actions ::slotted(*) {
+      display: inline-block;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* Force horizontal layout at all screen sizes */
+    @media (max-width: 768px) {
       .terminal-header {
-        background: #21262d;
-        border-bottom: 1px solid #30363d;
-        padding: 8px 20px 8px 85px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        position: relative;
-        min-height: 44px;
-        box-sizing: border-box;
-        width: 100%;
-      }
-
-      .terminal-header::before {
-        content: "";
-        position: absolute;
-        top: 16px;
-        left: 16px;
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: #ff5f56;
-        box-shadow: 20px 0 0 #ffbd2e, 40px 0 0 #27ca3f;
+        padding: 6px 15px 6px 70px;
       }
 
       .terminal-title {
-        color: #ffa657;
-        font-size: 14px;
-        font-weight: 600;
-        margin: 0;
-        flex-shrink: 1;
-        min-width: 0;
-        overflow: hidden;
+        font-size: 12px;
+        flex-shrink: 2;
       }
 
       .terminal-actions {
-        display: flex;
-        flex-direction: row;
-        gap: 10px;
-        border: 2px solid red;
-        flex: 0 0 auto;
+        flex-direction: row !important;
+        min-width: 180px !important;
+        flex-shrink: 0 !important;
+        width: 180px !important;
       }
 
       .terminal-actions ::slotted(*) {
-        display: inline-block;
-        white-space: nowrap;
-        flex-shrink: 0;
+        font-size: 11px;
+        padding: 6px 8px;
       }
-
-      /* Force horizontal layout at all screen sizes */
-      @media (max-width: 768px) {
-        .terminal-header {
-          padding: 6px 15px 6px 70px;
-        }
-
-        .terminal-title {
-          font-size: 12px;
-          flex-shrink: 2;
-        }
-
-        .terminal-actions {
-          flex-direction: row !important;
-          min-width: 180px !important;
-          flex-shrink: 0 !important;
-          width: 180px !important;
-        }
-
-        .terminal-actions ::slotted(*) {
-          font-size: 11px;
-          padding: 6px 8px;
-        }
-      }
-
-      .terminal-content {
-        min-height: 200px;
-        padding: 20px;
-        background: #1e1e1e;
-        color: #c9d1d9;
-        line-height: 1.4;
-        overflow-x: auto;
-      }
-    `;
-
-    render() {
-      return html`
-        <div class="terminal-panel">
-          <div class="terminal-header">
-            ${this.title
-              ? html`
-                <div class="terminal-title">${this.title}</div>
-              `
-              : ""} ${this.actions
-              ? html`
-                <div class="terminal-actions">
-                  <slot name="actions"></slot>
-                </div>
-              `
-              : ""}
-          </div>
-          <div class="terminal-content">
-            <slot></slot>
-          </div>
-        </div>
-      `;
     }
-  }
 
-  customElements.define("terminal-panel", TerminalPanel);
+    .terminal-content {
+      min-height: 200px;
+      padding: 20px;
+      background: var(--terminal-bg);
+      color: var(--terminal-text);
+      line-height: 1.4;
+      overflow-x: auto;
+    }
+  `;
+
+  render() {
+    return html`
+      <div class="terminal-panel">
+        <div class="terminal-header">
+          ${this.title
+            ? html`
+              <div class="terminal-title">${this.title}</div>
+            `
+            : ""} ${this.actions
+            ? html`
+              <div class="terminal-actions">
+                <slot name="actions"></slot>
+              </div>
+            `
+            : ""}
+        </div>
+        <div class="terminal-content">
+          <slot></slot>
+        </div>
+      </div>
+    `;
+  }
+}
+
+customElements.define("terminal-panel", TerminalPanel);
