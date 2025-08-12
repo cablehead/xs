@@ -74,10 +74,7 @@
         border-bottom: 5px solid transparent;
       }
       .query-section {
-        display: grid;
-        grid-template-columns: 400px 1fr;
-        gap: 40px;
-        align-items: start;
+        display: block;
       }
 
       /* Shared Terminal Window Styling */
@@ -189,25 +186,33 @@
         letter-spacing: -0.5px;
       }
 
-      /* Command Selector Section */
+      /* Command Selector as Header */
       .command-selector {
-        background: #161b22;
+        background: #21262d;
         border: 1px solid #30363d;
-        border-radius: 8px;
-        padding: 24px;
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
       }
       .selector-title {
         color: #ffa657;
-        font-size: 16px;
-        margin-bottom: 20px;
+        font-size: 14px;
         font-weight: 600;
+        margin: 0;
+      }
+      .command-options {
+        display: flex;
+        gap: 10px;
+        margin-left: auto;
       }
       .command-option {
         background: #0d1117;
         border: 1px solid #30363d;
-        border-radius: 6px;
-        padding: 20px;
-        margin-bottom: 16px;
+        border-radius: 4px;
+        padding: 8px 12px;
         cursor: pointer;
         transition: all 0.3s ease;
       }
@@ -221,17 +226,19 @@
       }
       .command-title {
         color: #58a6ff;
-        font-weight: 600;
-        margin-bottom: 8px;
-        font-size: 14px;
-      }
-      .command-desc {
-        color: #8b949e;
-        font-size: 0.85em;
+        font-weight: 500;
+        margin: 0;
+        font-size: 12px;
       }
       /* Query results styling */
       .query-results {
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .terminal-content {
         min-height: 400px;
+        padding: 20px;
       }
       .terminal-prompt {
         color: #79c0ff;
@@ -390,27 +397,22 @@
 
       <!-- Query Section -->
       <div class="query-section">
-        <!-- Command Selector -->
-        <div class="command-selector">
-          <div class="selector-title">Query the Event Store:</div>
-
-          <div class="command-option" id="command-notes">
-            <div class="command-title">Get all notes</div>
-            <div class="command-desc">
-              Filter events by topic and retrieve their content
-            </div>
-          </div>
-
-          <div class="command-option" id="command-goal">
-            <div class="command-title">Get current goal</div>
-            <div class="command-desc">
-              Find the latest goal event and show its content
-            </div>
-          </div>
-        </div>
-
-        <!-- Query Results -->
+        <!-- Query Results with Header -->
         <div class="query-results">
+          <!-- Command Selector as Header -->
+          <div class="command-selector">
+            <div class="selector-title">Query the Event Store:</div>
+            <div class="command-options">
+              <div class="command-option" id="command-notes">
+                <div class="command-title">Get all notes</div>
+              </div>
+              <div class="command-option" id="command-goal">
+                <div class="command-title">Get current goal</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Output Content -->
           <div class="terminal-content" id="query-output"></div>
         </div>
       </div>
