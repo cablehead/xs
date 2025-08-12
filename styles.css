@@ -68,24 +68,6 @@ p, h1, h2, h3, h4, h5, h6 {
 
 /* Shared Terminal Component Styles */
 
-/* Mobile responsive adjustments */
-@media (max-width: 500px) {
-  .command-option {
-    padding: 6px 8px;
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-
-  .event-bubble {
-    padding: 8px 10px;
-    font-size: 11px;
-  }
-
-  .event-id {
-    font-size: 9px;
-  }
-}
-
 .terminal-line {
   margin: 10px 0;
   color: var(--text-muted);
