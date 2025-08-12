@@ -179,19 +179,19 @@
               <span class="prompt">$</span>
               <span class="command">.cat | where topic == "notes" | insert content { .cas $in.hash }</span>
             </div>
-            <div class="terminal-output" data-variant="table">┌───┬───────┬─────────────────────────────────────────┐
+            <pre class="terminal-output" data-variant="table">┌───┬───────┬─────────────────────────────────────────┐
 │ # │ topic │                content                  │
 ├───┼───────┼─────────────────────────────────────────┤
 │ 0 │ notes │ quick note about meeting                │
 │ 1 │ notes │ submit TPS report                       │
 │ 2 │ notes │ review project docs                     │
-└───┴───────┴─────────────────────────────────────────┘</div>`;
+└───┴───────┴─────────────────────────────────────────┘</pre>`;
         } else if (type === "goal") {
           output = `<div class="terminal-line">
               <span class="prompt">$</span>
               <span class="command">.head goal | .cas</span>
             </div>
-            <div class="terminal-output" data-variant="text">learn cross.stream</div>`;
+            <pre class="terminal-output">learn cross.stream</pre>`;
         }
 
         queryOutput.innerHTML = output;
