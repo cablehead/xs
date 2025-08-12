@@ -3,8 +3,13 @@ import { css, html, LitElement } from "https://cdn.skypack.dev/lit";
 export class TerminalPanel extends LitElement {
   static properties = {
     title: { type: String },
-    actions: { type: Boolean },
+    actions: { type: Array },
   };
+
+  constructor() {
+    super();
+    this.actions = [];
+  }
 
   static styles = css`
     :host {
@@ -63,12 +68,31 @@ export class TerminalPanel extends LitElement {
       justify-content: flex-end;
     }
 
-    .terminal-actions ::slotted(*) {
-      display: inline-block;
-      white-space: nowrap;
-      flex-shrink: 0;
+    .action-button {
+      background: var(--bg-primary);
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
     }
 
+    .action-button:hover {
+      border-color: var(--accent-blue);
+      background: color-mix(in srgb, var(--accent-blue) 5%, transparent);
+    }
+
+    .action-button.selected {
+      border-color: var(--accent-blue);
+      background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+    }
+
+    .action-button .title {
+      color: var(--accent-blue);
+    }
 
     .terminal-content {
       min-height: 200px;
@@ -80,6 +104,14 @@ export class TerminalPanel extends LitElement {
     }
   `;
 
+  _handleActionClick(action) {
+    this.dispatchEvent(
+      new CustomEvent("action-click", {
+        detail: { actionId: action.id, action },
+      }),
+    );
+  }
+
   render() {
     return html`
       <div class="terminal-panel">
@@ -88,10 +120,19 @@ export class TerminalPanel extends LitElement {
             ? html`
               <div class="terminal-title">${this.title}</div>
             `
-            : ""} ${this.actions
+            : ""} ${this.actions && this.actions.length > 0
             ? html`
               <div class="terminal-actions">
-                <slot name="actions"></slot>
+                ${this.actions.map((action) =>
+                  html`
+                    <button
+                      class="action-button ${action.selected ? "selected" : ""}"
+                      @click="${() => this._handleActionClick(action)}"
+                    >
+                      <div class="title">${action.title}</div>
+                    </button>
+                  `
+                )}
               </div>
             `
             : ""}

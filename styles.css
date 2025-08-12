@@ -17,6 +17,21 @@
   --terminal-red: #ff5f56;
   --terminal-yellow: #ffbd2e;
   --terminal-green: #27ca3f;
+
+  /* Theme Colors */
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #c9d1d9;
+  --text-muted: #8b949e;
+  --accent-blue: #58a6ff;
+  --accent-blue-light: #79c0ff;
+  --accent-blue-lighter: #a5d6ff;
+  --accent-orange: #ffa657;
+  --accent-red: #ff7b72;
+  --accent-purple: #a5a2ff;
+  --border-default: #30363d;
 }
 
 /* CSS Reset */
@@ -73,25 +88,25 @@ p, h1, h2, h3, h4, h5, h6 {
 
 .terminal-line {
   margin: 10px 0;
-  color: #8b949e;
+  color: var(--text-muted);
   line-height: 1.4;
   white-space: nowrap;
 }
 
 .terminal-line .prompt {
-  color: #79c0ff;
+  color: var(--accent-blue-light);
 }
 
 .terminal-line .command {
-  color: #a5d6ff;
+  color: var(--accent-blue-lighter);
 }
 
 .terminal-line .pipe {
-  color: #ff7b72;
+  color: var(--accent-red);
 }
 
 .terminal-line .topic {
-  color: #ffa657;
+  color: var(--accent-orange);
 }
 
 .terminal-output {
@@ -101,12 +116,12 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 .terminal-output[data-variant="table"] {
-  color: #c9d1d9;
+  color: var(--text-secondary);
   line-height: 1.2;
 }
 
 .terminal-output[data-variant="text"] {
-  color: #a5a2ff;
+  color: var(--accent-purple);
   font-size: 16px;
   font-weight: 500;
 }
@@ -122,8 +137,8 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 .command-option {
-  background: #0d1117;
-  border: 1px solid #30363d;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   padding: 8px 12px;
   cursor: pointer;
@@ -131,12 +146,12 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 .command-option:hover {
-  border-color: #58a6ff;
+  border-color: var(--accent-blue);
   background: rgba(88, 166, 255, 0.05);
 }
 
 .command-option.selected {
-  border-color: #58a6ff;
+  border-color: var(--accent-blue);
   background: rgba(88, 166, 255, 0.1);
 }
 
@@ -169,14 +184,14 @@ p, h1, h2, h3, h4, h5, h6 {
 
 .event-bubble.goal {
   background: rgba(165, 162, 255, 0.15);
-  border: 1px solid #a5a2ff;
-  color: #a5a2ff;
+  border: 1px solid var(--accent-purple);
+  color: var(--accent-purple);
 }
 
 .event-bubble.notes {
   background: rgba(121, 192, 255, 0.15);
-  border: 1px solid #79c0ff;
-  color: #79c0ff;
+  border: 1px solid var(--accent-blue-light);
+  color: var(--accent-blue-light);
 }
 
 .event-id {
@@ -187,7 +202,7 @@ p, h1, h2, h3, h4, h5, h6 {
 }
 
 .no-output {
-  color: #8b949e;
+  color: var(--text-muted);
   font-style: italic;
   text-align: center;
   margin-top: 80px;
