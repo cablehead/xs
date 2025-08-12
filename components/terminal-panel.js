@@ -59,7 +59,8 @@ export class TerminalPanel extends LitElement {
       flex-direction: row;
       gap: 10px;
       border: 2px solid red;
-      flex: 0 0 auto;
+      flex: 1;
+      justify-content: flex-end;
     }
 
     .terminal-actions ::slotted(*) {
@@ -80,10 +81,9 @@ export class TerminalPanel extends LitElement {
       }
 
       .terminal-actions {
-        flex-direction: row !important;
-        min-width: 180px !important;
-        flex-shrink: 0 !important;
-        width: 180px !important;
+        flex-direction: row;
+        flex: 1;
+        justify-content: flex-end;
       }
 
       .terminal-actions ::slotted(*) {
