@@ -100,12 +100,12 @@ h1 {
     gap: 40px;
     text-align: center;
   }
-  
+
   .query-section {
     grid-template-columns: 1fr;
     gap: 20px;
   }
-  
+
   .arrow {
     display: none;
   }
@@ -120,11 +120,11 @@ h1 {
   terminal-line {
     white-space: pre-wrap;
   }
-  
+
   .container {
     padding: 10px;
   }
-  
+
   body {
     padding: 10px;
   }
