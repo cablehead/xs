@@ -6,8 +6,8 @@ body {
   background: #0d1117;
   color: #c9d1d9;
   font-family:
-    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono",
-    "Source Code Pro", "Consolas", "Courier New", monospace;
+    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", "Source Code Pro",
+    "Consolas", "Courier New", monospace;
 }
 
 .container {

@@ -1,10 +1,10 @@
-import { LitElement, html, css } from 'https://cdn.skypack.dev/lit';
+import { css, html, LitElement } from "https://cdn.skypack.dev/lit";
 
 export class EventBubble extends LitElement {
   static properties = {
     type: { type: String }, // 'goal' or 'notes'
     eventId: { type: String },
-    content: { type: String }
+    content: { type: String },
   };
 
   static styles = css`
@@ -12,7 +12,7 @@ export class EventBubble extends LitElement {
       display: block;
       margin-bottom: 1px;
     }
-    
+
     .event-bubble {
       padding: 10px 14px;
       border-radius: 4px;
@@ -28,23 +28,23 @@ export class EventBubble extends LitElement {
       align-items: center;
       box-sizing: border-box;
     }
-    
+
     .event-bubble:hover {
       transform: scale(1.02);
     }
-    
+
     .event-bubble.goal {
       background: rgba(165, 162, 255, 0.15);
       border: 1px solid #a5a2ff;
       color: #a5a2ff;
     }
-    
+
     .event-bubble.notes {
       background: rgba(121, 192, 255, 0.15);
       border: 1px solid #79c0ff;
       color: #79c0ff;
     }
-    
+
     .event-id {
       font-size: 10px;
       opacity: 0.7;
@@ -55,9 +55,11 @@ export class EventBubble extends LitElement {
 
   render() {
     return html`
-      <div class="event-bubble ${this.type}" 
-           data-topic="${this.type}" 
-           data-content="${this.content}">
+      <div
+        class="event-bubble ${this.type}"
+        data-topic="${this.type}"
+        data-content="${this.content}"
+      >
         <span>${this.type}</span>
         <span class="event-id">${this.eventId}</span>
       </div>
@@ -65,4 +67,4 @@ export class EventBubble extends LitElement {
   }
 }
 
-customElements.define('event-bubble', EventBubble);
+customElements.define("event-bubble", EventBubble);

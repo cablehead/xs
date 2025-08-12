@@ -38,11 +38,36 @@
           <!-- Input commands showing executed commands -->
           <div class="console">
             <terminal-panel>
-              <terminal-line prompt="$" command='"buy groceries"' pipe="|" topic=".append goal"></terminal-line>
-              <terminal-line prompt="$" command='"quick note about meeting"' pipe="|" topic=".append notes"></terminal-line>
-              <terminal-line prompt="$" command='"submit TPS report"' pipe="|" topic=".append notes"></terminal-line>
-              <terminal-line prompt="$" command='"learn cross.stream"' pipe="|" topic=".append goal"></terminal-line>
-              <terminal-line prompt="$" command='"review project docs"' pipe="|" topic=".append notes"></terminal-line>
+              <terminal-line
+                prompt="$"
+                command='"buy groceries"'
+                pipe="|"
+                topic=".append goal"
+              ></terminal-line>
+              <terminal-line
+                prompt="$"
+                command='"quick note about meeting"'
+                pipe="|"
+                topic=".append notes"
+              ></terminal-line>
+              <terminal-line
+                prompt="$"
+                command='"submit TPS report"'
+                pipe="|"
+                topic=".append notes"
+              ></terminal-line>
+              <terminal-line
+                prompt="$"
+                command='"learn cross.stream"'
+                pipe="|"
+                topic=".append goal"
+              ></terminal-line>
+              <terminal-line
+                prompt="$"
+                command='"review project docs"'
+                pipe="|"
+                topic=".append notes"
+              ></terminal-line>
             </terminal-panel>
             <div class="arrow"></div>
           </div>
@@ -50,32 +75,44 @@
           <!-- Store with event bubbles -->
           <div class="store">
             <terminal-panel title="./store">
-              <terminal-line prompt="$" command="job spawn { xs serve (xs-addr) }"></terminal-line>
-              <div class="embedded-component" data-variant="store" id="events-container">
-                <event-bubble 
-                  type="goal" 
+              <terminal-line
+                prompt="$"
+                command="job spawn { xs serve (xs-addr) }"
+              ></terminal-line>
+              <div
+                class="embedded-component"
+                data-variant="store"
+                id="events-container"
+              >
+                <event-bubble
+                  type="goal"
                   content="buy groceries"
-                  event-id="03d4q1o70y6ek0ig8hwy9q00n">
+                  event-id="03d4q1o70y6ek0ig8hwy9q00n"
+                >
                 </event-bubble>
-                <event-bubble 
-                  type="notes" 
+                <event-bubble
+                  type="notes"
                   content="quick note about meeting"
-                  event-id="03d4q1qhbiv09ovtuhokw5yxv">
+                  event-id="03d4q1qhbiv09ovtuhokw5yxv"
+                >
                 </event-bubble>
-                <event-bubble 
-                  type="notes" 
+                <event-bubble
+                  type="notes"
                   content="submit TPS report"
-                  event-id="03d4qbrxizqgav09m7hicksb0">
+                  event-id="03d4qbrxizqgav09m7hicksb0"
+                >
                 </event-bubble>
-                <event-bubble 
-                  type="goal" 
+                <event-bubble
+                  type="goal"
                   content="learn cross.stream"
-                  event-id="03d4qic9vqkve1krajjtlbavd">
+                  event-id="03d4qic9vqkve1krajjtlbavd"
+                >
                 </event-bubble>
-                <event-bubble 
-                  type="notes" 
+                <event-bubble
+                  type="notes"
                   content="review project docs"
-                  event-id="03d4qjwnhwudlfyg1ygemmt7b">
+                  event-id="03d4qjwnhwudlfyg1ygemmt7b"
+                >
                 </event-bubble>
               </div>
             </terminal-panel>
@@ -185,12 +222,13 @@
 
         if (type === "notes") {
           // Highlight all notes events
-          document.querySelectorAll("event-bubble[type='notes']").forEach(
-            (bubble) => {
-              bubble.style.opacity = "1";
-              bubble.style.transform = "scale(1.05)";
-            },
-          );
+          document.querySelectorAll("event-bubble[type='notes']")
+            .forEach(
+              (bubble) => {
+                bubble.style.opacity = "1";
+                bubble.style.transform = "scale(1.05)";
+              },
+            );
         } else if (type === "goal") {
           // Highlight only the latest goal event
           const goalBubbles = document.querySelectorAll(
