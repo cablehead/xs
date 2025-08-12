@@ -77,9 +77,8 @@
         display: block;
       }
 
-      /* Shared Terminal Window Styling */
-      .input-commands,
-      .query-results {
+      /* Input commands styling */
+      .input-commands {
         background: #1e1e1e;
         border: 1px solid #3c3c3c;
         border-radius: 8px;
@@ -91,8 +90,7 @@
         overflow-x: auto;
         position: relative;
       }
-      .input-commands::before,
-      .query-results::before {
+      .input-commands::before {
         content: "";
         position: absolute;
         top: 8px;
@@ -192,10 +190,22 @@
         border: 1px solid #30363d;
         border-bottom: none;
         border-radius: 8px 8px 0 0;
-        padding: 12px 20px;
+        padding: 8px 20px 8px 60px;
         display: flex;
         align-items: center;
         gap: 20px;
+        position: relative;
+      }
+      .command-selector::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 12px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff5f56;
+        box-shadow: 20px 0 0 #ffbd2e, 40px 0 0 #27ca3f;
       }
       .selector-title {
         color: #ffa657;
