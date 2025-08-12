@@ -69,28 +69,6 @@ export class TerminalPanel extends LitElement {
       flex-shrink: 0;
     }
 
-    /* Force horizontal layout at all screen sizes */
-    @media (max-width: 768px) {
-      .terminal-header {
-        padding: 6px 15px 6px 70px;
-      }
-
-      .terminal-title {
-        font-size: 12px;
-        flex-shrink: 2;
-      }
-
-      .terminal-actions {
-        flex-direction: row;
-        flex: 1;
-        justify-content: flex-end;
-      }
-
-      .terminal-actions ::slotted(*) {
-        font-size: 11px;
-        padding: 6px 8px;
-      }
-    }
 
     .terminal-content {
       min-height: 200px;
