@@ -101,6 +101,24 @@ export class TerminalPanel extends LitElement {
       line-height: 1.4;
       overflow-x: auto;
     }
+
+    .terminal-content ::slotted(.terminal-output) {
+      margin-top: 16px;
+      white-space: nowrap;
+      font-family: inherit;
+      overflow-y: auto;
+    }
+
+    .terminal-content ::slotted(.terminal-output[data-variant="table"]) {
+      color: var(--text-secondary);
+      line-height: 1.2;
+    }
+
+    .terminal-content ::slotted(.terminal-output[data-variant="text"]) {
+      color: var(--accent-purple);
+      font-size: 16px;
+      font-weight: 500;
+    }
   `;
 
   _handleActionClick(action) {

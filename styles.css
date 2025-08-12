@@ -91,23 +91,6 @@ p, h1, h2, h3, h4, h5, h6 {
   color: var(--accent-orange);
 }
 
-.terminal-output {
-  margin-top: 16px;
-  white-space: pre-wrap;
-  font-family: inherit;
-}
-
-.terminal-output[data-variant="table"] {
-  color: var(--text-secondary);
-  line-height: 1.2;
-}
-
-.terminal-output[data-variant="text"] {
-  color: var(--accent-purple);
-  font-size: 16px;
-  font-weight: 500;
-}
-
 .embedded-component {
   margin-top: 16px;
 }
