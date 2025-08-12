@@ -27,10 +27,11 @@ export class TerminalPanel extends LitElement {
         padding: 8px 20px 8px 85px;
         display: flex;
         align-items: center;
-        gap: 20px;
+        justify-content: space-between;
         position: relative;
         min-height: 44px;
         box-sizing: border-box;
+        width: 100%;
       }
 
       .terminal-header::before {
@@ -50,12 +51,47 @@ export class TerminalPanel extends LitElement {
         font-size: 14px;
         font-weight: 600;
         margin: 0;
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
       }
 
       .terminal-actions {
         display: flex;
+        flex-direction: row;
         gap: 10px;
-        margin-left: auto;
+        border: 2px solid red;
+        flex: 0 0 auto;
+      }
+
+      .terminal-actions ::slotted(*) {
+        display: inline-block;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* Force horizontal layout at all screen sizes */
+      @media (max-width: 768px) {
+        .terminal-header {
+          padding: 6px 15px 6px 70px;
+        }
+
+        .terminal-title {
+          font-size: 12px;
+          flex-shrink: 2;
+        }
+
+        .terminal-actions {
+          flex-direction: row !important;
+          min-width: 180px !important;
+          flex-shrink: 0 !important;
+          width: 180px !important;
+        }
+
+        .terminal-actions ::slotted(*) {
+          font-size: 11px;
+          padding: 6px 8px;
+        }
       }
 
       .terminal-content {

@@ -1,3 +1,35 @@
+/* CSS Reset - Best Practices */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+img, picture, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+}
+
+input, button, textarea, select {
+  font: inherit;
+}
+
+p, h1, h2, h3, h4, h5, h6 {
+  overflow-wrap: break-word;
+}
+
 /* Shared Terminal Component Styles */
 
 /* Terminal Panel Component System */
@@ -20,7 +52,6 @@
   gap: 20px;
   position: relative;
   min-height: 44px;
-  box-sizing: border-box;
 }
 
 .terminal-header::before {
@@ -39,7 +70,6 @@
   color: #ffa657;
   font-size: 14px;
   font-weight: 600;
-  margin: 0;
 }
 
 .terminal-actions {
@@ -55,6 +85,47 @@
   color: #c9d1d9;
   line-height: 1.4;
   overflow-x: auto;
+}
+
+/* Mobile terminal content improvements */
+@media (max-width: 500px) {
+  .terminal-content {
+    padding: 15px 12px;
+    min-height: 150px;
+    font-size: 12px;
+  }
+
+  .terminal-header {
+    padding: 6px 15px 6px 70px;
+    min-height: 36px;
+  }
+
+  .terminal-title {
+    font-size: 13px;
+  }
+
+  /* Keep actions horizontal on mobile */
+  .terminal-actions {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .command-option {
+    padding: 6px 8px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .event-bubble {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  .event-id {
+    font-size: 9px;
+  }
 }
 
 .terminal-line {
@@ -129,7 +200,6 @@
 .command-title {
   color: #58a6ff;
   font-weight: 500;
-  margin: 0;
   font-size: 12px;
 }
 
@@ -148,7 +218,6 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1px;
-  box-sizing: border-box;
 }
 
 .event-bubble:hover {

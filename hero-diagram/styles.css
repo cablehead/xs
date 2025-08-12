@@ -119,6 +119,7 @@ h1 {
 
   terminal-line {
     white-space: pre-wrap;
+    font-size: 13px;
   }
 
   .container {
@@ -126,6 +127,26 @@ h1 {
   }
 
   body {
-    padding: 10px;
+    padding: 15px 10px;
+    font-size: 14px;
+  }
+
+  h1 {
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    margin-bottom: 25px;
+  }
+
+  /* Mobile terminal improvements */
+  terminal-panel {
+    font-size: 12px;
+  }
+
+  .hero-layout {
+    gap: 25px;
   }
 }
