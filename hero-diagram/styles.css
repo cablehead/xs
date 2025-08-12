@@ -15,6 +15,11 @@ body {
   margin: 0 auto;
 }
 
+/* Ensure the hero layout takes full width within container */
+.hero-layout {
+  width: 100%;
+}
+
 h1 {
   text-align: center;
   color: #58a6ff;
@@ -34,23 +39,32 @@ h1 {
   gap: 40px;
   align-items: center;
   min-height: 400px;
+  width: 100%;
 }
 
 .input-store-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 60px;
+  display: flex;
   align-items: start;
   width: 100%;
   position: relative;
 }
 
 .console {
+  flex: 0 0 auto;
+  overflow-x: auto;
   position: relative;
+  margin-right: 60px;
 }
 
 .store {
+  flex: 1;
   position: relative;
+  min-width: 0; /* Allow flex shrinking */
+}
+
+/* Ensure terminal panels expand within their flex containers */
+.store terminal-panel {
+  width: 100%;
 }
 
 .arrow {
@@ -78,11 +92,6 @@ h1 {
 
 .query-section {
   display: block;
-}
-
-/* Store Section Legacy Styles */
-.store {
-  text-align: left;
 }
 
 .events-container {

@@ -69,10 +69,10 @@
 
           <!-- Store with event bubbles -->
           <div class="store">
-            <terminal-panel title="./store">
+            <terminal-panel>
               <terminal-line
                 prompt="$"
-                command="job spawn { xs serve (xs-addr) }"
+                command="xs serve (xs-addr)"
               ></terminal-line>
               <div
                 class="embedded-component"
@@ -144,16 +144,6 @@
 
         // Set default query to "Get all notes"
         executeQuery("notes");
-
-        // Event bubble hover effects
-        document.querySelectorAll("event-bubble").forEach((bubble) => {
-          bubble.addEventListener("mouseenter", function () {
-            this.style.transform = "scale(1.05)";
-          });
-          bubble.addEventListener("mouseleave", function () {
-            this.style.transform = "scale(1)";
-          });
-        });
       });
 
       function executeQuery(type) {
