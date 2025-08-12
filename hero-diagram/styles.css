@@ -48,29 +48,6 @@ h1 {
   min-width: 0; /* Allow flex shrinking */
 }
 
-.arrow {
-  position: absolute;
-  top: 50%;
-  right: -30px;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 2px;
-  background: var(--accent-blue);
-  z-index: 10;
-}
-
-.arrow::after {
-  content: "";
-  position: absolute;
-  right: -8px;
-  top: -4px;
-  width: 0;
-  height: 0;
-  border-left: 8px solid var(--accent-blue);
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-}
-
 .query-section {
   display: block;
 }
