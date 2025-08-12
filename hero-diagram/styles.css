@@ -95,29 +95,37 @@ h1 {
 
 /* Responsive Design */
 @media (max-width: 768px) {
+  .input-store-row {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    text-align: center;
+  }
+  
   .query-section {
     grid-template-columns: 1fr;
     gap: 20px;
+  }
+  
+  .arrow {
+    display: none;
   }
 }
 
-@media (max-width: 400px) {
+@media (max-width: 500px) {
   .input-store-row {
     grid-template-columns: 1fr;
     gap: 30px;
-    text-align: center;
-  }
-
-  .query-section {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
-  .arrow {
-    display: none;
   }
 
   terminal-line {
     white-space: pre-wrap;
+  }
+  
+  .container {
+    padding: 10px;
+  }
+  
+  body {
+    padding: 10px;
   }
 }
