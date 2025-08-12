@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cross.stream - Event Flow</title>
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" src="../components/terminal-panel.js"></script>
+    <script type="module" src="../components/terminal-line.js"></script>
+    <script type="module" src="../components/event-bubble.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <h1>cross.stream Event Flow</h1>
+      <p class="subtitle">
+        Events sit in the store, ready to be queried by different pipelines
+      </p>
+
+      <!-- Query Section -->
+      <div class="query-section">
+        <terminal-panel title="Query the Event Store" actions>
+          <div slot="actions">
+            <div class="command-option selected" id="command-notes">
+              <div class="command-title">Get all notes</div>
+            </div>
+            <div class="command-option" id="command-goal">
+              <div class="command-title">Get current goal</div>
+            </div>
+          </div>
+          <div id="query-output"></div>
+        </terminal-panel>
+      </div>
+
+      <div class="hero-layout">
+        <!-- Top row with console, arrow, and store -->
+        <div class="input-store-row">
+          <!-- Input commands showing executed commands -->
+          <div class="console">
+            <terminal-panel>
+              <terminal-line prompt="$" command='"buy groceries"' pipe="|" topic=".append goal"></terminal-line>
+              <terminal-line prompt="$" command='"quick note about meeting"' pipe="|" topic=".append notes"></terminal-line>
+              <terminal-line prompt="$" command='"submit TPS report"' pipe="|" topic=".append notes"></terminal-line>
+              <terminal-line prompt="$" command='"learn cross.stream"' pipe="|" topic=".append goal"></terminal-line>
+              <terminal-line prompt="$" command='"review project docs"' pipe="|" topic=".append notes"></terminal-line>
+            </terminal-panel>
+            <div class="arrow"></div>
+          </div>
+
+          <!-- Store with event bubbles -->
+          <div class="store">
+            <terminal-panel title="./store">
+              <terminal-line prompt="$" command="job spawn { xs serve (xs-addr) }"></terminal-line>
+              <div class="embedded-component" data-variant="store" id="events-container">
+                <event-bubble 
+                  type="goal" 
+                  content="buy groceries"
+                  event-id="03d4q1o70y6ek0ig8hwy9q00n">
+                </event-bubble>
+                <event-bubble 
+                  type="notes" 
+                  content="quick note about meeting"
+                  event-id="03d4q1qhbiv09ovtuhokw5yxv">
+                </event-bubble>
+                <event-bubble 
+                  type="notes" 
+                  content="submit TPS report"
+                  event-id="03d4qbrxizqgav09m7hicksb0">
+                </event-bubble>
+                <event-bubble 
+                  type="goal" 
+                  content="learn cross.stream"
+                  event-id="03d4qic9vqkve1krajjtlbavd">
+                </event-bubble>
+                <event-bubble 
+                  type="notes" 
+                  content="review project docs"
+                  event-id="03d4qjwnhwudlfyg1ygemmt7b">
+                </event-bubble>
+              </div>
+            </terminal-panel>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Events are read from event-bubble elements
+      function getEvents() {
+        return Array.from(document.querySelectorAll("event-bubble"))
+          .map((bubble) => ({
+            topic: bubble.type,
+            content: bubble.content,
+          }));
+      }
+
+      let activeQuery = null;
+
+      document.addEventListener("DOMContentLoaded", function () {
+        // Query selection
+        document.getElementById("command-notes").addEventListener(
+          "click",
+          function () {
+            executeQuery("notes");
+          },
+        );
+
+        document.getElementById("command-goal").addEventListener(
+          "click",
+          function () {
+            executeQuery("goal");
+          },
+        );
+
+        // Set default query to "Get all notes"
+        executeQuery("notes");
+
+        // Event bubble hover effects
+        document.querySelectorAll("event-bubble").forEach((bubble) => {
+          bubble.addEventListener("mouseenter", function () {
+            this.style.transform = "scale(1.05)";
+          });
+          bubble.addEventListener("mouseleave", function () {
+            this.style.transform = "scale(1)";
+          });
+        });
+      });
+
+      function executeQuery(type) {
+        // Clear previous selections
+        document.querySelectorAll(".command-option").forEach((c) =>
+          c.classList.remove("selected")
+        );
+
+        // Reset all event highlighting
+        document.querySelectorAll("event-bubble").forEach((bubble) => {
+          bubble.style.opacity = "1";
+          bubble.style.transform = "scale(1)";
+        });
+
+        // Select new command
+        const command = document.getElementById(`command-${type}`);
+
+        // Select new command (no deselection allowed)
+        command.classList.add("selected");
+        activeQuery = type;
+
+        // Show results and highlight relevant events
+        showQueryResults(type);
+        highlightMatchingEvents(type);
+      }
+
+      function showQueryResults(type) {
+        const queryOutput = document.getElementById("query-output");
+        let output = "";
+
+        if (type === "notes") {
+          output = `<div class="terminal-line">
+              <span class="prompt">$</span>
+              <span class="command">.cat | where topic == "notes" | insert content { .cas $in.hash }</span>
+            </div>
+            <div class="terminal-output" data-variant="table">┌───┬───────┬─────────────────────────────────────────┐
+│ # │ topic │                content                  │
+├───┼───────┼─────────────────────────────────────────┤
+│ 0 │ notes │ quick note about meeting                │
+│ 1 │ notes │ submit TPS report                       │
+│ 2 │ notes │ review project docs                     │
+└───┴───────┴─────────────────────────────────────────┘</div>`;
+        } else if (type === "goal") {
+          output = `<div class="terminal-line">
+              <span class="prompt">$</span>
+              <span class="command">.head goal | .cas</span>
+            </div>
+            <div class="terminal-output" data-variant="text">learn cross.stream</div>`;
+        }
+
+        queryOutput.innerHTML = output;
+      }
+
+      function highlightMatchingEvents(type) {
+        document.querySelectorAll("event-bubble").forEach((bubble) => {
+          bubble.style.opacity = "0.3";
+          bubble.style.transform = "scale(0.95)";
+        });
+
+        if (type === "notes") {
+          // Highlight all notes events
+          document.querySelectorAll("event-bubble[type='notes']").forEach(
+            (bubble) => {
+              bubble.style.opacity = "1";
+              bubble.style.transform = "scale(1.05)";
+            },
+          );
+        } else if (type === "goal") {
+          // Highlight only the latest goal event
+          const goalBubbles = document.querySelectorAll(
+            "event-bubble[type='goal']",
+          );
+          if (goalBubbles.length > 0) {
+            const latestGoal = goalBubbles[goalBubbles.length - 1];
+            latestGoal.style.opacity = "1";
+            latestGoal.style.transform = "scale(1.05)";
+          }
+        }
+
+        // Keep highlighting while query is active
+      }
+    </script>
+  </body>
+</html>

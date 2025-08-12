@@ -1,0 +1,123 @@
+/* Hero Diagram Page Specific Styles */
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family:
+    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono",
+    "Source Code Pro", "Consolas", "Courier New", monospace;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+h1 {
+  text-align: center;
+  color: #58a6ff;
+  margin-bottom: 10px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #8b949e;
+  margin-bottom: 30px;
+}
+
+.hero-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto;
+  gap: 40px;
+  align-items: center;
+  min-height: 400px;
+}
+
+.input-store-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  align-items: start;
+  width: 100%;
+  position: relative;
+}
+
+.console {
+  position: relative;
+}
+
+.store {
+  position: relative;
+}
+
+.arrow {
+  position: absolute;
+  top: 50%;
+  right: -30px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 2px;
+  background: #58a6ff;
+  z-index: 10;
+}
+
+.arrow::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: -4px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid #58a6ff;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.query-section {
+  display: block;
+}
+
+/* Store Section Legacy Styles */
+.store {
+  text-align: left;
+}
+
+.events-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .query-section {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 400px) {
+  .input-store-row {
+    grid-template-columns: 1fr;
+    gap: 30px;
+    text-align: center;
+  }
+  
+  .query-section {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .arrow {
+    display: none;
+  }
+  
+  terminal-line {
+    white-space: pre-wrap;
+  }
+}

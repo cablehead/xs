@@ -1,0 +1,183 @@
+/* Shared Terminal Component Styles */
+
+/* Terminal Panel Component System */
+.terminal-panel {
+  background: #1e1e1e;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family:
+    "Courier New", "Courier", "Lucida Console", "Liberation Mono",
+    "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Monaco", monospace;
+}
+
+.terminal-header {
+  background: #21262d;
+  border-bottom: 1px solid #30363d;
+  padding: 8px 20px 8px 85px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  position: relative;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.terminal-header::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f56;
+  box-shadow: 20px 0 0 #ffbd2e, 40px 0 0 #27ca3f;
+}
+
+.terminal-title {
+  color: #ffa657;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.terminal-actions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.terminal-content {
+  min-height: 200px;
+  padding: 20px;
+  background: #1e1e1e;
+  color: #c9d1d9;
+  line-height: 1.4;
+  overflow-x: auto;
+}
+
+.terminal-line {
+  margin: 10px 0;
+  color: #8b949e;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.terminal-line .prompt {
+  color: #79c0ff;
+}
+
+.terminal-line .command {
+  color: #a5d6ff;
+}
+
+.terminal-line .pipe {
+  color: #ff7b72;
+}
+
+.terminal-line .topic {
+  color: #ffa657;
+}
+
+.terminal-output {
+  margin-top: 16px;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.terminal-output[data-variant="table"] {
+  color: #c9d1d9;
+  line-height: 1.2;
+}
+
+.terminal-output[data-variant="text"] {
+  color: #a5a2ff;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.embedded-component {
+  margin-top: 16px;
+}
+
+.embedded-component[data-variant="store"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.command-option {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.command-option:hover {
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.05);
+}
+
+.command-option.selected {
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.command-title {
+  color: #58a6ff;
+  font-weight: 500;
+  margin: 0;
+  font-size: 12px;
+}
+
+/* Event Bubble Styles */
+.event-bubble {
+  padding: 10px 14px;
+  border-radius: 4px;
+  width: 100%;
+  text-align: left;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  transform: scale(1);
+  font-family: monospace;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1px;
+  box-sizing: border-box;
+}
+
+.event-bubble:hover {
+  transform: scale(1.02);
+}
+
+.event-bubble.goal {
+  background: rgba(165, 162, 255, 0.15);
+  border: 1px solid #a5a2ff;
+  color: #a5a2ff;
+}
+
+.event-bubble.notes {
+  background: rgba(121, 192, 255, 0.15);
+  border: 1px solid #79c0ff;
+  color: #79c0ff;
+}
+
+.event-id {
+  font-size: 10px;
+  opacity: 0.7;
+  font-family: monospace;
+  letter-spacing: -0.5px;
+}
+
+.no-output {
+  color: #8b949e;
+  font-style: italic;
+  text-align: center;
+  margin-top: 80px;
+  font-size: 14px;
+}
