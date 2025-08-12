@@ -1,34 +1,20 @@
 /* Hero Diagram Page Specific Styles */
 
-body {
-  margin: 0;
-  padding: 20px;
-  background: #0d1117;
-  color: #c9d1d9;
-  font-family:
-    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", "Source Code Pro",
-    "Consolas", "Courier New", monospace;
-}
-
 .container {
   max-width: 1200px;
   margin: 0 auto;
-}
-
-/* Ensure the hero layout takes full width within container */
-.hero-layout {
-  width: 100%;
+  padding: 20px;
 }
 
 h1 {
   text-align: center;
-  color: #58a6ff;
+  color: var(--accent-blue);
   margin-bottom: 10px;
 }
 
 .subtitle {
   text-align: center;
-  color: #8b949e;
+  color: var(--text-muted);
   margin-bottom: 30px;
 }
 
@@ -62,11 +48,6 @@ h1 {
   min-width: 0; /* Allow flex shrinking */
 }
 
-/* Ensure terminal panels expand within their flex containers */
-.store terminal-panel {
-  width: 100%;
-}
-
 .arrow {
   position: absolute;
   top: 50%;
@@ -74,7 +55,7 @@ h1 {
   transform: translateY(-50%);
   width: 20px;
   height: 2px;
-  background: #58a6ff;
+  background: var(--accent-blue);
   z-index: 10;
 }
 
@@ -85,7 +66,7 @@ h1 {
   top: -4px;
   width: 0;
   height: 0;
-  border-left: 8px solid #58a6ff;
+  border-left: 8px solid var(--accent-blue);
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
 }

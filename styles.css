@@ -49,6 +49,12 @@ html, body {
 }
 
 body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family:
+    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", "Source Code Pro",
+    "Consolas", "Courier New", monospace;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
