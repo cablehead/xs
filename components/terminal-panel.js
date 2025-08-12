@@ -94,7 +94,6 @@ export class TerminalPanel extends LitElement {
     }
 
     .terminal-content {
-      min-height: 200px;
       padding: 20px;
       background: var(--terminal-bg);
       color: var(--terminal-text);
