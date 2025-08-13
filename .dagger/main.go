@@ -45,7 +45,7 @@ func (m *Xs) MacosEnv(
 func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
 	container := m.MacosEnv(ctx, src).
 		WithExec([]string{"rustup", "target", "add", "aarch64-apple-darwin"})
-	
+
 	// First build attempt - this will likely fail due to libproc issue
 	container = container.WithExec([]string{"bash", "-c", `
 		cargo build --target aarch64-apple-darwin --release --color always 2>&1 | tee build.log
@@ -80,7 +80,7 @@ func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory) *dagger.File
 		# Clean up log file
 		rm -f build.log
 	`})
-	
+
 	// Extract version and create tarball structure
 	container = container.WithExec([]string{"sh", "-c", `
 		VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
@@ -89,8 +89,36 @@ func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory) *dagger.File
 		cd /tmp
 		tar -czf cross-stream-$VERSION-macos.tar.gz cross-stream-$VERSION
 	`})
-	
+
 	// Return the tarball, but we need to get the actual filename
 	// For now, let's use a static approach and improve later
 	return container.File("/tmp/cross-stream-0.4.3-dev.11-macos.tar.gz")
+}
+
+func (m *Xs) LinuxArm64Env(
+	ctx context.Context,
+	src *dagger.Directory) *dagger.Container {
+	return m.withCaches(
+		dag.Container().
+			From("messense/rust-musl-cross:aarch64-musl").
+			WithMountedDirectory("/app", src).
+			WithWorkdir("/app"),
+		"linux-arm64",
+	)
+}
+
+func (m *Xs) LinuxArm64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
+	container := m.LinuxArm64Env(ctx, src).
+		WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-unknown-linux-musl"})
+
+	// Extract version and create tarball structure
+	container = container.WithExec([]string{"sh", "-c", `
+		VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+		mkdir -p /tmp/cross-stream-$VERSION
+		cp target/aarch64-unknown-linux-musl/release/xs /tmp/cross-stream-$VERSION/
+		cd /tmp
+		tar -czf cross-stream-$VERSION-linux-arm64.tar.gz cross-stream-$VERSION
+	`})
+
+	return container.File("/tmp/cross-stream-0.4.3-dev.11-linux-arm64.tar.gz")
 }
