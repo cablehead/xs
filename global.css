@@ -53,8 +53,7 @@ body {
   background: var(--bg-primary);
   color: var(--text-secondary);
   font-family:
-    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", "Source Code Pro",
-    "Consolas", "Courier New", monospace;
+    "Roboto Mono", "Consolas", "Liberation Mono", "Courier New", monospace;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   max-width: 1028px;
