@@ -74,7 +74,6 @@ export class TerminalPanel extends LitElement {
       cursor: pointer;
       transition: all 0.3s ease;
       color: var(--text-secondary);
-      font-weight: 500;
       font: inherit;
     }
 
@@ -115,7 +114,6 @@ export class TerminalPanel extends LitElement {
 
     .terminal-content ::slotted(.terminal-output[data-variant="text"]) {
       color: var(--accent-purple);
-      font-weight: 500;
     }
   `;
 
