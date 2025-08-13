@@ -3,114 +3,223 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>cross.stream - Event Flow</title>
+    <title>
+      cross.stream - Local-first event streaming for hackers & tinkerers
+    </title>
+    <meta
+      name="description"
+      content="Think SQLite, but for event sourcing. Append events, react in real-time, and wire up anything—from Arduino sensors to MCP servers—without cloud lock-in."
+    >
     <link rel="stylesheet" href="global.css">
     <link rel="stylesheet" href="styles.css">
     <script type="module" src="components/terminal-panel.js"></script>
     <script type="module" src="components/terminal-line.js"></script>
     <script type="module" src="components/event-bubble.js"></script>
+    <script type="module" src="components/cross-stream-title.js"></script>
   </head>
   <body>
-    <div class="container">
-      <h1>cross.stream Event Flow</h1>
-      <p class="subtitle">
-        Events sit in the store, ready to be queried by different pipelines
-      </p>
+    <main>
+      <!-- Hero Section -->
+      <section class="hero">
+        <h1><cross-stream-title></cross-stream-title></h1>
+        <p class="tagline">
+          <em>Local-first event streaming for hackers & tinkerers</em>
+        </p>
 
-      <!-- Query Section -->
-      <div class="query-section">
-        <terminal-panel
-          id="query-terminal"
-          title="Query the Event Store"
-        >
-          <div id="query-output"></div>
+        <!-- Interactive Demo -->
+        <div class="demo-section">
+          <!-- Query Section -->
+          <div class="query-section">
+            <terminal-panel
+              id="query-terminal"
+              title="Query the Event Store"
+            >
+              <div id="query-output"></div>
+            </terminal-panel>
+          </div>
+
+          <div class="input-store-row">
+            <!-- Input commands showing executed commands -->
+            <div class="console">
+              <terminal-panel>
+                <terminal-line
+                  prompt="$"
+                  command='"buy groceries"'
+                  pipe="|"
+                  topic=".append goal"
+                ></terminal-line>
+                <terminal-line
+                  prompt="$"
+                  command='"quick note about meeting"'
+                  pipe="|"
+                  topic=".append notes"
+                ></terminal-line>
+                <terminal-line
+                  prompt="$"
+                  command='"submit TPS report"'
+                  pipe="|"
+                  topic=".append notes"
+                ></terminal-line>
+                <terminal-line
+                  prompt="$"
+                  command='"learn cross.stream"'
+                  pipe="|"
+                  topic=".append goal"
+                ></terminal-line>
+                <terminal-line
+                  prompt="$"
+                  command='"review project docs"'
+                  pipe="|"
+                  topic=".append notes"
+                ></terminal-line>
+              </terminal-panel>
+            </div>
+
+            <!-- Store with event bubbles -->
+            <div class="store">
+              <terminal-panel>
+                <terminal-line
+                  prompt="$"
+                  command="xs serve (xs-addr)"
+                ></terminal-line>
+                <div
+                  class="embedded-component"
+                  data-variant="store"
+                  id="events-container"
+                >
+                  <event-bubble
+                    type="goal"
+                    content="buy groceries"
+                    event-id="03d4q1o70y6ek0ig8hwy9q00n"
+                  >
+                  </event-bubble>
+                  <event-bubble
+                    type="notes"
+                    content="quick note about meeting"
+                    event-id="03d4q1qhbiv09ovtuhokw5yxv"
+                  >
+                  </event-bubble>
+                  <event-bubble
+                    type="notes"
+                    content="submit TPS report"
+                    event-id="03d4qbrxizqgav09m7hicksb0"
+                  >
+                  </event-bubble>
+                  <event-bubble
+                    type="goal"
+                    content="learn cross.stream"
+                    event-id="03d4qic9vqkve1krajjtlbavd"
+                  >
+                  </event-bubble>
+                  <event-bubble
+                    type="notes"
+                    content="review project docs"
+                    event-id="03d4qjwnhwudlfyg1ygemmt7b"
+                  >
+                  </event-bubble>
+                </div>
+              </terminal-panel>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-description">
+          <p>
+            Think SQLite, but for event sourcing. Append events, react in
+            real-time, and wire up anything—from Arduino sensors to MCP
+            servers—without cloud lock-in.
+          </p>
+          <div class="cta-buttons">
+            <a
+              href="https://github.com/cablehead/xs"
+              class="cta-button primary"
+            >Get Started</a>
+            <a
+              href="https://cablehead.github.io/xs/"
+              class="cta-button secondary"
+            >Documentation</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Core Ideas Section -->
+      <div class="features-grid">
+        <div class="feature-card">
+          <h3>📦 Event Store</h3>
+          <p>
+            Append-only stream with content-addressable storage (CAS). Separate
+            metadata from content for speed.
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3>🔄 Generators</h3>
+          <p>
+            Continuously pull data from files, APIs, websockets, serial devices,
+            or sensors.
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3>⚡ Handlers</h3>
+          <p>
+            React to incoming frames with stateful processors—transform,
+            trigger, fan-out.
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3>🎯 Commands</h3>
+          <p>
+            On-demand, stateless ops. Perfect for RPC-style calls or streaming
+            data back to the caller.
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3>🔒 Local-First</h3>
+          <p>
+            Single binary, file-based store, Unix socket API. No cloud, works
+            offline.
+          </p>
+        </div>
+        <div class="feature-card">
+          <h3>🐚 Nushell Integration</h3>
+          <p>
+            Write handlers and generators in Nushell with strong typing and
+            structured pipelines.
+          </p>
+        </div>
+      </div>
+
+      <!-- Nushell Quickstart Section -->
+      <div class="code-block">
+        <terminal-panel title="Terminal">
+          <terminal-line
+            prompt="$"
+            command="xs serve ./store"
+          ></terminal-line>
+          <br>
+          <terminal-line
+            prompt="$"
+            command='"Hello, world!"'
+            pipe="|"
+            topic=".append greeting"
+          ></terminal-line>
+          <br>
+          <terminal-line prompt="$" command=".cat --follow"></terminal-line>
         </terminal-panel>
       </div>
+    </main>
 
-      <div class="input-store-row">
-        <!-- Input commands showing executed commands -->
-        <div class="console">
-          <terminal-panel>
-            <terminal-line
-              prompt="$"
-              command='"buy groceries"'
-              pipe="|"
-              topic=".append goal"
-            ></terminal-line>
-            <terminal-line
-              prompt="$"
-              command='"quick note about meeting"'
-              pipe="|"
-              topic=".append notes"
-            ></terminal-line>
-            <terminal-line
-              prompt="$"
-              command='"submit TPS report"'
-              pipe="|"
-              topic=".append notes"
-            ></terminal-line>
-            <terminal-line
-              prompt="$"
-              command='"learn cross.stream"'
-              pipe="|"
-              topic=".append goal"
-            ></terminal-line>
-            <terminal-line
-              prompt="$"
-              command='"review project docs"'
-              pipe="|"
-              topic=".append notes"
-            ></terminal-line>
-          </terminal-panel>
-        </div>
-
-        <!-- Store with event bubbles -->
-        <div class="store">
-          <terminal-panel>
-            <terminal-line
-              prompt="$"
-              command="xs serve (xs-addr)"
-            ></terminal-line>
-            <div
-              class="embedded-component"
-              data-variant="store"
-              id="events-container"
-            >
-              <event-bubble
-                type="goal"
-                content="buy groceries"
-                event-id="03d4q1o70y6ek0ig8hwy9q00n"
-              >
-              </event-bubble>
-              <event-bubble
-                type="notes"
-                content="quick note about meeting"
-                event-id="03d4q1qhbiv09ovtuhokw5yxv"
-              >
-              </event-bubble>
-              <event-bubble
-                type="notes"
-                content="submit TPS report"
-                event-id="03d4qbrxizqgav09m7hicksb0"
-              >
-              </event-bubble>
-              <event-bubble
-                type="goal"
-                content="learn cross.stream"
-                event-id="03d4qic9vqkve1krajjtlbavd"
-              >
-              </event-bubble>
-              <event-bubble
-                type="notes"
-                content="review project docs"
-                event-id="03d4qjwnhwudlfyg1ygemmt7b"
-              >
-              </event-bubble>
-            </div>
-          </terminal-panel>
-        </div>
+    <!-- Footer -->
+    <footer class="footer">
+      <p class="footer-tagline">
+        <strong>Built for people who prefer building over configuring.</strong>
+      </p>
+      <div class="footer-links">
+        <a href="https://github.com/cablehead/xs">GitHub</a>
+        <a href="https://cablehead.github.io/xs/">Docs</a>
+        <a href="https://discord.com/invite/YNbScHBHrh">Discord</a>
+        <a href="https://www.nushell.sh/">Nushell</a>
       </div>
-    </div>
+    </footer>
 
     <script>
       // Events are read from event-bubble elements
