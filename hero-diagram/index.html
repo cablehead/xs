@@ -27,8 +27,6 @@
         </terminal-panel>
       </div>
 
-      <div class="hero-layout">
-        <!-- Top row with console and store -->
         <div class="input-store-row">
           <!-- Input commands showing executed commands -->
           <div class="console">
@@ -111,7 +109,6 @@
               </div>
             </terminal-panel>
           </div>
-        </div>
       </div>
     </div>
 
@@ -198,7 +195,7 @@
             .forEach(
               (bubble) => {
                 bubble.style.opacity = "1";
-                bubble.style.transform = "scale(1.05)";
+                bubble.style.transform = "scale(1)";
               },
             );
         } else if (type === "goal") {
@@ -209,7 +206,7 @@
           if (goalBubbles.length > 0) {
             const latestGoal = goalBubbles[goalBubbles.length - 1];
             latestGoal.style.opacity = "1";
-            latestGoal.style.transform = "scale(1.05)";
+            latestGoal.style.transform = "scale(1)";
           }
         }
 

@@ -80,7 +80,6 @@ export class TerminalPanel extends LitElement {
     }
 
     .action-button:hover {
-      border-color: var(--accent-blue);
       background: color-mix(in srgb, var(--accent-blue) 5%, transparent);
     }
 
