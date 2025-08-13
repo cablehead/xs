@@ -97,6 +97,9 @@ export class TerminalPanel extends LitElement {
       color: var(--terminal-text);
       line-height: 1.4;
       overflow-x: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
     }
 
     .terminal-content ::slotted(.terminal-output) {

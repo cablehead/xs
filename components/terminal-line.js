@@ -11,7 +11,6 @@ export class TerminalLine extends LitElement {
   static styles = css`
     :host {
       display: block;
-      margin: 10px 0;
       color: #8b949e;
       line-height: 1.4;
       white-space: nowrap;
