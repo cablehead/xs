@@ -21,7 +21,6 @@ h1 {
   margin-bottom: 30px;
 }
 
-
 .input-store-row {
   display: flex;
   gap: 0.5em;
@@ -50,4 +49,15 @@ h1 {
   align-items: flex-start;
   gap: 6px;
   margin-top: 16px;
+}
+
+/* Embedded component styles - used by elements with class embedded-component */
+.embedded-component {
+  margin-top: 16px;
+}
+
+.embedded-component[data-variant="store"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

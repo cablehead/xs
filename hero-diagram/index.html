@@ -27,88 +27,88 @@
         </terminal-panel>
       </div>
 
-        <div class="input-store-row">
-          <!-- Input commands showing executed commands -->
-          <div class="console">
-            <terminal-panel>
-              <terminal-line
-                prompt="$"
-                command='"buy groceries"'
-                pipe="|"
-                topic=".append goal"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"quick note about meeting"'
-                pipe="|"
-                topic=".append notes"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"submit TPS report"'
-                pipe="|"
-                topic=".append notes"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"learn cross.stream"'
-                pipe="|"
-                topic=".append goal"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"review project docs"'
-                pipe="|"
-                topic=".append notes"
-              ></terminal-line>
-            </terminal-panel>
-          </div>
+      <div class="input-store-row">
+        <!-- Input commands showing executed commands -->
+        <div class="console">
+          <terminal-panel>
+            <terminal-line
+              prompt="$"
+              command='"buy groceries"'
+              pipe="|"
+              topic=".append goal"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"quick note about meeting"'
+              pipe="|"
+              topic=".append notes"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"submit TPS report"'
+              pipe="|"
+              topic=".append notes"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"learn cross.stream"'
+              pipe="|"
+              topic=".append goal"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"review project docs"'
+              pipe="|"
+              topic=".append notes"
+            ></terminal-line>
+          </terminal-panel>
+        </div>
 
-          <!-- Store with event bubbles -->
-          <div class="store">
-            <terminal-panel>
-              <terminal-line
-                prompt="$"
-                command="xs serve (xs-addr)"
-              ></terminal-line>
-              <div
-                class="embedded-component"
-                data-variant="store"
-                id="events-container"
+        <!-- Store with event bubbles -->
+        <div class="store">
+          <terminal-panel>
+            <terminal-line
+              prompt="$"
+              command="xs serve (xs-addr)"
+            ></terminal-line>
+            <div
+              class="embedded-component"
+              data-variant="store"
+              id="events-container"
+            >
+              <event-bubble
+                type="goal"
+                content="buy groceries"
+                event-id="03d4q1o70y6ek0ig8hwy9q00n"
               >
-                <event-bubble
-                  type="goal"
-                  content="buy groceries"
-                  event-id="03d4q1o70y6ek0ig8hwy9q00n"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="notes"
-                  content="quick note about meeting"
-                  event-id="03d4q1qhbiv09ovtuhokw5yxv"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="notes"
-                  content="submit TPS report"
-                  event-id="03d4qbrxizqgav09m7hicksb0"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="goal"
-                  content="learn cross.stream"
-                  event-id="03d4qic9vqkve1krajjtlbavd"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="notes"
-                  content="review project docs"
-                  event-id="03d4qjwnhwudlfyg1ygemmt7b"
-                >
-                </event-bubble>
-              </div>
-            </terminal-panel>
-          </div>
+              </event-bubble>
+              <event-bubble
+                type="notes"
+                content="quick note about meeting"
+                event-id="03d4q1qhbiv09ovtuhokw5yxv"
+              >
+              </event-bubble>
+              <event-bubble
+                type="notes"
+                content="submit TPS report"
+                event-id="03d4qbrxizqgav09m7hicksb0"
+              >
+              </event-bubble>
+              <event-bubble
+                type="goal"
+                content="learn cross.stream"
+                event-id="03d4qic9vqkve1krajjtlbavd"
+              >
+              </event-bubble>
+              <event-bubble
+                type="notes"
+                content="review project docs"
+                event-id="03d4qjwnhwudlfyg1ygemmt7b"
+              >
+              </event-bubble>
+            </div>
+          </terminal-panel>
+        </div>
       </div>
     </div>
 
