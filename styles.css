@@ -1,11 +1,5 @@
 /* Hero Diagram Page Specific Styles */
 
-h1 {
-  text-align: center;
-  color: var(--text-primary);
-  margin-bottom: 10px;
-}
-
 .subtitle {
   text-align: center;
   color: var(--text-muted);
@@ -53,15 +47,11 @@ h1 {
   gap: 6px;
 }
 
-/* Hero Section */
-.hero {
-  padding: 2em 0;
-}
-
-.hero h1 {
+h1 {
   font-size: 3em;
   margin-bottom: 0.5em;
   color: var(--accent-blue);
+  text-align: center;
 }
 
 .tagline {
@@ -69,22 +59,7 @@ h1 {
   color: var(--text-muted);
   text-align: center;
   margin-bottom: 2em;
-}
-
-.demo-section {
-  margin: 2em 0;
-}
-
-.hero-description {
-  text-align: center;
-  margin-top: 2em;
-}
-
-.hero-description p {
-  font-size: 1.1em;
-  color: var(--text-secondary);
-  margin-bottom: 1.5em;
-  line-height: 1.6;
+  font-style: italic;
 }
 
 .cta-buttons {
@@ -92,6 +67,7 @@ h1 {
   gap: 1em;
   justify-content: center;
   flex-wrap: wrap;
+  margin-bottom: 2em;
 }
 
 .cta-button {

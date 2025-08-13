@@ -19,128 +19,121 @@
   </head>
   <body>
     <main>
-      <!-- Hero Section -->
-      <section class="hero">
-        <h1><cross-stream-title></cross-stream-title></h1>
-        <p class="tagline">
-          <em>Local-first event streaming for hackers & tinkerers</em>
-        </p>
+      <h1><cross-stream-title></cross-stream-title></h1>
+      <p class="tagline">
+        Local-first event streaming for hackers & tinkerers
+      </p>
 
-        <!-- Interactive Demo -->
-        <div class="demo-section">
-          <!-- Query Section -->
-          <div class="query-section">
-            <terminal-panel
-              id="query-terminal"
-              title="Query the Event Store"
+      <!-- Query Section -->
+      <div class="query-section">
+        <terminal-panel
+          id="query-terminal"
+          title="Query the Event Store"
+        >
+          <div id="query-output"></div>
+        </terminal-panel>
+      </div>
+
+      <div class="input-store-row">
+        <!-- Input commands showing executed commands -->
+        <div class="console">
+          <terminal-panel>
+            <terminal-line
+              prompt="$"
+              command='"buy groceries"'
+              pipe="|"
+              topic=".append goal"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"quick note about meeting"'
+              pipe="|"
+              topic=".append notes"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"submit TPS report"'
+              pipe="|"
+              topic=".append notes"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"learn cross.stream"'
+              pipe="|"
+              topic=".append goal"
+            ></terminal-line>
+            <terminal-line
+              prompt="$"
+              command='"review project docs"'
+              pipe="|"
+              topic=".append notes"
+            ></terminal-line>
+          </terminal-panel>
+        </div>
+
+        <!-- Store with event bubbles -->
+        <div class="store">
+          <terminal-panel>
+            <terminal-line
+              prompt="$"
+              command="xs serve (xs-addr)"
+            ></terminal-line>
+            <div
+              class="embedded-component"
+              data-variant="store"
+              id="events-container"
             >
-              <div id="query-output"></div>
-            </terminal-panel>
-          </div>
-
-          <div class="input-store-row">
-            <!-- Input commands showing executed commands -->
-            <div class="console">
-              <terminal-panel>
-                <terminal-line
-                  prompt="$"
-                  command='"buy groceries"'
-                  pipe="|"
-                  topic=".append goal"
-                ></terminal-line>
-                <terminal-line
-                  prompt="$"
-                  command='"quick note about meeting"'
-                  pipe="|"
-                  topic=".append notes"
-                ></terminal-line>
-                <terminal-line
-                  prompt="$"
-                  command='"submit TPS report"'
-                  pipe="|"
-                  topic=".append notes"
-                ></terminal-line>
-                <terminal-line
-                  prompt="$"
-                  command='"learn cross.stream"'
-                  pipe="|"
-                  topic=".append goal"
-                ></terminal-line>
-                <terminal-line
-                  prompt="$"
-                  command='"review project docs"'
-                  pipe="|"
-                  topic=".append notes"
-                ></terminal-line>
-              </terminal-panel>
+              <event-bubble
+                type="goal"
+                content="buy groceries"
+                event-id="03d4q1o70y6ek0ig8hwy9q00n"
+              >
+              </event-bubble>
+              <event-bubble
+                type="notes"
+                content="quick note about meeting"
+                event-id="03d4q1qhbiv09ovtuhokw5yxv"
+              >
+              </event-bubble>
+              <event-bubble
+                type="notes"
+                content="submit TPS report"
+                event-id="03d4qbrxizqgav09m7hicksb0"
+              >
+              </event-bubble>
+              <event-bubble
+                type="goal"
+                content="learn cross.stream"
+                event-id="03d4qic9vqkve1krajjtlbavd"
+              >
+              </event-bubble>
+              <event-bubble
+                type="notes"
+                content="review project docs"
+                event-id="03d4qjwnhwudlfyg1ygemmt7b"
+              >
+              </event-bubble>
             </div>
-
-            <!-- Store with event bubbles -->
-            <div class="store">
-              <terminal-panel>
-                <terminal-line
-                  prompt="$"
-                  command="xs serve (xs-addr)"
-                ></terminal-line>
-                <div
-                  class="embedded-component"
-                  data-variant="store"
-                  id="events-container"
-                >
-                  <event-bubble
-                    type="goal"
-                    content="buy groceries"
-                    event-id="03d4q1o70y6ek0ig8hwy9q00n"
-                  >
-                  </event-bubble>
-                  <event-bubble
-                    type="notes"
-                    content="quick note about meeting"
-                    event-id="03d4q1qhbiv09ovtuhokw5yxv"
-                  >
-                  </event-bubble>
-                  <event-bubble
-                    type="notes"
-                    content="submit TPS report"
-                    event-id="03d4qbrxizqgav09m7hicksb0"
-                  >
-                  </event-bubble>
-                  <event-bubble
-                    type="goal"
-                    content="learn cross.stream"
-                    event-id="03d4qic9vqkve1krajjtlbavd"
-                  >
-                  </event-bubble>
-                  <event-bubble
-                    type="notes"
-                    content="review project docs"
-                    event-id="03d4qjwnhwudlfyg1ygemmt7b"
-                  >
-                  </event-bubble>
-                </div>
-              </terminal-panel>
-            </div>
-          </div>
+          </terminal-panel>
         </div>
+      </div>
 
-        <div class="hero-description">
-          <p>
-            Think SQLite, but for event sourcing. Append events, react in
-            real-time, and wire up anything—from Arduino sensors to MCP
-            servers—without cloud lock-in.
-          </p>
-          <div class="cta-buttons">
-            <a
-              href="https://github.com/cablehead/xs"
-              class="cta-button primary"
-            >Get Started</a>
-            <a
-              href="https://cablehead.github.io/xs/"
-              class="cta-button secondary"
-            >Documentation</a>
-          </div>
-        </div>
-      </section>
+      <p class="tagline">
+        Think SQLite, but for event sourcing. Append events, react in real-time,
+        and wire up anything—from Arduino sensors to MCP servers—without cloud
+        lock-in.
+      </p>
+
+      <div class="cta-buttons">
+        <a
+          href="https://github.com/cablehead/xs"
+          class="cta-button primary"
+        >Get Started</a>
+        <a
+          href="https://cablehead.github.io/xs/"
+          class="cta-button secondary"
+        >Documentation</a>
+      </div>
 
       <!-- Core Ideas Section -->
       <div class="features-grid">
