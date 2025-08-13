@@ -1,73 +1,63 @@
-/* CSS Custom Properties */
-:root {
-  /* Terminal Colors */
-  --terminal-bg: #1e1e1e;
-  --terminal-border: #30363d;
-  --terminal-header-bg: #21262d;
-  --terminal-text: #c9d1d9;
-  --terminal-title: #ffa657;
+/* Hero Diagram Page Specific Styles */
 
-  /* Terminal UI Elements */
-  --terminal-radius: 8px;
-  --terminal-font:
-    "Courier New", "Courier", "Lucida Console", "Liberation Mono",
-    "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Monaco", monospace;
-
-  /* Traffic Light Colors */
-  --terminal-red: #ff5f56;
-  --terminal-yellow: #ffbd2e;
-  --terminal-green: #27ca3f;
-
-  /* Theme Colors */
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --text-primary: #e6edf3;
-  --text-secondary: #c9d1d9;
-  --text-muted: #8b949e;
-  --accent-blue: #58a6ff;
-  --accent-blue-light: #79c0ff;
-  --accent-blue-lighter: #a5d6ff;
-  --accent-orange: #ffa657;
-  --accent-red: #ff7b72;
-  --accent-purple: #a5a2ff;
-  --border-default: #30363d;
+.container {
+  max-width: 1028px;
+  margin: 0 auto;
+  padding: 0.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
 }
 
-/* CSS Reset */
-*, *::before, *::after {
-  box-sizing: border-box;
+h1 {
+  text-align: center;
+  color: var(--accent-blue);
+  margin-bottom: 10px;
 }
 
-* {
-  margin: 0;
-  padding: 0;
+.subtitle {
+  text-align: center;
+  color: var(--text-muted);
+  margin-bottom: 30px;
 }
 
-html, body {
-  height: 100%;
+.input-store-row {
+  display: flex;
+  gap: 0.5em;
+  align-items: start;
+  width: 100%;
 }
 
-body {
-  margin: 0;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-family:
-    "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", "Source Code Pro",
-    "Consolas", "Courier New", monospace;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
+.console {
+  flex-grow: 0;
+  flex-basis: auto;
+  overflow-x: auto;
 }
 
-img, picture, video, canvas, svg {
+.store {
+  flex: 1 0 auto;
+  min-width: 375px;
+}
+
+.query-section {
   display: block;
-  max-width: 100%;
 }
 
-input, button, textarea, select {
-  font: inherit;
+.events-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 16px;
 }
 
-p, h1, h2, h3, h4, h5, h6 {
-  overflow-wrap: break-word;
+/* Embedded component styles - used by elements with class embedded-component */
+.embedded-component {
+  margin-top: 16px;
+}
+
+.embedded-component[data-variant="store"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cross.stream - Responsive Demo</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #0d1117;
+        color: #c9d1d9;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+          Helvetica, Arial, sans-serif;
+      }
+
+      .container {
+        margin: 0 auto;
+        max-width: 1200px;
+      }
+
+      h1 {
+        text-align: center;
+        color: #58a6ff;
+        margin-bottom: 10px;
+      }
+
+      .subtitle {
+        text-align: center;
+        color: #8b949e;
+        margin-bottom: 40px;
+      }
+
+      .viewport-row {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        margin-bottom: 40px;
+      }
+
+      .viewport-title {
+        color: #ffa657;
+        font-size: 18px;
+        font-weight: 600;
+        text-align: center;
+      }
+
+      .iframe-container {
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        overflow: hidden;
+        margin: 0 auto;
+        position: relative;
+      }
+
+      .desktop-iframe {
+        width: 1024px;
+        height: 600px;
+      }
+
+      .tablet-iframe {
+        width: 768px;
+        height: 600px;
+      }
+
+      .mobile-iframe {
+        width: 400px;
+        height: 600px;
+      }
+
+      iframe {
+        border: none;
+        display: block;
+      }
+
+      .responsive-row {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        align-items: flex-start;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>cross.stream Event Flow</h1>
+      <p class="subtitle">Live responsive demo at different viewport sizes</p>
+
+      <!-- Desktop View -->
+      <div class="viewport-row">
+        <div class="viewport-title">Desktop (1024px)</div>
+        <div class="iframe-container desktop-iframe">
+          <iframe
+            src="/"
+            width="1024"
+            height="600"
+            title="Desktop view of cross.stream demo"
+          >
+          </iframe>
+        </div>
+      </div>
+
+      <!-- Tablet & Mobile Row -->
+      <div class="responsive-row">
+        <div class="viewport-row">
+          <div class="viewport-title">Tablet (768px)</div>
+          <div class="iframe-container tablet-iframe">
+            <iframe
+              src="/"
+              width="768"
+              height="600"
+              title="Tablet view of cross.stream demo"
+            >
+            </iframe>
+          </div>
+        </div>
+
+        <div class="viewport-row">
+          <div class="viewport-title">Mobile (400px)</div>
+          <div class="iframe-container mobile-iframe">
+            <iframe
+              src="/"
+              width="400"
+              height="600"
+              title="Mobile view of cross.stream demo"
+            >
+            </iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
