@@ -46,7 +46,6 @@ export class EventBubble extends LitElement {
     }
 
     .event-id {
-      font-size: 10px;
       opacity: 0.7;
       font-family: monospace;
       letter-spacing: -0.5px;

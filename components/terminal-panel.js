@@ -51,8 +51,7 @@ export class TerminalPanel extends LitElement {
 
     .terminal-title {
       color: var(--terminal-title);
-      font-size: 14px;
-      font-weight: 600;
+      font: inherit;
       margin: 0;
       flex-shrink: 1;
       min-width: 0;
@@ -75,8 +74,8 @@ export class TerminalPanel extends LitElement {
       cursor: pointer;
       transition: all 0.3s ease;
       color: var(--text-secondary);
-      font-size: 12px;
       font-weight: 500;
+      font: inherit;
     }
 
     .action-button:hover {
@@ -114,7 +113,6 @@ export class TerminalPanel extends LitElement {
 
     .terminal-content ::slotted(.terminal-output[data-variant="text"]) {
       color: var(--accent-purple);
-      font-size: 16px;
       font-weight: 500;
     }
   `;
