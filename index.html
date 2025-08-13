@@ -16,6 +16,7 @@
     <script type="module" src="components/terminal-line.js"></script>
     <script type="module" src="components/event-bubble.js"></script>
     <script type="module" src="components/cross-stream-title.js"></script>
+    <script type="module" src="components/feature-card.js"></script>
   </head>
   <body>
     <main>
@@ -133,48 +134,36 @@
 
       <!-- Core Ideas Section -->
       <div class="features-grid">
-        <div class="feature-card">
-          <h3>📦 Event Store</h3>
-          <p>
-            Append-only stream with content-addressable storage (CAS). Separate
-            metadata from content for speed.
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3>🔄 Generators</h3>
-          <p>
-            Continuously pull data from files, APIs, websockets, serial devices,
-            or sensors.
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3>⚡ Handlers</h3>
-          <p>
-            React to incoming frames with stateful processors—transform,
-            trigger, fan-out.
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3>🎯 Commands</h3>
-          <p>
-            On-demand, stateless ops. Perfect for RPC-style calls or streaming
-            data back to the caller.
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3>🔒 Local-First</h3>
-          <p>
-            Single binary, file-based store, Unix socket API. No cloud, works
-            offline.
-          </p>
-        </div>
-        <div class="feature-card">
-          <h3>🐚 Nushell Integration</h3>
-          <p>
-            Write handlers and generators in Nushell with strong typing and
-            structured pipelines.
-          </p>
-        </div>
+        <feature-card
+          type="event-store"
+          card-title="Event Store"
+          description="Append-only stream with content-addressable storage (CAS). Separate metadata from content for speed."
+        ></feature-card>
+        <feature-card
+          type="generators"
+          card-title="Generators"
+          description="Continuously pull data from files, APIs, websockets, serial devices, or sensors."
+        ></feature-card>
+        <feature-card
+          type="handlers"
+          card-title="Handlers"
+          description="React to incoming frames with stateful processors—transform, trigger, fan-out."
+        ></feature-card>
+        <feature-card
+          type="commands"
+          card-title="Commands"
+          description="On-demand, stateless ops. Perfect for RPC-style calls or streaming data back to the caller."
+        ></feature-card>
+        <feature-card
+          type="local-first"
+          card-title="Local-First"
+          description="Single binary, file-based store, Unix socket API. No cloud, works offline."
+        ></feature-card>
+        <feature-card
+          type="nushell"
+          card-title="Nushell Integration"
+          description="Write handlers and generators in Nushell with strong typing and structured pipelines."
+        ></feature-card>
       </div>
 
       <div class="cta-buttons">
