@@ -122,3 +122,31 @@ func (m *Xs) LinuxArm64Build(ctx context.Context, src *dagger.Directory) *dagger
 
 	return container.File("/tmp/cross-stream-0.4.3-dev.11-linux-arm64.tar.gz")
 }
+
+func (m *Xs) LinuxAmd64Env(
+	ctx context.Context,
+	src *dagger.Directory) *dagger.Container {
+	return m.withCaches(
+		dag.Container().
+			From("messense/rust-musl-cross:x86_64-musl").
+			WithMountedDirectory("/app", src).
+			WithWorkdir("/app"),
+		"linux-amd64",
+	)
+}
+
+func (m *Xs) LinuxAmd64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
+	container := m.LinuxAmd64Env(ctx, src).
+		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"})
+
+	// Extract version and create tarball structure
+	container = container.WithExec([]string{"sh", "-c", `
+		VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+		mkdir -p /tmp/cross-stream-$VERSION
+		cp target/x86_64-unknown-linux-musl/release/xs /tmp/cross-stream-$VERSION/
+		cd /tmp
+		tar -czf cross-stream-$VERSION-linux-amd64.tar.gz cross-stream-$VERSION
+	`})
+
+	return container.File("/tmp/cross-stream-0.4.3-dev.11-linux-amd64.tar.gz")
+}

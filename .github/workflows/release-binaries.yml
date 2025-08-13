@@ -5,17 +5,100 @@ on:
     tags: [ "v*" ]       # e.g. v1.4.0
   workflow_dispatch:
 
-###############################################################################
-# 1 ── Create (or update) the GitHub release ──────────────────────────────────
-###############################################################################
+permissions:
+  contents: write      # required for gh release
+
 jobs:
-  create_release:
-    name: Create Release
+  #-----------------------------------------------------------
+  # 1. Build matrix - each row runs on its own VM
+  #-----------------------------------------------------------
+  build:
+    name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - target: macos-arm64
+            dagger_fn: macos-build
+            artifact: cross-stream-${{ github.ref_name }}-macos.tar.gz
+
+          - target: linux-arm64
+            dagger_fn: linux-arm-64-build
+            artifact: cross-stream-${{ github.ref_name }}-linux-arm64.tar.gz
+
+          - target: linux-amd64
+            dagger_fn: linux-amd-64-build
+            artifact: cross-stream-${{ github.ref_name }}-linux-amd64.tar.gz
+
+    steps:
+      # 1) Check out source
+      - uses: actions/checkout@v4
+
+      # 2) Cache Dagger BuildKit cache (restore and save)
+      - name: Cache Dagger
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dagger
+          key: dagger-${{ runner.os }}-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: |
+            dagger-${{ runner.os }}-${{ matrix.target }}-
+
+      # 3) Boot the Dagger engine
+      - name: Setup Dagger
+        uses: dagger/dagger-for-github@8.0.0
+        with:
+          version: "0.18.14"
+
+      # 4) Defensive: pre-pull the engine image
+      - name: Pre-pull Dagger Engine
+        run: docker pull registry.dagger.io/engine:v0.18.14
+
+      # 5) Run one Dagger build function and export artifact
+      - name: Build with Dagger
+        uses: dagger/dagger-for-github@8.0.0
+        with:
+          version: "0.18.14"
+          call: ${{ matrix.dagger_fn }} --src upload --src . export --path ./artifacts/${{ matrix.artifact }}
+
+      # 6) Upload artifact for fan-in job
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ./artifacts/${{ matrix.artifact }}
+
+  #-----------------------------------------------------------
+  # 2. Fan-in job - gather artifacts and create release
+  #-----------------------------------------------------------
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    needs: build
+
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate changelog if missing
+        run: |
+          tag="${{ github.ref_name }}"
+          changelog="changes/${tag}.md"
+          if [ ! -f "$changelog" ]; then
+            # Get the previous tag by sorting all tags and finding the one before current
+            previous_tag=$(git tag --list 'v*' --sort=-version:refname | grep -A1 "^${tag}$" | tail -1)
+            if [ -n "$previous_tag" ] && [ "$previous_tag" != "$tag" ]; then
+              git log --format=%s "${previous_tag}..${tag}" > "$changelog"
+            else
+              git log --format=%s "${tag}" > "$changelog"
+            fi
+          fi
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -26,172 +109,6 @@ jobs:
           name:       Release ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-dev.') }}
           draft:      false
-
-###############################################################################
-# 2 ── MUSL build using Alpine container (most reliable) ──────────────────────
-###############################################################################
-  build_musl:
-    name: Build MUSL (x86_64)
-    needs: create_release
-    runs-on: ubuntu-latest
-    container:
-      image: rust:alpine
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install dependencies
-        run: |
-          apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig git build-base
-      
-      - name: Cache Cargo artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: musl-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Build MUSL binary
-        env:
-          OPENSSL_STATIC: true
-          OPENSSL_LIB_DIR: /usr/lib
-          OPENSSL_INCLUDE_DIR: /usr/include
-        run: |
-          rustup target add x86_64-unknown-linux-musl
-          cargo build --release --target x86_64-unknown-linux-musl
-      
-      - name: Upload MUSL binary
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token:  ${{ secrets.GITHUB_TOKEN }}
-          tag:         ${{ github.ref_name }}
-          file:        target/x86_64-unknown-linux-musl/release/xs
-          asset_name:  xs-${{ github.ref_name }}-x86_64-linux-musl
-          overwrite:   true
-
-###############################################################################
-# 3 ── Regular GNU Linux build using cross ────────────────────────────────────
-###############################################################################
-  build_linux_gnu:
-    name: Build Linux GNU
-    needs: create_release
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache Cargo artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cross
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-
-      - name: Configure cross
-        run: |
-          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
-            cat > Cross.toml <<'EOF'
-          [target.x86_64-unknown-linux-gnu]
-          pre-build = [
-            "apt-get update && apt-get install -y pkg-config libssl-dev"
-          ]
-          EOF
-          
-          elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            cat > Cross.toml <<'EOF'
-          [target.aarch64-unknown-linux-gnu]
-          pre-build = [
-            "dpkg --add-architecture arm64",
-            "apt-get update && apt-get install -y pkg-config gcc-aarch64-linux-gnu",
-            "apt-get install -y libssl-dev:arm64"
-          ]
-          
-          [target.aarch64-unknown-linux-gnu.env]
-          passthrough = [
-            "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig",
-            "PKG_CONFIG_ALLOW_CROSS=1"
-          ]
-          EOF
-          fi
-
-      - name: Build (${{ matrix.target }})
-        run: |
-          for i in 1 2 3; do
-            echo "Build attempt $i for ${{ matrix.target }}"
-            if cross build --release --target ${{ matrix.target }}; then
-              echo "Build succeeded on attempt $i"
-              break
-            else
-              echo "Build failed on attempt $i"
-              if [ $i -eq 3 ]; then
-                echo "All build attempts failed"
-                exit 1
-              fi
-              sleep 30
-            fi
-          done
-
-      - name: Upload binary
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token:  ${{ secrets.GITHUB_TOKEN }}
-          tag:         ${{ github.ref_name }}
-          file:        target/${{ matrix.target }}/release/xs
-          asset_name:  xs-${{ github.ref_name }}-${{ matrix.target == 'x86_64-unknown-linux-gnu' && 'x86_64-linux-gnu' || 'aarch64-linux-gnu' }}
-          overwrite:   true
-
-###############################################################################
-# 4 ── Native macOS (Apple Silicon) build ─────────────────────────────────────
-###############################################################################
-  build_macos:
-    name: Build macOS (aarch64)
-    needs: create_release
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache Cargo artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: macos-aarch64-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
-
-      - name: Build (macOS)
-        run: cargo build --release --target aarch64-apple-darwin
-
-      - name: Upload binary
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token:  ${{ secrets.GITHUB_TOKEN }}
-          tag:         ${{ github.ref_name }}
-          file:        target/aarch64-apple-darwin/release/xs
-          asset_name:  xs-${{ github.ref_name }}-aarch64-apple-darwin
-          overwrite:   true
+          body_path:  changes/${{ github.ref_name }}.md
+          body:       Release build from commit ${{ github.sha }}
+          files: artifacts/*
