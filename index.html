@@ -190,19 +190,17 @@
 
       <!-- Nushell Quickstart Section -->
       <div class="code-block">
-        <terminal-panel title="Terminal">
+        <terminal-panel title="Hello world">
           <terminal-line
             prompt="$"
             command="xs serve ./store"
           ></terminal-line>
-          <br>
           <terminal-line
             prompt="$"
             command='"Hello, world!"'
             pipe="|"
             topic=".append greeting"
           ></terminal-line>
-          <br>
           <terminal-line prompt="$" command=".cat --follow"></terminal-line>
         </terminal-panel>
       </div>
