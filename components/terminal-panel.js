@@ -103,7 +103,6 @@ export class TerminalPanel extends LitElement {
     }
 
     .terminal-content ::slotted(.terminal-output) {
-      margin-top: 16px;
       white-space: nowrap;
       font-family: inherit;
       overflow-y: auto;

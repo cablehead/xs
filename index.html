@@ -32,7 +32,11 @@
             id="query-terminal"
             title="Query the Event Store"
           >
-            <div id="query-output"></div>
+            <div
+              style="display: flex; flex-direction: column; gap: 0.5em"
+              id="query-output"
+            >
+            </div>
           </terminal-panel>
         </div>
 
@@ -273,7 +277,7 @@
       function highlightMatchingEvents(type) {
         document.querySelectorAll("event-bubble").forEach((bubble) => {
           bubble.style.opacity = "0.3";
-          bubble.style.transform = "scale(0.95)";
+          // bubble.style.transform = "scale(0.95)";
         });
 
         if (type === "notes") {

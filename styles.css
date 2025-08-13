@@ -38,7 +38,7 @@
 
 /* Embedded component styles - used by elements with class embedded-component */
 .embedded-component {
-  margin-top: 16px;
+  margin-top: 0.5em;
 }
 
 .embedded-component[data-variant="store"] {
