@@ -47,6 +47,18 @@
   gap: 6px;
 }
 
+.demo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 3em;
+}
+
 h1 {
   font-size: 3em;
   margin-bottom: 0.5em;
@@ -149,7 +161,7 @@ h1 {
 
 .code-block {
   max-width: 600px;
-  margin: 0 auto;
+  margin: 3em auto 0 auto;
 }
 
 /* Footer */
