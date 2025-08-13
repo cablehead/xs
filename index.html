@@ -253,6 +253,9 @@
 
         if (type === "notes") {
           output = `<div class="terminal-line">
+              <span class="comment"># Filter events to show only notes entries with their content</span>
+            </div>
+            <div class="terminal-line">
               <span class="prompt">$</span>
               <span class="command">.cat | where topic == "notes" | insert content { .cas $in.hash }</span>
             </div>
@@ -265,6 +268,9 @@
 └───┴───────┴─────────────────────────────────────────┘</pre>`;
         } else if (type === "goal") {
           output = `<div class="terminal-line">
+              <span class="comment"># Get the most recent goal and display its content</span>
+            </div>
+            <div class="terminal-line">
               <span class="prompt">$</span>
               <span class="command">.head goal | .cas</span>
             </div>
