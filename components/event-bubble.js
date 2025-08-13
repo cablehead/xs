@@ -5,6 +5,7 @@ export class EventBubble extends LitElement {
     type: { type: String }, // 'goal' or 'notes'
     eventId: { type: String },
     content: { type: String },
+    frameId: { type: String, attribute: "frame-id" },
   };
 
   static styles = css`
@@ -60,7 +61,7 @@ export class EventBubble extends LitElement {
         data-content="${this.content}"
       >
         <span>${this.type}</span>
-        <span class="event-id">${this.eventId}</span>
+        <span class="event-id">${this.frameId}</span>
       </div>
     `;
   }
