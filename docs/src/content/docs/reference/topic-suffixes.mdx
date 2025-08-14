@@ -1,0 +1,120 @@
+---
+title: Topic Suffixes
+description: "Complete reference for all special topic suffixes used in cross.stream, categorized by source and purpose"
+sidebar:
+  order: 6
+---
+
+import { Link } from '../../../utils/links';
+
+cross.stream uses special topic suffixes to coordinate between components and track their lifecycle. This reference documents all suffixes, categorized by who emits them and when.
+
+## 🔵 User Emitted (Control/Input)
+
+These suffixes are used by users to control components or provide input. You append frames with these suffixes to interact with cross.stream components.
+
+### Generators
+
+| Suffix | Description | Usage |
+|--------|-------------|--------|
+| `.spawn` | Create or update a generator | Append a script configuration to start a new generator or hot-reload an existing one |
+| `.terminate` | Stop a generator | Append to gracefully stop a running generator |
+| `.send` | Input to duplex generators | Send data to a generator's input pipeline (when `duplex: true`) |
+
+### Handlers
+
+| Suffix | Description | Usage |
+|--------|-------------|--------|
+| `.register` | Register a handler | Append a handler configuration to start processing events |
+| `.unregister` | Unregister a handler | Stop and remove an active handler |
+
+### Commands
+
+| Suffix | Description | Usage |
+|--------|-------------|--------|
+| `.define` | Define a command | Append a command configuration to create a reusable operation |
+| `.call` | Invoke a command | Execute a defined command with optional input and arguments |
+
+## 🟡 System Emitted - Setup/Shutdown (Lifecycle)
+
+These suffixes are emitted by cross.stream during component lifecycle events - when components start up, shut down, or encounter errors.
+
+### Generators
+
+| Suffix | Description | When Emitted |
+|--------|-------------|--------------|
+| `.running` | Generator has started | After successful spawn or restart |
+| `.stopped` | Generator pipeline stopped | When pipeline exits (includes reason: `finished`, `error`, `terminate`, `update`) |
+| `.shutdown` | Generator loop fully exited | When generator terminates and ServeLoop evicts it |
+| `.parse.error` | Script parsing failed | When spawn script has syntax or configuration errors |
+
+### Handlers
+
+| Suffix | Description | When Emitted |
+|--------|-------------|--------------|
+| `.registered` | Handler is now active | After successful registration and startup |
+| `.unregistered` | Handler has been removed | When handler stops (includes error details if applicable) |
+
+### Commands
+
+| Suffix | Description | When Emitted |
+|--------|-------------|--------------|
+| `.ready` | Command ready for calls | After successful definition |
+| `.error` | Command execution failed | When a command call encounters an error |
+
+## 🟢 System Emitted - Normal Operation (Output)
+
+These suffixes are emitted by cross.stream during normal operation to deliver output from components.
+
+### Generators
+
+| Suffix | Description | Customizable |
+|--------|-------------|--------------|
+| `.recv` | Output from generator | ✅ Via `return_options.suffix` |
+
+### Handlers
+
+| Suffix | Description | Customizable |
+|--------|-------------|--------------|
+| `.out` | Output from handler | ✅ Via `return_options.suffix` |
+
+### Commands
+
+| Suffix | Description | Customizable |
+|--------|-------------|--------------|
+| `.response` | Command execution result | ✅ Via `return_options.suffix` |
+
+## Customizable Suffixes
+
+Output suffixes (🟢 Normal Operation) can be customized using `return_options`:
+
+```nushell
+{
+  run: {|| "Hello, World!" },
+  return_options: {
+    suffix: ".message"  # Changes .recv to .message
+  }
+}
+```
+
+The `return_options` configuration applies to:
+- **Generators**: Controls the suffix for output frames (default: `.recv`)
+- **Handlers**: Controls the suffix for return values (default: `.out`) 
+- **Commands**: Controls the suffix for results (default: `.response`)
+
+## Component Documentation
+
+For detailed information about each component type:
+
+- <Link to="/reference/generators/">Generators</Link> - Continuous background processes
+- <Link to="/reference/handlers/">Handlers</Link> - Event-driven processors  
+- <Link to="/reference/commands/">Commands</Link> - On-demand operations
+
+## Metadata
+
+All lifecycle and output events include relevant metadata:
+
+- `source_id` / `handler_id` / `command_id`: ID of the component instance
+- `frame_id`: ID of the triggering frame (for handlers/commands)
+- Error events include `error` field with error details
+- Stopped events include `reason` field explaining why the component stopped
