@@ -21,18 +21,17 @@ export class ReleaseBadge extends LitElement {
     :host {
       display: block;
       text-align: center;
-      margin: 1em 0;
     }
 
     .release-badge {
       display: inline-grid;
       grid-template-columns: auto 1fr auto;
       grid-template-rows: auto auto;
-      gap: 0.75em 1em;
-      background: rgba(13, 18, 28, 0.9);
+      gap: 0.5em 1em;
       border-radius: 6px;
       padding: 0.75em 1em;
       text-decoration: none;
+      font-size: inherit;
       transition: all 0.3s ease;
       align-items: center;
     }
