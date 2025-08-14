@@ -26,11 +26,15 @@ brew services start cablehead/tap/cross-stream
 <TabItem label="eget">
 [eget](https://github.com/zyedidia/eget) downloads prebuilt binaries from GitHub releases. We use [dagger](https://dagger.io) to run pipelines that generate binaries for macOS (ARM64), Linux (AMD64), and Linux (ARM64). See [our build pipeline](https://github.com/cablehead/xs/blob/main/.dagger/main.go) if you're interested in adding more platforms.
 
-```sh
-# Install eget first
-curl https://zyedidia.github.io/eget.sh | sh
+If you don't have eget yet:
 
-# Then install xs
+```sh
+curl https://zyedidia.github.io/eget.sh | sh
+```
+
+Then install `xs`:
+
+```sh
 eget cablehead/xs
 ```
 </TabItem>
