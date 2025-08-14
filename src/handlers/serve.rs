@@ -18,7 +18,7 @@ async fn start_handler(
         }
         Err(err) => {
             let _ = store.append(
-                Frame::builder(format!("{topic}.unregistered"), frame.context_id)
+                Frame::builder(format!("{topic}.inactive"), frame.context_id)
                     .meta(serde_json::json!({
                         "handler_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -71,7 +71,7 @@ pub async fn serve(
                         },
                     );
                 }
-                "unregister" | "unregistered" => {
+                "unregister" | "inactive" => {
                     // Only remove if handler_id matches
                     if let Some(meta) = &frame.meta {
                         if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {

@@ -208,7 +208,7 @@ impl Handler {
             {
                 let _ = store.append(
                     Frame::builder(
-                        format!("{topic}.unregistered", topic = &self.topic),
+                        format!("{topic}.inactive", topic = &self.topic),
                         self.context_id,
                     )
                     .meta(serde_json::json!({
@@ -235,7 +235,7 @@ impl Handler {
             if let Err(err) = self.process_frame(&frame, store).await {
                 let _ = store.append(
                     Frame::builder(
-                        format!("{topic}.unregistered", topic = self.topic),
+                        format!("{topic}.inactive", topic = self.topic),
                         self.context_id,
                     )
                     .meta(serde_json::json!({
@@ -265,7 +265,7 @@ impl Handler {
 
         let _ = store.append(
             Frame::builder(
-                format!("{topic}.registered", topic = &self.topic),
+                format!("{topic}.active", topic = &self.topic),
                 self.context_id,
             )
             .meta(serde_json::json!({

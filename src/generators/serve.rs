@@ -101,7 +101,7 @@ pub async fn serve(
             continue;
         }
 
-        if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
+        if let Some(prefix) = frame.topic.strip_suffix(".inactive") {
             active.remove(&(prefix.to_string(), frame.context_id));
             continue;
         }

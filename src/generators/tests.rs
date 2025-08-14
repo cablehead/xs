@@ -47,7 +47,7 @@ async fn test_serve_basic() {
     let mut recver = store.read(options).await;
 
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "toml.start".to_string());
+    assert_eq!(frame.topic, "toml.running".to_string());
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "toml.recv".to_string());
