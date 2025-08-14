@@ -10,6 +10,20 @@ documentation = "https://cablehead.github.io/xs/"
 readme = "README.md"
 keywords = ["nu", "cli", "queue", "embedded", "eventstore"]
 categories = ["command-line-utilities", "embedded", "database"]
+exclude = [
+    ".github/",
+    ".dagger/",
+    ".claude/",
+    "docs/",
+    "examples/",
+    "notes/",
+    "changes/",
+    "scripts/",
+    "target/",
+    "tests/",
+    "*.png",
+    "*.gif"
+]
 
 [lib]
 name = "xs"
