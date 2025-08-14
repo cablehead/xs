@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Model Canvas - cross.stream</title>
+    <link rel="stylesheet" href="../../global.css">
+    <script type="module" src="../../components/cross-stream-title.js"></script>
+    <style>
+      :root {
+        --headline-color: var(--text-primary);
+        --paragraph-color: var(--text-secondary);
+        --background-color: var(--bg-secondary);
+        --shadow-color: var(--border-default);
+      }
+
+      .canvas-container {
+        width: 100vw;
+        margin-left: calc(-50vw + 50%);
+        padding: 2rem clamp(1rem, 5vw, 3rem);
+      }
+
+      .canvas-title {
+        text-align: center;
+        margin-bottom: 0.2em;
+        color: var(--headline-color);
+      }
+
+      .canvas-subtitle {
+        text-align: center;
+        font-size: 0.9em;
+        color: var(--paragraph-color);
+        margin-bottom: 2rem;
+      }
+
+      .canvas-subtitle a {
+        color: var(--accent-blue);
+        text-decoration: none;
+      }
+
+      .canvas-subtitle a:hover {
+        color: var(--accent-blue-light);
+        text-decoration: underline;
+      }
+
+      .bullet {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.4em;
+        margin: 0.3em 0;
+      }
+
+      .bullet::before {
+        content: "\2022";
+        color: var(--headline-color);
+        flex-shrink: 0;
+      }
+
+      .canvas-grid {
+        display: grid;
+        gap: 1rem;
+        grid-template-areas:
+          "partners activities valueprops relationships segments"
+          "resources activities valueprops channels segments"
+          "cost cost revenue revenue revenue";
+        grid-template-columns: 1fr 1fr 2fr 1fr 1fr;
+      }
+
+      .canvas-section {
+        background: var(--background-color);
+        color: var(--paragraph-color);
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--shadow-color);
+      }
+
+      .canvas-section h2 {
+        color: var(--headline-color);
+        margin-bottom: 1rem;
+        font-size: 1.1em;
+      }
+
+      @media (max-width: 1024px) {
+        .canvas-grid {
+          grid-template-areas:
+            "valueprops valueprops"
+            "partners activities"
+            "resources channels"
+            "relationships segments"
+            "cost revenue";
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .canvas-grid {
+          grid-template-areas:
+            "valueprops"
+            "partners"
+            "activities"
+            "resources"
+            "channels"
+            "relationships"
+            "segments"
+            "cost"
+            "revenue";
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="canvas-container">
+        <h1 class="canvas-title">Business Model Canvas</h1>
+        <div style="text-align: center; margin-bottom: 1rem">
+          <a href="https://www.cross.stream" style="text-decoration: none">
+            <cross-stream-title></cross-stream-title>
+          </a>
+        </div>
+        <div class="canvas-subtitle">
+          Designed by: <a href="https://ndyg.ca">Andy Gayton</a> &nbsp;|&nbsp;
+          Designed for: <a
+            href="https://www.linkedin.com/in/dihanc/?originalSubdomain=ca"
+          >Dihan Chandra</a> &nbsp;|&nbsp; Date: July 20, 2025 &nbsp;|&nbsp;
+          Version: 0.1
+        </div>
+
+        <div class="canvas-grid">
+          <div class="canvas-section" style="grid-area: partners">
+            <h2>Key Partnerships</h2>
+            <div class="bullet">iroh (hole punching + community overlap)</div>
+            <div class="bullet">nushell, obsidian, logseq integrations</div>
+            <div class="bullet">Friends from meetups & Discords</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: activities">
+            <h2>Key Activities</h2>
+            <div class="bullet">Build signup, auth, billing</div>
+            <div class="bullet">Maintain infra + ops reliability</div>
+            <div class="bullet">Write docs, demos, onboarding flows</div>
+            <div class="bullet">Show & tell regularly</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: valueprops">
+            <h2>Value Propositions</h2>
+            <div class="bullet">
+              Local-first, programmable event stream store (xs)
+            </div>
+            <div class="bullet">
+              Hosted Cloud Pop: sync, always-on, cross-device
+            </div>
+            <div class="bullet">
+              Stream-driven development: simpler than Kafka, invites play
+            </div>
+            <div class="bullet">Publishing stream as a digital garden</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: relationships">
+            <h2>Customer Relationships</h2>
+            <div class="bullet">Cozy web vibe: trust-based, intimate</div>
+            <div class="bullet">Community of tinkerers and thinkers</div>
+            <div class="bullet">Collaborative feedback loops</div>
+            <div class="bullet">Empowering users to shape tools</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: segments">
+            <h2>Customer Segments</h2>
+            <div class="bullet">Devs, hackers, tinkerers</div>
+            <div class="bullet">
+              Curious, tech-literate (spreadsheet-level comfort)
+            </div>
+            <div class="bullet">Tool-for-thought and digital garden crowd</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: resources">
+            <h2>Key Resources</h2>
+            <div class="bullet">
+              Working infra for isolated per-user streams
+            </div>
+            <div class="bullet">Lightweight auth/token model</div>
+            <div class="bullet">Billing system (e.g. Stripe)</div>
+            <div class="bullet">Your time + community connections</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: channels">
+            <h2>Channels</h2>
+            <div class="bullet">OSS repos & GitHub</div>
+            <div class="bullet">
+              Discords, civic tech / creative code meetups
+            </div>
+            <div class="bullet">Show & tell, demos, word of mouth</div>
+            <div class="bullet">Indie tech forums (e.g. Hacker News)</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: cost">
+            <h2>Cost Structure</h2>
+            <div class="bullet">
+              Infra per tenant (Fly.io, PhoenixNAP, etc.)
+            </div>
+            <div class="bullet">Domain, SSL, email, Stripe fees</div>
+            <div class="bullet">Your time (free now, but not forever)</div>
+          </div>
+
+          <div class="canvas-section" style="grid-area: revenue">
+            <h2>Revenue Streams</h2>
+            <div class="bullet">$3/month per Cloud Pop stream</div>
+            <div class="bullet">Upsells: multi-streams, garden publishing</div>
+            <div class="bullet">Long-term goal: $200K–$500K/year</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
