@@ -51,11 +51,17 @@
     <script type="module" src="components/terminal-line.js"></script>
     <script type="module" src="components/event-bubble.js"></script>
     <script type="module" src="components/cross-stream-title.js"></script>
+    <script type="module" src="components/release-badge.js"></script>
     <script type="module" src="components/feature-card.js"></script>
   </head>
   <body>
     <main style="margin-top: 20vh">
       <h1><cross-stream-title></cross-stream-title></h1>
+      <release-badge
+        version="v0.5.0"
+        release-url="https://github.com/cablehead/xs/releases/tag/v0.5.0"
+      >
+      </release-badge>
       <p class="tagline">
         Local-first event streaming for hackers & tinkerers
       </p>
