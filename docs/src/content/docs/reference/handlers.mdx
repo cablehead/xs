@@ -71,7 +71,7 @@ incoming frame.
 The registration script is stored in CAS and evaluated to obtain the handler's
 configuration.
 
-Upon a successful start the handler appends a `<handler-name>.registered` frame
+Upon a successful start the handler appends a `<handler-name>.active` frame
 with metadata:
 
 - `handler_id` – the ID of the handler instance
@@ -167,12 +167,12 @@ All output frames automatically include:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Registering: .register event
-    Registering --> Unregistered: nushell parse error
-    Registering --> Registered : parse OK
-    Unregistered --> [*]
+    [*] --> Activating: .register event
+    Activating --> Inactive: nushell parse error
+    Activating --> Active : parse OK
+    Inactive --> [*]
 
-    state Registered {
+    state Active {
         direction LR
         [*] --> events.recv()
         events.recv() --> should_run: event received
@@ -185,7 +185,7 @@ stateDiagram-v2
         process_event --> events.recv(): OK
     }
 
-    Registered --> Unregistered
+    Active --> Inactive
 ```
 
 ### Unregistering
@@ -197,7 +197,7 @@ A handler can be unregistered by:
 - Runtime errors in the handler closure
 
 When unregistered, the handler appends a confirmation frame
-`<handler-name>.unregistered`. If unregistered due to an error, the frame
+`<handler-name>.inactive`. If unregistered due to an error, the frame
 includes an `error` field in its metadata.
 
 ### Error Handling
@@ -205,6 +205,6 @@ includes an `error` field in its metadata.
 If a handler encounters an error during execution:
 
 1. The handler is automatically unregistered
-2. A frame is appended to `<handler-name>.unregistered` with:
+2. A frame is appended to `<handler-name>.inactive` with:
    - The error message in metadata
    - Reference to the triggering frame

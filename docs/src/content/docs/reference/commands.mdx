@@ -51,6 +51,8 @@ The command definition requires:
 - `run`: A closure that receives the call frame and can return a pipeline of
   results
 
+Upon successful definition, the command emits a `<command>.ready` frame indicating it's ready to accept calls.
+
 All values produced by the closure's output pipeline are collected into a single
 `.response` event automatically.
 
@@ -70,6 +72,7 @@ Commands emit events to track their execution:
 
 | Event                | Description                              |
 | -------------------- | ---------------------------------------- |
+| `<command>.ready`    | Command successfully defined and ready for calls |
 | `<command>.response` | Collected result of the command pipeline |
 | `<command>.error`    | Error occurred during command execution  |
 

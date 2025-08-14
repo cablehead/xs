@@ -94,7 +94,7 @@ async fn test_serve_duplex() {
     let mut recver = store.read(options).await;
 
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "greeter.start".to_string());
+    assert_eq!(frame.topic, "greeter.running".to_string());
 
     let _ = store
         .append(
@@ -154,7 +154,7 @@ async fn test_serve_compact() {
     }
 
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "toml.start".to_string());
+    assert_eq!(frame.topic, "toml.running".to_string());
     let meta = frame.meta.unwrap();
     assert_eq!(meta["source_id"], frame_generator.id.to_string());
 
@@ -251,13 +251,13 @@ async fn test_serve_duplex_context_isolation() {
     assert_eq!(frame_spawn_a.topic, "echo.spawn");
     assert_eq!(frame_spawn_a.context_id, ctx_a);
 
-    // Expect start event for A
+    // Expect running event for A
     let frame_start_a = recver
         .recv()
         .await
-        .expect("Failed to receive gen A start frame");
+        .expect("Failed to receive gen A running frame");
     println!("Received: {:?}", frame_start_a);
-    assert_eq!(frame_start_a.topic, "echo.start");
+    assert_eq!(frame_start_a.topic, "echo.running");
     assert_eq!(
         frame_start_a.context_id, ctx_a,
         "Generator A start event has wrong context"
@@ -294,13 +294,13 @@ async fn test_serve_duplex_context_isolation() {
     assert_eq!(frame_spawn_b.topic, "echo.spawn");
     assert_eq!(frame_spawn_b.context_id, ctx_b);
 
-    // Expect start event for B
+    // Expect running event for B
     let frame_start_b = recver
         .recv()
         .await
-        .expect("Failed to receive gen B start frame");
+        .expect("Failed to receive gen B running frame");
     println!("Received: {:?}", frame_start_b);
-    assert_eq!(frame_start_b.topic, "echo.start");
+    assert_eq!(frame_start_b.topic, "echo.running");
     assert_eq!(
         frame_start_b.context_id, ctx_b,
         "Generator B start event has wrong context"
@@ -435,9 +435,9 @@ async fn test_respawn_after_terminate() {
         )
         .unwrap();
 
-    // expect start
+    // expect running
     assert_eq!(recver.recv().await.unwrap().topic, "sleeper.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.running");
     assert_no_more_frames(&mut recver).await;
 
     store
@@ -447,16 +447,16 @@ async fn test_respawn_after_terminate() {
     assert_eq!(recver.recv().await.unwrap().topic, "sleeper.terminate");
 
     let stop = recver.recv().await.unwrap();
-    assert_eq!(stop.topic, "sleeper.stop");
+    assert_eq!(stop.topic, "sleeper.stopped");
     assert_eq!(stop.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.shutdown");
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.inactive");
 
     store
         .append(Frame::builder("sleeper.spawn", ctx.id).hash(hash).build())
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "sleeper.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.running");
 }
 
 #[tokio::test]
@@ -486,18 +486,18 @@ async fn test_serve_restart_until_terminated() {
     let mut recver = store.read(options).await;
 
     // first iteration
-    assert_eq!(recver.recv().await.unwrap().topic, "restarter.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "restarter.running");
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
     let t_before_stop = Instant::now();
     let stop1 = recver.recv().await.unwrap();
-    assert_eq!(stop1.topic, "restarter.stop");
+    assert_eq!(stop1.topic, "restarter.stopped");
     assert_eq!(stop1.meta.unwrap()["reason"], "finished");
 
     // second iteration should happen automatically
     tokio::time::sleep(Duration::from_millis(1100)).await;
     let start2 = recver.recv().await.unwrap();
     let t_after_start = Instant::now();
-    assert_eq!(start2.topic, "restarter.start");
+    assert_eq!(start2.topic, "restarter.running");
     assert!(t_after_start.duration_since(t_before_stop) >= Duration::from_secs(1));
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
 
@@ -505,10 +505,10 @@ async fn test_serve_restart_until_terminated() {
         .append(Frame::builder("restarter.terminate", ctx.id).build())
         .unwrap();
 
-    // Wait until we receive a stop frame with reason "terminate"
+    // Wait until we receive a stopped frame with reason "terminate"
     loop {
         let frame = recver.recv().await.unwrap();
-        if frame.topic == "restarter.stop" {
+        if frame.topic == "restarter.stopped" {
             if frame.meta.as_ref().unwrap()["reason"] == "terminate" {
                 break;
             }
@@ -542,9 +542,9 @@ async fn test_duplex_terminate_stops() {
         .build();
     let mut recver = store.read(options).await;
 
-    // expect start
+    // expect running
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.start");
+    assert_eq!(frame.topic, "echo.running");
 
     // terminate while generator waits for input
     store
@@ -553,11 +553,11 @@ async fn test_duplex_terminate_stops() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.terminate");
 
-    // expect stop frame with reason terminate
+    // expect stopped frame with reason terminate
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.stop");
+    assert_eq!(frame.topic, "echo.stopped");
     assert_eq!(frame.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.shutdown");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.inactive");
 
     store
         .append(Frame::builder("echo.send", ctx.id).build())
@@ -624,7 +624,7 @@ async fn test_parse_error_eviction() {
         println!("respawn error reason: {}", frame.meta.unwrap()["reason"]);
     }
     assert_eq!(frame.topic, "oops.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "oops.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "oops.running");
 }
 
 #[tokio::test]
@@ -657,8 +657,8 @@ async fn test_refresh_on_new_spawn() {
         .build();
     let mut recver = store.read(options).await;
 
-    // Expect the first start
-    assert_eq!(recver.recv().await.unwrap().topic, "reload.start");
+    // Expect the first running
+    assert_eq!(recver.recv().await.unwrap().topic, "reload.running");
 
     // Send a new spawn to refresh the generator while it's running
     let script2 = r#"{ run: {|| "v2" } }"#;
@@ -673,11 +673,11 @@ async fn test_refresh_on_new_spawn() {
     // The new spawn event arrives first
     assert_eq!(recver.recv().await.unwrap().topic, "reload.spawn");
 
-    // We should then see a stop with reason "update" referencing the new spawn
+    // We should then see a stopped with reason "update" referencing the new spawn
     let mut stop;
     loop {
         stop = recver.recv().await.unwrap();
-        if stop.topic == "reload.stop" {
+        if stop.topic == "reload.stopped" {
             if stop.meta.as_ref().unwrap()["reason"] == "update" {
                 break;
             }
@@ -688,7 +688,7 @@ async fn test_refresh_on_new_spawn() {
     assert_eq!(meta["update_id"], spawn2.id.to_string());
 
     // And the generator should restart with the new script
-    assert_eq!(recver.recv().await.unwrap().topic, "reload.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "reload.running");
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "reload.recv");
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
@@ -724,14 +724,14 @@ async fn test_terminate_one_of_two_generators() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "gen1.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "gen1.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "gen1.running");
 
     store
         .append(Frame::builder("gen2.spawn", ctx.id).hash(hash).build())
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "gen2.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "gen2.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "gen2.running");
 
     store
         .append(Frame::builder("gen1.terminate", ctx.id).build())
@@ -739,10 +739,10 @@ async fn test_terminate_one_of_two_generators() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "gen1.terminate");
     let stop1 = recver.recv().await.unwrap();
-    assert_eq!(stop1.topic, "gen1.stop");
+    assert_eq!(stop1.topic, "gen1.stopped");
     assert_eq!(stop1.meta.unwrap()["reason"], "terminate");
     let shutdown1 = recver.recv().await.unwrap();
-    assert_eq!(shutdown1.topic, "gen1.shutdown");
+    assert_eq!(shutdown1.topic, "gen1.inactive");
 
     let msg_hash = store.cas_insert("ping").await.unwrap();
     store
@@ -783,7 +783,7 @@ async fn test_bytestream_ping() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "pinger.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "pinger.start");
+    assert_eq!(recver.recv().await.unwrap().topic, "pinger.running");
 
     for _ in 0..2 {
         let frame = recver.recv().await.unwrap();
@@ -800,7 +800,7 @@ async fn test_bytestream_ping() {
 
     let stop = loop {
         let frame = recver.recv().await.unwrap();
-        if frame.topic == "pinger.stop" {
+        if frame.topic == "pinger.stopped" {
             break frame;
         }
     };
@@ -856,10 +856,10 @@ fn test_emit_event_helper() {
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Start,
+        GeneratorEventKind::Running,
     )
     .unwrap();
-    assert!(matches!(ev.kind, GeneratorEventKind::Start));
+    assert!(matches!(ev.kind, GeneratorEventKind::Running));
 
     let ev = emit_event(
         &store,
@@ -882,18 +882,18 @@ fn test_emit_event_helper() {
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Stop(StopReason::Finished),
+        GeneratorEventKind::Stopped(StopReason::Finished),
     )
     .unwrap();
-    assert!(matches!(ev.kind, GeneratorEventKind::Stop(_)));
+    assert!(matches!(ev.kind, GeneratorEventKind::Stopped(_)));
 
     let _ = emit_event(
         &store,
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Shutdown,
+        GeneratorEventKind::Inactive,
     )
     .unwrap();
-    assert_eq!(store.head("helper.shutdown", ZERO_CONTEXT).is_some(), true);
+    assert_eq!(store.head("helper.inactive", ZERO_CONTEXT).is_some(), true);
 }

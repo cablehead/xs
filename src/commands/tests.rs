@@ -35,6 +35,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
             .build(),
     )?;
     assert_eq!(recver.recv().await.unwrap().topic, "echo.define");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.ready");
 
     // Call the command
     let frame_call = store.append(
@@ -91,6 +92,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
         )
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.define");
+    assert_eq!(recver.recv().await.unwrap().topic, "will_error.ready");
 
     // Call the command
     let frame_call = store
@@ -140,6 +142,7 @@ async fn test_command_single_value() -> Result<(), Error> {
             .build(),
     )?;
     assert_eq!(recver.recv().await.unwrap().topic, "single.define");
+    assert_eq!(recver.recv().await.unwrap().topic, "single.ready");
 
     // Call the command
     let frame_call = store.append(Frame::builder("single.call", ctx.id).build())?;
@@ -187,6 +190,7 @@ async fn test_command_empty_output() -> Result<(), Error> {
             .build(),
     )?;
     assert_eq!(recver.recv().await.unwrap().topic, "empty.define");
+    assert_eq!(recver.recv().await.unwrap().topic, "empty.ready");
 
     // Call the command
     let frame_call = store.append(Frame::builder("empty.call", ctx.id).build())?;
@@ -232,6 +236,7 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
             .build(),
     )?;
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.define");
+    assert_eq!(recver.recv().await.unwrap().topic, "numbers.ready");
 
     // Call the command
     let frame_call = store.append(Frame::builder("numbers.call", ctx.id).build())?;
@@ -352,6 +357,14 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     assert_eq!(frame_define_a.id, define_a_frame.id);
     assert_eq!(frame_define_a.topic, "testcmd.define");
     assert_eq!(frame_define_a.context_id, ctx_a);
+
+    // Expect ready event for A
+    let frame_ready_a = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd A ready frame");
+    assert_eq!(frame_ready_a.topic, "testcmd.ready");
+    assert_eq!(frame_ready_a.context_id, ctx_a);
     println!("Cmd A defined.");
 
     // --- Define Command B in Context B ---
@@ -375,6 +388,14 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     assert_eq!(frame_define_b.id, define_b_frame.id);
     assert_eq!(frame_define_b.topic, "testcmd.define");
     assert_eq!(frame_define_b.context_id, ctx_b);
+
+    // Expect ready event for B
+    let frame_ready_b = recver_all
+        .recv()
+        .await
+        .expect("Failed to receive cmd B ready frame");
+    assert_eq!(frame_ready_b.topic, "testcmd.ready");
+    assert_eq!(frame_ready_b.context_id, ctx_b);
     println!("Cmd B defined.");
 
     // --- Call Command in Context A ---
