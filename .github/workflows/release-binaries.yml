@@ -110,5 +110,4 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-dev.') }}
           draft:      false
           body_path:  changes/${{ github.ref_name }}.md
-          body:       Release build from commit ${{ github.sha }}
           files: artifacts/*
