@@ -14,7 +14,12 @@ import { Link } from '../../../utils/links';
 <TabItem label="brew">
 ```sh
 brew install cablehead/tap/cross-stream
-brew services start cablehead/tap/cross-stream  # starts a store in ~/.local/share/cross.stream/store
+```
+
+Optionally start the store as a background service. This creates a store at the default location that [xs.nu commands](./first-stream) will use automatically:
+
+```sh
+brew services start cablehead/tap/cross-stream
 ```
 </TabItem>
 
