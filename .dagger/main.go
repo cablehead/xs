@@ -42,7 +42,7 @@ func (m *Xs) MacosEnv(
 	)
 }
 
-func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
+func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
 	container := m.MacosEnv(ctx, src).
 		WithExec([]string{"rustup", "target", "add", "aarch64-apple-darwin"})
 
@@ -81,18 +81,15 @@ func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory) *dagger.File
 		rm -f build.log
 	`})
 
-	// Extract version and create tarball structure
+	// Create tarball structure using provided version
 	container = container.WithExec([]string{"sh", "-c", `
-		VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-		mkdir -p /tmp/cross-stream-$VERSION
-		cp target/aarch64-apple-darwin/release/xs /tmp/cross-stream-$VERSION/
+		mkdir -p /tmp/cross-stream-` + version + `
+		cp target/aarch64-apple-darwin/release/xs /tmp/cross-stream-` + version + `/
 		cd /tmp
-		tar -czf cross-stream-$VERSION-macos.tar.gz cross-stream-$VERSION
+		tar -czf cross-stream-` + version + `-macos.tar.gz cross-stream-` + version + `
 	`})
 
-	// Return the tarball, but we need to get the actual filename
-	// For now, let's use a static approach and improve later
-	return container.File("/tmp/cross-stream-0.4.3-dev.11-macos.tar.gz")
+	return container.File("/tmp/cross-stream-" + version + "-macos.tar.gz")
 }
 
 func (m *Xs) LinuxArm64Env(
@@ -107,20 +104,19 @@ func (m *Xs) LinuxArm64Env(
 	)
 }
 
-func (m *Xs) LinuxArm64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
+func (m *Xs) LinuxArm64Build(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
 	container := m.LinuxArm64Env(ctx, src).
 		WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-unknown-linux-musl"})
 
-	// Extract version and create tarball structure
+	// Create tarball structure using provided version
 	container = container.WithExec([]string{"sh", "-c", `
-		VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-		mkdir -p /tmp/cross-stream-$VERSION
-		cp target/aarch64-unknown-linux-musl/release/xs /tmp/cross-stream-$VERSION/
+		mkdir -p /tmp/cross-stream-` + version + `
+		cp target/aarch64-unknown-linux-musl/release/xs /tmp/cross-stream-` + version + `/
 		cd /tmp
-		tar -czf cross-stream-$VERSION-linux-arm64.tar.gz cross-stream-$VERSION
+		tar -czf cross-stream-` + version + `-linux-arm64.tar.gz cross-stream-` + version + `
 	`})
 
-	return container.File("/tmp/cross-stream-0.4.3-dev.11-linux-arm64.tar.gz")
+	return container.File("/tmp/cross-stream-" + version + "-linux-arm64.tar.gz")
 }
 
 func (m *Xs) LinuxAmd64Env(
@@ -135,18 +131,17 @@ func (m *Xs) LinuxAmd64Env(
 	)
 }
 
-func (m *Xs) LinuxAmd64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
+func (m *Xs) LinuxAmd64Build(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
 	container := m.LinuxAmd64Env(ctx, src).
 		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"})
 
-	// Extract version and create tarball structure
+	// Create tarball structure using provided version
 	container = container.WithExec([]string{"sh", "-c", `
-		VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-		mkdir -p /tmp/cross-stream-$VERSION
-		cp target/x86_64-unknown-linux-musl/release/xs /tmp/cross-stream-$VERSION/
+		mkdir -p /tmp/cross-stream-` + version + `
+		cp target/x86_64-unknown-linux-musl/release/xs /tmp/cross-stream-` + version + `/
 		cd /tmp
-		tar -czf cross-stream-$VERSION-linux-amd64.tar.gz cross-stream-$VERSION
+		tar -czf cross-stream-` + version + `-linux-amd64.tar.gz cross-stream-` + version + `
 	`})
 
-	return container.File("/tmp/cross-stream-0.4.3-dev.11-linux-amd64.tar.gz")
+	return container.File("/tmp/cross-stream-" + version + "-linux-amd64.tar.gz")
 }
