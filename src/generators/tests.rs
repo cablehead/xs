@@ -449,7 +449,7 @@ async fn test_respawn_after_terminate() {
     let stop = recver.recv().await.unwrap();
     assert_eq!(stop.topic, "sleeper.stopped");
     assert_eq!(stop.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.inactive");
+    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.shutdown");
 
     store
         .append(Frame::builder("sleeper.spawn", ctx.id).hash(hash).build())
@@ -557,7 +557,7 @@ async fn test_duplex_terminate_stops() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.stopped");
     assert_eq!(frame.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.inactive");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.shutdown");
 
     store
         .append(Frame::builder("echo.send", ctx.id).build())
@@ -742,7 +742,7 @@ async fn test_terminate_one_of_two_generators() {
     assert_eq!(stop1.topic, "gen1.stopped");
     assert_eq!(stop1.meta.unwrap()["reason"], "terminate");
     let shutdown1 = recver.recv().await.unwrap();
-    assert_eq!(shutdown1.topic, "gen1.inactive");
+    assert_eq!(shutdown1.topic, "gen1.shutdown");
 
     let msg_hash = store.cas_insert("ping").await.unwrap();
     store
@@ -892,8 +892,8 @@ fn test_emit_event_helper() {
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Inactive,
+        GeneratorEventKind::Shutdown,
     )
     .unwrap();
-    assert_eq!(store.head("helper.inactive", ZERO_CONTEXT).is_some(), true);
+    assert_eq!(store.head("helper.shutdown", ZERO_CONTEXT).is_some(), true);
 }

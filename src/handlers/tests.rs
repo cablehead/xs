@@ -134,7 +134,7 @@ async fn test_register_invalid_closure() {
     // Expect an inactive frame to be appended
     validate_frame!(
         recver.recv().await.unwrap(), {
-        topic: "invalid.inactive",
+        topic: "invalid.unregistered",
         handler: frame_handler,
         error: "Closure must accept exactly one frame argument, found 0",
     });
@@ -184,7 +184,7 @@ async fn test_register_parse_error() {
     // Expect an inactive frame to be appended
     validate_frame!(
         recver.recv().await.unwrap(), {
-        topic: "invalid.inactive",
+        topic: "invalid.unregistered",
         handler: frame_handler,
         error: "Parse error", // Expecting parse error details
     });
@@ -219,7 +219,7 @@ async fn test_no_self_loop() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
 
     // note we don't see an echo of the echo.active frame
 
@@ -291,7 +291,7 @@ async fn test_essentials() {
 
     // Assert active frame has the correct meta
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.active");
+    assert_eq!(frame.topic, "action.registered");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler.id.to_string());
     assert_eq!(meta["tail"], false);
@@ -312,7 +312,7 @@ async fn test_essentials() {
         .append(Frame::builder("action.unregister", ZERO_CONTEXT).build())
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.unregister");
-    assert_eq!(recver.recv().await.unwrap().topic, "action.inactive");
+    assert_eq!(recver.recv().await.unwrap().topic, "action.unregistered");
 
     assert_no_more_frames(&mut recver).await;
 
@@ -322,7 +322,7 @@ async fn test_essentials() {
 
     // Assert active frame has the correct meta
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.active");
+    assert_eq!(frame.topic, "action.registered");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
     assert_eq!(meta["tail"], false);
@@ -388,11 +388,11 @@ async fn test_unregister_on_error() {
         )
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "error.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "error.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "error.registered");
 
     // Expect an inactive frame to be appended
     validate_frame!(recver.recv().await.unwrap(), {
-        topic: "error.inactive",
+        topic: "error.unregistered",
         handler: &frame_handler,
         trigger: &frame_trigger,
         error: "nothing doesn't support cell paths",
@@ -434,7 +434,7 @@ async fn test_return_options() {
 
     let frame_handler = store.append(handler_proto).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
 
     // Send first ping
     let frame1 = store
@@ -507,7 +507,7 @@ async fn test_custom_append() {
     // Start handler
     let frame_handler = store.append(handler_proto.clone()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "action.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "action.registered");
 
     let trigger_frame = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
@@ -554,7 +554,7 @@ async fn test_handler_replacement() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "h.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.registered");
 
     // Register second handler for same topic
     let handler2 = store
@@ -576,8 +576,8 @@ async fn test_handler_replacement() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "h.inactive");
-    assert_eq!(recver.recv().await.unwrap().topic, "h.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.unregistered");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.registered");
 
     // Send trigger - should be handled by handler2
     let trigger = store
@@ -653,7 +653,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
 
     // Wait for handler registration
     assert_eq!(recver.recv().await.unwrap().topic, "test.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "test.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
 
     // Send trigger frame
     let trigger = store
@@ -725,7 +725,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
 
     // Wait for handler registration
     assert_eq!(recver.recv().await.unwrap().topic, "test.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "test.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
 
     // Send trigger frame
     let trigger = store
@@ -853,15 +853,15 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
 
     // verify handlers come online correctly
     let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.topic, "malformed.inactive");
+    assert_eq!(frame.topic, "malformed.unregistered");
     assert_eq!(frame.context_id, ctx_id1);
 
     let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.active");
+    assert_eq!(frame.topic, "echo.registered");
     assert_eq!(frame.context_id, ctx_id1);
 
     let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.active");
+    assert_eq!(frame.topic, "echo.registered");
     assert_eq!(frame.context_id, ctx_id2);
 
     // Trigger in the context 1's handler
@@ -915,7 +915,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     assert_eq!(frame.context_id, ctx_id1);
 
     let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.inactive");
+    assert_eq!(frame.topic, "echo.unregistered");
     assert_eq!(frame.context_id, ctx_id1);
 
     assert_no_more_frames(&mut rx).await;

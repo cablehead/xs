@@ -47,7 +47,7 @@ pub enum GeneratorEventKind {
     ParseError {
         message: String,
     },
-    Inactive,
+    Shutdown,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -130,10 +130,10 @@ pub(crate) fn emit_event(
             )?;
         }
 
-        GeneratorEventKind::Inactive => {
+        GeneratorEventKind::Shutdown => {
             store.append(
                 Frame::builder(
-                    format!("{topic}.inactive", topic = loop_ctx.topic),
+                    format!("{topic}.shutdown", topic = loop_ctx.topic),
                     loop_ctx.context_id,
                 )
                 .meta(json!({ "source_id": source_id.to_string() }))
@@ -394,7 +394,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                     &loop_ctx,
                     task.id,
                     task.return_options.as_ref(),
-                    GeneratorEventKind::Inactive,
+                    GeneratorEventKind::Shutdown,
                 );
                 break;
             }
