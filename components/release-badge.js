@@ -10,10 +10,7 @@ export class ReleaseBadge extends LitElement {
   constructor() {
     super();
     this.version = "v0.5.0";
-    // Set to 3 hours ago from current time
-    const now = new Date();
-    const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-    this.releaseDate = threeHoursAgo.toISOString();
+    this.releaseDate = "2025-08-14T01:29:00Z"; // Aug 13, 2025 at 9:29 PM EDT
     this.releaseUrl = "https://github.com/cablehead/xs/releases/tag/v0.5.0";
   }
 
