@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    {% block title %}<title>
+      cross.stream - Local-first event streaming for hackers & tinkerers
+    </title>{% endblock %} {% block meta %}
+    <meta
+      name="description"
+      content="Think SQLite, but for event sourcing. Append events, react in real-time, and wire up anything—from Arduino sensors to MCP servers—without cloud lock-in."
+    >
+
+    <!-- Open Graph Meta Tags -->
+    <meta
+      property="og:title"
+      content="cross.stream - Local-first event streaming for hackers & tinkerers"
+    >
+    <meta
+      property="og:description"
+      content="Think SQLite, but for event sourcing. Append events, react in real-time, and wire up anything—from Arduino sensors to MCP servers—without cloud lock-in."
+    >
+    <meta property="og:image" content="https://www.cross.stream/assets/og.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta
+      property="og:image:alt"
+      content="cross.stream - Local-first event streaming platform"
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://cross.stream">
+
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta
+      name="twitter:title"
+      content="cross.stream - Local-first event streaming for hackers & tinkerers"
+    >
+    <meta
+      name="twitter:description"
+      content="Think SQLite, but for event sourcing. Append events, react in real-time, and wire up anything—from Arduino sensors to MCP servers—without cloud lock-in."
+    >
+    <meta name="twitter:image" content="https://www.cross.stream/assets/og.png">
+    <meta
+      name="twitter:image:alt"
+      content="cross.stream - Local-first event streaming platform"
+    >
+    {% endblock %}
+
+    <link rel="stylesheet" href="{% block css_path %}{% endblock %}global.css">
+
+    {% block additional_css %}{% endblock %} {% set components_path =
+    components_path_value %} {% block scripts %}
+    <script
+      type="module"
+      src="{{ components_path }}components/cross-stream-title.js"
+    ></script>
+    <script
+      type="module"
+      src="{{ components_path }}components/terminal-line.js"
+    ></script>
+    <script
+      type="module"
+      src="{{ components_path }}components/terminal-panel.js"
+    ></script>
+    <script
+      type="module"
+      src="{{ components_path }}components/event-bubble.js"
+    ></script>
+    <script
+      type="module"
+      src="{{ components_path }}components/release-badge.js"
+    ></script>
+    <script
+      type="module"
+      src="{{ components_path }}components/feature-card.js"
+    ></script>
+    {% endblock %} {% block additional_scripts %}{% endblock %}
+  </head>
+  <body>
+    {% block body %}{% endblock %}
+  </body>
+</html>

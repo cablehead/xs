@@ -1,228 +1,389 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Business Model Canvas - cross.stream</title>
-    <link rel="stylesheet" href="../global.css">
-    <script type="module" src="../components/cross-stream-title.js"></script>
-    <style>
-      :root {
-        --headline-color: var(--text-primary);
-        --paragraph-color: var(--text-secondary);
-        --background-color: var(--bg-secondary);
-        --shadow-color: var(--border-default);
-      }
+{% extends "../base.html" %} {% set components_path_value = "../" %} {% block
+title %}<title>Business Model Canvas - cross.stream</title>{% endblock %} {%
+block meta %}
+<meta
+  name="description"
+  content="Business Model Canvas for cross.stream - Local-first event streaming platform"
+>
+<meta property="og:title" content="Business Model Canvas - cross.stream">
+<meta
+  property="og:description"
+  content="Business Model Canvas for cross.stream - Local-first event streaming platform"
+>
+<meta property="og:image" content="https://www.cross.stream/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="cross.stream Business Model Canvas">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.cross.stream/canvas/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Business Model Canvas - cross.stream">
+<meta
+  name="twitter:description"
+  content="Business Model Canvas for cross.stream - Local-first event streaming platform"
+>
+<meta name="twitter:image" content="https://www.cross.stream/assets/og.png">
+<meta name="twitter:image:alt" content="cross.stream Business Model Canvas">
+{% endblock %} {% block css_path %}../{% endblock %} {% block components_path
+%}../{% endblock %} {% block scripts %}
+<script type="module" src="../components/cross-stream-title.js"></script>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    // Add click handlers to canvas cards
+    const valuePropsCard = document.querySelector(
+      ".canvas-grid ul:nth-of-type(3)",
+    );
 
-      .canvas-container {
-        width: 100vw;
-        margin-left: calc(-50vw + 50%);
-        padding: 2rem clamp(1rem, 5vw, 3rem);
-      }
-
-      .canvas-title {
-        text-align: center;
-        margin-bottom: 0.2em;
-        color: var(--headline-color);
-      }
-
-      .canvas-subtitle {
-        text-align: center;
-        font-size: 0.9em;
-        color: var(--paragraph-color);
-        margin-bottom: 2rem;
-      }
-
-      .canvas-subtitle a {
-        color: var(--accent-blue);
-        text-decoration: none;
-      }
-
-      .canvas-subtitle a:hover {
-        color: var(--accent-blue-light);
-        text-decoration: underline;
-      }
-
-      .bullet {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.4em;
-        margin: 0.3em 0;
-      }
-
-      .bullet::before {
-        content: "\2022";
-        color: var(--headline-color);
-        flex-shrink: 0;
-      }
-
-      .canvas-grid {
-        display: grid;
-        gap: 1rem;
-        grid-template-areas:
-          "partners activities valueprops relationships segments"
-          "resources activities valueprops channels segments"
-          "cost cost revenue revenue revenue";
-        grid-template-columns: 1fr 1fr 2fr 1fr 1fr;
-      }
-
-      .canvas-section {
-        background: var(--background-color);
-        color: var(--paragraph-color);
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border: 1px solid var(--shadow-color);
-      }
-
-      .canvas-section h2 {
-        color: var(--headline-color);
-        margin-bottom: 1rem;
-        font-size: 1.1em;
-      }
-
-      @media (max-width: 1024px) {
-        .canvas-grid {
-          grid-template-areas:
-            "valueprops valueprops"
-            "partners activities"
-            "resources channels"
-            "relationships segments"
-            "cost revenue";
-          grid-template-columns: 1fr 1fr;
+    if (valuePropsCard) {
+      valuePropsCard.addEventListener("click", function () {
+        const detailSection = document.getElementById(
+          "value-propositions-detail",
+        );
+        if (detailSection) {
+          detailSection.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
         }
-      }
+      });
+    }
+  });
+</script>
+{% endblock %} {% block additional_css %}
+<style>
+  :root {
+    --headline-color: var(--text-primary);
+    --paragraph-color: var(--text-secondary);
+    --background-color: var(--bg-secondary);
+    --shadow-color: var(--border-default);
+  }
 
-      @media (max-width: 640px) {
-        .canvas-grid {
-          grid-template-areas:
-            "valueprops"
-            "partners"
-            "activities"
-            "resources"
-            "channels"
-            "relationships"
-            "segments"
-            "cost"
-            "revenue";
-          grid-template-columns: 1fr;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <div class="canvas-container">
-        <h1 class="canvas-title">Business Model Canvas</h1>
-        <div style="text-align: center; margin-bottom: 1rem">
-          <a href="https://www.cross.stream" style="text-decoration: none">
-            <cross-stream-title></cross-stream-title>
-          </a>
-        </div>
-        <div class="canvas-subtitle">
-          Designed by: <a href="https://ndyg.ca">Andy Gayton</a> &nbsp;|&nbsp;
-          Designed for: <a
-            href="https://www.linkedin.com/in/dihanc/?originalSubdomain=ca"
-          >Dihan Chandra</a> &nbsp;|&nbsp; Created: July 20, 2025 &nbsp;|&nbsp;
-          Updated: August 14, 2025 &nbsp;|&nbsp; <a
-            href="#versions"
-            style="color: var(--accent-blue); text-decoration: none"
-          >Version: 0.2</a>
-        </div>
+  .canvas-container {
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    padding: 2rem clamp(1rem, 5vw, 3rem);
+  }
 
-        <div class="canvas-grid">
-          <div class="canvas-section" style="grid-area: partners">
-            <h2>Key Partnerships</h2>
-            <div class="bullet">iroh (hole punching + community overlap)</div>
-            <div class="bullet">nushell, obsidian, logseq integrations</div>
-            <div class="bullet">Friends from meetups & Discords</div>
-          </div>
+  .canvas-title {
+    text-align: center;
+    margin-bottom: 0.2em;
+    color: var(--headline-color);
+  }
 
-          <div class="canvas-section" style="grid-area: activities">
-            <h2>Key Activities</h2>
-            <div class="bullet">Build signup, auth, billing</div>
-            <div class="bullet">Maintain infra + ops reliability</div>
-            <div class="bullet">Write docs, demos, onboarding flows</div>
-            <div class="bullet">Show & tell regularly</div>
-          </div>
+  .canvas-subtitle {
+    text-align: center;
+    font-size: 0.9em;
+    color: var(--paragraph-color);
+    margin-bottom: 2rem;
+  }
 
-          <div class="canvas-section" style="grid-area: valueprops">
-            <h2>Value Propositions</h2>
-            <div class="bullet">
-              Local-first, programmable event stream store (xs)
-            </div>
-            <div class="bullet">
-              Hosted Cloud Pop: sync, always-on, cross-device
-            </div>
-            <div class="bullet">
-              Stream-driven development: simpler than Kafka, invites play
-            </div>
-            <div class="bullet">Publishing stream as a digital garden</div>
-          </div>
+  .canvas-subtitle a {
+    color: var(--accent-blue);
+    text-decoration: none;
+  }
 
-          <div class="canvas-section" style="grid-area: relationships">
-            <h2>Customer Relationships</h2>
-            <div class="bullet">Cozy web vibe: trust-based, intimate</div>
-            <div class="bullet">Community of tinkerers and thinkers</div>
-            <div class="bullet">Collaborative feedback loops</div>
-            <div class="bullet">Empowering users to shape tools</div>
-          </div>
+  .canvas-subtitle a:hover {
+    color: var(--accent-blue-light);
+    text-decoration: underline;
+  }
 
-          <div class="canvas-section" style="grid-area: segments">
-            <h2>Customer Segments</h2>
-            <div class="bullet">Devs, hackers, tinkerers</div>
-            <div class="bullet">
-              Curious, tech-literate (spreadsheet-level comfort)
-            </div>
-            <div class="bullet">Tool-for-thought and digital garden crowd</div>
-          </div>
+  .bullet {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4em;
+    margin: 0.3em 0;
+  }
 
-          <div class="canvas-section" style="grid-area: resources">
-            <h2>Key Resources</h2>
-            <div class="bullet">
-              Working infra for isolated per-user streams
-            </div>
-            <div class="bullet">Lightweight auth/token model</div>
-            <div class="bullet">Billing system (e.g. Stripe)</div>
-            <div class="bullet">Your time + community connections</div>
-          </div>
+  .bullet::before {
+    content: "\2022";
+    color: var(--headline-color);
+    flex-shrink: 0;
+  }
 
-          <div class="canvas-section" style="grid-area: channels">
-            <h2>Channels</h2>
-            <div class="bullet">OSS repos & GitHub</div>
-            <div class="bullet">
-              Discords, civic tech / creative code meetups
-            </div>
-            <div class="bullet">Show & tell, demos, word of mouth</div>
-            <div class="bullet">Indie tech forums (e.g. Hacker News)</div>
-          </div>
+  .canvas-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 1fr 1fr 2fr 1fr 1fr;
+    grid-template-rows: repeat(3, auto);
+  }
 
-          <div class="canvas-section" style="grid-area: cost">
-            <h2>Cost Structure</h2>
-            <div class="bullet">
-              Infra per tenant (Fly.io, PhoenixNAP, etc.)
-            </div>
-            <div class="bullet">Domain, SSL, email, Stripe fees</div>
-            <div class="bullet">Your time (free now, but not forever)</div>
-          </div>
+  /* Create unified sections by wrapping h2+ul together */
+  .canvas-grid h2 + ul {
+    background: var(--background-color);
+    color: var(--paragraph-color);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--shadow-color);
+    margin: 0;
+    list-style: none;
+    position: relative;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
 
-          <div class="canvas-section" style="grid-area: revenue">
-            <h2>Revenue Streams</h2>
-            <div class="bullet">$3/month per Cloud Pop stream</div>
-            <div class="bullet">Upsells: multi-streams, garden publishing</div>
-            <div class="bullet">Long-term goal: $200K–$500K/year</div>
-          </div>
-        </div>
+  /* Make cards clickable */
+  .canvas-grid h2 + ul {
+    cursor: pointer;
+  }
 
-        <div
-          id="versions"
-          style="text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--shadow-color); color: var(--text-muted); font-size: 0.8em"
-        >
-          Previous versions: <a
-            href="v0.1/"
-            style="color: var(--accent-blue); text-decoration: none"
-          >v0.1</a> (July 20, 2025)
-        </div>
-      </div>
-    </main>
-  </body>
-</html>
+  /* Vibrant hover effects matching release badge */
+  .canvas-grid h2 + ul:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 0 15px rgba(59, 130, 246, 0.5),
+      0 0 30px rgba(59, 130, 246, 0.2),
+      inset 0 1px 0 rgba(59, 130, 246, 0.3);
+    border-color: var(--accent-blue);
+  }
+
+  /* Style the CSS-generated headers */
+  .canvas-grid ul::before {
+    display: block;
+    color: var(--headline-color);
+    font-size: 1.1em;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+
+  /* Hide the original h2 since we'll use ::before */
+  .canvas-grid h2 {
+    display: none;
+  }
+
+  .canvas-grid li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4em;
+    margin: 0.3em 0;
+  }
+
+  .canvas-grid li::before {
+    content: "•";
+    color: var(--headline-color);
+    flex-shrink: 0;
+  }
+
+  /* Position only ul elements since h2 are hidden */
+  .canvas-grid ul:nth-of-type(1) {
+    grid-column: 1;
+    grid-row: 1;
+  } /* Key Partnerships */
+  .canvas-grid ul:nth-of-type(2) {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  } /* Key Activities */
+  .canvas-grid ul:nth-of-type(3) {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  } /* Value Propositions */
+  .canvas-grid ul:nth-of-type(4) {
+    grid-column: 4;
+    grid-row: 1;
+  } /* Customer Relationships */
+  .canvas-grid ul:nth-of-type(5) {
+    grid-column: 5;
+    grid-row: 1 / 3;
+  } /* Customer Segments */
+  .canvas-grid ul:nth-of-type(6) {
+    grid-column: 1;
+    grid-row: 2;
+  } /* Key Resources */
+  .canvas-grid ul:nth-of-type(7) {
+    grid-column: 4;
+    grid-row: 2;
+  } /* Channels */
+  .canvas-grid ul:nth-of-type(8) {
+    grid-column: 1 / 3;
+    grid-row: 3;
+  } /* Cost Structure */
+  .canvas-grid ul:nth-of-type(9) {
+    grid-column: 3 / 6;
+    grid-row: 3;
+  } /* Revenue Streams */
+
+  /* Add headers using CSS content */
+  .canvas-grid ul:nth-of-type(1)::before {
+    content: "Key Partnerships";
+  }
+  .canvas-grid ul:nth-of-type(2)::before {
+    content: "Key Activities";
+  }
+  .canvas-grid ul:nth-of-type(3)::before {
+    content: "Value Propositions";
+  }
+  .canvas-grid ul:nth-of-type(4)::before {
+    content: "Customer Relationships";
+  }
+  .canvas-grid ul:nth-of-type(5)::before {
+    content: "Customer Segments";
+  }
+  .canvas-grid ul:nth-of-type(6)::before {
+    content: "Key Resources";
+  }
+  .canvas-grid ul:nth-of-type(7)::before {
+    content: "Channels";
+  }
+  .canvas-grid ul:nth-of-type(8)::before {
+    content: "Cost Structure";
+  }
+  .canvas-grid ul:nth-of-type(9)::before {
+    content: "Revenue Streams";
+  }
+
+  @media (max-width: 1024px) {
+    .canvas-grid {
+      grid-template-areas:
+        "valueprops valueprops"
+        "partners activities"
+        "resources channels"
+        "relationships segments"
+        "cost revenue";
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .canvas-grid {
+      grid-template-areas:
+        "valueprops"
+        "partners"
+        "activities"
+        "resources"
+        "channels"
+        "relationships"
+        "segments"
+        "cost"
+        "revenue";
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Detailed section styling */
+  .detailed-section {
+    margin-top: 3rem;
+    padding: 2.5rem;
+    background: var(--bg-secondary);
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-default);
+    color: var(--text-primary);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    scroll-margin-top: 2rem;
+  }
+
+  .detailed-section h2 {
+    color: var(--text-primary);
+    font-size: 1.8em;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--accent-blue);
+    padding-bottom: 0.5rem;
+  }
+
+  .detailed-section h3 {
+    color: var(--text-primary);
+    font-size: 1.3em;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
+
+  .detailed-section ul {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .detailed-section li {
+    margin: 0.75rem 0;
+    line-height: 1.6;
+  }
+
+  .detailed-section ol {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .detailed-section ol li {
+    margin: 1rem 0;
+    line-height: 1.6;
+  }
+
+  .detailed-section pre {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  }
+
+  .detailed-section code {
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+    font-size: 0.9em;
+  }
+
+  .detailed-section hr {
+    margin: 2rem 0;
+    border: none;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--border-default),
+      transparent
+    );
+  }
+
+  .detailed-section em {
+    color: var(--accent-blue);
+    font-style: italic;
+  }
+
+  .detailed-section strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+</style>
+{% endblock %} {% block body %}
+<main>
+  <div class="canvas-container">
+    <h1 class="canvas-title">Business Model Canvas</h1>
+    <div style="text-align: center; margin-bottom: 1rem">
+      <a href="https://www.cross.stream" style="text-decoration: none">
+        <cross-stream-title></cross-stream-title>
+      </a>
+    </div>
+    <div class="canvas-subtitle">
+      Designed by: <a href="https://ndyg.ca">Andy Gayton</a> &nbsp;|&nbsp;
+      Designed for: <a
+        href="https://www.linkedin.com/in/dihanc/?originalSubdomain=ca"
+      >Dihan Chandra</a> &nbsp;|&nbsp; Created: July 20, 2025 &nbsp;|&nbsp;
+      Updated: August 14, 2025 &nbsp;|&nbsp; <a
+        href="#versions"
+        style="color: var(--accent-blue); text-decoration: none"
+      >Version: 0.2</a>
+    </div>
+
+    <div class="canvas-grid">
+      {{ content | safe }}
+    </div>
+
+    <!-- Detailed sections inline -->
+    {% if sections.value_propositions %}
+    <div id="value-propositions-detail" class="detailed-section">
+      {{ sections.value_propositions | safe }}
+    </div>
+    {% endif %}
+
+    <div
+      id="versions"
+      style="text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--shadow-color); color: var(--text-muted); font-size: 0.8em"
+    >
+      Previous versions: <a
+        href="v0.1/"
+        style="color: var(--accent-blue); text-decoration: none"
+      >v0.1</a> (July 20, 2025)
+    </div>
+  </div>
+</main>
+
+{% endblock %}

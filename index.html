@@ -1,365 +1,311 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>
-      cross.stream - Local-first event streaming for hackers & tinkerers
-    </title>
-    <meta
-      name="description"
-      content="Think SQLite, but for event sourcing. Append events, react in real-time, and wire up anything—from Arduino sensors to MCP servers—without cloud lock-in."
-    >
+{% extends "base.html" %} {% set components_path_value = "" %} {% block css_path
+%}{% endblock %} {% block components_path %}{% endblock %} {% block
+additional_css %}
+<link rel="stylesheet" href="styles.css">
+{% endblock %} {% block body %}
+<main style="margin-top: 20vh">
+  <h1><cross-stream-title></cross-stream-title></h1>
+  <p class="tagline">
+    Local-first event streaming for hackers & tinkerers
+  </p>
 
-    <!-- Open Graph Meta Tags -->
-    <meta
-      property="og:title"
-      content="cross.stream - Local-first event streaming for hackers & tinkerers"
-    >
-    <meta
-      property="og:description"
-      content="Think SQLite, but for event sourcing. Append events, react in real-time, and wire up anything—from Arduino sensors to MCP servers—without cloud lock-in."
-    >
-    <meta property="og:image" content="https://www.cross.stream/assets/og.png">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta
-      property="og:image:alt"
-      content="cross.stream - Local-first event streaming platform"
-    >
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://cross.stream">
+  <div class="cta-buttons">
+    <a
+      href="https://cablehead.github.io/xs/getting-started/installation/"
+      class="cta-button primary"
+    >Get Started</a>
+    <a
+      href="https://cablehead.github.io/xs/"
+      class="cta-button secondary"
+    >Documentation</a>
+    <a
+      href="https://github.com/cablehead/xs"
+      class="cta-button secondary"
+    >GitHub</a>
 
-    <!-- Twitter Card Meta Tags -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta
-      name="twitter:title"
-      content="cross.stream - Local-first event streaming for hackers & tinkerers"
+    <release-badge
+      version="v0.5.0"
+      release-url="https://github.com/cablehead/xs/releases/tag/v0.5.0"
     >
-    <meta
-      name="twitter:description"
-      content="Think SQLite, but for event sourcing. Append events, react in real-time, and wire up anything—from Arduino sensors to MCP servers—without cloud lock-in."
-    >
-    <meta name="twitter:image" content="https://www.cross.stream/assets/og.png">
-    <meta
-      name="twitter:image:alt"
-      content="cross.stream - Local-first event streaming platform"
-    >
-    <link rel="stylesheet" href="global.css">
-    <link rel="stylesheet" href="styles.css">
-    <script type="module" src="components/terminal-panel.js"></script>
-    <script type="module" src="components/terminal-line.js"></script>
-    <script type="module" src="components/event-bubble.js"></script>
-    <script type="module" src="components/cross-stream-title.js"></script>
-    <script type="module" src="components/release-badge.js"></script>
-    <script type="module" src="components/feature-card.js"></script>
-  </head>
-  <body>
-    <main style="margin-top: 20vh">
-      <h1><cross-stream-title></cross-stream-title></h1>
-      <p class="tagline">
-        Local-first event streaming for hackers & tinkerers
-      </p>
+    </release-badge>
+  </div>
 
-      <div class="cta-buttons">
-        <a
-          href="https://cablehead.github.io/xs/getting-started/installation/"
-          class="cta-button primary"
-        >Get Started</a>
-        <a
-          href="https://cablehead.github.io/xs/"
-          class="cta-button secondary"
-        >Documentation</a>
-        <a
-          href="https://github.com/cablehead/xs"
-          class="cta-button secondary"
-        >GitHub</a>
-
-        <release-badge
-          version="v0.5.0"
-          release-url="https://github.com/cablehead/xs/releases/tag/v0.5.0"
-        >
-        </release-badge>
+  <!-- Demo Section: Query + Input/Store -->
+  <div class="demo-section">
+    <div class="input-store-row">
+      <!-- Input commands showing executed commands -->
+      <div class="console">
+        <terminal-panel>
+          <terminal-line
+            prompt="$"
+            command='"buy groceries"'
+            pipe="|"
+            topic=".append goal"
+          ></terminal-line>
+          <terminal-line
+            prompt="$"
+            command='"quick note about meeting"'
+            pipe="|"
+            topic=".append notes"
+          ></terminal-line>
+          <terminal-line
+            prompt="$"
+            command='"submit TPS report"'
+            pipe="|"
+            topic=".append notes"
+          ></terminal-line>
+          <terminal-line
+            prompt="$"
+            command='"learn cross.stream"'
+            pipe="|"
+            topic=".append goal"
+          ></terminal-line>
+          <terminal-line
+            prompt="$"
+            command='"review project docs"'
+            pipe="|"
+            topic=".append notes"
+          ></terminal-line>
+        </terminal-panel>
       </div>
 
-      <!-- Demo Section: Query + Input/Store -->
-      <div class="demo-section">
-        <div class="input-store-row">
-          <!-- Input commands showing executed commands -->
-          <div class="console">
-            <terminal-panel>
-              <terminal-line
-                prompt="$"
-                command='"buy groceries"'
-                pipe="|"
-                topic=".append goal"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"quick note about meeting"'
-                pipe="|"
-                topic=".append notes"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"submit TPS report"'
-                pipe="|"
-                topic=".append notes"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"learn cross.stream"'
-                pipe="|"
-                topic=".append goal"
-              ></terminal-line>
-              <terminal-line
-                prompt="$"
-                command='"review project docs"'
-                pipe="|"
-                topic=".append notes"
-              ></terminal-line>
-            </terminal-panel>
-          </div>
-
-          <!-- Store with event bubbles -->
-          <div class="store">
-            <terminal-panel>
-              <terminal-line
-                prompt="$"
-                command="xs serve (xs-addr)"
-              ></terminal-line>
-              <div
-                class="embedded-component"
-                data-variant="store"
-                id="events-container"
-              >
-                <event-bubble
-                  type="goal"
-                  content="buy groceries"
-                  event-id="03d4q1o70y6ek0ig8hwy9q00n"
-                  frame-id="03egou0geu62jz78r2smufms2"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="notes"
-                  content="quick note about meeting"
-                  event-id="03d4q1qhbiv09ovtuhokw5yxv"
-                  frame-id="03ehpx4n8q5bvz92k3wtnlem7"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="notes"
-                  content="submit TPS report"
-                  event-id="03d4qbrxizqgav09m7hicksb0"
-                  frame-id="03ejkr9z2m8xwv45n7qstpkm9"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="goal"
-                  content="learn cross.stream"
-                  event-id="03d4qic9vqkve1krajjtlbavd"
-                  frame-id="03elmb5w7p3qxt68s9vuwron2"
-                >
-                </event-bubble>
-                <event-bubble
-                  type="notes"
-                  content="review project docs"
-                  event-id="03d4qjwnhwudlfyg1ygemmt7b"
-                  frame-id="03enmc8v4r6zyu79t1xvwspn4"
-                >
-                </event-bubble>
-              </div>
-            </terminal-panel>
-          </div>
-        </div>
-
-        <!-- Query Section -->
-        <div class="query-section">
-          <terminal-panel
-            id="query-terminal"
-            title="Query the Event Store"
+      <!-- Store with event bubbles -->
+      <div class="store">
+        <terminal-panel>
+          <terminal-line
+            prompt="$"
+            command="xs serve (xs-addr)"
+          ></terminal-line>
+          <div
+            class="embedded-component"
+            data-variant="store"
+            id="events-container"
           >
-            <div
-              style="display: flex; flex-direction: column; gap: 0.5em"
-              id="query-output"
+            <event-bubble
+              type="goal"
+              content="buy groceries"
+              event-id="03d4q1o70y6ek0ig8hwy9q00n"
+              frame-id="03egou0geu62jz78r2smufms2"
             >
-            </div>
-          </terminal-panel>
+            </event-bubble>
+            <event-bubble
+              type="notes"
+              content="quick note about meeting"
+              event-id="03d4q1qhbiv09ovtuhokw5yxv"
+              frame-id="03ehpx4n8q5bvz92k3wtnlem7"
+            >
+            </event-bubble>
+            <event-bubble
+              type="notes"
+              content="submit TPS report"
+              event-id="03d4qbrxizqgav09m7hicksb0"
+              frame-id="03ejkr9z2m8xwv45n7qstpkm9"
+            >
+            </event-bubble>
+            <event-bubble
+              type="goal"
+              content="learn cross.stream"
+              event-id="03d4qic9vqkve1krajjtlbavd"
+              frame-id="03elmb5w7p3qxt68s9vuwron2"
+            >
+            </event-bubble>
+            <event-bubble
+              type="notes"
+              content="review project docs"
+              event-id="03d4qjwnhwudlfyg1ygemmt7b"
+              frame-id="03enmc8v4r6zyu79t1xvwspn4"
+            >
+            </event-bubble>
+          </div>
+        </terminal-panel>
+      </div>
+    </div>
+
+    <!-- Query Section -->
+    <div class="query-section">
+      <terminal-panel
+        id="query-terminal"
+        title="Query the Event Store"
+      >
+        <div
+          style="display: flex; flex-direction: column; gap: 0.5em"
+          id="query-output"
+        >
         </div>
-      </div>
+      </terminal-panel>
+    </div>
+  </div>
 
-      <p class="tagline">
-        Think SQLite, but for event sourcing. Append events, react in real-time,
-        and wire up anything—from Arduino sensors to MCP servers—without cloud
-        lock-in.
-      </p>
+  <p class="tagline">
+    Think SQLite, but for event sourcing. Append events, react in real-time, and
+    wire up anything—from Arduino sensors to MCP servers—without cloud lock-in.
+  </p>
 
-      <!-- Core Ideas Section -->
-      <div class="features-grid">
-        <feature-card
-          type="event-store"
-          card-title="Event Store"
-          description="Append-only stream with content-addressable storage (CAS). Separate metadata from content for speed."
-        ></feature-card>
-        <feature-card
-          type="generators"
-          card-title="Generators"
-          description="Continuously pull data from files, APIs, websockets, serial devices, or sensors."
-        ></feature-card>
-        <feature-card
-          type="handlers"
-          card-title="Handlers"
-          description="React to incoming frames with stateful processors—transform, trigger, fan-out."
-        ></feature-card>
-        <feature-card
-          type="commands"
-          card-title="Commands"
-          description="On-demand, stateless ops. Perfect for RPC-style calls or streaming data back to the caller."
-        ></feature-card>
-        <feature-card
-          type="local-first"
-          card-title="Local-First"
-          description="Single binary, file-based store, Unix socket API. No cloud, works offline."
-        ></feature-card>
-        <feature-card
-          type="nushell"
-          card-title="Nushell Integration"
-          description="Write handlers and generators in Nushell with strong typing and structured pipelines."
-        ></feature-card>
-      </div>
+  <!-- Core Ideas Section -->
+  <div class="features-grid">
+    <feature-card
+      type="event-store"
+      card-title="Event Store"
+      description="Append-only stream with content-addressable storage (CAS). Separate metadata from content for speed."
+    ></feature-card>
+    <feature-card
+      type="generators"
+      card-title="Generators"
+      description="Continuously pull data from files, APIs, websockets, serial devices, or sensors."
+    ></feature-card>
+    <feature-card
+      type="handlers"
+      card-title="Handlers"
+      description="React to incoming frames with stateful processors—transform, trigger, fan-out."
+    ></feature-card>
+    <feature-card
+      type="commands"
+      card-title="Commands"
+      description="On-demand, stateless ops. Perfect for RPC-style calls or streaming data back to the caller."
+    ></feature-card>
+    <feature-card
+      type="local-first"
+      card-title="Local-First"
+      description="Single binary, file-based store, Unix socket API. No cloud, works offline."
+    ></feature-card>
+    <feature-card
+      type="nushell"
+      card-title="Nushell Integration"
+      description="Write handlers and generators in Nushell with strong typing and structured pipelines."
+    ></feature-card>
+  </div>
 
-      <div class="cta-buttons">
-        <a
-          href="https://cablehead.github.io/xs/getting-started/installation/"
-          class="cta-button primary"
-        >Get Started</a>
-        <a
-          href="https://cablehead.github.io/xs/"
-          class="cta-button secondary"
-        >Documentation</a>
-        <a
-          href="https://github.com/cablehead/xs"
-          class="cta-button secondary"
-        >GitHub</a>
-      </div>
-    </main>
+  <div class="cta-buttons">
+    <a
+      href="https://cablehead.github.io/xs/getting-started/installation/"
+      class="cta-button primary"
+    >Get Started</a>
+    <a
+      href="https://cablehead.github.io/xs/"
+      class="cta-button secondary"
+    >Documentation</a>
+    <a
+      href="https://github.com/cablehead/xs"
+      class="cta-button secondary"
+    >GitHub</a>
+  </div>
+</main>
 
-    <!-- Footer -->
-    <footer class="footer">
-      <div class="footer-links">
-        <a href="https://github.com/cablehead/xs">GitHub</a>
-        <a href="https://cablehead.github.io/xs/">Docs</a>
-        <a href="https://discord.com/invite/YNbScHBHrh">Discord</a>
-        <a href="https://www.nushell.sh/">Nushell</a>
-      </div>
-    </footer>
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-links">
+    <a href="https://github.com/cablehead/xs">GitHub</a>
+    <a href="https://cablehead.github.io/xs/">Docs</a>
+    <a href="https://discord.com/invite/YNbScHBHrh">Discord</a>
+    <a href="https://www.nushell.sh/">Nushell</a>
+  </div>
+</footer>
 
-    <script>
-      // Events are read from event-bubble elements
-      function getEvents() {
-        return Array.from(document.querySelectorAll("event-bubble"))
-          .map((bubble) => ({
-            topic: bubble.type,
-            content: bubble.content,
-          }));
-      }
+<script>
+  // Events are read from event-bubble elements
+  function getEvents() {
+    return Array.from(document.querySelectorAll("event-bubble"))
+      .map((bubble) => ({
+        topic: bubble.type,
+        content: bubble.content,
+      }));
+  }
 
-      let activeQuery = null;
+  let activeQuery = null;
 
-      document.addEventListener("DOMContentLoaded", function () {
-        // Set up terminal actions via JavaScript
-        const queryTerminal = document.getElementById("query-terminal");
-        queryTerminal.actions = [
-          { id: "notes", title: "Get all notes", selected: true },
-          { id: "goal", title: "Get current goal" },
-        ];
+  document.addEventListener("DOMContentLoaded", function () {
+    // Set up terminal actions via JavaScript
+    const queryTerminal = document.getElementById("query-terminal");
+    queryTerminal.actions = [
+      { id: "notes", title: "Get all notes", selected: true },
+      { id: "goal", title: "Get current goal" },
+    ];
 
-        // Handle action clicks from terminal panel
-        queryTerminal.addEventListener("action-click", function (e) {
-          const { actionId } = e.detail;
-          executeQuery(actionId);
-        });
+    // Handle action clicks from terminal panel
+    queryTerminal.addEventListener("action-click", function (e) {
+      const { actionId } = e.detail;
+      executeQuery(actionId);
+    });
 
-        // Set default query to "Get all notes"
-        executeQuery("notes");
-      });
+    // Set default query to "Get all notes"
+    executeQuery("notes");
+  });
 
-      function executeQuery(type) {
-        // Reset all event highlighting
-        document.querySelectorAll("event-bubble").forEach((bubble) => {
-          bubble.style.opacity = "1";
-          bubble.style.transform = "scale(1)";
-        });
+  function executeQuery(type) {
+    // Reset all event highlighting
+    document.querySelectorAll("event-bubble").forEach((bubble) => {
+      bubble.style.opacity = "1";
+      bubble.style.transform = "scale(1)";
+    });
 
-        activeQuery = type;
+    activeQuery = type;
 
-        // Show results and highlight relevant events
-        showQueryResults(type);
-        highlightMatchingEvents(type);
-      }
+    // Show results and highlight relevant events
+    showQueryResults(type);
+    highlightMatchingEvents(type);
+  }
 
-      function showQueryResults(type) {
-        const queryOutput = document.getElementById("query-output");
-        let output = "";
+  function showQueryResults(type) {
+    const queryOutput = document.getElementById("query-output");
+    let output = "";
 
-        if (type === "notes") {
-          output = `<div class="terminal-line">
-              <span class="comment"># Filter events to show only notes entries with their content</span>
-            </div>
-            <div class="terminal-line">
-              <span class="prompt">$</span>
-              <span class="command">.cat | where topic == "notes" | insert content { .cas $in.hash }</span>
-            </div>
-            <pre class="terminal-output" data-variant="table">┌───┬───────┬─────────────────────────────────────────┐
+    if (type === "notes") {
+      output = `<div class="terminal-line">
+          <span class="comment"># Filter events to show only notes entries with their content</span>
+        </div>
+        <div class="terminal-line">
+          <span class="prompt">$</span>
+          <span class="command">.cat | where topic == "notes" | insert content { .cas $in.hash }</span>
+        </div>
+        <pre class="terminal-output" data-variant="table">┌───┬───────┬─────────────────────────────────────────┐
 │ # │ topic │                content                  │
 ├───┼───────┼─────────────────────────────────────────┤
 │ 0 │ notes │ quick note about meeting                │
 │ 1 │ notes │ submit TPS report                       │
 │ 2 │ notes │ review project docs                     │
 └───┴───────┴─────────────────────────────────────────┘</pre>`;
-        } else if (type === "goal") {
-          output = `<div class="terminal-line">
-              <span class="comment"># Get the most recent goal and display its content</span>
-            </div>
-            <div class="terminal-line">
-              <span class="prompt">$</span>
-              <span class="command">.head goal | .cas</span>
-            </div>
-            <pre class="terminal-output">learn cross.stream</pre>`;
-        }
+    } else if (type === "goal") {
+      output = `<div class="terminal-line">
+          <span class="comment"># Get the most recent goal and display its content</span>
+        </div>
+        <div class="terminal-line">
+          <span class="prompt">$</span>
+          <span class="command">.head goal | .cas</span>
+        </div>
+        <pre class="terminal-output">learn cross.stream</pre>`;
+    }
 
-        queryOutput.innerHTML = output;
+    queryOutput.innerHTML = output;
+  }
+
+  function highlightMatchingEvents(type) {
+    document.querySelectorAll("event-bubble").forEach((bubble) => {
+      bubble.style.opacity = "0.3";
+      // bubble.style.transform = "scale(0.95)";
+    });
+
+    if (type === "notes") {
+      // Highlight all notes events
+      document.querySelectorAll("event-bubble[type='notes']")
+        .forEach(
+          (bubble) => {
+            bubble.style.opacity = "1";
+            bubble.style.transform = "scale(1)";
+          },
+        );
+    } else if (type === "goal") {
+      // Highlight only the latest goal event
+      const goalBubbles = document.querySelectorAll(
+        "event-bubble[type='goal']",
+      );
+      if (goalBubbles.length > 0) {
+        const latestGoal = goalBubbles[goalBubbles.length - 1];
+        latestGoal.style.opacity = "1";
+        latestGoal.style.transform = "scale(1)";
       }
+    }
 
-      function highlightMatchingEvents(type) {
-        document.querySelectorAll("event-bubble").forEach((bubble) => {
-          bubble.style.opacity = "0.3";
-          // bubble.style.transform = "scale(0.95)";
-        });
-
-        if (type === "notes") {
-          // Highlight all notes events
-          document.querySelectorAll("event-bubble[type='notes']")
-            .forEach(
-              (bubble) => {
-                bubble.style.opacity = "1";
-                bubble.style.transform = "scale(1)";
-              },
-            );
-        } else if (type === "goal") {
-          // Highlight only the latest goal event
-          const goalBubbles = document.querySelectorAll(
-            "event-bubble[type='goal']",
-          );
-          if (goalBubbles.length > 0) {
-            const latestGoal = goalBubbles[goalBubbles.length - 1];
-            latestGoal.style.opacity = "1";
-            latestGoal.style.transform = "scale(1)";
-          }
-        }
-
-        // Keep highlighting while query is active
-      }
-    </script>
-  </body>
-</html>
+    // Keep highlighting while query is active
+  }
+</script>
+{% endblock %}
