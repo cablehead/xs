@@ -36,7 +36,7 @@ cross.stream uses special topic suffixes to coordinate between components and tr
 <tbody>
 <tr class="suffix-user"><td><code>.register</code></td><td>Register a handler</td><td>User</td></tr>
 <tr class="suffix-user"><td><code>.unregister</code></td><td>Unregister a handler</td><td>User</td></tr>
-<tr class="suffix-lifecycle"><td><code>.registered</code></td><td>Handler is now active</td><td>System</td></tr>
+<tr class="suffix-lifecycle"><td><code>.active</code></td><td>Handler is now active</td><td>System</td></tr>
 <tr class="suffix-lifecycle"><td><code>.unregistered</code></td><td>Handler has been removed</td><td>System</td></tr>
 <tr class="suffix-output"><td><code>.out</code></td><td>Output from handler</td><td>System</td></tr>
 </tbody>
@@ -54,6 +54,22 @@ cross.stream uses special topic suffixes to coordinate between components and tr
 <tr class="suffix-lifecycle"><td><code>.ready</code></td><td>Command ready for calls</td><td>System</td></tr>
 <tr class="suffix-lifecycle"><td><code>.error</code></td><td>Command execution failed</td><td>System</td></tr>
 <tr class="suffix-output"><td><code>.response</code></td><td>Command execution result</td><td>System</td></tr>
+</tbody>
+</table>
+
+## System Topics
+
+System topics manage cross.stream's internal operations and lifecycle:
+
+<table>
+<thead>
+<tr><th>Topic</th><th>Description</th><th>Context</th></tr>
+</thead>
+<tbody>
+<tr class="suffix-lifecycle"><td><code>xs.start</code></td><td>System initialization complete</td><td>Default</td></tr>
+<tr class="suffix-lifecycle"><td><code>xs.context</code></td><td>New context created</td><td>Default</td></tr>
+<tr class="suffix-lifecycle"><td><code>xs.threshold</code></td><td>Stream processing threshold marker</td><td>Per-context</td></tr>
+<tr class="suffix-lifecycle"><td><code>xs.pulse</code></td><td>Synthetic pulse events (configurable interval)</td><td>Per-context</td></tr>
 </tbody>
 </table>
 
