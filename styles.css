@@ -244,9 +244,8 @@ h1 {
 
 /* FAQ Section */
 #what-is-event-streaming-store {
-  max-width: 800px;
-  margin: 0 calc(-0.5em) 3em calc(-0.5em);
-  padding: 2em 0.5em;
+  margin: 0 calc(-0.5em) 1.5em calc(-0.5em);
+  padding: 1em 0.5em;
 }
 
 #what-is-event-streaming-store h2 {
