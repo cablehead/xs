@@ -1,92 +1,71 @@
 ---
 title: Topic Suffixes
-description: "Complete reference for all special topic suffixes used in cross.stream, categorized by source and purpose"
+description: "Complete reference for all special topic suffixes used in cross.stream, organized by component type"
 sidebar:
   order: 6
 ---
 
 import { Link } from '../../../utils/links';
 
-cross.stream uses special topic suffixes to coordinate between components and track their lifecycle. This reference documents all suffixes, categorized by who emits them and when.
+cross.stream uses special topic suffixes to coordinate between components and track their lifecycle. This reference documents all suffixes, organized by component type.
 
-## 🔵 User Emitted (Control/Input)
+## Generators
 
-These suffixes are used by users to control components or provide input. You append frames with these suffixes to interact with cross.stream components.
+<table>
+<thead>
+<tr><th>Suffix</th><th>Description</th><th>Emitted By</th></tr>
+</thead>
+<tbody>
+<tr class="suffix-user"><td><code>.spawn</code></td><td>Create or update a generator</td><td>User</td></tr>
+<tr class="suffix-user"><td><code>.terminate</code></td><td>Stop a generator</td><td>User</td></tr>
+<tr class="suffix-user"><td><code>.send</code></td><td>Input to duplex generators</td><td>User</td></tr>
+<tr class="suffix-lifecycle"><td><code>.running</code></td><td>Generator has started</td><td>System</td></tr>
+<tr class="suffix-lifecycle"><td><code>.stopped</code></td><td>Generator pipeline stopped</td><td>System</td></tr>
+<tr class="suffix-lifecycle"><td><code>.shutdown</code></td><td>Generator loop fully exited</td><td>System</td></tr>
+<tr class="suffix-lifecycle"><td><code>.parse.error</code></td><td>Script parsing failed</td><td>System</td></tr>
+<tr class="suffix-output"><td><code>.recv</code></td><td>Output from generator</td><td>System</td></tr>
+</tbody>
+</table>
 
-### Generators
+## Handlers
 
-| Suffix | Description | Usage |
-|--------|-------------|--------|
-| `.spawn` | Create or update a generator | Append a script configuration to start a new generator or hot-reload an existing one |
-| `.terminate` | Stop a generator | Append to gracefully stop a running generator |
-| `.send` | Input to duplex generators | Send data to a generator's input pipeline (when `duplex: true`) |
+<table>
+<thead>
+<tr><th>Suffix</th><th>Description</th><th>Emitted By</th></tr>
+</thead>
+<tbody>
+<tr class="suffix-user"><td><code>.register</code></td><td>Register a handler</td><td>User</td></tr>
+<tr class="suffix-user"><td><code>.unregister</code></td><td>Unregister a handler</td><td>User</td></tr>
+<tr class="suffix-lifecycle"><td><code>.registered</code></td><td>Handler is now active</td><td>System</td></tr>
+<tr class="suffix-lifecycle"><td><code>.unregistered</code></td><td>Handler has been removed</td><td>System</td></tr>
+<tr class="suffix-output"><td><code>.out</code></td><td>Output from handler</td><td>System</td></tr>
+</tbody>
+</table>
 
-### Handlers
+## Commands
 
-| Suffix | Description | Usage |
-|--------|-------------|--------|
-| `.register` | Register a handler | Append a handler configuration to start processing events |
-| `.unregister` | Unregister a handler | Stop and remove an active handler |
-
-### Commands
-
-| Suffix | Description | Usage |
-|--------|-------------|--------|
-| `.define` | Define a command | Append a command configuration to create a reusable operation |
-| `.call` | Invoke a command | Execute a defined command with optional input and arguments |
-
-## 🟡 System Emitted - Setup/Shutdown (Lifecycle)
-
-These suffixes are emitted by cross.stream during component lifecycle events - when components start up, shut down, or encounter errors.
-
-### Generators
-
-| Suffix | Description | When Emitted |
-|--------|-------------|--------------|
-| `.running` | Generator has started | After successful spawn or restart |
-| `.stopped` | Generator pipeline stopped | When pipeline exits (includes reason: `finished`, `error`, `terminate`, `update`) |
-| `.shutdown` | Generator loop fully exited | When generator terminates and ServeLoop evicts it |
-| `.parse.error` | Script parsing failed | When spawn script has syntax or configuration errors |
-
-### Handlers
-
-| Suffix | Description | When Emitted |
-|--------|-------------|--------------|
-| `.registered` | Handler is now active | After successful registration and startup |
-| `.unregistered` | Handler has been removed | When handler stops (includes error details if applicable) |
-
-### Commands
-
-| Suffix | Description | When Emitted |
-|--------|-------------|--------------|
-| `.ready` | Command ready for calls | After successful definition |
-| `.error` | Command execution failed | When a command call encounters an error |
-
-## 🟢 System Emitted - Normal Operation (Output)
-
-These suffixes are emitted by cross.stream during normal operation to deliver output from components.
-
-### Generators
-
-| Suffix | Description | Customizable |
-|--------|-------------|--------------|
-| `.recv` | Output from generator | ✅ Via `return_options.suffix` |
-
-### Handlers
-
-| Suffix | Description | Customizable |
-|--------|-------------|--------------|
-| `.out` | Output from handler | ✅ Via `return_options.suffix` |
-
-### Commands
-
-| Suffix | Description | Customizable |
-|--------|-------------|--------------|
-| `.response` | Command execution result | ✅ Via `return_options.suffix` |
+<table>
+<thead>
+<tr><th>Suffix</th><th>Description</th><th>Emitted By</th></tr>
+</thead>
+<tbody>
+<tr class="suffix-user"><td><code>.define</code></td><td>Define a command</td><td>User</td></tr>
+<tr class="suffix-user"><td><code>.call</code></td><td>Invoke a command</td><td>User</td></tr>
+<tr class="suffix-lifecycle"><td><code>.ready</code></td><td>Command ready for calls</td><td>System</td></tr>
+<tr class="suffix-lifecycle"><td><code>.error</code></td><td>Command execution failed</td><td>System</td></tr>
+<tr class="suffix-output"><td><code>.response</code></td><td>Command execution result</td><td>System</td></tr>
+</tbody>
+</table>
 
 ## Customizable Suffixes
 
-Output suffixes (🟢 Normal Operation) can be customized using `return_options`:
+The following output suffixes can be customized using `return_options`:
+
+- **`.recv`** (Generators) - Can be changed via `return_options.suffix`
+- **`.out`** (Handlers) - Can be changed via `return_options.suffix`  
+- **`.response`** (Commands) - Can be changed via `return_options.suffix`
+
+Example customization:
 
 ```nushell
 {
@@ -97,18 +76,6 @@ Output suffixes (🟢 Normal Operation) can be customized using `return_options`
 }
 ```
 
-The `return_options` configuration applies to:
-- **Generators**: Controls the suffix for output frames (default: `.recv`)
-- **Handlers**: Controls the suffix for return values (default: `.out`) 
-- **Commands**: Controls the suffix for results (default: `.response`)
-
-## Component Documentation
-
-For detailed information about each component type:
-
-- <Link to="/reference/generators/">Generators</Link> - Continuous background processes
-- <Link to="/reference/handlers/">Handlers</Link> - Event-driven processors  
-- <Link to="/reference/commands/">Commands</Link> - On-demand operations
 
 ## Metadata
 
