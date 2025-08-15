@@ -142,15 +142,20 @@ additional_css %}
     <h2>What's an event streaming store?</h2>
     <p>
       If you think of an "event" like a frame in a movie—a small package on a
-      timeline—an event streaming store is a database designed to record these
-      frames in strict order, append-only, so they can be replayed or reacted to
-      later.
+      timeline—an event streaming store is a <a
+        href="https://cablehead.github.io/xs/reference/architecture/"
+      >database</a> designed to record these frames in strict order,
+      append-only, so they can be replayed or reacted to later.
     </p>
     <p>
-      For example, you might append a frame every time a message is posted in a
-      specific Discord channel. You can then .cat the stream to review all
-      captured messages, and—if you're in a Nushell session—use pipelines to
-      filter, aggregate, or process them with a CLI tool.
+      For <a
+        href="https://github.com/cablehead/xs/tree/main/examples/discord-bot"
+      >example</a>, you might append a frame every time a message is posted in a
+      specific Discord channel. You can then <a
+        href="https://cablehead.github.io/xs/getting-started/first-stream/#cat-and-cas-commands"
+      ><code>.cat</code></a> the stream to review all captured messages, and—if
+      you're in a <a href="https://www.nushell.sh/">Nushell</a> session—use
+      pipelines to filter, aggregate, or process them with a CLI tool.
     </p>
   </section>
 

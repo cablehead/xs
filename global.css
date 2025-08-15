@@ -78,6 +78,18 @@ p, h1, h2, h3, h4, h5, h6 {
   font-weight: normal;
 }
 
+/* Global anchor styling */
+a {
+  color: var(--accent-blue-light);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--accent-blue-lighter);
+  text-decoration: none;
+}
+
 /* Terminal Comment Styling */
 .comment {
   color: var(--text-muted);

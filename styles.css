@@ -74,17 +74,6 @@ h1 {
   font-style: italic;
 }
 
-.tagline a {
-  color: var(--accent-blue-light);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.tagline a:hover {
-  color: var(--accent-blue-lighter);
-  text-decoration: none;
-}
-
 .cta-buttons {
   display: flex;
   row-gap: 2em;
