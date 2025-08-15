@@ -26,6 +26,13 @@ async fn handle_define(
     match register_command(frame, base_engine, store).await {
         Ok(command) => {
             commands.insert((name.to_string(), frame.context_id), command);
+            let _ = store.append(
+                Frame::builder(format!("{name}.ready"), frame.context_id)
+                    .meta(serde_json::json!({
+                        "command_id": frame.id.to_string(),
+                    }))
+                    .build(),
+            );
         }
         Err(err) => {
             let _ = store.append(

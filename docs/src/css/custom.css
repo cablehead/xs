@@ -104,3 +104,46 @@ a, button {
   font-size: 1rem;
 }
 
+/* Topic Suffixes table row highlighting */
+.suffix-user {
+  background-color: rgba(59, 130, 246, 0.08); /* Light blue for user-emitted */
+}
+
+.suffix-lifecycle {
+  background-color: rgba(234, 179, 8, 0.08); /* Light yellow for system lifecycle */
+}
+
+.suffix-output {
+  background-color: rgba(34, 197, 94, 0.08); /* Light green for system output */
+}
+
+[data-theme="dark"] .suffix-user {
+  background-color: rgba(59, 130, 246, 0.15); /* Slightly stronger blue for dark mode */
+}
+
+[data-theme="dark"] .suffix-lifecycle {
+  background-color: rgba(234, 179, 8, 0.15); /* Slightly stronger yellow for dark mode */
+}
+
+[data-theme="dark"] .suffix-output {
+  background-color: rgba(34, 197, 94, 0.15); /* Slightly stronger green for dark mode */
+}
+
+/* Make topic suffixes tables use full width */
+.sl-markdown-content table,
+.content table,
+.main-frame table,
+article table {
+  width: 100% !important;
+  table-layout: auto !important;
+  display: table !important;
+  margin: 0 !important;
+}
+
+/* Force all tables to be full width */
+table {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 100% !important;
+}
+

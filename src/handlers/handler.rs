@@ -265,7 +265,7 @@ impl Handler {
 
         let _ = store.append(
             Frame::builder(
-                format!("{topic}.registered", topic = &self.topic),
+                format!("{topic}.active", topic = &self.topic),
                 self.context_id,
             )
             .meta(serde_json::json!({

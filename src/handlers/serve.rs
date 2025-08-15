@@ -71,7 +71,7 @@ pub async fn serve(
                         },
                     );
                 }
-                "unregister" | "unregistered" => {
+                "unregister" | "inactive" => {
                     // Only remove if handler_id matches
                     if let Some(meta) = &frame.meta {
                         if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {
