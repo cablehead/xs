@@ -70,7 +70,7 @@ $env.state = {
 $env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
 
 {
-  resume_from: (.head discord.ws.start | if ($in | is-not-empty) { get id })
+  resume_from: (.head discord.ws.running | if ($in | is-not-empty) { get id })
   pulse: 1000
 
   run: {|frame|

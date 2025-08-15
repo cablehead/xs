@@ -219,7 +219,7 @@ async fn test_no_self_loop() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.active");
 
     // note we don't see an echo of the echo.active frame
 
@@ -291,7 +291,7 @@ async fn test_essentials() {
 
     // Assert active frame has the correct meta
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.registered");
+    assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler.id.to_string());
     assert_eq!(meta["tail"], false);
@@ -322,7 +322,7 @@ async fn test_essentials() {
 
     // Assert active frame has the correct meta
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "action.registered");
+    assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
     assert_eq!(meta["tail"], false);
@@ -388,7 +388,7 @@ async fn test_unregister_on_error() {
         )
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "error.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "error.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "error.active");
 
     // Expect an inactive frame to be appended
     validate_frame!(recver.recv().await.unwrap(), {
@@ -434,7 +434,7 @@ async fn test_return_options() {
 
     let frame_handler = store.append(handler_proto).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "echo.active");
 
     // Send first ping
     let frame1 = store
@@ -507,7 +507,7 @@ async fn test_custom_append() {
     // Start handler
     let frame_handler = store.append(handler_proto.clone()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "action.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "action.active");
 
     let trigger_frame = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
@@ -554,7 +554,7 @@ async fn test_handler_replacement() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "h.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.active");
 
     // Register second handler for same topic
     let handler2 = store
@@ -577,7 +577,7 @@ async fn test_handler_replacement() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
     assert_eq!(recver.recv().await.unwrap().topic, "h.unregistered");
-    assert_eq!(recver.recv().await.unwrap().topic, "h.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "h.active");
 
     // Send trigger - should be handled by handler2
     let trigger = store
@@ -653,7 +653,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
 
     // Wait for handler registration
     assert_eq!(recver.recv().await.unwrap().topic, "test.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.active");
 
     // Send trigger frame
     let trigger = store
@@ -725,7 +725,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
 
     // Wait for handler registration
     assert_eq!(recver.recv().await.unwrap().topic, "test.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "test.registered");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.active");
 
     // Send trigger frame
     let trigger = store
@@ -857,11 +857,11 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     assert_eq!(frame.context_id, ctx_id1);
 
     let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.registered");
+    assert_eq!(frame.topic, "echo.active");
     assert_eq!(frame.context_id, ctx_id1);
 
     let frame = rx.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.registered");
+    assert_eq!(frame.topic, "echo.active");
     assert_eq!(frame.context_id, ctx_id2);
 
     // Trigger in the context 1's handler

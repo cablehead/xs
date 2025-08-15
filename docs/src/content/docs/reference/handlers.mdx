@@ -170,9 +170,9 @@ For a complete overview of all topic suffixes, see <Link to="/reference/topic-su
 ```mermaid
 stateDiagram-v2
     [*] --> Activating: .register event
-    Activating --> Inactive: nushell parse error
+    Activating --> Unregistered: nushell parse error
     Activating --> Active : parse OK
-    Inactive --> [*]
+    Unregistered --> [*]
 
     state Active {
         direction LR
@@ -187,7 +187,7 @@ stateDiagram-v2
         process_event --> events.recv(): OK
     }
 
-    Active --> Inactive
+    Active --> Unregistered
 ```
 
 ### Unregistering
@@ -199,7 +199,7 @@ A handler can be unregistered by:
 - Runtime errors in the handler closure
 
 When unregistered, the handler appends a confirmation frame
-`<handler-name>.inactive`. If unregistered due to an error, the frame
+`<handler-name>.unregistered`. If unregistered due to an error, the frame
 includes an `error` field in its metadata.
 
 ### Error Handling
@@ -207,6 +207,6 @@ includes an `error` field in its metadata.
 If a handler encounters an error during execution:
 
 1. The handler is automatically unregistered
-2. A frame is appended to `<handler-name>.inactive` with:
+2. A frame is appended to `<handler-name>.unregistered` with:
    - The error message in metadata
    - Reference to the triggering frame
