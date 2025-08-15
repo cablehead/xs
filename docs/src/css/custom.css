@@ -130,12 +130,20 @@ a, button {
 }
 
 /* Make topic suffixes tables use full width */
-.suffix-user table,
-.suffix-lifecycle table,
-.suffix-output table,
-table:has(.suffix-user),
-table:has(.suffix-lifecycle),
-table:has(.suffix-output) {
-  width: 100%;
+.sl-markdown-content table,
+.content table,
+.main-frame table,
+article table {
+  width: 100% !important;
+  table-layout: auto !important;
+  display: table !important;
+  margin: 0 !important;
+}
+
+/* Force all tables to be full width */
+table {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 100% !important;
 }
 
