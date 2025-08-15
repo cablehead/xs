@@ -6,7 +6,8 @@ additional_css %}
 <main style="margin-top: 20vh">
   <h1><cross-stream-title></cross-stream-title></h1>
   <p class="tagline">
-    Local-first event streaming for hackers & tinkerers
+    a local-first <a href="#what-is-event-streaming-store"
+    >event streaming store</a> for hackers & tinkerers
   </p>
 
   <div class="cta-buttons">
@@ -136,10 +137,22 @@ additional_css %}
     </div>
   </div>
 
-  <p class="tagline">
-    Think SQLite, but for event sourcing. Append events, react in real-time, and
-    wire up anything—from Arduino sensors to MCP servers—without cloud lock-in.
-  </p>
+  <!-- What's an event streaming store section -->
+  <section id="what-is-event-streaming-store">
+    <h2>What's an event streaming store?</h2>
+    <p>
+      If you think of an "event" like a frame in a movie—a small package on a
+      timeline—an event streaming store is a database designed to record these
+      frames in strict order, append-only, so they can be replayed or reacted to
+      later.
+    </p>
+    <p>
+      For example, you might append a frame every time a message is posted in a
+      specific Discord channel. You can then .cat the stream to review all
+      captured messages, and—if you're in a Nushell session—use pipelines to
+      filter, aggregate, or process them with a CLI tool.
+    </p>
+  </section>
 
   <!-- Core Ideas Section -->
   <div class="features-grid">

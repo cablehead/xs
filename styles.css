@@ -74,6 +74,17 @@ h1 {
   font-style: italic;
 }
 
+.tagline a {
+  color: var(--accent-blue-light);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tagline a:hover {
+  color: var(--accent-blue-lighter);
+  text-decoration: none;
+}
+
 .cta-buttons {
   display: flex;
   row-gap: 2em;
@@ -229,6 +240,34 @@ h1 {
 .code-block {
   max-width: 600px;
   margin: 3em auto 0 auto;
+}
+
+/* FAQ Section */
+#what-is-event-streaming-store {
+  max-width: 800px;
+  margin: 0 calc(-0.5em) 3em calc(-0.5em);
+  padding: 2em 0.5em;
+}
+
+#what-is-event-streaming-store h2 {
+  font-size: 1.5em;
+  color: var(--accent-blue);
+  margin-bottom: 1em;
+  text-align: left;
+  border-bottom: 2px solid var(--border-default);
+  padding-bottom: 0.5em;
+}
+
+#what-is-event-streaming-store p {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 1em;
+  text-align: left;
+  font-style: normal;
+}
+
+#what-is-event-streaming-store p:last-child {
+  margin-bottom: 0;
 }
 
 /* Footer */
