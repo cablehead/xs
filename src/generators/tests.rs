@@ -897,3 +897,63 @@ fn test_emit_event_helper() {
     .unwrap();
     assert_eq!(store.head("helper.shutdown", ZERO_CONTEXT).is_some(), true);
 }
+
+#[tokio::test]
+async fn test_external_command_error_message() {
+    let (store, engine, ctx) = setup_test_env();
+
+    {
+        let store = store.clone();
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            serve(store, engine).await.unwrap();
+        });
+    }
+
+    // Script that calls a non-existent external command
+    let script = r#"{ run: {|| ^nonexistent-command-that-will-fail } }"#;
+    let spawn_frame = store
+        .append(
+            Frame::builder("error-test.spawn", ctx.id)
+                .hash(store.cas_insert(script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .context_id(ctx.id)
+        .follow(FollowOption::On)
+        .tail(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    // Find the stopped frame (skip spawn/running events)
+    let mut stop_frame;
+    loop {
+        stop_frame = recver.recv().await.unwrap();
+        if stop_frame.topic == "error-test.stopped" {
+            break;
+        }
+    }
+
+    let meta = stop_frame.meta.unwrap();
+    assert_eq!(meta["reason"], "error");
+    assert_eq!(meta["source_id"], spawn_frame.id.to_string());
+
+    // The key assertion: verify that the full detailed error message is captured
+    assert!(
+        meta.get("message").is_some(),
+        "Error message should be captured in metadata"
+    );
+    let error_msg = meta["message"].as_str().unwrap();
+
+    // Verify we get the full Nu CLI error formatting with details
+    assert!(error_msg.contains("Error: nu::shell::external_command"), "Should contain error type");
+    assert!(error_msg.contains("External command failed"), "Should contain main error message");
+    assert!(error_msg.contains("nonexistent-command-that-will-fail"), "Should mention the specific command");
+    assert!(error_msg.contains("Command `nonexistent-command-that-will-fail` not found"), "Should contain detailed reason");
+    assert!(error_msg.contains("help:"), "Should include help text");
+
+    // Expect shutdown event
+    assert_eq!(recver.recv().await.unwrap().topic, "error-test.shutdown");
+}

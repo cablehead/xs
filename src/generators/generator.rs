@@ -106,6 +106,9 @@ pub(crate) fn emit_event(
             if let StopReason::Update { update_id } = reason {
                 meta["update_id"] = json!(update_id.to_string());
             }
+            if let StopReason::Error { message } = reason {
+                meta["message"] = json!(message);
+            }
             store.append(
                 Frame::builder(
                     format!("{topic}.stopped", topic = loop_ctx.topic),
@@ -550,7 +553,10 @@ fn spawn_thread(
                 }
                 Ok(())
             }
-            Err(e) => Err(e.to_string()),
+            Err(e) => {
+                let working_set = nu_protocol::engine::StateWorkingSet::new(&task.engine.state);
+                Err(nu_protocol::format_cli_error(&working_set, &*e, None))
+            }
         };
 
         let _ = done_tx.send(res);
