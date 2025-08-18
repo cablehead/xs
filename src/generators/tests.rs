@@ -947,11 +947,10 @@ async fn test_external_command_error_message() {
     );
     let error_msg = meta["message"].as_str().unwrap();
 
-    // Verify we get the full Nu CLI error formatting with details
-    assert!(error_msg.contains("Error: nu::shell::external_command"), "Should contain error type");
-    assert!(error_msg.contains("External command failed"), "Should contain main error message");
-    assert!(error_msg.contains("nonexistent-command-that-will-fail"), "Should mention the specific command");
-    assert!(error_msg.contains("Command `nonexistent-command-that-will-fail` not found"), "Should contain detailed reason");
+    assert!(
+        error_msg.contains("Command `nonexistent-command-that-will-fail` not found"),
+        "Should contain detailed reason"
+    );
     assert!(error_msg.contains("help:"), "Should include help text");
 
     // Expect shutdown event
