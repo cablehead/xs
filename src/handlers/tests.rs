@@ -478,6 +478,72 @@ async fn test_return_options() {
 }
 
 #[tokio::test]
+async fn test_binary_return_value() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Register handler that returns binary msgpack data
+    let handler_proto = Frame::builder("binary.register", ZERO_CONTEXT)
+        .hash(
+            store
+                .cas_insert(
+                    r#"{
+                      run: {|frame|
+                        if $frame.topic != "trigger" { return }
+                        'test' | to msgpackz
+                      }
+                    }"#,
+                )
+                .await
+                .unwrap(),
+        )
+        .build();
+
+    let frame_handler = store.append(handler_proto).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "binary.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "binary.active");
+
+    // Send trigger frame
+    let trigger_frame = store
+        .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    // Check that the binary output frame was created
+    let output_frame = recver.recv().await.unwrap();
+    assert_eq!(output_frame.topic, "binary.out");
+
+    // Verify metadata
+    let meta = output_frame.meta.unwrap();
+    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+    assert_eq!(meta["frame_id"], trigger_frame.id.to_string());
+
+    // Verify the binary content is stored correctly (not "null")
+    let stored_content = store.cas_read(&output_frame.hash.unwrap()).await.unwrap();
+
+    // The content should be actual msgpack binary data, not the string "null"
+    assert_ne!(stored_content, b"null");
+    assert_ne!(stored_content, b"\"null\"");
+
+    // Verify it's actually msgpack binary data by checking it's not empty and not JSON
+    assert!(!stored_content.is_empty());
+
+    // Verify it contains the word "test" in the binary data
+    let content_str = String::from_utf8_lossy(&stored_content);
+    assert!(content_str.contains("test"));
+
+    // Verify it's not the JSON null representation
+    assert_ne!(content_str, "null");
+    assert_ne!(content_str, "\"null\"");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
 async fn test_custom_append() {
     let (store, _temp_dir) = setup_test_environment().await;
 

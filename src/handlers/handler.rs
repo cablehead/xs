@@ -144,7 +144,16 @@ impl Handler {
                 .and_then(|ro| ro.suffix.as_deref())
                 .unwrap_or(".out");
 
-            let hash = store.cas_insert(&value_to_json(&value).to_string()).await?;
+            let hash = match &value {
+                Value::Binary { val, .. } => {
+                    // Store binary data directly
+                    store.cas_insert(val).await?
+                }
+                _ => {
+                    // Store as JSON string (existing path)
+                    store.cas_insert(&value_to_json(&value).to_string()).await?
+                }
+            };
             Some(
                 Frame::builder(
                     format!("{topic}{suffix}", topic = self.topic, suffix = suffix),
