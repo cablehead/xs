@@ -1,0 +1,212 @@
+---
+title: xs.nu
+description: Nushell convenience functions that wrap the xs CLI with pipeline-friendly interfaces
+sidebar:
+  order: 1.5
+---
+
+import { Link } from '../../../utils/links';
+
+The `xs.nu` module provides Nushell-friendly wrappers around the core `xs` CLI commands, enabling seamless pipeline integration and environment-aware operations.
+
+## Installation
+
+Install the module into your Nushell configuration:
+
+```sh
+xs nu --install
+```
+
+Or use it directly in a session:
+
+```nushell
+use xs.nu *
+```
+
+## Stream Operations
+
+### `.append`
+
+Append content to a topic. Wraps <Link to="/reference/cli#append">`xs append`</Link>.
+
+```nushell
+.append <topic> [--meta <record>] [--ttl <ttl>] [--context <id>]
+```
+
+```nushell
+"My first note" | .append note
+"Important note" | .append note --meta {priority: "high"}
+```
+
+### `.cat`
+
+Stream frames from the store. Wraps <Link to="/reference/cli#cat">`xs cat`</Link>.
+
+```nushell
+.cat [--follow] [--tail] [--topic <topic>] [--context <id>] [--all]
+```
+
+```nushell
+.cat --topic note
+.cat -f --topic note  # Follow new notes
+```
+
+### `.head`
+
+Get the most recent frame for a topic. Wraps <Link to="/reference/cli#head">`xs head`</Link>.
+
+```nushell
+.head <topic> [--follow] [--context <id>]
+```
+
+```nushell
+.head note
+let latest_note = .head note
+```
+
+### `.remove`
+
+Remove a frame by ID. Wraps <Link to="/reference/cli#remove">`xs remove`</Link>.
+
+```nushell
+.remove <id>
+```
+
+```nushell
+let note_id = (.head note).id
+.remove $note_id
+```
+
+### `.get`
+
+Retrieve a frame by ID. Wraps <Link to="/reference/cli#get">`xs get`</Link>.
+
+```nushell
+.get <id>
+```
+
+```nushell
+let note_id = (.head note).id
+.get $note_id
+```
+
+## Content Storage
+
+### `.cas`
+
+Retrieve content from Content-Addressable Storage by hash. Wraps <Link to="/reference/cli#cas">`xs cas`</Link>.
+
+```nushell
+.cas <hash>
+```
+
+```nushell
+let note = .head note
+.cas $note.hash  # Get the note content
+```
+
+## Context Management
+
+### `.ctx`
+
+Get the current context ID.
+
+```nushell
+.ctx
+```
+
+### `.ctx-select`
+
+Interactively select a context from available contexts.
+
+```nushell
+.ctx-select
+```
+
+### `.ctx-list`
+
+List all available contexts.
+
+```nushell
+.ctx-list
+```
+
+## Utilities
+
+### `.cas-post`
+
+Store content in Content-Addressable Storage. Wraps <Link to="/reference/cli#cas-post">`xs cas-post`</Link>.
+
+```nushell
+.cas-post
+```
+
+```nushell
+"note content" | .cas-post  # Returns content hash
+```
+
+### `.import`
+
+Import frames from a backup directory. Wraps <Link to="/reference/cli#import">`xs import`</Link>.
+
+```nushell
+.import <path>
+```
+
+```nushell
+.import ./notes-backup
+```
+
+### `.export`
+
+Export frames to a backup directory.
+
+```nushell
+.export <path>
+```
+
+```nushell
+.export ./notes-backup
+```
+
+### `.tmp-spawn`
+
+Spawn a temporary xs serve instance, run a closure, then cleanup. Useful for testing and isolated operations.
+
+```nushell
+.tmp-spawn <closure>
+```
+
+The function:
+- Creates a temporary directory with an xs store
+- Starts `xs serve` in the background
+- Sets `$env.XS_ADDR` and `$env.XS_CONTEXT` 
+- Runs your closure in this isolated environment
+- Automatically cleans up the background process and temporary directory
+
+```nushell
+.tmp-spawn {
+  "test note" | .append note
+  assert (.head note).hash != null
+  print "Test passed!"
+}
+```
+
+This is particularly useful for integration tests where you need a clean, isolated cross.stream environment.
+
+## Key Advantages
+
+The `xs.nu` functions provide several advantages over direct CLI usage:
+
+- **Pipeline Integration**: All functions work naturally in Nushell pipelines
+- **Environment Awareness**: Automatic detection of `$env.XS_ADDR` and `$env.XS_CONTEXT`
+- **Type Safety**: Return structured Nushell records instead of raw JSON strings
+- **Error Handling**: Proper Nushell error propagation
+- **Convenience**: Simplified parameter handling and defaults
+
+## Environment Variables
+
+Many functions automatically use these environment variables when available:
+
+- `$env.XS_ADDR`: Address to connect to (path or host:port)
+- `$env.XS_CONTEXT`: Context ID for operations
