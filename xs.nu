@@ -21,11 +21,11 @@ def conditional-pipe [
 }
 
 export def xs-addr [] {
-  $env | get XS_ADDR? | or-else { try { open  ~/.config/cross.stream/XS_ADDR | str trim | path expand } } | or-else { "~/.local/share/cross.stream/store" | path expand }
+  $env | get XS_ADDR? | or-else { try { open ~/.config/cross.stream/XS_ADDR | str trim | path expand } } | or-else { "~/.local/share/cross.stream/store" | path expand }
 }
 
 export def xs-context-collect [] {
-  _cat {context: $XS_CONTEXT_SYSTEM} | reduce --fold {} {|frame, acc|
+  _cat {context: $XS_CONTEXT_SYSTEM} | reduce --fold {} {|frame acc|
     match $frame.topic {
       "xs.context" => ($acc | insert $frame.id $frame.meta?.name?)
       "xs.annotate" => (
@@ -239,7 +239,10 @@ export def .import [path: string] {
 }
 
 # Spawn xs serve in a temporary directory, run a closure, then cleanup
-export def .tmp-spawn [closure: closure] {
+export def .tmp-spawn [
+  closure: closure
+  --interactive (-i) # Start an interactive nu shell after running the closure
+] {
   # Create a temporary directory
   let tmp_dir = (mktemp -d)
   print $"Created temp directory: ($tmp_dir)"
@@ -267,6 +270,11 @@ export def .tmp-spawn [closure: closure] {
       do $closure
     } catch {|err|
       error make {msg: $"Error in closure: ($err.msg)"}
+    }
+
+    # Start interactive nu shell if requested
+    if $interactive {
+      nu
     }
 
     # Kill the background job
