@@ -174,7 +174,7 @@ Export frames to a backup directory.
 Spawn a temporary xs serve instance, run a closure, then cleanup. Useful for testing and isolated operations.
 
 ```nushell
-.tmp-spawn <closure>
+.tmp-spawn <closure> [--interactive]
 ```
 
 The function:
@@ -182,6 +182,7 @@ The function:
 - Starts `xs serve` in the background
 - Sets `$env.XS_ADDR` and `$env.XS_CONTEXT` 
 - Runs your closure in this isolated environment
+- Optionally starts an interactive Nushell session (with `--interactive`)
 - Automatically cleans up the background process and temporary directory
 
 ```nushell
@@ -190,9 +191,15 @@ The function:
   assert (.head note).hash != null
   print "Test passed!"
 }
+
+# Start an interactive session after running the closure
+.tmp-spawn --interactive {
+  "setup note" | .append note
+  print "Setup complete - dropping to interactive shell"
+}
 ```
 
-This is particularly useful for integration tests where you need a clean, isolated cross.stream environment.
+This is particularly useful for integration tests where you need a clean, isolated cross.stream environment. The `--interactive` flag is especially helpful for debugging and exploration, as it allows you to interact with the temporary environment after your setup code runs.
 
 ## Key Advantages
 
