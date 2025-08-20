@@ -46,6 +46,8 @@ notes.**
 
 - Monitor GitHub release creation
 - Ensure all artifacts are uploaded (macOS, Linux AMD64, Linux ARM64 tarballs)
+- **Important**: Verify release notes are set correctly with `gh release view v$ARGUMENTS --json body`
+- If release body is just the commit message, update it: `gh release edit v$ARGUMENTS --notes-file changes/$ARGUMENTS.md`
 
 ### 5. Homebrew Formula Update
 
