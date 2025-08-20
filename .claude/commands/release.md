@@ -49,8 +49,9 @@ notes.**
 
 ### 5. Homebrew Formula Update
 
-- Download macOS tarball from GitHub release
-- Calculate SHA256 checksum
+- First check available assets: `gh release view v$ARGUMENTS`
+- Download correct macOS tarball from GitHub release (check actual asset names)
+- Calculate SHA256 checksum for the correct asset
 - Update `../homebrew-tap/Formula/cross-stream.rb` with new version, URL, and
   checksum
 - Commit homebrew formula changes
