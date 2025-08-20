@@ -9,9 +9,6 @@ export class ReleaseBadge extends LitElement {
 
   constructor() {
     super();
-    this.version = "v0.5.0";
-    this.releaseDate = "2025-08-14T01:29:00Z"; // Aug 13, 2025 at 9:29 PM EDT
-    this.releaseUrl = "https://github.com/cablehead/xs/releases/tag/v0.5.0";
   }
 
   static styles = css`
