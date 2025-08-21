@@ -84,10 +84,12 @@ listens on a Unix domain socket at <code dir="auto">./store/sock</code>.</p>
 </div></div><div class="ec-line"><div class="code"><span style="--0:#96A1C2;--1:#625F77;--1fs:italic">#</span><span style="--0:#96A1C2;--1:#64606C;--1fs:italic"> Long poll for new frames</span></div></div><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">curl</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--unix-socket</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store/sock</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">-H</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--1:#855A1E"><span style="--0:#E9F284">"</span><span style="--0:#F1FA8C">Accept: text/event-stream</span><span style="--0:#E9F284">"</span></span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#FF79C6;--1:#286983">\</span></div></div><div class="ec-line"><div class="code"><span class="indent">    </span><span style="--1:#855A1E"><span style="--0:#E9F284">"</span><span style="--0:#F1FA8C">http://localhost/?follow=true</span><span style="--0:#E9F284">"</span></span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="curl --unix-socket ./store/sock http://localhost/curl --unix-socket ./store/sock -H &#x22;Accept: text/event-stream&#x22; \    &#x22;http://localhost/?follow=true&#x22;"><div></div></button></div></figure></div>
 <p>Query Parameters:</p>
 <ul>
-<li><code dir="auto">follow</code> - Long poll for new frames</li>
+<li><code dir="auto">follow</code> - Long poll for new frames. Can be <code dir="auto">true</code> or a heartbeat interval in milliseconds</li>
 <li><code dir="auto">tail</code> - Begin reading from end of stream</li>
-<li><code dir="auto">last_id</code> - Start reading from specific frame ID</li>
+<li><code dir="auto">last-id</code> - Start reading from specific frame ID</li>
 <li><code dir="auto">limit</code> - Maximum number of frames to return</li>
+<li><code dir="auto">context-id</code> - Filter frames by context ID</li>
+<li><code dir="auto">topic</code> - Filter frames by topic</li>
 </ul>
 <p>Response: newline-delimited JSON frames or SSE stream, based on Accept header.
 Use <code dir="auto">"Accept: text/event-stream"</code> for SSE.</p>
@@ -104,6 +106,7 @@ Use <code dir="auto">"Accept: text/event-stream"</code> for SSE.</p>
 <li><code dir="auto">head:&#x3C;n></code> - Keep only N most recent frames</li>
 </ul>
 </li>
+<li><code dir="auto">context</code> - Context ID for the frame</li>
 </ul>
 <p>Headers:</p>
 <ul>
@@ -121,6 +124,11 @@ Use <code dir="auto">"Accept: text/event-stream"</code> for SSE.</p>
 <h3 id="get-headtopic"><code dir="auto">GET /head/{topic}</code></h3>
 <p>Get most recent frame for topic</p>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">curl</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--unix-socket</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store/sock</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">http://localhost/head/topic</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="curl --unix-socket ./store/sock http://localhost/head/topic"><div></div></button></div></figure></div>
+<p>Query Parameters:</p>
+<ul>
+<li><code dir="auto">follow</code> - Long poll for new frames on this topic</li>
+<li><code dir="auto">context</code> - Context ID to filter by</li>
+</ul>
 <p>Response: Most recent frame for topic or 404 if not found</p>
 <h3 id="post-cas"><code dir="auto">POST /cas</code></h3>
 <p>Store content in CAS</p>
