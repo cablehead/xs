@@ -12,6 +12,6 @@
       }
     } | to json -r | minijinja-cli "./canvas/index.html" --format json -
   } else {
-    .static "." $req.path
+    .static (pwd) $req.path
   }
 }
