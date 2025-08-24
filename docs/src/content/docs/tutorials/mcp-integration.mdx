@@ -99,12 +99,15 @@ Before we create the generator, let's open a new terminal window to monitor all 
 In a new terminal window, run:
 
 ```nushell
-.cat -f | each { print ($in | table -e) }
+.cat -f | each {
+  if $in.hash != null { insert content { .cas $in.hash } } else { } | print ($in | table -e)
+}
 ```
 
 This command:
 - `.cat -f` - Reads the entire stream from the beginning and follows for new events (`-f` for follow)
 - `| each { ... }` - For each frame in the stream, executes the closure
+- `if $in.hash != null { insert content { .cas $in.hash } } else { }` - If the frame has a hash, fetch and insert the actual content using `.cas`, otherwise use the frame as-is
 - `print ($in | table -e)` - Displays each frame in a nicely formatted table with expanded content
 
 Keep this window open - you'll see all the MCP server lifecycle events, requests, and responses flow through in real-time.
@@ -133,7 +136,7 @@ In your monitoring window, you should see a `mcp.spawn` and then a `mcp.running`
 Now we can send JSONRPC commands to the MCP server. First, let's send a tools/list request:
 
 ```nushell
-'{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}\n' | .append mcp.send
+{jsonrpc: "2.0", id: 1, method: "tools/list", params: {}} | to json -r | $in + "\n" | .append mcp.send
 ```
 
 ### Receiving Responses
@@ -150,7 +153,7 @@ You'll see the same tools list response we got earlier, but now it's flowing thr
 Let's try the echo command through the stream:
 
 ```nushell
-'{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "echo", "arguments": {"message": "Hello from cross.stream!"}}}\n' | .append mcp.send
+{jsonrpc: "2.0", id: 2, method: "tools/call", params: {name: "echo", arguments: {message: "Hello from cross.stream!"}}} | to json -r | $in + "\n" | .append mcp.send
 ```
 
 Watch your monitoring window - you'll see the echo response come back in a `mcp.recv` frame.
@@ -160,10 +163,10 @@ Watch your monitoring window - you'll see the echo response come back in a `mcp.
 Try the addition tool:
 
 ```nushell
-'{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "add", "arguments": {"a": 100, "b": 200}}}\n' | .append mcp.send
+{jsonrpc: "2.0", id: 3, method: "tools/call", params: {name: "add", arguments: {a: 100, b: 200}}} | to json -r | $in + "\n" | .append mcp.send
 ```
 
-The response (300) will appear in your monitoring window as a `mcp.recv` frame.
+The sum of 100 and 200 is 300, which will appear in your monitoring window as a `mcp.recv` frame.
 
 ## Part 3: Building Event-Driven Workflows
 
@@ -217,10 +220,10 @@ Now you can send commands to different servers:
 
 ```nushell
 # Send to filesystem server
-'{"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {}}\n' | .append fs.send
+{jsonrpc: "2.0", id: 4, method: "tools/list", params: {}} | to json -r | $in + "\n" | .append fs.send
 
 # Send to memory server
-'{"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}}\n' | .append memory.send
+{jsonrpc: "2.0", id: 5, method: "tools/list", params: {}} | to json -r | $in + "\n" | .append memory.send
 
 # Watch responses from both
 .cat --topic fs.recv --follow &
