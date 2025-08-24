@@ -27,6 +27,12 @@
   <a href="https://discord.com/invite/YNbScHBHrh">
     <img src="https://img.shields.io/discord/1182364431435436042?logo=discord" alt="Discord">
   </a>
+  <a href="https://crates.io/crates/cross-stream">
+    <img src="https://img.shields.io/crates/v/cross-stream.svg" alt="Crates">
+  </a>
+  <a href="https://docs.rs/cross-stream">
+    <img src="https://docs.rs/cross-stream/badge.svg" alt="Docs.rs">
+  </a>
 </p>
 
 ## About
