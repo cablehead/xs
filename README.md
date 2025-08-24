@@ -2,7 +2,7 @@
 <h1>
 <p align="center">
   <a href="https://cablehead.github.io/xs/">
-    <img src="https://github.com/user-attachments/assets/f0c019ad-885d-4837-b72b-ef6ff1f85c0f" alt="Logo" width="400">
+    <img src="https://github.com/user-attachments/assets/f0c019ad-885d-4837-b72b-ef6ff1f85c0f" alt="Logo">
   </a>
   <br>cross.stream
 </h1>
@@ -13,14 +13,20 @@
     ·
     <a href="https://cablehead.github.io/xs/">Documentation</a>
     ·
-    <a href="#connect">Connect</a>
+    <a href="https://discord.com/invite/YNbScHBHrh">Connect</a>
     ·
     <a href="#built-with-">Built with</a>
   </p>
 </p>
 
-[![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml)
-[![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
+<p align="center">
+  <a href="https://github.com/cablehead/xs/actions/workflows/ci.yml">
+    <img src="https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://discord.com/invite/YNbScHBHrh">
+    <img src="https://img.shields.io/discord/1182364431435436042?logo=discord" alt="Discord">
+  </a>
+</p>
 
 ## About
 
@@ -30,14 +36,25 @@ processes as generators, and build handlers that automatically respond to
 events.
 
 Unlike traditional databases that store state, cross.stream captures the _flow_
-of events over time. This enables powerful patterns like real-time monitoring,
-automated workflows, and seamless integration between different tools and
-services. Think of it as the missing piece that connects your favorite CLI tools
-into a cohesive, reactive system.
+of events over time. This enables patterns like real-time monitoring, automated
+workflows, and connecting different tools through event streams. You can pipe
+data from one tool to another, trigger actions based on specific events, or
+simply log and replay sequences of commands.
 
 Whether you're building personal automation, prototyping distributed systems, or
-just want to pipe data through creative workflows, cross.stream provides the
-foundation for event-driven computing on your local machine.
+experimenting with data pipelines, cross.stream provides a foundation for
+event-driven computing on your local machine.
+
+## What's an event streaming store?
+
+If you think of an "event" like a frame in a movie—a small package on a
+timeline—an event streaming store is a database designed to record these frames
+in strict order, append-only, so they can be replayed or reacted to later.
+
+For example, you might append a frame every time a message is posted in a
+specific Discord channel. You can then .cat the stream to review all captured
+messages, and—if you're in a Nushell session—use pipelines to filter, aggregate,
+or process them with a CLI tool.
 
 ## Quick Start
 
