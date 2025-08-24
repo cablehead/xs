@@ -1,0 +1,262 @@
+---
+title: Integrating MCP Servers
+description: Learn how to interact with Model Context Protocol (MCP) servers directly and through cross.stream
+sidebar:
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This tutorial teaches you how to interact with Model Context Protocol (MCP) servers, starting with direct terminal communication and then integrating through cross.stream's event streaming system.
+
+<Aside type="tip">
+For a full-featured project that integrates MCP servers with cross.stream this way, see
+<a href="https://github.com/cablehead/gpt2099.nu" target="_blank" rel="noopener noreferrer">gpt2099</a>.
+</Aside>
+
+## What You'll Learn
+
+- How to run MCP servers and communicate with them using JSONRPC
+- How to spawn MCP servers as cross.stream [generators](../../reference/generators/)
+- How to send commands and receive responses through the event stream
+
+## Prerequisites
+
+- Node.js installed on your system (in order to run the example MCP server)
+- A running cross.stream store (see [Installation](../../getting-started/installation/))
+
+## Part 1: Direct MCP Server Communication
+
+Let's start by running a simple MCP server and poking at it directly with JSONRPC calls.
+
+### Starting the Server
+
+Open a terminal and run:
+
+```bash
+npx -y "@modelcontextprotocol/server-everything"
+```
+
+You should see:
+```
+Starting default (STDIO) server...
+```
+
+The server is now running and listening for JSONRPC messages on stdin.
+
+### Discovering Available Tools
+
+Let's ask the server what tools it provides. Copy and paste this into the MCP server's stdin and hit enter:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+```
+
+Press Enter. You'll get back a response showing available tools, including an `echo` tool that simply returns whatever message you send it.
+
+### Calling the Echo Tool
+
+Now let's call the echo tool. Copy and paste this into the MCP server's stdin and hit enter:
+
+```json
+{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "echo", "arguments": {"message": "Hello from the terminal!"}}}
+```
+
+You should see a response like:
+```json
+{"result": {"content": [{"type": "text", "text": "Hello from the terminal!"}], "isError": false}, "jsonrpc": "2.0", "id": 2}
+```
+
+The server successfully echoed back our message!
+
+### Trying the Math Tool
+
+Now try the addition tool in the same terminal:
+
+```json
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "add", "arguments": {"a": 15, "b": 27}}}
+```
+
+You'll get back:
+```json
+{"result": {"content": [{"type": "text", "text": "42"}], "isError": false}, "jsonrpc": "2.0", "id": 3}
+```
+
+Press Ctrl+C to stop the server when you're done exploring.
+
+<Aside>
+The direct terminal approach shows the raw JSONRPC protocol that MCP servers use. This is useful for understanding and debugging, but not practical for building applications.
+</Aside>
+
+## Part 2: Integration with cross.stream
+
+Now let's integrate this MCP server with cross.stream using a [generator](../../reference/generators/) so we can send commands through the event stream and receive responses as events.
+
+### Monitoring the Stream
+
+Before we create the generator, let's open a new terminal window to monitor all activity on the stream. This will help us see everything that happens in real-time.
+
+In a new terminal window, run:
+
+```nushell
+.cat -f | each { print ($in | table -e) }
+```
+
+This command:
+- `.cat -f` - Reads the entire stream from the beginning and follows for new events (`-f` for follow)
+- `| each { ... }` - For each frame in the stream, executes the closure
+- `print ($in | table -e)` - Displays each frame in a nicely formatted table with expanded content
+
+Keep this window open - you'll see all the MCP server lifecycle events, requests, and responses flow through in real-time.
+
+### Creating the MCP Generator
+
+Now let's spawn the MCP server as a [generator](../../reference/generators/) with [duplex](../../reference/generators/#bi-directional-communication) communication enabled:
+
+```nushell
+r#'{
+  run: {|| npx -y "@modelcontextprotocol/server-everything" | lines },
+  duplex: true
+}'# | .append mcp.spawn
+```
+
+This creates a [generator](../../reference/generators/) that:
+- Runs the MCP server process (`npx -y "@modelcontextprotocol/server-everything"`)
+- Pipes output through `| lines` which provides "framing" - each line of output from the MCP server becomes a separate `mcp.recv` event
+- Enables `duplex: true` so we can send input to the server's stdin
+- Content from `mcp.send` frames is sent directly to the MCP server's stdin (so JSONRPC messages must include newline endings)
+
+In your monitoring window, you should see a `mcp.spawn` and then a `mcp.running` frame appear, indicating the generator has started successfully.
+
+### Sending Commands Through the Stream
+
+Now we can send JSONRPC commands to the MCP server. First, let's send a tools/list request:
+
+```nushell
+'{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}\n' | .append mcp.send
+```
+
+### Receiving Responses
+
+The [generator](../../reference/generators/) will forward our request to the MCP server and stream the response back. In your monitoring window, you should see:
+
+1. The `mcp.send` frame with your JSONRPC request
+2. The `mcp.recv` frame with the server's response containing the tools list
+
+You'll see the same tools list response we got earlier, but now it's flowing through the event stream as structured frames.
+
+### Sending Echo Commands
+
+Let's try the echo command through the stream:
+
+```nushell
+'{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "echo", "arguments": {"message": "Hello from cross.stream!"}}}\n' | .append mcp.send
+```
+
+Watch your monitoring window - you'll see the echo response come back in a `mcp.recv` frame.
+
+### Math Through the Stream
+
+Try the addition tool:
+
+```nushell
+'{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "add", "arguments": {"a": 100, "b": 200}}}\n' | .append mcp.send
+```
+
+The response (300) will appear in your monitoring window as a `mcp.recv` frame.
+
+## Part 3: Building Event-Driven Workflows
+
+Now that we have MCP server responses flowing through cross.stream, we can build more sophisticated workflows.
+
+### Generator Lifecycle Management
+
+You can control the MCP server [generator](../../reference/generators/) lifecycle:
+
+```nushell
+# Stop the generator when done
+"" | .append mcp.terminate
+```
+
+In your monitoring window, you'll see the `mcp.stopped` frame appear when the generator shuts down.
+
+### Logging and Monitoring
+
+All MCP interactions are now part of your event stream, so you can:
+
+```nushell
+# Query the history of all MCP calls
+.cat --topic mcp.send
+
+# View all responses received
+.cat --topic mcp.recv
+
+# Monitor server lifecycle events
+.cat --topic mcp --follow  # Shows all mcp.* events
+```
+
+### Multiple MCP Servers
+
+You can run multiple MCP servers as separate [generators](../../reference/generators/):
+
+```nushell
+# Spawn a filesystem server
+r#'{
+  run: {|| npx -y "@modelcontextprotocol/server-filesystem" /tmp | lines },
+  duplex: true
+}'# | .append fs.spawn
+
+# Spawn a memory server  
+r#'{
+  run: {|| npx -y "@modelcontextprotocol/server-memory" | lines },
+  duplex: true
+}'# | .append memory.spawn
+```
+
+Now you can send commands to different servers:
+
+```nushell
+# Send to filesystem server
+'{"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {}}\n' | .append fs.send
+
+# Send to memory server
+'{"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}}\n' | .append memory.send
+
+# Watch responses from both
+.cat --topic fs.recv --follow &
+.cat --topic memory.recv --follow &
+```
+
+### Building Handler Chains
+
+You could create handlers that react to MCP responses and trigger follow-up actions:
+
+```nushell
+r#'{
+  run: {|frame|
+    if ($frame.topic == "mcp.recv" and ($frame.content | from json | get -i result.content.0.text) == "42") {
+      "Found the answer!" | .append alerts
+    }
+  }
+}'# | .append answer_detector.register
+```
+
+## Summary
+
+You've learned how to:
+
+1. **Run MCP servers directly** and communicate via JSONRPC
+2. **Spawn MCP servers** as cross.stream [generators](../../reference/generators/) with duplex communication
+3. **Send commands** through the event stream using `.append topic.send`
+4. **Receive responses** as events using `.cat --topic topic.recv`
+5. **Build workflows** that leverage MCP capabilities through the stream
+6. **Manage [generator](../../reference/generators/) lifecycle** with start, stop, and monitoring
+
+This pattern lets you integrate any MCP-compatible tool into your cross.stream workflows while maintaining a complete audit trail of all interactions.
+
+## Next Steps
+
+- Explore the [generators reference](../../reference/generators/) for advanced generator configuration
+- Learn about [handlers reference](../../reference/handlers/) for processing MCP responses
+- Learn about [topic suffixes](../../reference/topic-suffixes/) for understanding the event lifecycle
+- Try spawning other MCP servers from the [official examples](https://modelcontextprotocol.io/examples)
