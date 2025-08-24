@@ -1,11 +1,11 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
-  cross.stream
-  <br>
   <a href="https://cablehead.github.io/xs/">
     <img src="https://github.com/user-attachments/assets/f0c019ad-885d-4837-b72b-ef6ff1f85c0f" alt="Logo">
   </a>
+  <br>
+  cross.stream
 </h1>
   <p align="center">
     Local-first event streaming for building reactive workflows and automation.
