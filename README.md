@@ -1,52 +1,88 @@
-# xs (cross.stream) [![CI](https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/xs/actions/workflows/ci.yml) [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.com/invite/YNbScHBHrh)
+<!-- LOGO -->
+<h1>
+<p align="center">
+  <a href="https://cablehead.github.io/xs/">
+    <img src="https://github.com/user-attachments/assets/f0c019ad-885d-4837-b72b-ef6ff1f85c0f" alt="Logo">
+  </a>
+  <br>
+  cross.stream
+</h1>
+  <p align="center">
+    Local-first event streaming for building reactive workflows and automation.
+    <br />
+    <a href="#about">About</a>
+    ·
+    <a href="https://cablehead.github.io/xs/">Documentation</a>
+    ·
+    <a href="https://discord.com/invite/YNbScHBHrh">Connect</a>
+    ·
+    <a href="#built-with-">Built with</a>
+  </p>
+</p>
 
-[<img src="https://github.com/user-attachments/assets/f0c019ad-885d-4837-b72b-ef6ff1f85c0f" alt="Pixel art heroes cross proton streams, saving gritty, shadowy Toronto street beneath glowing CN Tower backdrop.">](https://cablehead.github.io/xs/)
+<p align="center">
+  <a href="https://github.com/cablehead/xs/actions/workflows/ci.yml">
+    <img src="https://github.com/cablehead/xs/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://discord.com/invite/YNbScHBHrh">
+    <img src="https://img.shields.io/discord/1182364431435436042?logo=discord" alt="Discord">
+  </a>
+</p>
 
----
+## About
 
-> `xs` is a local-first event stream store for personal projects.
-Think of it like [`sqlite`](https://sqlite.org/cli.html) but specializing in the
-[event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) use case.
+cross.stream is a local-first event stream store that turns any CLI tool into a
+reactive component. Stream data through Nushell pipelines, spawn external
+processes as generators, and build handlers that automatically respond to
+events.
 
-See the [documentation](https://cablehead.github.io/xs/) for detailed
-installation instructions, tutorials and examples.
+Unlike traditional databases that store state, cross.stream captures the _flow_
+of events over time. This enables patterns like real-time monitoring, automated
+workflows, and connecting different tools through event streams. You can pipe
+data from one tool to another, trigger actions based on specific events, or
+simply log and replay sequences of commands.
 
-## Quick start
+Whether you're building personal automation, prototyping distributed systems, or
+experimenting with data pipelines, cross.stream provides a foundation for
+event-driven computing on your local machine.
 
-```sh
-# install
-cargo install cross-stream --locked
-# or:
-brew install cablehead/tap/cross-stream
-brew services start cablehead/tap/cross-stream  # starts a store in ~/.local/share/cross.stream/store
+## What's an event streaming store?
 
-# optional Nushell helpers
-xs nu --install
-# then in Nushell
-use xs.nu *
+If you think of an "event" like a frame in a movie—a small package on a
+timeline—an event streaming store is a database designed to record these frames
+in strict order, append-only, so they can be replayed or reacted to later.
 
-# start a server
-xs serve ./store
+For example, you might append a frame every time a message is posted in a
+specific Discord channel. You can then
+[`.cat`](https://cablehead.github.io/xs/reference/xs-nu/#cat) the stream to
+review all captured messages, and—if you're in a
+[Nushell](https://www.nushell.sh) session—use pipelines to filter, aggregate, or
+process them with a CLI tool.
 
-# in another window
-echo "hello" | xs append ./store notes
-xs cat ./store
+## Quick Start
 
-# the xs.nu helpers fall back to ~/.local/share/cross.stream/store
-# to use a different location temporarily:
-with-env {XS_ADDR: "./store"} { .cat }
-```
+See the
+[installation guide](https://cablehead.github.io/xs/getting-started/installation/)
+to get started.
 
 ## Features
 
-- Local-first append-only store
-- Content-addressable storage for large payloads
-- Real-time subscriptions to new events
-- Generators and handlers for background processing
+- **Reactive Workflows**: Build handlers that automatically respond to events as
+  they flow through the stream
+- **CLI Integration**: Turn any command-line tool into a streaming component
+  with generators
+- **Nushell Native**: First-class integration with Nushell for powerful data
+  processing pipelines
+- **Real-time Streaming**: Subscribe to live event feeds and build responsive
+  applications
+- **Content Addressable**: Efficient storage and deduplication of large payloads
+- **Local-first**: Your data stays on your machine, no cloud dependencies
+  required
 
 ## Connect
 
-Join our [Discord](https://discord.com/invite/YNbScHBHrh) to ask questions or share ideas.
+Join our [Discord](https://discord.com/invite/YNbScHBHrh) to ask questions or
+share ideas.
 
 ## Built with 🙏💚
 

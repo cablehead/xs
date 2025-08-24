@@ -10,6 +10,8 @@ import { Link } from '../../../utils/links';
 cross.stream generators use <Link to="nu" /> closures to create streams of data
 that are emitted as frames into the store.
 
+You can also compose external request-response servers, particularly CLI tools that read requests on stdin and write responses to stdout, using [duplex](#bi-directional-communication) generators.
+
 ## Basic Usage
 
 To create a generator, append a Nushell script that evaluates to a configuration
