@@ -1,10 +1,11 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
+  cross.stream
+  <br>
   <a href="https://cablehead.github.io/xs/">
     <img src="https://github.com/user-attachments/assets/f0c019ad-885d-4837-b72b-ef6ff1f85c0f" alt="Logo">
   </a>
-  <br>cross.stream
 </h1>
   <p align="center">
     Local-first event streaming for building reactive workflows and automation.
@@ -52,9 +53,11 @@ timeline—an event streaming store is a database designed to record these frame
 in strict order, append-only, so they can be replayed or reacted to later.
 
 For example, you might append a frame every time a message is posted in a
-specific Discord channel. You can then .cat the stream to review all captured
-messages, and—if you're in a Nushell session—use pipelines to filter, aggregate,
-or process them with a CLI tool.
+specific Discord channel. You can then
+[`.cat`](https://cablehead.github.io/xs/reference/xs-nu/#cat) the stream to
+review all captured messages, and—if you're in a
+[Nushell](https://www.nushell.sh) session—use pipelines to filter, aggregate, or
+process them with a CLI tool.
 
 ## Quick Start
 
