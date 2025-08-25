@@ -5,7 +5,7 @@ sidebar:
   order: 1.5
 ---
 
-import { Link } from '../../../utils/links';
+import { Link } from "../../../utils/links";
 
 The `xs.nu` module provides Nushell-friendly wrappers around the core `xs` CLI commands, enabling seamless pipeline integration and environment-aware operations.
 
@@ -122,13 +122,13 @@ The function accepts the ID as an argument or via pipeline input. The timestamp 
 # Using pipeline
 "03d4q1qhbiv09ovtuhokw5yxv" | .id unpack
 
-# Using with generated ID  
+# Using with generated ID
 .id | .id unpack
 # =>
 # ╭────────────┬──────────╮
 # │ timestamp  │ now      │
 # │ counter_hi │ 1234     │
-# │ counter_lo │ 5678     │  
+# │ counter_lo │ 5678     │
 # │ node       │ abcd1234 │
 # ╰────────────┴──────────╯
 ```
@@ -247,9 +247,10 @@ Spawn a temporary xs serve instance, run a closure, then cleanup. Useful for tes
 ```
 
 The function:
+
 - Creates a temporary directory with an xs store
 - Starts `xs serve` in the background
-- Sets `$env.XS_ADDR` and `$env.XS_CONTEXT` 
+- Sets `$env.XS_ADDR` and `$env.XS_CONTEXT`
 - Runs your closure in this isolated environment
 - Optionally starts an interactive Nushell session (with `--interactive`)
 - Automatically cleans up the background process and temporary directory

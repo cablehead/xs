@@ -35,9 +35,9 @@ Start the supervisor process.
 xs serve <path> [--expose <LISTEN_ADDR>]
 ```
 
-| Option | Description |
-| ------ | ----------- |
-| `<path>` | Path to the store |
+| Option                   | Description                                                       |
+| ------------------------ | ----------------------------------------------------------------- |
+| `<path>`                 | Path to the store                                                 |
 | `--expose <LISTEN_ADDR>` | Expose the API on an additional address ([HOST]:PORT or `<PATH>`) |
 
 Example:
@@ -54,18 +54,18 @@ Stream frames from the store.
 xs cat <addr> [options]
 ```
 
-| Option | Description |
-| ------ | ----------- |
-| `<addr>` | Address to connect to `[HOST]:PORT` or `<PATH>` |
-| `--follow`, `-f` | Follow the stream for new events |
-| `--pulse <ms>`, `-p <ms>` | Send synthetic `xs.pulse` events at interval |
-| `--tail`, `-t` | Begin reading from the end of the stream |
-| `--last-id <id>`, `-l <id>` | Start after the given frame ID |
-| `--limit <n>` | Maximum number of events to return |
-| `--sse` | Use Server-Sent Events format |
-| `--context <id>`, `-c <id>` | Context ID (defaults to system context) |
-| `--all`, `-a` | Retrieve frames across all contexts |
-| `--topic <topic>`, `-T <topic>` | Filter frames by topic |
+| Option                          | Description                                     |
+| ------------------------------- | ----------------------------------------------- |
+| `<addr>`                        | Address to connect to `[HOST]:PORT` or `<PATH>` |
+| `--follow`, `-f`                | Follow the stream for new events                |
+| `--pulse <ms>`, `-p <ms>`       | Send synthetic `xs.pulse` events at interval    |
+| `--tail`, `-t`                  | Begin reading from the end of the stream        |
+| `--last-id <id>`, `-l <id>`     | Start after the given frame ID                  |
+| `--limit <n>`                   | Maximum number of events to return              |
+| `--sse`                         | Use Server-Sent Events format                   |
+| `--context <id>`, `-c <id>`     | Context ID (defaults to system context)         |
+| `--all`, `-a`                   | Retrieve frames across all contexts             |
+| `--topic <topic>`, `-T <topic>` | Filter frames by topic                          |
 
 Example:
 
@@ -81,13 +81,13 @@ Append an event to a topic.
 xs append <addr> <topic> [options]
 ```
 
-| Option | Description |
-| ------ | ----------- |
-| `<addr>` | Address to connect to |
-| `<topic>` | Topic to append to |
-| `--meta <json>` | JSON metadata to include |
-| `--ttl <ttl>` | Time-to-live: `forever`, `ephemeral`, `time:<ms>`, `head:<n>` |
-| `--context <id>`, `-c <id>` | Context ID (defaults to system context) |
+| Option                      | Description                                                   |
+| --------------------------- | ------------------------------------------------------------- |
+| `<addr>`                    | Address to connect to                                         |
+| `<topic>`                   | Topic to append to                                            |
+| `--meta <json>`             | JSON metadata to include                                      |
+| `--ttl <ttl>`               | Time-to-live: `forever`, `ephemeral`, `time:<ms>`, `head:<n>` |
+| `--context <id>`, `-c <id>` | Context ID (defaults to system context)                       |
 
 Example:
 
@@ -103,9 +103,9 @@ Retrieve content from CAS.
 xs cas <addr> <hash>
 ```
 
-| Option | Description |
-| ------ | ----------- |
-| `<addr>` | Address to connect to |
+| Option   | Description                     |
+| -------- | ------------------------------- |
+| `<addr>` | Address to connect to           |
 | `<hash>` | Hash of the content to retrieve |
 
 ### `cas-post`
@@ -116,8 +116,8 @@ Store content in CAS.
 xs cas-post <addr>
 ```
 
-| Option | Description |
-| ------ | ----------- |
+| Option   | Description           |
+| -------- | --------------------- |
 | `<addr>` | Address to connect to |
 
 Example:
@@ -134,10 +134,10 @@ Remove a frame from the store.
 xs remove <addr> <id>
 ```
 
-| Option | Description |
-| ------ | ----------- |
-| `<addr>` | Address to connect to |
-| `<id>` | ID of the item to remove |
+| Option   | Description              |
+| -------- | ------------------------ |
+| `<addr>` | Address to connect to    |
+| `<id>`   | ID of the item to remove |
 
 ### `head`
 
@@ -147,11 +147,11 @@ Get the most recent frame for a topic.
 xs head <addr> <topic> [--follow]
 ```
 
-| Option | Description |
-| ------ | ----------- |
-| `<addr>` | Address to connect to |
-| `<topic>` | Topic to inspect |
-| `--follow`, `-f` | Follow for updates |
+| Option                      | Description                             |
+| --------------------------- | --------------------------------------- |
+| `<addr>`                    | Address to connect to                   |
+| `<topic>`                   | Topic to inspect                        |
+| `--follow`, `-f`            | Follow for updates                      |
 | `--context <id>`, `-c <id>` | Context ID (defaults to system context) |
 
 ### `get`
@@ -162,10 +162,10 @@ Retrieve a frame by ID.
 xs get <addr> <id>
 ```
 
-| Option | Description |
-| ------ | ----------- |
-| `<addr>` | Address to connect to |
-| `<id>` | ID of the frame to get |
+| Option   | Description            |
+| -------- | ---------------------- |
+| `<addr>` | Address to connect to  |
+| `<id>`   | ID of the frame to get |
 
 ### `import`
 
@@ -175,8 +175,8 @@ Import a frame dump from standard input.
 xs import <addr>
 ```
 
-| Option | Description |
-| ------ | ----------- |
+| Option   | Description           |
+| -------- | --------------------- |
 | `<addr>` | Address to connect to |
 
 Example:
@@ -193,8 +193,8 @@ Get version information from the server.
 xs version <addr>
 ```
 
-| Option | Description |
-| ------ | ----------- |
+| Option   | Description           |
+| -------- | --------------------- |
 | `<addr>` | Address to connect to |
 
 ### `nu`
@@ -205,10 +205,10 @@ Manage the embedded `xs.nu` module.
 xs nu [--install] [--clean]
 ```
 
-| Option | Description |
-| ------ | ----------- |
+| Option      | Description                              |
+| ----------- | ---------------------------------------- |
 | `--install` | Install `xs.nu` into your Nushell config |
-| `--clean` | Remove previously installed files |
+| `--clean`   | Remove previously installed files        |
 
 Without options the command prints the module contents so it can be redirected or piped.
 
@@ -237,6 +237,7 @@ xs scru128
 ```
 
 Example:
+
 ```sh
 xs scru128
 # => 03d4q1qhbiv09ovtuhokw5yxv
@@ -250,17 +251,19 @@ Unpack a SCRU128 ID into its component fields:
 xs scru128 unpack <ID>
 ```
 
-| Option | Description |
-| ------ | ----------- |
+| Option | Description                                  |
+| ------ | -------------------------------------------- |
 | `<ID>` | SCRU128 ID string, or `-` to read from stdin |
 
 The output is a JSON object with the following fields:
+
 - `timestamp` - Unix timestamp as float (milliseconds precision)
 - `counter_hi` - 24-bit high counter value
-- `counter_lo` - 24-bit low counter value  
+- `counter_lo` - 24-bit low counter value
 - `node` - 32-bit entropy/node field as hex string
 
 Examples:
+
 ```sh
 xs scru128 unpack 03d4q1qhbiv09ovtuhokw5yxv
 # =>
@@ -285,12 +288,14 @@ xs scru128 pack
 Reads a JSON object from stdin with the same format as `unpack` output.
 
 Example:
+
 ```sh
 echo '{"timestamp":1693000000.123,"counter_hi":1234,"counter_lo":5678,"node":"abcd1234"}' | xs scru128 pack
 # => 03d4q1qhbiv09ovtuhokw5yxv
 ```
 
 Round-trip example:
+
 ```sh
 xs scru128 | xs scru128 unpack | xs scru128 pack
 ```
