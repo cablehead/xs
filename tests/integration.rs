@@ -250,6 +250,20 @@ async fn test_exec_integration() {
     .unwrap();
     assert_eq!(output.trim(), "test note");
 
+    // Test error handling with invalid script (external command failure)
+    let result = cmd!(cargo_bin("xs"), "exec", store_path, "hello world").run();
+    assert!(
+        result.is_err(),
+        "Expected command to fail with invalid script"
+    );
+
+    // Test error handling with syntax error
+    let result = cmd!(cargo_bin("xs"), "exec", store_path, "{ invalid syntax").run();
+    assert!(
+        result.is_err(),
+        "Expected command to fail with syntax error"
+    );
+
     // Clean up
     child.kill().await.unwrap();
 }
