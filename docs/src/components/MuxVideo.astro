@@ -1,0 +1,51 @@
+---
+export interface Props {
+  playbackId: string;
+  aspectRatio?: string;
+  muted?: boolean;
+  thumbnailTime?: string;
+  viewerId?: string;
+}
+
+const { 
+  playbackId, 
+  aspectRatio = "863:540", 
+  muted = false, 
+  thumbnailTime = "0",
+  viewerId = "xs-docs-viewer"
+} = Astro.props;
+---
+
+<div class="mux-video-container">
+  <mux-player 
+    playback-id={playbackId}
+    metadata-viewer-user-id={viewerId}
+    thumbnail-time={thumbnailTime}
+    muted={muted ? "" : undefined}
+    style={`aspect-ratio: ${aspectRatio}`}
+  >
+  </mux-player>
+</div>
+
+<style>
+  .mux-video-container {
+    padding: 20px;
+    margin: 1em -20px;
+  }
+
+  .mux-video-container mux-player {
+    border-radius: 8px !important;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.8) !important;
+    overflow: hidden;
+    display: block;
+    width: 100%;
+  }
+
+  :global([data-theme="dark"]) .mux-video-container mux-player {
+    box-shadow: 0 0 30px rgba(100, 255, 255, 0.6) !important;
+  }
+</style>
+
+<script>
+  import '@mux/mux-player';
+</script>
