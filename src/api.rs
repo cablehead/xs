@@ -86,7 +86,6 @@ fn match_route(
     headers: &hyper::HeaderMap,
     query: Option<&str>,
 ) -> Routes {
-    // eprintln!("DEBUG: match_route called with method={} path={}", method, path);
     let params: HashMap<String, String> =
         url::form_urlencoded::parse(query.unwrap_or("").as_bytes())
             .into_owned()
@@ -584,8 +583,6 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     let script =
         String::from_utf8(bytes.to_vec()).map_err(|e| format!("Invalid UTF-8 in script: {e}"))?;
 
-    // eprintln!("DEBUG: exec endpoint hit with script: {}", script);
-
     // Create nushell engine with store helper commands
     let mut engine =
         nu::Engine::new().map_err(|e| format!("Failed to create nushell engine: {e}"))?;
@@ -621,8 +618,6 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     let result = engine
         .eval(nu_protocol::PipelineData::empty(), script)
         .map_err(|e| format!("Script execution failed:\n{e}"))?;
-
-    // eprintln!("DEBUG: Script execution result type: {:?}", std::any::type_name_of_val(&result));
 
     // Format output based on PipelineData type according to spec
     match result {
