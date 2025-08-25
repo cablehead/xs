@@ -25,6 +25,7 @@ xs <COMMAND> [OPTIONS]
 - `import` – Import a frame directly into the store
 - `version` – Get the version of the server
 - `nu` – Manage the embedded xs.nu module
+- `scru128` – Generate and manipulate SCRU128 IDs
 
 ### `serve`
 
@@ -218,3 +219,78 @@ xs nu --install
 ```
 
 The `xs.nu` module provides Nushell-friendly convenience functions that wrap these CLI commands with pipeline support and environment awareness. See the [xs.nu reference](/reference/xs-nu/) for detailed documentation of all available functions.
+
+### `scru128`
+
+Generate and manipulate SCRU128 IDs. [SCRU128](https://github.com/scru128/spec) is a sortable, clock and random number-based unique identifier.
+
+```sh
+xs scru128 [COMMAND]
+```
+
+#### Generate a new ID
+
+Generate a single SCRU128 ID:
+
+```sh
+xs scru128
+```
+
+Example:
+```sh
+xs scru128
+# => 03d4q1qhbiv09ovtuhokw5yxv
+```
+
+#### `unpack`
+
+Unpack a SCRU128 ID into its component fields:
+
+```sh
+xs scru128 unpack <ID>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<ID>` | SCRU128 ID string, or `-` to read from stdin |
+
+The output is a JSON object with the following fields:
+- `timestamp` - Unix timestamp as float (milliseconds precision)
+- `counter_hi` - 24-bit high counter value
+- `counter_lo` - 24-bit low counter value  
+- `node` - 32-bit entropy/node field as hex string
+
+Examples:
+```sh
+xs scru128 unpack 03d4q1qhbiv09ovtuhokw5yxv
+# =>
+# {
+#   "timestamp": 1693000000.123,
+#   "counter_hi": 1234,
+#   "counter_lo": 5678,
+#   "node": "abcd1234"
+# }
+
+echo "03d4q1qhbiv09ovtuhokw5yxv" | xs scru128 unpack -
+```
+
+#### `pack`
+
+Pack component fields into a SCRU128 ID:
+
+```sh
+xs scru128 pack
+```
+
+Reads a JSON object from stdin with the same format as `unpack` output.
+
+Example:
+```sh
+echo '{"timestamp":1693000000.123,"counter_hi":1234,"counter_lo":5678,"node":"abcd1234"}' | xs scru128 pack
+# => 03d4q1qhbiv09ovtuhokw5yxv
+```
+
+Round-trip example:
+```sh
+xs scru128 | xs scru128 unpack | xs scru128 pack
+```

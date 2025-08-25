@@ -90,6 +90,75 @@ let note_id = (.head note).id
 .get $note_id
 ```
 
+## SCRU128 ID Operations
+
+### `.id`
+
+Generate a new SCRU128 ID. Wraps <Link to="/reference/cli#scru128">`xs scru128`</Link>.
+
+```nushell
+.id
+```
+
+```nushell
+let new_id = .id
+# => "03d4q1qhbiv09ovtuhokw5yxv"
+```
+
+### `.id unpack`
+
+Unpack a SCRU128 ID into its component fields. Wraps <Link to="/reference/cli#unpack">`xs scru128 unpack`</Link>.
+
+```nushell
+.id unpack [<id>]
+```
+
+The function accepts the ID as an argument or via pipeline input. The timestamp is converted to a native Nushell `datetime` type.
+
+```nushell
+# Using argument
+.id unpack "03d4q1qhbiv09ovtuhokw5yxv"
+
+# Using pipeline
+"03d4q1qhbiv09ovtuhokw5yxv" | .id unpack
+
+# Using with generated ID  
+.id | .id unpack
+# =>
+# ╭────────────┬──────────╮
+# │ timestamp  │ now      │
+# │ counter_hi │ 1234     │
+# │ counter_lo │ 5678     │  
+# │ node       │ abcd1234 │
+# ╰────────────┴──────────╯
+```
+
+### `.id pack`
+
+Pack component fields into a SCRU128 ID. Wraps <Link to="/reference/cli#pack">`xs scru128 pack`</Link>.
+
+```nushell
+.id pack [<components>]
+```
+
+The function accepts a record as an argument or via pipeline input. Nushell `datetime` values are automatically converted to the required float timestamp format.
+
+```nushell
+# Using argument
+let components = {
+  timestamp: (date now)
+  counter_hi: 1234
+  counter_lo: 5678
+  node: "abcd1234"
+}
+.id pack $components
+
+# Using pipeline (round-trip example)
+.id | .id unpack | .id pack
+```
+
+The SCRU128 functions provide perfect round-trip compatibility while leveraging Nushell's native data types for timestamps.
+
 ## Content Storage
 
 ### `.cas`
@@ -208,6 +277,7 @@ The `xs.nu` functions provide several advantages over direct CLI usage:
 - **Pipeline Integration**: All functions work naturally in Nushell pipelines
 - **Environment Awareness**: Automatic detection of `$env.XS_ADDR` and `$env.XS_CONTEXT`
 - **Type Safety**: Return structured Nushell records instead of raw JSON strings
+- **Native Data Types**: SCRU128 timestamps use native Nushell `datetime` types
 - **Error Handling**: Proper Nushell error propagation
 - **Convenience**: Simplified parameter handling and defaults
 
