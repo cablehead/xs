@@ -84,6 +84,7 @@ and complement each other.</p>
 maintains an append-only log of events. Think of it as a ledger where each entry
 (called a frame) represents something that happened, complete with metadata
 about when and how it occurred.</p>
+<p>Each frame has a unique <a href="https://github.com/scru128/spec">SCRU128</a> ID that increases in value over time, ensuring frames maintain their temporal ordering. You can generate and manipulate these IDs using the <a href="../../reference/cli/#scru128"><code dir="auto">xs scru128</code></a> CLI command.</p>
 <p>The event store provides a few key capabilities:</p>
 <ul>
 <li><strong>Append-only writes</strong>: New events can only be added to the end of the stream,
