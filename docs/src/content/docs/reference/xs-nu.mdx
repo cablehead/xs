@@ -5,8 +5,6 @@ sidebar:
   order: 1.5
 ---
 
-import { Link } from "../../../utils/links";
-
 The `xs.nu` module provides Nushell-friendly wrappers around the core `xs` CLI commands, enabling seamless pipeline integration and environment-aware operations.
 
 ## Installation
@@ -27,7 +25,7 @@ use xs.nu *
 
 ### `.append`
 
-Append content to a topic. Wraps <Link to="/reference/cli#append">`xs append`</Link>.
+Append content to a topic. Wraps [`xs append`](../cli/#append).
 
 ```nushell
 .append <topic> [--meta <record>] [--ttl <ttl>] [--context <id>]
@@ -40,7 +38,7 @@ Append content to a topic. Wraps <Link to="/reference/cli#append">`xs append`</L
 
 ### `.cat`
 
-Stream frames from the store. Wraps <Link to="/reference/cli#cat">`xs cat`</Link>.
+Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 
 ```nushell
 .cat [--follow] [--tail] [--topic <topic>] [--context <id>] [--all]
@@ -53,7 +51,7 @@ Stream frames from the store. Wraps <Link to="/reference/cli#cat">`xs cat`</Link
 
 ### `.head`
 
-Get the most recent frame for a topic. Wraps <Link to="/reference/cli#head">`xs head`</Link>.
+Get the most recent frame for a topic. Wraps [`xs head`](../cli/#head).
 
 ```nushell
 .head <topic> [--follow] [--context <id>]
@@ -66,7 +64,7 @@ let latest_note = .head note
 
 ### `.remove`
 
-Remove a frame by ID. Wraps <Link to="/reference/cli#remove">`xs remove`</Link>.
+Remove a frame by ID. Wraps [`xs remove`](../cli/#remove).
 
 ```nushell
 .remove <id>
@@ -79,7 +77,7 @@ let note_id = (.head note).id
 
 ### `.get`
 
-Retrieve a frame by ID. Wraps <Link to="/reference/cli#get">`xs get`</Link>.
+Retrieve a frame by ID. Wraps [`xs get`](../cli/#get).
 
 ```nushell
 .get <id>
@@ -94,7 +92,7 @@ let note_id = (.head note).id
 
 ### `.id`
 
-Generate a new SCRU128 ID. Wraps <Link to="/reference/cli#scru128">`xs scru128`</Link>.
+Generate a new SCRU128 ID. Wraps [`xs scru128`](../cli/#scru128).
 
 ```nushell
 .id
@@ -107,7 +105,7 @@ let new_id = .id
 
 ### `.id unpack`
 
-Unpack a SCRU128 ID into its component fields. Wraps <Link to="/reference/cli#unpack">`xs scru128 unpack`</Link>.
+Unpack a SCRU128 ID into its component fields. Wraps [`xs scru128 unpack`](../cli/#unpack).
 
 ```nushell
 .id unpack [<id>]
@@ -135,7 +133,7 @@ The function accepts the ID as an argument or via pipeline input. The timestamp 
 
 ### `.id pack`
 
-Pack component fields into a SCRU128 ID. Wraps <Link to="/reference/cli#pack">`xs scru128 pack`</Link>.
+Pack component fields into a SCRU128 ID. Wraps [`xs scru128 pack`](../cli/#pack).
 
 ```nushell
 .id pack [<components>]
@@ -163,7 +161,7 @@ The SCRU128 functions provide perfect round-trip compatibility while leveraging 
 
 ### `.cas`
 
-Retrieve content from Content-Addressable Storage by hash. Wraps <Link to="/reference/cli#cas">`xs cas`</Link>.
+Retrieve content from Content-Addressable Storage by hash. Wraps [`xs cas`](../cli/#cas).
 
 ```nushell
 .cas <hash>
@@ -204,7 +202,7 @@ List all available contexts.
 
 ### `.cas-post`
 
-Store content in Content-Addressable Storage. Wraps <Link to="/reference/cli#cas-post">`xs cas-post`</Link>.
+Store content in Content-Addressable Storage. Wraps [`xs cas-post`](../cli/#cas-post).
 
 ```nushell
 .cas-post
@@ -216,7 +214,7 @@ Store content in Content-Addressable Storage. Wraps <Link to="/reference/cli#cas
 
 ### `.import`
 
-Import frames from a backup directory. Wraps <Link to="/reference/cli#import">`xs import`</Link>.
+Import frames from a backup directory. Wraps [`xs import`](../cli/#import).
 
 ```nushell
 .import <path>
