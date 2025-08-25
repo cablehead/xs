@@ -238,6 +238,37 @@ export def .import [path: string] {
   }
 }
 
+# Generate a new SCRU128 ID
+export def .id [] {
+  xs scru128
+}
+
+# Unpack a SCRU128 ID into its component fields
+export def ".id unpack" [id?: string] {
+  let input_id = if $id != null { $id } else { $in }
+  if $input_id == null {
+    error make {msg: "No ID provided as argument or via pipeline"}
+  }
+
+  let components = xs scru128 unpack $input_id | from json
+  $components | update timestamp ($components.timestamp * 1000000000 | into int | into datetime)
+}
+
+# Pack component fields into a SCRU128 ID
+export def ".id pack" [components?: record] {
+  let input_components = if $components != null { $components } else { $in }
+  if $input_components == null {
+    error make {msg: "No components provided as argument or via pipeline"}
+  }
+
+  $input_components
+  | conditional-pipe (($input_components.timestamp | describe) == "datetime") {
+    update timestamp ($input_components.timestamp | into int | $in / 1000000000)
+  }
+  | to json
+  | xs scru128 pack
+}
+
 # Spawn xs serve in a temporary directory, run a closure, then cleanup
 export def .tmp-spawn [
   closure: closure
