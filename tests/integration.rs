@@ -257,6 +257,21 @@ async fn test_exec_integration() {
         "Expected command to fail with invalid script"
     );
 
+    // Test that we get a meaningful error message (not a hard-coded one)
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, "hello world")
+        .stderr_capture()
+        .unchecked()
+        .run()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr_msg = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr_msg.contains("Script execution failed") && !stderr_msg.trim().is_empty(),
+        "Expected meaningful error message from nushell, got: '{}'",
+        stderr_msg
+    );
+
     // Test error handling with syntax error
     let result = cmd!(cargo_bin("xs"), "exec", store_path, "{ invalid syntax").run();
     assert!(

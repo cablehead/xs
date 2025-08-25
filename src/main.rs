@@ -275,13 +275,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             if let Some(addr) = addr {
                 eprintln!("{}", format_connection_error(&addr));
             } else {
-                eprintln!("command error: {err:?}");
+                eprintln!("command error: {err}");
             }
             std::process::exit(1);
         }
         // All other errors
         else {
-            eprintln!("command error: {err:?}");
+            eprintln!("command error: {err}");
             std::process::exit(1);
         }
     }

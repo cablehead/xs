@@ -620,7 +620,7 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Execute the script
     let result = engine
         .eval(nu_protocol::PipelineData::empty(), script)
-        .map_err(|e| format!("Script execution failed: {e}"))?;
+        .map_err(|e| format!("Script execution failed:\n{e}"))?;
 
     // eprintln!("DEBUG: Script execution result type: {:?}", std::any::type_name_of_val(&result));
 
