@@ -17,6 +17,8 @@ maintains an append-only log of events. Think of it as a ledger where each entry
 (called a frame) represents something that happened, complete with metadata
 about when and how it occurred.
 
+Each frame has a unique [SCRU128](https://github.com/scru128/spec) ID that increases in value over time, ensuring frames maintain their temporal ordering. You can generate and manipulate these IDs using the [`xs scru128`](../../reference/cli/#scru128) CLI command.
+
 The event store provides a few key capabilities:
 
 - **Append-only writes**: New events can only be added to the end of the stream,
@@ -71,14 +73,14 @@ A command might:
 
 ## Component Comparison
 
-| Aspect           | Generators                           | Handlers                      | Commands                     |
-| ---------------- | ------------------------------------ | ----------------------------- | ---------------------------- |
-| Purpose          | Produce events from external sources | Process existing events       | Perform on-demand operations |
-| Execution        | Continuous background process        | Event-driven                  | Called on-demand             |
-| State            | Stateless                            | Maintains state between calls | Stateless                    |
-| Output           | Immediate streaming                  | Buffered until completion     | Immediate streaming          |
-| Error Handling   | Auto-restarts (with a 1-second delay) | Unregisters          | Per-invocation               |
-| Typical Use Case | Watch external sources               | Transform/react to events     | Reusable operations          |
+| Aspect           | Generators                            | Handlers                      | Commands                     |
+| ---------------- | ------------------------------------- | ----------------------------- | ---------------------------- |
+| Purpose          | Produce events from external sources  | Process existing events       | Perform on-demand operations |
+| Execution        | Continuous background process         | Event-driven                  | Called on-demand             |
+| State            | Stateless                             | Maintains state between calls | Stateless                    |
+| Output           | Immediate streaming                   | Buffered until completion     | Immediate streaming          |
+| Error Handling   | Auto-restarts (with a 1-second delay) | Unregisters                   | Per-invocation               |
+| Typical Use Case | Watch external sources                | Transform/react to events     | Reusable operations          |
 
 ## Incremental Adoption
 
