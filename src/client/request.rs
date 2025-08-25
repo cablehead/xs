@@ -57,7 +57,7 @@ where
             return Err(Box::new(crate::error::NotFound));
         }
         let body = res.collect().await?.to_bytes();
-        return Err(format!("{status}:: {}", String::from_utf8_lossy(&body)).into());
+        return Err(String::from_utf8_lossy(&body).to_string().into());
     }
 
     Ok(res)
