@@ -23,6 +23,7 @@ xs <COMMAND> [OPTIONS]
 - `head` – Get the head frame for a topic
 - `get` – Get a frame by ID
 - `import` – Import a frame directly into the store
+- `exec` – Execute a Nushell script with store helper commands available
 - `version` – Get the version of the server
 - `nu` – Manage the embedded xs.nu module
 - `scru128` – Generate and manipulate SCRU128 IDs
@@ -183,6 +184,51 @@ Example:
 
 ```sh
 cat dump.jsonl | xs import ./store
+```
+
+### `exec`
+
+Execute a Nushell script with store helper commands available.
+
+```sh
+xs exec <addr> <script>
+```
+
+| Option     | Description                                                |
+| ---------- | ---------------------------------------------------------- |
+| `<addr>`   | Address to connect to [HOST]:PORT or <PATH> for Unix domain socket |
+| `<script>` | Nushell script to execute, or "-" to read from stdin      |
+
+The exec command runs a Nushell script with access to store helper commands like `.cat`, `.append`, `.head`, `.get`, `.cas`, and `.remove`. 
+
+**Output format auto-detection:**
+- `ByteStream` → raw bytes
+- `ListStream` of structured data → JSONL stream  
+- `ListStream` of primitives → JSONL stream
+- `ListStream` of mixed types → JSONL stream
+- Single `Value` (string/number) → raw text
+- Single structured `Value` → single JSON object
+- `PipelineData::Empty` → nothing
+
+Examples:
+
+```sh
+# Simple expression
+xs exec ./store '"hello world"'
+
+# Math expression
+xs exec ./store '2 + 3'
+
+# JSON output
+xs exec ./store '{name: "test", value: 42}'
+
+# Script from stdin
+echo '"from stdin"' | xs exec ./store -
+
+# Using store helpers
+xs exec ./store '"my note" | .append note'
+xs exec ./store '.head note'
+xs exec ./store '.cat --topic note'
 ```
 
 ### `version`

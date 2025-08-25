@@ -290,6 +290,16 @@ fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
         .boxed()
 }
 
+pub async fn exec(
+    addr: &str,
+    script: String,
+) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+    let res = request::request(addr, Method::POST, "exec", None, script, None).await?;
+
+    let body = res.collect().await?.to_bytes();
+    Ok(body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

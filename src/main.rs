@@ -43,6 +43,8 @@ enum Command {
     Nu(CommandNu),
     /// Generate and manipulate SCRU128 IDs
     Scru128(CommandScru128),
+    /// Execute a Nushell script with store helper commands available
+    Exec(CommandExec),
 }
 
 #[derive(Parser, Debug)]
@@ -182,6 +184,17 @@ struct CommandGet {
     id: String,
 }
 
+#[derive(Parser, Debug)]
+struct CommandExec {
+    /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
+    #[clap(value_parser)]
+    addr: String,
+
+    /// Nushell script to execute, or "-" to read from stdin
+    #[clap(value_parser)]
+    script: String,
+}
+
 fn extract_addr_from_command(command: &Command) -> Option<String> {
     match command {
         Command::Cat(cmd) => Some(cmd.addr.clone()),
@@ -193,6 +206,7 @@ fn extract_addr_from_command(command: &Command) -> Option<String> {
         Command::Get(cmd) => Some(cmd.addr.clone()),
         Command::Import(cmd) => Some(cmd.addr.clone()),
         Command::Version(cmd) => Some(cmd.addr.clone()),
+        Command::Exec(cmd) => Some(cmd.addr.clone()),
         Command::Serve(_) | Command::Nu(_) | Command::Scru128(_) => None,
     }
 }
@@ -247,6 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Get(args) => get(args).await,
         Command::Import(args) => import(args).await,
         Command::Version(args) => version(args).await,
+        Command::Exec(args) => exec(args).await,
         Command::Nu(args) => run_nu(args),
         Command::Scru128(args) => run_scru128(args),
     };
@@ -542,6 +557,25 @@ struct CommandVersion {
 async fn version(args: CommandVersion) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let response = xs::client::version(&args.addr).await?;
     println!("{}", String::from_utf8_lossy(&response));
+    Ok(())
+}
+
+async fn exec(args: CommandExec) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use tokio::io::{stdin, AsyncReadExt};
+
+    // Read script content
+    let script = if args.script == "-" {
+        // Read from stdin
+        let mut script_content = String::new();
+        stdin().read_to_string(&mut script_content).await?;
+        script_content
+    } else {
+        args.script
+    };
+
+    // Call the client exec function
+    let response = xs::client::exec(&args.addr, script).await?;
+    tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }
 
