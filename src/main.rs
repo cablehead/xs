@@ -41,6 +41,8 @@ enum Command {
     Version(CommandVersion),
     /// Manage the embedded xs.nu module
     Nu(CommandNu),
+    /// Generate and manipulate SCRU128 IDs
+    Scru128(CommandScru128),
 }
 
 #[derive(Parser, Debug)]
@@ -191,7 +193,7 @@ fn extract_addr_from_command(command: &Command) -> Option<String> {
         Command::Get(cmd) => Some(cmd.addr.clone()),
         Command::Import(cmd) => Some(cmd.addr.clone()),
         Command::Version(cmd) => Some(cmd.addr.clone()),
-        Command::Serve(_) | Command::Nu(_) => None,
+        Command::Serve(_) | Command::Nu(_) | Command::Scru128(_) => None,
     }
 }
 
@@ -246,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Import(args) => import(args).await,
         Command::Version(args) => version(args).await,
         Command::Nu(args) => run_nu(args),
+        Command::Scru128(args) => run_scru128(args),
     };
     if let Err(err) = res {
         // Check if it's a NotFound error - exit silently with status 1
@@ -552,6 +555,23 @@ struct CommandNu {
     clean: bool,
 }
 
+#[derive(Parser, Debug)]
+struct CommandScru128 {
+    #[clap(subcommand)]
+    command: Option<Scru128Command>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Scru128Command {
+    /// Unpack a SCRU128 ID into its component fields
+    Unpack {
+        /// SCRU128 ID string, or "-" to read from stdin
+        id: String,
+    },
+    /// Pack component fields into a SCRU128 ID (reads JSON from stdin)
+    Pack,
+}
+
 const XS_NU: &str = include_str!("../xs.nu");
 
 fn lib_dirs() -> Vec<PathBuf> {
@@ -743,4 +763,22 @@ fn run_nu(cmd: CommandNu) -> Result<(), Box<dyn std::error::Error + Send + Sync>
         print!("{XS_NU}");
         Ok(())
     }
+}
+
+fn run_scru128(cmd: CommandScru128) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match cmd.command {
+        Some(Scru128Command::Unpack { id }) => {
+            let result = xs::scru128::unpack(&id)?;
+            println!("{}", result);
+        }
+        Some(Scru128Command::Pack) => {
+            let result = xs::scru128::pack()?;
+            println!("{}", result);
+        }
+        None => {
+            let result = xs::scru128::generate()?;
+            println!("{}", result);
+        }
+    }
+    Ok(())
 }

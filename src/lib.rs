@@ -6,5 +6,6 @@ pub mod generators;
 pub mod handlers;
 pub mod listener;
 pub mod nu;
+pub mod scru128;
 pub mod store;
 pub mod trace;
