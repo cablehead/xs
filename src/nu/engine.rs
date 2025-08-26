@@ -50,36 +50,33 @@ impl Engine {
         Ok(())
     }
 
-    pub fn eval(
-        &self,
-        input: PipelineData,
-        expression: String,
-    ) -> Result<PipelineData, Box<ShellError>> {
+    pub fn eval(&self, input: PipelineData, expression: String) -> Result<PipelineData, String> {
         let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, expression.as_bytes(), false);
 
         if !working_set.parse_errors.is_empty() {
             let first_error = &working_set.parse_errors[0];
-            return Err(Box::new(ShellError::GenericError {
-                error: "Parse error".into(),
-                msg: first_error.to_string(),
-                span: Some(first_error.span()),
-                help: None,
-                inner: vec![],
-            }));
+            let formatted = nu_protocol::format_cli_error(&working_set, first_error, None);
+            return Err(formatted);
         }
 
         let mut engine_state = self.state.clone();
         engine_state
             .merge_delta(working_set.render())
-            .map_err(Box::new)?;
+            .map_err(|e| {
+                let working_set = StateWorkingSet::new(&self.state);
+                nu_protocol::format_cli_error(&working_set, &e, None)
+            })?;
 
         let mut stack = Stack::new();
         let mut stack =
             stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
 
         eval_block_with_early_return::<WithoutDebug>(&engine_state, &mut stack, &block, input)
-            .map_err(Box::new)
+            .map_err(|e| {
+                let working_set = StateWorkingSet::new(&engine_state);
+                nu_protocol::format_cli_error(&working_set, &e, None)
+            })
     }
 
     pub fn parse_closure(&mut self, script: &str) -> Result<Closure, Box<ShellError>> {

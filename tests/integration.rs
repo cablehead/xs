@@ -181,6 +181,204 @@ async fn test_integration() {
     child.kill().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_exec_integration() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Test simple string expression
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, "\"hello world\"")
+        .read()
+        .unwrap();
+    assert_eq!(output.trim(), "hello world");
+
+    // Test simple math expression
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, "2 + 3")
+        .read()
+        .unwrap();
+    assert_eq!(output.trim(), "5");
+
+    // Test JSON output for structured data
+    let output = cmd!(
+        cargo_bin("xs"),
+        "exec",
+        store_path,
+        "{name: \"test\", value: 42}"
+    )
+    .read()
+    .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed["name"], "test");
+    assert_eq!(parsed["value"], 42);
+
+    // Test script from stdin
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, "-")
+        .stdin_bytes(b"\"from stdin\"")
+        .read()
+        .unwrap();
+    assert_eq!(output.trim(), "from stdin");
+
+    // Test store helper commands - append a note and read it back
+    cmd!(
+        cargo_bin("xs"),
+        "exec",
+        store_path,
+        r#""test note" | .append note"#
+    )
+    .run()
+    .unwrap();
+
+    let output = cmd!(
+        cargo_bin("xs"),
+        "exec",
+        store_path,
+        ".head note | get hash | .cas $in"
+    )
+    .read()
+    .unwrap();
+    assert_eq!(output.trim(), "test note");
+
+    // Test error handling with invalid script (external command failure)
+    let result = cmd!(cargo_bin("xs"), "exec", store_path, "hello world").run();
+    assert!(
+        result.is_err(),
+        "Expected command to fail with invalid script"
+    );
+
+    // Test that we get a meaningful error message (not a hard-coded one)
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, "hello world")
+        .stderr_capture()
+        .unchecked()
+        .run()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr_msg = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr_msg.contains("Script execution failed") && !stderr_msg.trim().is_empty(),
+        "Expected meaningful error message from nushell, got: '{}'",
+        stderr_msg
+    );
+
+    // Test error handling with syntax error
+    let result = cmd!(cargo_bin("xs"), "exec", store_path, "{ invalid syntax").run();
+    assert!(
+        result.is_err(),
+        "Expected command to fail with syntax error"
+    );
+
+    // Clean up
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_exec_streaming_behavior() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let _child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Pipeline that outputs "immediate" right away, then "end" after 1 second
+    let script =
+        r#"["immediate", "end"] | enumerate | each {|x| sleep ($x.index * 1000ms); $x.item}"#;
+
+    // Use tokio::process directly to capture streaming behavior
+    let start = std::time::Instant::now();
+    let mut child = tokio::process::Command::new(cargo_bin("xs"))
+        .arg("exec")
+        .arg(store_path)
+        .arg(script)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let mut line = String::new();
+
+    // Try to read first line within 500ms
+    let first_line_result =
+        tokio::time::timeout(Duration::from_millis(500), reader.read_line(&mut line)).await;
+
+    match first_line_result {
+        Ok(Ok(_)) => {
+            let duration = start.elapsed();
+            println!("Got first line in {:?}: {}", duration, line.trim());
+            // Should get first output quickly with proper streaming
+            assert!(
+                duration < Duration::from_millis(500),
+                "Should get first output via streaming (took {:?})",
+                duration
+            );
+        }
+        Ok(Err(e)) => panic!("IO error reading first line: {}", e),
+        Err(_) => panic!("Timeout waiting for first line - streaming not working"),
+    }
+
+    // Clean up
+    let _ = child.kill().await;
+
+    // Clean up
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_exec_bytestream_behavior() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let _child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Test ByteStream - reading from /dev/urandom should produce binary stream
+    let script = "open /dev/urandom | first 10";
+
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, script)
+        .stdout_capture()
+        .run()
+        .unwrap();
+
+    // Should have exactly 10 bytes
+    assert_eq!(output.stdout.len(), 10);
+
+    // Test that binary data is preserved (not JSON encoded)
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    assert!(!output_str.starts_with('[')); // Not a JSON array
+    assert!(!output_str.starts_with('"')); // Not a JSON string
+    assert!(!output_str.starts_with('{')); // Not a JSON object
+}
+
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
     let mut child = tokio::process::Command::new(cargo_bin("xs"))
         .arg("serve")
