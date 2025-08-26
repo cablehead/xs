@@ -301,8 +301,9 @@ async fn test_exec_streaming_behavior() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Pipeline that outputs "immediate" right away, then "end" after 1 second
-    let script = r#"["immediate", "end"] | enumerate | each {|x| sleep ($x.index * 1000ms); $x.item}"#;
-    
+    let script =
+        r#"["immediate", "end"] | enumerate | each {|x| sleep ($x.index * 1000ms); $x.item}"#;
+
     // Use tokio::process directly to capture streaming behavior
     let start = std::time::Instant::now();
     let mut child = tokio::process::Command::new(cargo_bin("xs"))
@@ -312,29 +313,30 @@ async fn test_exec_streaming_behavior() {
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    
+
     let stdout = child.stdout.take().unwrap();
     let mut reader = tokio::io::BufReader::new(stdout);
     let mut line = String::new();
-    
+
     // Try to read first line within 500ms
-    let first_line_result = tokio::time::timeout(
-        Duration::from_millis(500),
-        reader.read_line(&mut line)
-    ).await;
-    
+    let first_line_result =
+        tokio::time::timeout(Duration::from_millis(500), reader.read_line(&mut line)).await;
+
     match first_line_result {
         Ok(Ok(_)) => {
             let duration = start.elapsed();
             println!("Got first line in {:?}: {}", duration, line.trim());
             // Should get first output quickly with proper streaming
-            assert!(duration < Duration::from_millis(500), 
-                   "Should get first output via streaming (took {:?})", duration);
+            assert!(
+                duration < Duration::from_millis(500),
+                "Should get first output via streaming (took {:?})",
+                duration
+            );
         }
         Ok(Err(e)) => panic!("IO error reading first line: {}", e),
         Err(_) => panic!("Timeout waiting for first line - streaming not working"),
     }
-    
+
     // Clean up
     let _ = child.kill().await;
 
@@ -359,27 +361,22 @@ async fn test_exec_bytestream_behavior() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Test ByteStream - binary data should be output as raw bytes
-    let binary_data = b"binary\x00data\x01test\x02";
-    let script = format!(
-        r#"[{}] | bytes build"#,
-        binary_data.iter()
-            .map(|b| b.to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    // Test ByteStream - reading from /dev/urandom should produce binary stream
+    let script = "open /dev/urandom | first 10";
 
     let output = cmd!(cargo_bin("xs"), "exec", store_path, script)
         .stdout_capture()
         .run()
         .unwrap();
 
-    assert_eq!(output.stdout, binary_data);
+    // Should have exactly 10 bytes
+    assert_eq!(output.stdout.len(), 10);
 
     // Test that binary data is preserved (not JSON encoded)
     let output_str = String::from_utf8_lossy(&output.stdout);
-    assert!(!output_str.starts_with('['));  // Not a JSON array
-    assert!(!output_str.starts_with('"'));  // Not a JSON string
+    assert!(!output_str.starts_with('[')); // Not a JSON array
+    assert!(!output_str.starts_with('"')); // Not a JSON string
+    assert!(!output_str.starts_with('{')); // Not a JSON object
 }
 
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {

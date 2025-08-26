@@ -625,9 +625,9 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
             // ByteStream → raw bytes with proper streaming using channel pattern
             if let Some(mut reader) = stream.reader() {
                 use std::io::Read;
-                
+
                 let (tx, rx) = tokio::sync::mpsc::channel(16);
-                
+
                 // Spawn sync task to read from nushell Reader and send to channel
                 std::thread::spawn(move || {
                     let mut buffer = [0u8; 8192];
@@ -636,18 +636,23 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                             Ok(0) => break, // EOF
                             Ok(n) => {
                                 let chunk = Bytes::copy_from_slice(&buffer[..n]);
-                                if tx.blocking_send(Ok(hyper::body::Frame::data(chunk))).is_err() {
+                                if tx
+                                    .blocking_send(Ok(hyper::body::Frame::data(chunk)))
+                                    .is_err()
+                                {
                                     break;
                                 }
                             }
                             Err(e) => {
-                                let _ = tx.blocking_send(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
+                                let _ = tx.blocking_send(Err(
+                                    Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+                                ));
                                 break;
                             }
                         }
                     }
                 });
-                
+
                 let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
                 let body = StreamBody::new(stream).boxed();
                 Ok(Response::builder()
@@ -665,7 +670,7 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
         nu_protocol::PipelineData::ListStream(stream, ..) => {
             // ListStream → JSONL stream with proper streaming using channel pattern
             let (tx, rx) = tokio::sync::mpsc::channel(16);
-            
+
             // Spawn sync task to iterate stream and send JSONL to channel
             std::thread::spawn(move || {
                 for value in stream.into_iter() {
@@ -673,18 +678,23 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                         Ok(mut json_bytes) => {
                             json_bytes.push(b'\n'); // Add newline for JSONL
                             let chunk = Bytes::from(json_bytes);
-                            if tx.blocking_send(Ok(hyper::body::Frame::data(chunk))).is_err() {
+                            if tx
+                                .blocking_send(Ok(hyper::body::Frame::data(chunk)))
+                                .is_err()
+                            {
                                 break;
                             }
                         }
                         Err(e) => {
-                            let _ = tx.blocking_send(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
+                            let _ = tx.blocking_send(Err(
+                                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+                            ));
                             break;
                         }
                     }
                 }
             });
-            
+
             let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
             let body = StreamBody::new(stream).boxed();
             Ok(Response::builder()
