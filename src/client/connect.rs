@@ -5,7 +5,6 @@ use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpStream, UnixStream};
 use tokio_rustls::TlsConnector;
 
@@ -63,7 +62,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
         }
         ConnectionKind::Iroh { ticket } => {
             let secret_key = get_or_create_secret()?;
-            
+
             // Create an iroh endpoint for connecting
             let endpoint = Endpoint::builder()
                 .alpns(vec![])
@@ -71,37 +70,40 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
                 .secret_key(secret_key)
                 .bind()
                 .await
-                .map_err(|e| {
-                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
-                })?;
+                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
 
             // Parse the ticket string to get the NodeTicket, then extract NodeAddr
             let node_ticket: NodeTicket = ticket.parse().map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Invalid ticket format: {}", e),
-                )) as BoxError
+                Box::new(std::io::Error::other(format!(
+                    "Invalid ticket format: {}",
+                    e
+                ))) as BoxError
             })?;
             let node_addr = node_ticket.node_addr().clone();
 
             tracing::info!("Connecting to iroh node: {}", node_addr.node_id);
 
             // Connect to the node using the proper ALPN
-            let conn = endpoint.connect(node_addr, ALPN).await.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
-            })?;
+            let conn = endpoint
+                .connect(node_addr, ALPN)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
 
             tracing::info!("Successfully connected to iroh node");
 
             // Create a bidirectional stream
-            let (mut send_stream, recv_stream) = conn.open_bi().await.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
-            })?;
+            let (mut send_stream, recv_stream) = conn
+                .open_bi()
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
 
             // Send the handshake (connecting side sends first)
-            send_stream.write_all(&HANDSHAKE).await.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as BoxError
-            })?;
+            #[allow(unused_imports)]
+            use tokio::io::AsyncWriteExt;
+            send_stream
+                .write_all(&HANDSHAKE)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
 
             tracing::info!("Handshake sent successfully");
 
