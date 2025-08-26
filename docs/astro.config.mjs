@@ -3,7 +3,6 @@ import { defineConfig } from "astro/config";
 
 import starlight from "@astrojs/starlight";
 
-import { pluginCodeOutput } from "./src/utils/custom-code-output-plugin";
 import { rehypeMermaid } from "@beoe/rehype-mermaid";
 import solid from "@astrojs/solid-js";
 
@@ -51,7 +50,7 @@ export default defineConfig({
       expressiveCode: {
         styleOverrides: { borderRadius: "0.25rem" },
         themes: ["dracula", "rose-pine-dawn"],
-        plugins: [pluginCodeOutput()],
+        plugins: [],
       },
 
       lastUpdated: false,
