@@ -622,30 +622,75 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Format output based on PipelineData type according to spec
     match result {
         nu_protocol::PipelineData::ByteStream(stream, ..) => {
-            // ByteStream → raw bytes (simplified for now)
-            // TODO: Implement proper streaming
-            let collected = stream
-                .into_bytes()
-                .map_err(|e| format!("Failed to read bytes: {e}"))?;
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "application/octet-stream")
-                .body(full(collected))?)
+            // ByteStream → raw bytes with proper streaming using channel pattern
+            if let Some(mut reader) = stream.reader() {
+                use std::io::Read;
+                
+                let (tx, rx) = tokio::sync::mpsc::channel(16);
+                
+                // Spawn sync task to read from nushell Reader and send to channel
+                std::thread::spawn(move || {
+                    let mut buffer = [0u8; 8192];
+                    loop {
+                        match reader.read(&mut buffer) {
+                            Ok(0) => break, // EOF
+                            Ok(n) => {
+                                let chunk = Bytes::copy_from_slice(&buffer[..n]);
+                                if tx.blocking_send(Ok(hyper::body::Frame::data(chunk))).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx.blocking_send(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
+                                break;
+                            }
+                        }
+                    }
+                });
+                
+                let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                let body = StreamBody::new(stream).boxed();
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(body)?)
+            } else {
+                // No reader available, return empty response
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(empty())?)
+            }
         }
         nu_protocol::PipelineData::ListStream(stream, ..) => {
-            // ListStream → JSONL stream (simplified for now)
-            // TODO: Implement proper streaming
-            let values: Vec<_> = stream.into_iter().collect();
-            let mut jsonl = String::new();
-            for value in values {
-                let json = nu::value_to_json(&value);
-                let line = serde_json::to_string(&json).unwrap_or_else(|_| "null".to_string());
-                jsonl.push_str(&format!("{}\n", line));
-            }
+            // ListStream → JSONL stream with proper streaming using channel pattern
+            let (tx, rx) = tokio::sync::mpsc::channel(16);
+            
+            // Spawn sync task to iterate stream and send JSONL to channel
+            std::thread::spawn(move || {
+                for value in stream.into_iter() {
+                    match serde_json::to_vec(&value) {
+                        Ok(mut json_bytes) => {
+                            json_bytes.push(b'\n'); // Add newline for JSONL
+                            let chunk = Bytes::from(json_bytes);
+                            if tx.blocking_send(Ok(hyper::body::Frame::data(chunk))).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.blocking_send(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+            let body = StreamBody::new(stream).boxed();
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/x-ndjson")
-                .body(full(jsonl))?)
+                .body(body)?)
         }
         nu_protocol::PipelineData::Value(value, ..) => {
             match &value {

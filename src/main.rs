@@ -573,9 +573,8 @@ async fn exec(args: CommandExec) -> Result<(), Box<dyn std::error::Error + Send 
         args.script
     };
 
-    // Call the client exec function
-    let response = xs::client::exec(&args.addr, script).await?;
-    tokio::io::stdout().write_all(&response).await?;
+    // Call the client exec function (streams directly to stdout)
+    xs::client::exec(&args.addr, script).await?;
     Ok(())
 }
 

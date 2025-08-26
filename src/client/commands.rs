@@ -293,11 +293,20 @@ fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
 pub async fn exec(
     addr: &str,
     script: String,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let res = request::request(addr, Method::POST, "exec", None, script, None).await?;
 
-    let body = res.collect().await?.to_bytes();
-    Ok(body)
+    let mut body = res.into_body();
+    let mut stdout = tokio::io::stdout();
+
+    while let Some(frame) = body.frame().await {
+        let frame = frame?;
+        if let Ok(chunk) = frame.into_data() {
+            stdout.write_all(&chunk).await?;
+        }
+    }
+    stdout.flush().await?;
+    Ok(())
 }
 
 #[cfg(test)]
