@@ -290,6 +290,25 @@ fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
         .boxed()
 }
 
+pub async fn exec(
+    addr: &str,
+    script: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let res = request::request(addr, Method::POST, "exec", None, script, None).await?;
+
+    let mut body = res.into_body();
+    let mut stdout = tokio::io::stdout();
+
+    while let Some(frame) = body.frame().await {
+        let frame = frame?;
+        if let Ok(chunk) = frame.into_data() {
+            stdout.write_all(&chunk).await?;
+        }
+    }
+    stdout.flush().await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

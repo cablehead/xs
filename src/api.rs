@@ -53,6 +53,7 @@ enum Routes {
     CasGet(ssri::Integrity),
     CasPost,
     Import,
+    Exec,
     Version,
     NotFound,
     BadRequest(String),
@@ -146,6 +147,7 @@ fn match_route(
 
         (&Method::POST, "/cas") => Routes::CasPost,
         (&Method::POST, "/import") => Routes::Import,
+        (&Method::POST, "/exec") => Routes::Exec,
 
         (&Method::GET, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
             Ok(id) => Routes::StreamItemGet(id),
@@ -231,6 +233,8 @@ async fn handle(
         } => handle_head_get(&store, &topic, follow, context_id).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
+
+        Routes::Exec => handle_exec(&store, req.into_body()).await,
 
         Routes::NotFound => response_404(),
         Routes::BadRequest(msg) => response_400(msg),
@@ -573,6 +577,171 @@ fn empty() -> BoxBody<Bytes, BoxError> {
         .boxed()
 }
 
+async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
+    // Read the script from the request body
+    let bytes = body.collect().await?.to_bytes();
+    let script =
+        String::from_utf8(bytes.to_vec()).map_err(|e| format!("Invalid UTF-8 in script: {e}"))?;
+
+    // Create nushell engine with store helper commands
+    let mut engine =
+        nu::Engine::new().map_err(|e| format!("Failed to create nushell engine: {e}"))?;
+
+    // Use system context for exec commands
+    let context_id = crate::store::ZERO_CONTEXT;
+
+    // Add store helper commands to the engine scope
+    engine
+        .add_commands(vec![
+            Box::new(nu::commands::cat_command::CatCommand::new(
+                store.clone(),
+                context_id,
+            )),
+            Box::new(nu::commands::head_command::HeadCommand::new(
+                store.clone(),
+                context_id,
+            )),
+            Box::new(nu::commands::get_command::GetCommand::new(store.clone())),
+            Box::new(nu::commands::cas_command::CasCommand::new(store.clone())),
+            Box::new(nu::commands::append_command::AppendCommand::new(
+                store.clone(),
+                context_id,
+                serde_json::Value::Null,
+            )),
+            Box::new(nu::commands::remove_command::RemoveCommand::new(
+                store.clone(),
+            )),
+        ])
+        .map_err(|e| format!("Failed to add commands to engine: {e}"))?;
+
+    // Execute the script
+    let result = engine
+        .eval(nu_protocol::PipelineData::empty(), script)
+        .map_err(|e| format!("Script execution failed:\n{e}"))?;
+
+    // Format output based on PipelineData type according to spec
+    match result {
+        nu_protocol::PipelineData::ByteStream(stream, ..) => {
+            // ByteStream → raw bytes with proper streaming using channel pattern
+            if let Some(mut reader) = stream.reader() {
+                use std::io::Read;
+
+                let (tx, rx) = tokio::sync::mpsc::channel(16);
+
+                // Spawn sync task to read from nushell Reader and send to channel
+                std::thread::spawn(move || {
+                    let mut buffer = [0u8; 8192];
+                    loop {
+                        match reader.read(&mut buffer) {
+                            Ok(0) => break, // EOF
+                            Ok(n) => {
+                                let chunk = Bytes::copy_from_slice(&buffer[..n]);
+                                if tx
+                                    .blocking_send(Ok(hyper::body::Frame::data(chunk)))
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx.blocking_send(Err(
+                                    Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                });
+
+                let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                let body = StreamBody::new(stream).boxed();
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(body)?)
+            } else {
+                // No reader available, return empty response
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(empty())?)
+            }
+        }
+        nu_protocol::PipelineData::ListStream(stream, ..) => {
+            // ListStream → JSONL stream with proper streaming using channel pattern
+            let (tx, rx) = tokio::sync::mpsc::channel(16);
+
+            // Spawn sync task to iterate stream and send JSONL to channel
+            std::thread::spawn(move || {
+                for value in stream.into_iter() {
+                    match serde_json::to_vec(&value) {
+                        Ok(mut json_bytes) => {
+                            json_bytes.push(b'\n'); // Add newline for JSONL
+                            let chunk = Bytes::from(json_bytes);
+                            if tx
+                                .blocking_send(Ok(hyper::body::Frame::data(chunk)))
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.blocking_send(Err(
+                                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+                            ));
+                            break;
+                        }
+                    }
+                }
+            });
+
+            let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+            let body = StreamBody::new(stream).boxed();
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/x-ndjson")
+                .body(body)?)
+        }
+        nu_protocol::PipelineData::Value(value, ..) => {
+            match &value {
+                nu_protocol::Value::String { .. }
+                | nu_protocol::Value::Int { .. }
+                | nu_protocol::Value::Float { .. }
+                | nu_protocol::Value::Bool { .. } => {
+                    // Single primitive value → raw text
+                    let text = match value {
+                        nu_protocol::Value::String { val, .. } => val.clone(),
+                        nu_protocol::Value::Int { val, .. } => val.to_string(),
+                        nu_protocol::Value::Float { val, .. } => val.to_string(),
+                        nu_protocol::Value::Bool { val, .. } => val.to_string(),
+                        _ => value.into_string().unwrap_or_else(|_| "".to_string()),
+                    };
+                    Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "text/plain")
+                        .body(full(text))?)
+                }
+                _ => {
+                    // Single structured value → JSON
+                    let json = nu::value_to_json(&value);
+                    let json_string = serde_json::to_string(&json)
+                        .map_err(|e| format!("Failed to serialize JSON: {e}"))?;
+                    Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "application/json")
+                        .body(full(json_string))?)
+                }
+            }
+        }
+        nu_protocol::PipelineData::Empty => {
+            // Empty → nothing
+            Ok(Response::builder()
+                .status(StatusCode::NO_CONTENT)
+                .body(empty())?)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -590,5 +759,76 @@ mod tests {
             match_route(&Method::GET, "/head/test", &headers, Some("follow=true")),
             Routes::HeadGet { topic, follow: true, context_id: _ } if topic == "test"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_handle_exec_logic() {
+        // Test the core nushell execution logic by testing the engine directly
+        use crate::nu::Engine;
+        use crate::store::Store;
+        use nu_protocol::PipelineData;
+
+        // Create a temporary store for testing
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Create nushell engine with store helper commands
+        let mut engine = Engine::new().unwrap();
+
+        // Use system context for exec commands
+        let context_id = crate::store::ZERO_CONTEXT;
+
+        // Add store helper commands to the engine scope
+        engine
+            .add_commands(vec![
+                Box::new(crate::nu::commands::cat_command::CatCommand::new(
+                    store.clone(),
+                    context_id,
+                )),
+                Box::new(crate::nu::commands::head_command::HeadCommand::new(
+                    store.clone(),
+                    context_id,
+                )),
+                Box::new(crate::nu::commands::get_command::GetCommand::new(
+                    store.clone(),
+                )),
+                Box::new(crate::nu::commands::cas_command::CasCommand::new(
+                    store.clone(),
+                )),
+                Box::new(crate::nu::commands::append_command::AppendCommand::new(
+                    store.clone(),
+                    context_id,
+                    serde_json::Value::Null,
+                )),
+                Box::new(crate::nu::commands::remove_command::RemoveCommand::new(
+                    store.clone(),
+                )),
+            ])
+            .unwrap();
+
+        // Test simple string expression
+        let result = engine
+            .eval(PipelineData::empty(), r#""hello world""#.to_string())
+            .unwrap();
+
+        match result {
+            PipelineData::Value(value, ..) => {
+                let text = value.into_string().unwrap();
+                assert_eq!(text, "hello world");
+            }
+            _ => panic!("Expected Value, got {:?}", result),
+        }
+
+        // Test simple math expression - result should be an integer
+        let result = engine
+            .eval(PipelineData::empty(), "2 + 3".to_string())
+            .unwrap();
+
+        match result {
+            PipelineData::Value(nu_protocol::Value::Int { val, .. }, ..) => {
+                assert_eq!(val, 5);
+            }
+            _ => panic!("Expected Int Value, got {:?}", result),
+        }
     }
 }
