@@ -65,6 +65,8 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
             .map(serde_json::Value::Number)
             .unwrap_or(serde_json::Value::Null),
         Value::String { val, .. } => serde_json::Value::String(val.clone()),
+        Value::Filesize { val, .. } => serde_json::Value::Number(val.get().into()),
+        Value::Date { val, .. } => serde_json::Value::String(val.to_rfc3339()),
         Value::List { vals, .. } => {
             serde_json::Value::Array(vals.iter().map(value_to_json).collect())
         }
