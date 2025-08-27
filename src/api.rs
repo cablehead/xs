@@ -674,7 +674,8 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
             // Spawn sync task to iterate stream and send JSONL to channel
             std::thread::spawn(move || {
                 for value in stream.into_iter() {
-                    match serde_json::to_vec(&value) {
+                    let json = nu::value_to_json(&value);
+                    match serde_json::to_vec(&json) {
                         Ok(mut json_bytes) => {
                             json_bytes.push(b'\n'); // Add newline for JSONL
                             let chunk = Bytes::from(json_bytes);

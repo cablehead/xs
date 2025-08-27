@@ -379,6 +379,40 @@ async fn test_exec_bytestream_behavior() {
     assert!(!output_str.starts_with('{')); // Not a JSON object
 }
 
+#[tokio::test]
+async fn test_exec_ls_outputs_plain_json() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, "ls Cargo.toml")
+        .read()
+        .unwrap();
+
+    let line = output.lines().next().expect("expected ls output");
+    let record: serde_json::Value = serde_json::from_str(line).unwrap();
+    let obj = record.as_object().expect("record should be object");
+
+    assert_eq!(obj.get("name").unwrap(), "Cargo.toml");
+    assert!(obj.get("size").unwrap().is_number());
+    assert!(obj.get("modified").unwrap().is_string());
+    assert!(!obj.contains_key("Record"));
+    assert!(!obj.contains_key("Span"));
+
+    child.kill().await.unwrap();
+}
+
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
     let mut child = tokio::process::Command::new(cargo_bin("xs"))
         .arg("serve")
