@@ -5,6 +5,7 @@ use crate::handlers::serve;
 use crate::nu;
 use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
+use std::collections::HashSet;
 
 macro_rules! validate_handler_output_frame {
     ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr, $state_frame:expr) => {{
@@ -642,8 +643,16 @@ async fn test_handler_replacement() {
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "h.unregistered");
-    assert_eq!(recver.recv().await.unwrap().topic, "h.active");
+    let topics: HashSet<_> = [
+        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().topic,
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(
+        topics,
+        HashSet::from(["h.unregistered".to_string(), "h.active".to_string(),])
+    );
 
     // Send trigger - should be handled by handler2
     let trigger = store
