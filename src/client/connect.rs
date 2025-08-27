@@ -83,11 +83,32 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
 
             tracing::info!("Connecting to iroh node: {}", node_addr.node_id);
 
-            // Connect to the node using the proper ALPN
-            let conn = endpoint
-                .connect(node_addr, ALPN)
-                .await
-                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
+            // Connect to the node using the proper ALPN with retry logic
+            let mut backoff = std::time::Duration::from_millis(100);
+            let mut conn = None;
+            for attempt in 1..=3 {
+                match endpoint.connect(node_addr.clone(), ALPN).await {
+                    Ok(c) => {
+                        conn = Some(c);
+                        break;
+                    }
+                    Err(e) => {
+                        if attempt < 3 {
+                            tracing::warn!(
+                                "Connection attempt {} failed, retrying in {:?}: {}",
+                                attempt,
+                                backoff,
+                                e
+                            );
+                            tokio::time::sleep(backoff).await;
+                            backoff *= 2;
+                        } else {
+                            return Err(Box::new(std::io::Error::other(e)) as BoxError);
+                        }
+                    }
+                }
+            }
+            let conn = conn.unwrap();
 
             tracing::info!("Successfully connected to iroh node");
 

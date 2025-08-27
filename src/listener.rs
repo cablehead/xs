@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use iroh::endpoint::{RecvStream, SendStream};
-use iroh::{Endpoint, RelayMode, SecretKey};
+use iroh::{Endpoint, RelayMode, SecretKey, Watcher};
 use iroh_base::ticket::NodeTicket;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, UnixListener};
@@ -216,19 +216,9 @@ impl Listener {
 
             tracing::debug!("Iroh endpoint bound successfully");
 
-            // Wait for the endpoint to figure out its address before making a ticket
-            if let Ok(Some(relay)) = endpoint.home_relay().get() {
-                tracing::debug!("Using relay: {}", relay);
-            } else {
-                tracing::debug!("No relay configured");
-            }
-
-            tracing::debug!("Relay initialized successfully");
-
-            let node_addr = endpoint.node_addr().await.map_err(|e| {
-                tracing::error!("Failed to get node address: {}", e);
-                io::Error::other(format!("Failed to get node address: {}", e))
-            })?;
+            // Wait for the endpoint to be fully ready before creating ticket
+            endpoint.home_relay().initialized().await;
+            let node_addr = endpoint.node_addr().initialized().await;
 
             // Create a proper NodeTicket
             let ticket = NodeTicket::new(node_addr.clone()).to_string();
