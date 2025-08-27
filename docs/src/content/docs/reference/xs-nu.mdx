@@ -2,10 +2,12 @@
 title: xs.nu
 description: Nushell convenience functions that wrap the xs CLI with pipeline-friendly interfaces
 sidebar:
-  order: 1.5
+  order: 1.1
 ---
 
 The `xs.nu` module provides Nushell-friendly wrappers around the core `xs` CLI commands, enabling seamless pipeline integration and environment-aware operations.
+
+All functions automatically use the `$env.XS_ADDR` environment variable when connecting to stores, supporting local paths, TCP addresses, and [iroh](https://www.iroh.computer) peer-to-peer QUIC connections. See [Exposing Streams](../exposing-streams/) reference for connection setup and remote access configuration.
 
 ## Installation
 
