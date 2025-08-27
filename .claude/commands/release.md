@@ -62,7 +62,12 @@ notes.**
 
 - Run `cargo publish` to publish to crates.io
 
-### 7. Manual Verification Required
+### 7. Website Update
+
+- Update `../www.cross.stream/www/index.html` release badge with new version, release date, and URL
+- Commit and push website changes
+
+### 8. Manual Verification Required
 
 **⚠️ macOS Verification Needed**
 
