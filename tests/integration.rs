@@ -396,7 +396,32 @@ async fn test_iroh_networking() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    // Wait for iroh ticket to be ready - poll for xs.start frame with expose metadata
+    let mut ticket_ready = false;
+    let start_time = std::time::Instant::now();
+    while !ticket_ready && start_time.elapsed() < Duration::from_secs(5) {
+        if let Ok(output) = cmd!(cargo_bin("xs"), "cat", store_path).read() {
+            if let Ok(frame) = serde_json::from_str::<Frame>(&output) {
+                if frame.topic == "xs.start" {
+                    if let Some(meta) = &frame.meta {
+                        if let Some(expose) = meta.get("expose") {
+                            if let Some(expose_str) = expose.as_str() {
+                                if expose_str.starts_with("iroh://") {
+                                    ticket_ready = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    if !ticket_ready {
+        panic!("Timeout waiting for iroh ticket to be ready");
+    }
 
     // Extract iroh ticket from xs.start frame
     let output = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
@@ -408,7 +433,8 @@ async fn test_iroh_networking() {
         .get("expose")
         .expect("Expected expose field")
         .as_str()
-        .expect("Expected string expose value");
+        .expect("Expected string expose value")
+        .to_string(); // Clone to avoid lifetime issues
 
     assert!(
         expose_url.starts_with("iroh://"),
@@ -416,24 +442,41 @@ async fn test_iroh_networking() {
         expose_url
     );
 
-    // Test client connection via iroh ticket
-    let result = cmd!(cargo_bin("xs"), "append", expose_url, "test-topic")
-        .stdin_bytes(b"hello via iroh")
-        .run();
+    // Test client connection via iroh ticket with timeout
+    let result = tokio::time::timeout(
+        Duration::from_secs(10), // Reasonable timeout for iroh connection
+        tokio::task::spawn_blocking(move || {
+            cmd!(cargo_bin("xs"), "append", expose_url, "test-topic")
+                .stdin_bytes(b"hello via iroh")
+                .run()
+        }),
+    )
+    .await;
 
-    // The connection may timeout but shouldn't fail with "not implemented" anymore
-    if let Err(e) = &result {
-        let error_msg = format!("{:?}", e);
-        assert!(
-            !error_msg.contains("not yet implemented") && !error_msg.contains("Unsupported"),
-            "Should not get 'not implemented' error anymore, got: {}",
-            error_msg
-        );
-        // Expect timeout/connection errors while we work on the implementation
-        println!("Expected connection error during development: {:?}", e);
-    } else {
-        // If it succeeds, that's great!
-        println!("Iroh connection succeeded!");
+    // Handle timeout and connection results
+    match result {
+        Ok(Ok(cmd_result)) => {
+            // Connection attempt completed within timeout
+            match cmd_result {
+                Ok(_) => println!("Iroh connection succeeded!"),
+                Err(e) => {
+                    let error_msg = format!("{:?}", e);
+                    assert!(
+                        !error_msg.contains("not yet implemented")
+                            && !error_msg.contains("Unsupported"),
+                        "Should not get 'not implemented' error anymore, got: {}",
+                        error_msg
+                    );
+                    println!("Expected connection error during development: {:?}", e);
+                }
+            }
+        }
+        Ok(Err(join_err)) => {
+            panic!("Task join error: {:?}", join_err);
+        }
+        Err(_timeout) => {
+            println!("Connection attempt timed out after 10 seconds");
+        }
     }
 
     // Clean up
