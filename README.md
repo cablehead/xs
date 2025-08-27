@@ -100,3 +100,5 @@ share ideas.
   a local Unix domain socket for subscriptions, etc.
 - [Nushell](https://www.nushell.sh): for scripting and
   [interop](https://utopia.rosano.ca/interoperable-visions/)
+- [iroh](https://www.iroh.computer): QUIC-based P2P transport for exposing and
+  accessing streams

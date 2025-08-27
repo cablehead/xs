@@ -390,21 +390,31 @@ pub async fn serve(
     engine: nu::Engine,
     expose: Option<String>,
 ) -> Result<(), BoxError> {
-    if let Err(e) = store.append(
-        Frame::builder("xs.start", store::ZERO_CONTEXT)
-            .maybe_meta(expose.as_ref().map(|e| serde_json::json!({"expose": e})))
-            .build(),
-    ) {
-        tracing::error!("Failed to append xs.start frame: {}", e);
-    }
-
     let path = store.path.join("sock").to_string_lossy().to_string();
     let listener = Listener::bind(&path).await?;
 
     let mut listeners = vec![listener];
+    let mut expose_meta = None;
 
     if let Some(expose) = expose {
-        listeners.push(Listener::bind(&expose).await?);
+        let expose_listener = Listener::bind(&expose).await?;
+
+        // Check if this is an iroh listener and get the ticket
+        if let Some(ticket) = expose_listener.get_ticket() {
+            expose_meta = Some(serde_json::json!({"expose": format!("iroh://{}", ticket)}));
+        } else {
+            expose_meta = Some(serde_json::json!({"expose": expose}));
+        }
+
+        listeners.push(expose_listener);
+    }
+
+    if let Err(e) = store.append(
+        Frame::builder("xs.start", store::ZERO_CONTEXT)
+            .maybe_meta(expose_meta)
+            .build(),
+    ) {
+        tracing::error!("Failed to append xs.start frame: {}", e);
     }
 
     let mut tasks = Vec::new();

@@ -7,6 +7,7 @@ pub enum ConnectionKind {
     Unix(std::path::PathBuf),
     Tcp { host: String, port: u16 },
     Tls { host: String, port: u16 },
+    Iroh { ticket: String },
 }
 
 #[derive(Debug, PartialEq)]
@@ -23,6 +24,23 @@ impl RequestParts {
         path: &str,
         query: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Iroh case
+        if addr.starts_with("iroh://") {
+            let ticket = addr.strip_prefix("iroh://").unwrap_or(addr);
+            return Ok(RequestParts {
+                uri: if let Some(q) = query {
+                    format!("http://localhost/{path}?{q}")
+                } else {
+                    format!("http://localhost/{path}")
+                },
+                host: None,
+                authorization: None,
+                connection: ConnectionKind::Iroh {
+                    ticket: ticket.to_string(),
+                },
+            });
+        }
+
         // Unix socket case
         if addr.starts_with('/') || addr.starts_with('.') {
             let socket_path = if std::path::Path::new(addr).is_dir() {

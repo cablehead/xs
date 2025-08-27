@@ -39,13 +39,19 @@ xs serve <path> [--expose <LISTEN_ADDR>]
 | Option                   | Description                                                       |
 | ------------------------ | ----------------------------------------------------------------- |
 | `<path>`                 | Path to the store                                                 |
-| `--expose <LISTEN_ADDR>` | Expose the API on an additional address ([HOST]:PORT or `<PATH>`) |
+| `--expose <LISTEN_ADDR>` | Expose the API on an additional address ([HOST]:PORT, `<PATH>`, or `iroh://`) |
 
-Example:
+Examples:
 
 ```sh
+# Expose on TCP port
 xs serve ./store --expose 127.0.0.1:8080
+
+# Expose via iroh for peer-to-peer QUIC connections  
+xs serve ./store --expose iroh://
 ```
+
+See the [Exposing Streams](../exposing-streams/) reference for detailed networking options.
 
 ### `cat`
 
@@ -57,7 +63,7 @@ xs cat <addr> [options]
 
 | Option                          | Description                                     |
 | ------------------------------- | ----------------------------------------------- |
-| `<addr>`                        | Address to connect to `[HOST]:PORT` or `<PATH>` |
+| `<addr>`                        | Address to connect to ([HOST]:PORT, `<PATH>`, or `iroh://...`) |
 | `--follow`, `-f`                | Follow the stream for new events                |
 | `--pulse <ms>`, `-p <ms>`       | Send synthetic `xs.pulse` events at interval    |
 | `--tail`, `-t`                  | Begin reading from the end of the stream        |
@@ -68,11 +74,20 @@ xs cat <addr> [options]
 | `--all`, `-a`                   | Retrieve frames across all contexts             |
 | `--topic <topic>`, `-T <topic>` | Filter frames by topic                          |
 
-Example:
+Examples:
 
 ```sh
+# Local store
 xs cat ./store --follow
+
+# Remote TCP connection
+xs cat :3021 --follow
+
+# Peer-to-peer via iroh QUIC
+xs cat iroh://nodeac4lrf7r5hyq...crjpx6ajinb2hi4d --follow
 ```
+
+See [Exposing Streams](../exposing-streams/) reference for connection details.
 
 ### `append`
 
@@ -106,7 +121,7 @@ xs cas <addr> <hash>
 
 | Option   | Description                     |
 | -------- | ------------------------------- |
-| `<addr>` | Address to connect to           |
+| `<addr>` | Address to connect to ([HOST]:PORT, `<PATH>`, or `iroh://...`) |
 | `<hash>` | Hash of the content to retrieve |
 
 ### `cas-post`
@@ -196,7 +211,7 @@ xs exec <addr> <script>
 
 | Option     | Description                                                |
 | ---------- | ---------------------------------------------------------- |
-| `<addr>`   | Address to connect to [HOST]:PORT or `<PATH>` for Unix domain socket |
+| `<addr>`   | Address to connect to ([HOST]:PORT, `<PATH>`, or `iroh://...`) |
 | `<script>` | Nushell script to execute, or "-" to read from stdin      |
 
 The exec command runs a Nushell script with access to store helper commands like `.cat`, `.append`, `.head`, `.get`, `.cas`, and `.remove`. 
@@ -264,7 +279,9 @@ Example:
 xs nu --install
 ```
 
-The `xs.nu` module provides Nushell-friendly convenience functions that wrap these CLI commands with pipeline support and environment awareness. See the [xs.nu reference](/reference/xs-nu/) for detailed documentation of all available functions.
+The `xs.nu` module provides Nushell-friendly convenience functions that wrap these CLI commands with pipeline support and environment awareness. The module automatically uses `$env.XS_ADDR` when connecting to remote stores.
+
+See the [xs.nu reference](../xs-nu/) for detailed documentation of all available functions and the [Exposing Streams](../exposing-streams/) reference for remote connection setup.
 
 ### `scru128`
 

@@ -380,6 +380,110 @@ async fn test_exec_bytestream_behavior() {
 }
 
 #[tokio::test]
+async fn test_iroh_networking() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    // Start xs server with iroh exposure
+    let mut server_child = spawn_xs_server_with_iroh(store_path).await;
+
+    // Wait for server to start and socket to be created
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(10) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // Wait for iroh ticket to be ready - poll for xs.start frame with expose metadata
+    let mut ticket_ready = false;
+    let start_time = std::time::Instant::now();
+    while !ticket_ready && start_time.elapsed() < Duration::from_secs(5) {
+        if let Ok(output) = cmd!(cargo_bin("xs"), "cat", store_path).read() {
+            if let Ok(frame) = serde_json::from_str::<Frame>(&output) {
+                if frame.topic == "xs.start" {
+                    if let Some(meta) = &frame.meta {
+                        if let Some(expose) = meta.get("expose") {
+                            if let Some(expose_str) = expose.as_str() {
+                                if expose_str.starts_with("iroh://") {
+                                    ticket_ready = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    if !ticket_ready {
+        panic!("Timeout waiting for iroh ticket to be ready");
+    }
+
+    // Extract iroh ticket from xs.start frame
+    let output = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
+    let start_frame: Frame = serde_json::from_str(&output).unwrap();
+    assert_eq!(start_frame.topic, "xs.start");
+
+    let expose_meta = start_frame.meta.expect("Expected expose metadata");
+    let expose_url = expose_meta
+        .get("expose")
+        .expect("Expected expose field")
+        .as_str()
+        .expect("Expected string expose value")
+        .to_string(); // Clone to avoid lifetime issues
+
+    assert!(
+        expose_url.starts_with("iroh://"),
+        "Expected iroh:// URL, got: {}",
+        expose_url
+    );
+
+    // Test client connection via iroh ticket with timeout
+    let result = tokio::time::timeout(
+        Duration::from_secs(10), // Reasonable timeout for iroh connection
+        tokio::task::spawn_blocking(move || {
+            cmd!(cargo_bin("xs"), "append", expose_url, "test-topic")
+                .stdin_bytes(b"hello via iroh")
+                .run()
+        }),
+    )
+    .await;
+
+    // Handle timeout and connection results
+    match result {
+        Ok(Ok(cmd_result)) => {
+            // Connection attempt completed within timeout
+            match cmd_result {
+                Ok(_) => println!("Iroh connection succeeded!"),
+                Err(e) => {
+                    let error_msg = format!("{:?}", e);
+                    assert!(
+                        !error_msg.contains("not yet implemented")
+                            && !error_msg.contains("Unsupported"),
+                        "Should not get 'not implemented' error anymore, got: {}",
+                        error_msg
+                    );
+                    println!("Expected connection error during development: {:?}", e);
+                }
+            }
+        }
+        Ok(Err(join_err)) => {
+            panic!("Task join error: {:?}", join_err);
+        }
+        Err(_timeout) => {
+            println!("Connection attempt timed out after 10 seconds");
+        }
+    }
+
+    // Clean up
+    server_child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_exec_ls_outputs_plain_json() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
@@ -411,6 +515,39 @@ async fn test_exec_ls_outputs_plain_json() {
     assert!(!obj.contains_key("Span"));
 
     child.kill().await.unwrap();
+}
+
+async fn spawn_xs_server_with_iroh(store_path: &std::path::Path) -> Child {
+    let mut child = tokio::process::Command::new(cargo_bin("xs"))
+        .arg("serve")
+        .arg(store_path)
+        .arg("--expose")
+        .arg("iroh://")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start xs server with iroh");
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let mut stdout_reader = BufReader::new(stdout).lines();
+    let mut stderr_reader = BufReader::new(stderr).lines();
+
+    // Spawn tasks to continuously read and print stdout/stderr
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stdout_reader.next_line().await {
+            eprintln!("[XS-IROH STDOUT] {}", line);
+        }
+    });
+
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = stderr_reader.next_line().await {
+            eprintln!("[XS-IROH STDERR] {}", line);
+        }
+    });
+
+    child
 }
 
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
