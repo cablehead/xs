@@ -600,7 +600,11 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Use system context for exec commands
     let context_id = crate::store::ZERO_CONTEXT;
 
-    // Add store helper commands to the engine scope
+    // Add core commands
+    nu::add_core_commands(&mut engine, store)
+        .map_err(|e| format!("Failed to add core commands to engine: {e}"))?;
+
+    // Add context-specific commands
     engine
         .add_commands(vec![
             Box::new(nu::commands::cat_command::CatCommand::new(
@@ -611,18 +615,13 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                 store.clone(),
                 context_id,
             )),
-            Box::new(nu::commands::get_command::GetCommand::new(store.clone())),
-            Box::new(nu::commands::cas_command::CasCommand::new(store.clone())),
             Box::new(nu::commands::append_command::AppendCommand::new(
                 store.clone(),
                 context_id,
                 serde_json::Value::Null,
             )),
-            Box::new(nu::commands::remove_command::RemoveCommand::new(
-                store.clone(),
-            )),
         ])
-        .map_err(|e| format!("Failed to add commands to engine: {e}"))?;
+        .map_err(|e| format!("Failed to add context commands to engine: {e}"))?;
 
     // Execute the script
     let result = engine
@@ -789,7 +788,10 @@ mod tests {
         // Use system context for exec commands
         let context_id = crate::store::ZERO_CONTEXT;
 
-        // Add store helper commands to the engine scope
+        // Add core commands
+        crate::nu::add_core_commands(&mut engine, &store).unwrap();
+
+        // Add context-specific commands
         engine
             .add_commands(vec![
                 Box::new(crate::nu::commands::cat_command::CatCommand::new(
@@ -800,19 +802,10 @@ mod tests {
                     store.clone(),
                     context_id,
                 )),
-                Box::new(crate::nu::commands::get_command::GetCommand::new(
-                    store.clone(),
-                )),
-                Box::new(crate::nu::commands::cas_command::CasCommand::new(
-                    store.clone(),
-                )),
                 Box::new(crate::nu::commands::append_command::AppendCommand::new(
                     store.clone(),
                     context_id,
                     serde_json::Value::Null,
-                )),
-                Box::new(crate::nu::commands::remove_command::RemoveCommand::new(
-                    store.clone(),
                 )),
             ])
             .unwrap();

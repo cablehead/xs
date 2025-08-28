@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::handlers::Handler;
 use crate::nu;
-use crate::nu::commands;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 async fn start_handler(
@@ -40,11 +39,7 @@ pub async fn serve(
     store: Store,
     mut engine: nu::Engine,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    engine.add_commands(vec![
-        Box::new(commands::cas_command::CasCommand::new(store.clone())),
-        Box::new(commands::get_command::GetCommand::new(store.clone())),
-        Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
-    ])?;
+    nu::add_core_commands(&mut engine, &store)?;
     engine.add_alias(".rm", ".remove")?;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
