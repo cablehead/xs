@@ -92,7 +92,7 @@ $env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
         }
 
         let since = (scru128-since $frame.id $env.state.last_sent)
-        let interval =  (($env.state.heartbeat_interval / 1000) * 0.9)
+        let interval = (($env.state.heartbeat_interval * 0.9) * 1ms)
         if ($since > $interval) {
             op heartbeat | .send
             $env.state.last_ack = null
