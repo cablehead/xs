@@ -5,6 +5,8 @@ use nu_protocol::{
 };
 use serde_json::Value as JsonValue;
 
+use crate::nu::util;
+
 #[derive(Clone, Default)]
 pub struct Scru128Command;
 
@@ -87,33 +89,40 @@ impl Command for Scru128Command {
                     }
                 })?;
 
-                // Convert JSON to Nushell Value, converting timestamp to datetime
-                let mut record = Record::new();
-                if let JsonValue::Object(obj) = result {
-                    for (key, value) in obj {
-                        let nu_value = if key == "timestamp" && value.is_f64() {
-                            // Convert timestamp float to Nushell datetime
-                            let timestamp_ms = (value.as_f64().unwrap() * 1000.0) as i64;
-                            Value::Date {
-                                val: chrono::DateTime::from_timestamp_millis(timestamp_ms)
-                                    .unwrap_or_else(chrono::Utc::now)
-                                    .into(),
-                                internal_span: span,
-                            }
-                        } else {
-                            json_to_nu_value(&value, span)?
+                // Convert JSON to Nushell Value using existing utility, with timestamp conversion
+                let mut nu_value = util::json_to_value(&result, span);
+
+                // Convert timestamp field from float to datetime if it exists
+                if let Value::Record { val: record, .. } = &mut nu_value {
+                    if let Some(Value::Float {
+                        val: timestamp_float,
+                        ..
+                    }) = record.get("timestamp")
+                    {
+                        let timestamp_ms = (*timestamp_float * 1000.0) as i64;
+                        let datetime_value = Value::Date {
+                            val: chrono::DateTime::from_timestamp_millis(timestamp_ms)
+                                .unwrap_or_else(chrono::Utc::now)
+                                .into(),
+                            internal_span: span,
                         };
-                        record.push(key, nu_value);
+                        // Create new record with updated timestamp
+                        let mut new_record = Record::new();
+                        for (key, value) in record.iter() {
+                            if key == "timestamp" {
+                                new_record.push(key.clone(), datetime_value.clone());
+                            } else {
+                                new_record.push(key.clone(), value.clone());
+                            }
+                        }
+                        nu_value = Value::Record {
+                            val: new_record.into(),
+                            internal_span: span,
+                        };
                     }
                 }
 
-                Ok(PipelineData::Value(
-                    Value::Record {
-                        val: record.into(),
-                        internal_span: span,
-                    },
-                    None,
-                ))
+                Ok(PipelineData::Value(nu_value, None))
             }
             Some("pack") => {
                 // Get record from argument or pipeline
@@ -134,8 +143,32 @@ impl Command for Scru128Command {
                     }
                 };
 
-                // Convert Nushell Value to JSON, handling datetime conversion
-                let json_value = nu_value_to_json(&components, span)?;
+                // Convert Nushell Value to JSON, with custom datetime handling for timestamp field
+                let mut json_value = util::value_to_json(&components);
+
+                // Convert timestamp field from RFC3339 string back to float if it's a datetime
+                if let JsonValue::Object(ref mut obj) = json_value {
+                    if let Some(JsonValue::String(timestamp_str)) = obj.get("timestamp") {
+                        // Check if this was originally a datetime by trying to parse the RFC3339 string
+                        if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                            let timestamp_float = datetime.timestamp_millis() as f64 / 1000.0;
+                            obj.insert(
+                                "timestamp".to_string(),
+                                JsonValue::Number(
+                                    serde_json::Number::from_f64(timestamp_float).ok_or_else(
+                                        || ShellError::GenericError {
+                                            error: "Invalid timestamp".into(),
+                                            msg: "Could not convert datetime to timestamp".into(),
+                                            span: Some(span),
+                                            help: None,
+                                            inner: vec![],
+                                        },
+                                    )?,
+                                ),
+                            );
+                        }
+                    }
+                }
 
                 // Pack the components
                 let result = crate::scru128::pack_from_json(json_value).map_err(|e| {
@@ -182,100 +215,5 @@ impl Command for Scru128Command {
                 ))
             }
         }
-    }
-}
-
-#[allow(clippy::result_large_err)]
-fn json_to_nu_value(json: &JsonValue, span: nu_protocol::Span) -> Result<Value, ShellError> {
-    match json {
-        JsonValue::String(s) => Ok(Value::String {
-            val: s.clone(),
-            internal_span: span,
-        }),
-        JsonValue::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(Value::Int {
-                    val: i,
-                    internal_span: span,
-                })
-            } else if let Some(f) = n.as_f64() {
-                Ok(Value::Float {
-                    val: f,
-                    internal_span: span,
-                })
-            } else {
-                Err(ShellError::GenericError {
-                    error: "Invalid number".into(),
-                    msg: "Could not convert JSON number".into(),
-                    span: Some(span),
-                    help: None,
-                    inner: vec![],
-                })
-            }
-        }
-        _ => Err(ShellError::GenericError {
-            error: "Unsupported type".into(),
-            msg: "JSON type not supported".into(),
-            span: Some(span),
-            help: None,
-            inner: vec![],
-        }),
-    }
-}
-
-#[allow(clippy::result_large_err)]
-fn nu_value_to_json(value: &Value, span: nu_protocol::Span) -> Result<JsonValue, ShellError> {
-    match value {
-        Value::Record { val, .. } => {
-            let mut obj = serde_json::Map::new();
-            for (key, val) in val.iter() {
-                let json_val = match val {
-                    Value::String { val, .. } => JsonValue::String(val.clone()),
-                    Value::Int { val, .. } => JsonValue::Number((*val).into()),
-                    Value::Float { val, .. } => {
-                        JsonValue::Number(serde_json::Number::from_f64(*val).ok_or_else(|| {
-                            ShellError::GenericError {
-                                error: "Invalid float".into(),
-                                msg: "Could not convert float to JSON".into(),
-                                span: Some(span),
-                                help: None,
-                                inner: vec![],
-                            }
-                        })?)
-                    }
-                    Value::Date { val, .. } => {
-                        // Convert datetime to timestamp float (seconds with millisecond precision)
-                        let timestamp_ms = val.timestamp_millis() as f64 / 1000.0;
-                        JsonValue::Number(serde_json::Number::from_f64(timestamp_ms).ok_or_else(
-                            || ShellError::GenericError {
-                                error: "Invalid timestamp".into(),
-                                msg: "Could not convert datetime to timestamp".into(),
-                                span: Some(span),
-                                help: None,
-                                inner: vec![],
-                            },
-                        )?)
-                    }
-                    _ => {
-                        return Err(ShellError::GenericError {
-                            error: "Unsupported type".into(),
-                            msg: "Value type not supported for JSON conversion".to_string(),
-                            span: Some(span),
-                            help: None,
-                            inner: vec![],
-                        })
-                    }
-                };
-                obj.insert(key.clone(), json_val);
-            }
-            Ok(JsonValue::Object(obj))
-        }
-        _ => Err(ShellError::GenericError {
-            error: "Invalid input".into(),
-            msg: "Expected record for pack operation".into(),
-            span: Some(span),
-            help: None,
-            inner: vec![],
-        }),
     }
 }
