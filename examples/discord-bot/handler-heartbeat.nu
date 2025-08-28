@@ -48,8 +48,8 @@ def "op resume" [token: string, session_id: string, seq: int] {
 ### end op.nu
 
 def "scru128-since" [$id1, $id2] {
-    let t1 = ($id1 | scru128 parse | into int)
-    let t2 = ($id2 | scru128 parse | into int)
+    let t1 = ($id1 | .id unpack | get timestamp)
+    let t2 = ($id2 | .id unpack | get timestamp)
     return ($t1 - $t2)
 }
 

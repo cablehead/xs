@@ -34,7 +34,6 @@ discord.ws.send                      discord.ws.recv
 Required to run:
 
 - https://github.com/vi/websocat
-- [scru128-cli](https://github.com/cablehead/scru128-cli)- needed for `scru128-since`
 
 ```
 % xs serve ./store
