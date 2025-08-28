@@ -39,6 +39,16 @@ mod tests {
         serde_json::from_value(value).expect("Failed to deserialize JSON into Frame")
     }
 
+    fn setup_scru128_test_env() -> Engine {
+        let (_store, mut engine, _ctx) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(
+                commands::scru128_command::Scru128Command::new(),
+            )])
+            .unwrap();
+        engine
+    }
+
     #[test]
     fn test_append_command() {
         let (store, mut engine, ctx) = setup_test_env();
@@ -281,13 +291,7 @@ mod tests {
 
     #[test]
     fn test_scru128_generate() {
-        let (_store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
-            .unwrap();
-
+        let engine = setup_scru128_test_env();
         let id_value = nu_eval(&engine, PipelineData::empty(), ".id");
 
         let id_string = id_value.as_str().unwrap();
@@ -297,14 +301,7 @@ mod tests {
 
     #[test]
     fn test_scru128_unpack() {
-        let (_store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
-            .unwrap();
-
-        // Test with a known SCRU128 ID
+        let engine = setup_scru128_test_env();
         let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
         let unpacked = nu_eval(
             &engine,
@@ -327,14 +324,7 @@ mod tests {
 
     #[test]
     fn test_scru128_unpack_pipeline() {
-        let (_store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
-            .unwrap();
-
-        // Test unpack via pipeline input
+        let engine = setup_scru128_test_env();
         let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
         let unpacked = nu_eval(
             &engine,
@@ -354,14 +344,7 @@ mod tests {
 
     #[test]
     fn test_scru128_pack() {
-        let (_store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
-            .unwrap();
-
-        // Create components record
+        let engine = setup_scru128_test_env();
         let components =
             r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
         let packed = nu_eval(
@@ -377,14 +360,7 @@ mod tests {
 
     #[test]
     fn test_scru128_pack_pipeline() {
-        let (_store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
-            .unwrap();
-
-        // Test pack via pipeline input
+        let engine = setup_scru128_test_env();
         let components =
             r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
         let packed = nu_eval(
@@ -400,14 +376,8 @@ mod tests {
 
     #[test]
     fn test_scru128_round_trip() {
-        let (_store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
-            .unwrap();
+        let engine = setup_scru128_test_env();
 
-        // Generate an ID, unpack it, then pack it back
         let original_id = nu_eval(&engine, PipelineData::empty(), ".id");
         let original_id_str = original_id.as_str().unwrap();
 
@@ -419,28 +389,19 @@ mod tests {
         let repacked = nu_eval(&engine, PipelineData::Value(unpacked, None), ".id pack");
         let repacked_id_str = repacked.as_str().unwrap();
 
-        // The IDs should match (round-trip test)
         assert_eq!(original_id_str, repacked_id_str);
     }
 
     #[test]
     fn test_scru128_invalid_id() {
-        let (_store, mut engine, _ctx) = setup_test_env();
-        engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
-            .unwrap();
+        let engine = setup_scru128_test_env();
 
-        // Test unpack with an invalid ID - this should result in an error that gets caught by the engine
-        // We test that the engine handles the error gracefully by checking that it doesn't panic
         let engine_clone = engine.clone();
         let result = std::thread::spawn(move || {
             engine_clone.eval(PipelineData::empty(), ".id unpack invalid_id".to_string())
         })
         .join();
 
-        // The thread should complete (not panic), but the result should be an error
         assert!(result.is_ok());
         assert!(result.unwrap().is_err());
     }
