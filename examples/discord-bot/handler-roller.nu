@@ -10,7 +10,7 @@ def map-values [closure: closure] {
 
 def parse-roller [] {
   parse --regex '\./roll (?P<dice>\d+)d(?P<sides>\d+)(?:\+(?P<modifier>\d+))?' | & {
-    update modifier {if $in == "" {"0"} else {$in}} | map-values {into int}
+    update modifier {if ($in | is-empty) {"0"} else {$in}} | map-values {into int}
   }
 }
 

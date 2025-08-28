@@ -5,3 +5,4 @@ pub mod cat_command;
 pub mod get_command;
 pub mod head_command;
 pub mod remove_command;
+pub mod scru128_command;

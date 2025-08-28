@@ -9,6 +9,8 @@ use nu_protocol::engine::{Job, ThreadJob};
 use nu_protocol::{OutDest, PipelineData, ShellError, Span, Value};
 
 use crate::error::Error;
+use crate::nu::commands;
+use crate::store::Store;
 
 #[derive(Clone)]
 pub struct Engine {
@@ -310,4 +312,14 @@ impl Engine {
             }
         }
     }
+}
+
+/// Add core cross.stream commands that are common across all Nushell pipeline runners
+pub fn add_core_commands(engine: &mut Engine, store: &Store) -> Result<(), Error> {
+    engine.add_commands(vec![
+        Box::new(commands::cas_command::CasCommand::new(store.clone())),
+        Box::new(commands::get_command::GetCommand::new(store.clone())),
+        Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
+        Box::new(commands::scru128_command::Scru128Command::new()),
+    ])
 }

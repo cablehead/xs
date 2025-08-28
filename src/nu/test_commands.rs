@@ -2,6 +2,7 @@
 mod tests {
     use nu_protocol::{PipelineData, Span, Value};
     use serde_json::json;
+    use std::str::FromStr;
     use tempfile::TempDir;
 
     use crate::error::Error;
@@ -36,6 +37,16 @@ mod tests {
     fn value_to_frame(value: Value) -> Frame {
         let value = util::value_to_json(&value);
         serde_json::from_value(value).expect("Failed to deserialize JSON into Frame")
+    }
+
+    fn setup_scru128_test_env() -> Engine {
+        let (_store, mut engine, _ctx) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(
+                commands::scru128_command::Scru128Command::new(),
+            )])
+            .unwrap();
+        engine
     }
 
     #[test]
@@ -276,5 +287,122 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_scru128_generate() {
+        let engine = setup_scru128_test_env();
+        let id_value = nu_eval(&engine, PipelineData::empty(), ".id");
+
+        let id_string = id_value.as_str().unwrap();
+        assert!(id_string.len() > 20); // SCRU128 IDs are 25 characters
+        assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
+    }
+
+    #[test]
+    fn test_scru128_unpack() {
+        let engine = setup_scru128_test_env();
+        let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
+        let unpacked = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!(".id unpack {}", test_id),
+        );
+
+        assert!(unpacked.as_record().is_ok());
+        let record = unpacked.as_record().unwrap();
+
+        // Verify expected fields are present
+        assert!(record.get("timestamp").is_some());
+        assert!(record.get("counter_hi").is_some());
+        assert!(record.get("counter_lo").is_some());
+        assert!(record.get("node").is_some());
+
+        // Verify timestamp is a datetime
+        assert!(record.get("timestamp").unwrap().as_date().is_ok());
+    }
+
+    #[test]
+    fn test_scru128_unpack_pipeline() {
+        let engine = setup_scru128_test_env();
+        let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
+        let unpacked = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!("\"{}\" | .id unpack", test_id),
+        );
+
+        assert!(unpacked.as_record().is_ok());
+        let record = unpacked.as_record().unwrap();
+
+        // Verify expected fields are present
+        assert!(record.get("timestamp").is_some());
+        assert!(record.get("counter_hi").is_some());
+        assert!(record.get("counter_lo").is_some());
+        assert!(record.get("node").is_some());
+    }
+
+    #[test]
+    fn test_scru128_pack() {
+        let engine = setup_scru128_test_env();
+        let components =
+            r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
+        let packed = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!(".id pack {}", components),
+        );
+
+        let id_string = packed.as_str().unwrap();
+        assert!(id_string.len() > 20); // SCRU128 IDs are 25 characters
+        assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
+    }
+
+    #[test]
+    fn test_scru128_pack_pipeline() {
+        let engine = setup_scru128_test_env();
+        let components =
+            r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
+        let packed = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!("{} | .id pack", components),
+        );
+
+        let id_string = packed.as_str().unwrap();
+        assert!(id_string.len() > 20); // SCRU128 IDs are 25 characters
+        assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
+    }
+
+    #[test]
+    fn test_scru128_round_trip() {
+        let engine = setup_scru128_test_env();
+
+        let original_id = nu_eval(&engine, PipelineData::empty(), ".id");
+        let original_id_str = original_id.as_str().unwrap();
+
+        let unpacked = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!("\"{}\" | .id unpack", original_id_str),
+        );
+        let repacked = nu_eval(&engine, PipelineData::Value(unpacked, None), ".id pack");
+        let repacked_id_str = repacked.as_str().unwrap();
+
+        assert_eq!(original_id_str, repacked_id_str);
+    }
+
+    #[test]
+    fn test_scru128_invalid_id() {
+        let engine = setup_scru128_test_env();
+
+        let engine_clone = engine.clone();
+        let result = std::thread::spawn(move || {
+            engine_clone.eval(PipelineData::empty(), ".id unpack invalid_id".to_string())
+        })
+        .join();
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_err());
     }
 }

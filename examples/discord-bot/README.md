@@ -1,6 +1,10 @@
 ## run through
 
-This is a presentation I gave at the [Creative Code Toronto](https://www.meetup.com/creative-code-toronto/) [Sep '24 meetup](https://www.meetup.com/creative-code-toronto/events/303276625/?eventOrigin=group_events_list) :: [slides](https://cablehead.github.io/creative-codie/) :: [video](https://www.youtube.com/watch?v=Y2rsm5ohDrg&list=PL_YfqG2SCOAK52A4VQ7r7m9laijKSbmUB&index=2)
+This is a presentation I gave at the
+[Creative Code Toronto](https://www.meetup.com/creative-code-toronto/)
+[Sep '24 meetup](https://www.meetup.com/creative-code-toronto/events/303276625/?eventOrigin=group_events_list)
+:: [slides](https://cablehead.github.io/creative-codie/) ::
+[video](https://www.youtube.com/watch?v=Y2rsm5ohDrg&list=PL_YfqG2SCOAK52A4VQ7r7m9laijKSbmUB&index=2)
 
 <img src="https://github.com/user-attachments/assets/26bc887f-f3bc-456f-ab16-8913ae414a73" width="600px" />
 
@@ -34,7 +38,15 @@ discord.ws.send                      discord.ws.recv
 Required to run:
 
 - https://github.com/vi/websocat
-- [scru128-cli](https://github.com/cablehead/scru128-cli)- needed for `scru128-since`
+
+Clone the repository:
+
+```
+git clone https://github.com/cablehead/xs.git
+cd xs
+```
+
+Start the xs server:
 
 ```
 % xs serve ./store
@@ -42,26 +54,48 @@ Required to run:
 
 In another session:
 
+Load xs.nu and set store path:
+
 ```nushell
 use xs.nu *
+$env.XS_ADDR = realpath ./store
+```
 
+Spawn Discord websocket connection:
+
+```nushell
 r#'{
   run: {|| websocat "wss://gateway.discord.gg/?v=10&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines },
   duplex: true
 }'# | .append discord.ws.spawn
+```
 
-# append the access token to use to the stream
+Add your Discord bot token:
+
+```nushell
 "<token>" | .append discord.ws.token
+```
 
-# add the heartbeat handler to authenticate and maintain an active connection
+Register heartbeat handler for authentication:
+
+```nushell
 open examples/discord-bot/handler-heartbeat.nu | .append "discord.heartbeat.register"
+```
 
-# add the discord.nu module for working with discord's REST API
-# https://github.com/cablehead/discord.nu
+At this point, all messages sent to the Discord server will be available on the
+event stream. You can build from there, creating handlers that take action for
+specific messages. For example, we could register a handler that looks for
+messages in the form `./roll 1d4` and responds with a dice roll.
+
+Load Discord REST API module:
+
+```nushell
 http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu | .append discord.nu
+```
 
-# we can now register additional handlers to add functionality to the bot
-# for example, to enable a `./roll <n>d<m>` command
+Register dice roll handler:
+
+```nushell
 open examples/discord-bot/handler-roller.nu | .append "discord.roller.register"
 ```
 
@@ -81,5 +115,3 @@ discord app command create 1227338584814649364 dice "make a dice roll" --options
 # enable the command handler
 open examples/discord-bot/handler-slash-dice.nu | .append "discord.slash-dice.register"
 ```
-
-
