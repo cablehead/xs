@@ -36,6 +36,11 @@ Required to run:
 - https://github.com/vi/websocat
 
 ```
+git clone https://github.com/cablehead/xs.git
+cd xs
+```
+
+```
 % xs serve ./store
 ```
 
@@ -43,24 +48,29 @@ In another session:
 
 ```nushell
 use xs.nu *
+$env.XS_ADDR = realpath ./store
+```
 
+```nushell
 r#'{
   run: {|| websocat "wss://gateway.discord.gg/?v=10&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines },
   duplex: true
 }'# | .append discord.ws.spawn
+```
 
-# append the access token to use to the stream
+```nushell
 "<token>" | .append discord.ws.token
+```
 
-# add the heartbeat handler to authenticate and maintain an active connection
+```nushell
 open examples/discord-bot/handler-heartbeat.nu | .append "discord.heartbeat.register"
+```
 
-# add the discord.nu module for working with discord's REST API
-# https://github.com/cablehead/discord.nu
+```nushell
 http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu | .append discord.nu
+```
 
-# we can now register additional handlers to add functionality to the bot
-# for example, to enable a `./roll <n>d<m>` command
+```nushell
 open examples/discord-bot/handler-roller.nu | .append "discord.roller.register"
 ```
 
