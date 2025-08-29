@@ -35,25 +35,6 @@
   </a>
 </p>
 
-## About
-
-cross.stream is a local-first [event stream](#whats-an-event-streaming-store)
-store that turns any CLI tool into a reactive component. Stream data through
-Nushell pipelines, spawn external processes as
-[generators](https://cablehead.github.io/xs/reference/generators/), and build
-[handlers](https://cablehead.github.io/xs/reference/handlers/) that
-automatically respond to events.
-
-Unlike traditional databases that store state, cross.stream captures the _flow_
-of events over time. This enables patterns like real-time monitoring, automated
-workflows, and connecting different tools through event streams. You can pipe
-data from one tool to another, trigger actions based on specific events, or
-simply log and replay sequences of commands.
-
-Whether you're building personal automation, prototyping distributed systems, or
-experimenting with data pipelines, cross.stream provides a foundation for
-event-driven computing on your local machine.
-
 ## What's an event streaming store?
 
 If you think of an "event" like a frame in a movie—a small package on a
