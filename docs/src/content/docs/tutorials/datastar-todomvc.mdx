@@ -430,7 +430,7 @@ Now add the `/add` endpoint to your `serve.nu` by adding this case to the match 
 
 ```nushell
 {method: "POST", path: "/add"} => {
-  let text = $body | from json | get input | str trim
+  let text = $in | from json | get input | str trim
   if ($text | is-empty) {
     .response {status: 400}
     "Empty todo text"
