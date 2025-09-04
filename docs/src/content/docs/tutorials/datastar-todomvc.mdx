@@ -294,9 +294,12 @@ Each append immediately triggers a new HTML fragment in your watching terminal, 
 
 ## Serve Over HTTP
 
-Now let's make our todo list available over HTTP. Create a basic `serve.nu` that supports `/` and `/updates` endpoints:
+Now let's make our todo list available over HTTP. Save this closure to a file called `serve.nu`:
 
 ```nushell
+# Point this to wherever you've installed the xs.nu module
+use ~/.config/nushell/modules/xs.nu *
+
 {|req|
   match $req.path {
     "/" => {
@@ -364,7 +367,7 @@ Create an `index.html` that uses Datastar for reactive updates:
 Now run the server:
 
 ```bash
-cat serve.nu | http-nu :3001
+cat serve.nu | http-nu :3001 -
 ```
 
 Visit http://localhost:3001 to see your reactive TodoMVC. The `/` endpoint serves the `index.html` that uses Datastar, while `/updates` is a Server-Sent Events endpoint that runs our generate command and streams HTML fragments to connected browsers.
