@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo App</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/gh/starfederation/datastar@main/bundles/datastar.js"
+    ></script>
+
+    <main>
+      <h1>TodoMVC</h1>
+
+      <header>
+        <label>
+          <input
+            type="checkbox"
+            data-on-click__prevent="@post('/todos/toggle-all')"
+            data-on-load="el.checked = false"
+          />
+          Toggle All
+        </label>
+        <input
+          type="text"
+          placeholder="What needs to be done?"
+          data-signals-input
+          data-bind-input
+          data-on-keydown="
+            evt.key === 'Enter' && $input.trim() && @post('/todos/add') && ($input = '');
+          "
+        />
+      </header>
+
+      <section id="todos-section" data-on-load="@get('/todos/updates')">
+        <!-- Dynamic todo list and footer will be rendered here -->
+      </section>
+    </main>
+  </body>
+</html>
