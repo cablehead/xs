@@ -7,7 +7,7 @@ sidebar:
 
 import { Aside } from "@astrojs/starlight/components";
 
-This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client.
+This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
 
 <Aside type="tip">
   See the complete working example at{" "}
@@ -34,9 +34,7 @@ This tutorial demonstrates the hypermedia/immediate mode approach to web develop
 - [minijinja-cli](https://github.com/mitsuhiko/minijinja) for templating
 - [http-nu](https://github.com/cablehead/http-nu) for serving
 
-## Tutorial Steps
-
-### 1. Add Your First Event
+## Add a Todo
 
 OK! Let's start by adding a todo event to the stream:
 
@@ -54,7 +52,7 @@ OK! Let's start by adding a todo event to the stream:
 ───────┴─────────────────────────────────────────────────────
 ```
 
-### 2. See the Event
+## See the Event
 
 Check what's in the store:
 
@@ -75,7 +73,7 @@ You'll see your event with:
 - `meta.text: "Learn event sourcing"`
 - An auto-generated `id`
 
-### 3. Add Another Event
+## Add Another Todo
 
 Now let's add a second todo and capture the returned frame:
 
@@ -112,7 +110,7 @@ Check the stream again:
 
 Now you see two events. This is the fundamental concept: **events are immutable and append-only**.
 
-### 4. Completing a Todo
+## Completing a Todo
 
 Now we want to mark the second todo as complete. With event streams, you express updates by appending more events:
 
@@ -158,7 +156,7 @@ Check the stream:
 
 You now have three events: two "add" events and one "toggle" event.
 
-### 5. Aggregated View
+## Aggregated View
 
 Raw events are awkward for presenting a summary of the current state of things. We want to create a projection of the stream. We can use an ad-hoc generator to aggregate events into state:
 
@@ -189,34 +187,3 @@ Raw events are awkward for presenting a summary of the current state of things. 
 ```
 
 This shows the current aggregated state: a list of todos with their completion status.
-
-### 6. Real-Time Processing
-
-The complete app uses `project_todo_state` to continuously process the event stream and generate HTML for the browser:
-
-```bash
-# Add threshold to trigger live updates
-.append xs.threshold
-
-# Watch live state processing
-.cat -f | project_todo_state | where active_count? != null
-```
-
-Every new event automatically triggers state recalculation and HTML updates to connected browsers.
-
-## Key Concepts
-
-**Event Sourcing**: Every change is an immutable event in the stream. Current state is derived by replaying events.
-
-**Immediate Mode**: Like game engines, the server continuously renders the complete UI state and sends updates.
-
-**Server-Side Truth**: No client-side state synchronization problems. The server owns all state transitions.
-
-**Hypermedia**: HTML is the application state. UI updates are HTML fragments, not JSON data.
-
-## Next Steps
-
-- Explore the complete example implementation
-- Try building your own hypermedia applications
-- Experiment with different Datastar reactive patterns
-- Scale to multiple concurrent users via xs's built-in event broadcasting
