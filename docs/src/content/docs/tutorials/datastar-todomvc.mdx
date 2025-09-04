@@ -10,31 +10,23 @@ import { Aside } from "@astrojs/starlight/components";
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client.
 
 <Aside type="tip">
-  See the complete working example at
+  See the complete working example at{" "}
   <a
     href="https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc"
     target="_blank"
     rel="noopener noreferrer"
   >
     xs/examples/datastar-todomvc
-  </a>.
+  </a>
+  .
 </Aside>
 
 ## What You'll Learn
 
 - Event sourcing with xs streams
-- Server-driven UI updates via Server-Sent Events
-- Datastar reactive bindings
-- Hypermedia principles: server as single source of truth
-
-## Philosophy
-
-This tutorial demonstrates the hypermedia/immediate mode approach:
-
-- Server is the single source of truth
-- UI is a pure projection of server state
-- Backend blasts HTML fragments to client via SSE
-- No client-side state management needed
+- Server-driven UI updates via Server-Sent Events streaming HTML fragments, no client-side state management
+- [Datastar](https://data-star.dev/) reactive bindings
+- Hypermedia principles: server owns all state, UI is pure projection
 
 ## Prerequisites
 
@@ -83,7 +75,7 @@ Now you see two events. This is the fundamental concept: **events are immutable 
 
 ### 4. Completing a Todo
 
-Now you want to mark the first todo as complete. With event streams, you **cannot modify existing events**. Instead, you append a new event representing the completion:
+Now you want to mark the first todo as complete. With event streams, you express updates by appending more events:
 
 ```bash
 .append todos --meta {action: "toggle", id: "1"}
