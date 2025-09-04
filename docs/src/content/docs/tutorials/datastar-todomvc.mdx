@@ -38,18 +38,34 @@ This tutorial demonstrates the hypermedia/immediate mode approach to web develop
 
 ### 1. Add Your First Event
 
-Start by adding a todo event to the stream:
+OK! Let's start by adding a todo event to the stream:
 
-```bash
-.append todos --meta {action: "add", text: "Learn event sourcing"}
+```bash withOutput
+> .append todos --meta {action: "add", text: "Learn event sourcing"}
+───────┬─────────────────────────────────────────────────────
+ topic │ todos
+ id    │ 03elvd78yq84vp6botmro8jyt
+ hash  │
+ meta  │ ────────┬──────────────────────
+       │  action │ add
+       │  text   │ Learn event sourcing
+       │ ────────┴──────────────────────
+ ttl   │
+───────┴─────────────────────────────────────────────────────
 ```
 
 ### 2. See the Event
 
 Check what's in the store:
 
-```bash
-.cat | where topic == "todos"
+```bash withOutput
+> .cat | where topic == "todos"
+─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
+ 0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Learn event sourcing
+   │       │                           │      │ ────────┴──────────────────────
+───┴───────┴───────────────────────────┴──────┴─────────────────────────────────
 ```
 
 You'll see your event with:
@@ -61,24 +77,57 @@ You'll see your event with:
 
 ### 3. Add Another Event
 
-```bash
-.append todos --meta {action: "add", text: "Build something cool"}
+Now let's add a second todo and capture the returned frame:
+
+```bash withOutput
+> let todo = .append todos --meta {action: "add", text: "Build something cool"}
+> $todo
+───────┬─────────────────────────────────────────────────────
+ topic │ todos
+ id    │ 03elvd8txt25bf13qyggp0cdp
+ hash  │
+ meta  │ ────────┬──────────────────────
+       │  action │ add
+       │  text   │ Build something cool
+       │ ────────┴──────────────────────
+ ttl   │
+───────┴─────────────────────────────────────────────────────
 ```
 
 Check the stream again:
 
-```bash
-.cat | where topic == "todos"
+```bash withOutput
+> .cat | where topic == "todos"
+─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
+ 0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Learn event sourcing
+   │       │                           │      │ ────────┴──────────────────────
+ 1 │ todos │ 03elvd8txt25bf13qyggp0cdp │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Build something cool
+   │       │                           │      │ ────────┴──────────────────────
+───┴───────┴───────────────────────────┴──────┴─────────────────────────────────
 ```
 
 Now you see two events. This is the fundamental concept: **events are immutable and append-only**.
 
 ### 4. Completing a Todo
 
-Now you want to mark the first todo as complete. With event streams, you express updates by appending more events:
+Now we want to mark the second todo as complete. With event streams, you express updates by appending more events:
 
-```bash
-.append todos --meta {action: "toggle", id: "1"}
+```bash withOutput
+> .append todos --meta {action: "toggle", id: $todo.id}
+───────┬─────────────────────────────────────────────────────
+ topic │ todos
+ id    │ 03elvdlutpeeusqvf1xfdf7ig
+ hash  │
+ meta  │ ────────┬───────────────────────────
+       │  action │ toggle
+       │  id     │ 03elvd8txt25bf13qyggp0cdp
+       │ ────────┴───────────────────────────
+ ttl   │
+───────┴─────────────────────────────────────────────────────
 ```
 
 The metadata structure is arbitrary but follows common patterns:
@@ -89,34 +138,54 @@ The metadata structure is arbitrary but follows common patterns:
 
 Check the stream:
 
-```bash
-.cat | where topic == "todos"
+```bash withOutput
+> .cat | where topic == "todos"
+─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
+ 0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Learn event sourcing
+   │       │                           │      │ ────────┴──────────────────────
+ 1 │ todos │ 03elvd8txt25bf13qyggp0cdp │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Build something cool
+   │       │                           │      │ ────────┴──────────────────────
+ 2 │ todos │ 03elvdlutpeeusqvf1xfdf7ig │      │ ────────┬───────────────────────────
+   │       │                           │      │  action │ toggle
+   │       │                           │      │  id     │ 03elvd8txt25bf13qyggp0cdp
+   │       │                           │      │ ────────┴───────────────────────────
+───┴───────┴───────────────────────────┴──────┴─────────────────────────────────
 ```
 
 You now have three events: two "add" events and one "toggle" event.
 
 ### 5. Aggregated View
 
-Raw events aren't useful for the UI. You need current state. Use an ad-hoc generator to aggregate events into state:
+Raw events are awkward for presenting a summary of the current state of things. We want to create a projection of the stream. We can use an ad-hoc generator to aggregate events into state:
 
-```bash
-.cat | where topic == "todos" | generate {|frame, state = {todos: []}|
+```bash withOutput
+> .cat | where topic == "todos" | generate {|frame, state = []|
   match $frame.meta.action {
     "add" => {
-      next: ($state | update todos {append {id: $frame.id, text: $frame.meta.text, completed: false}})
+      let new_state = ($state | append {id: $frame.id, text: $frame.meta.text, completed: false})
+      {out: $new_state, next: $new_state}
     }
     "toggle" => {
-      next: ($state | update todos {each {|todo|
+      let new_state = ($state | each {|todo|
         if $todo.id == $frame.meta.id {
           {id: $todo.id, text: $todo.text, completed: (not $todo.completed)}
         } else {
           $todo
         }
-      }})
+      })
+      {out: $new_state, next: $new_state}
     }
     _ => {next: $state}
   }
 } | last
+─#─┬────────────id─────────────┬─────────text─────────┬─completed─
+ 0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
+ 1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ true
+───┴───────────────────────────┴──────────────────────┴───────────
 ```
 
 This shows the current aggregated state: a list of todos with their completion status.
