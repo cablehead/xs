@@ -301,11 +301,11 @@ Now let's make our todo list available over HTTP. Save this closure to a file ca
 use ~/.config/nushell/modules/xs.nu *
 
 {|req|
-  match $req.path {
-    "/" => {
+  match $req {
+    {method: "GET", path: "/"} => {
       .static "." "index.html"
     }
-    "/updates" => {
+    {method: "GET", path: "/updates"} => {
       .response {headers: {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -395,3 +395,65 @@ let todo = .head todos
 ```
 
 Watch as each event immediately updates the web interface - this is hypermedia-driven reactive programming in action!
+
+## Complete the UI Loop
+
+Let's add an input field so users can add todos directly from the web interface. First, update the `index.html` to include an input field:
+
+```html
+<body>
+  <h1>TodoMVC with Datastar</h1>
+
+  <input
+    type="text"
+    placeholder="What needs to be done?"
+    data-signals-input
+    data-bind-input
+    data-on-keydown="
+      evt.key === 'Enter' && $input.trim() && @post('/add') && ($input = '');
+    "
+  />
+
+  <ul id="todos" data-on-load="@get('/updates')">
+    <li>Loading todos...</li>
+  </ul>
+</body>
+```
+
+The Datastar input attributes:
+
+- `data-signals-input` - creates a signal named `$input` for this field's value
+- `data-bind-input` - binds the field value to the `$input` signal
+- `data-on-keydown` - handles Enter key presses to submit the todo
+
+Now add the `/add` endpoint to your `serve.nu` by adding this case to the match block (you'll need to restart http-nu after updating the file):
+
+```nushell
+{method: "POST", path: "/add"} => {
+  let text = $body | from json | get input | str trim
+  if ($text | is-empty) {
+    .response {status: 400}
+    "Empty todo text"
+  } else {
+    .response {status: 204}
+    .append todos --meta {action: "add" text: $text} | ignore
+  }
+}
+```
+
+This endpoint:
+
+1. Parses the JSON body to extract the `input` field (Datastar sends `{"input": "todo text"}`)
+2. Trims whitespace and checks if the text is empty
+3. If valid, appends a new todo event to the stream
+4. Returns status 204 (No Content) on success
+
+Now the reactive loop is complete. When users type a todo and press Enter:
+
+1. **Browser** → POST to `/add` endpoint with the todo text
+2. **Server** → `.append todos --meta {action: "add" text: $text}` creates a new event in the stream
+3. **SSE endpoint** → `/updates` detects the new event via `.cat -f | where topic == "todos"`
+4. **Stream processing** → Generate command aggregates the new state and renders HTML
+5. **Browser update** → Datastar receives the SSE event and updates the `#todos` element
+
+All connected browsers update simultaneously because they're all listening to the same `/updates` SSE stream.
