@@ -66,13 +66,6 @@ Check what's in the store:
 ───┴───────┴───────────────────────────┴──────┴─────────────────────────────────
 ```
 
-You'll see your event with:
-
-- `topic: "todos"`
-- `meta.action: "add"`
-- `meta.text: "Learn event sourcing"`
-- An auto-generated `id`
-
 ## Add Another Todo
 
 Now let's add a second todo and capture the returned frame:
@@ -92,27 +85,9 @@ Now let's add a second todo and capture the returned frame:
 ───────┴─────────────────────────────────────────────────────
 ```
 
-Check the stream again:
-
-```bash withOutput
-> .cat | where topic == "todos"
-─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
- 0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
-   │       │                           │      │  action │ add
-   │       │                           │      │  text   │ Learn event sourcing
-   │       │                           │      │ ────────┴──────────────────────
- 1 │ todos │ 03elvd8txt25bf13qyggp0cdp │      │ ────────┬──────────────────────
-   │       │                           │      │  action │ add
-   │       │                           │      │  text   │ Build something cool
-   │       │                           │      │ ────────┴──────────────────────
-───┴───────┴───────────────────────────┴──────┴─────────────────────────────────
-```
-
-Now you see two events. This is the fundamental concept: **events are immutable and append-only**.
-
 ## Completing a Todo
 
-Now we want to mark the second todo as complete. With event streams, you express updates by appending more events:
+OK, now let's mark that second todo as complete. With event streams, you express updates by appending more events. We'll make use of metadata to point to the frame we are modifying:
 
 ```bash withOutput
 > .append todos --meta {action: "toggle", id: $todo.id}
@@ -127,12 +102,6 @@ Now we want to mark the second todo as complete. With event streams, you express
  ttl   │
 ───────┴─────────────────────────────────────────────────────
 ```
-
-The metadata structure is arbitrary but follows common patterns:
-
-- `action`: what operation (add, toggle, delete, etc.)
-- `id`: which item to operate on
-- Other fields as needed (`text`, `completed`, etc.)
 
 Check the stream:
 
@@ -160,26 +129,24 @@ You now have three events: two "add" events and one "toggle" event.
 
 Raw events are awkward for presenting a summary of the current state of things. We want to create a projection of the stream. We can use an ad-hoc generator to aggregate events into state:
 
-```bash withOutput
-> .cat | where topic == "todos" | generate {|frame, state = []|
-  match $frame.meta.action {
-    "add" => {
-      let new_state = ($state | append {id: $frame.id, text: $frame.meta.text, completed: false})
-      {out: $new_state, next: $new_state}
-    }
-    "toggle" => {
-      let new_state = ($state | each {|todo|
-        if $todo.id == $frame.meta.id {
-          {id: $todo.id, text: $todo.text, completed: (not $todo.completed)}
-        } else {
-          $todo
-        }
-      })
-      {out: $new_state, next: $new_state}
-    }
-    _ => {next: $state}
-  }
-} | last
+```bash withOutput wrap
+> .cat | where topic == "todos" | generate {|frame, todos = []|
+>   match $frame.meta.action {
+>     "add" => {
+>       $todos
+>       | append {id: $frame.id text: $frame.meta.text completed: false}
+>       | {out: $in next: $in}
+>     }
+>     "toggle" => {
+>       $todos | each {|todo|
+>         if $todo.id == $frame.meta.id {
+>           {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+>         } else { $todo }
+>       } | {out: $in next: $in}
+>     }
+>     _ => {next: $todos}
+>   }
+> } | last
 ─#─┬────────────id─────────────┬─────────text─────────┬─completed─
  0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
  1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ true
