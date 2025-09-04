@@ -1,0 +1,152 @@
+---
+title: Building TodoMVC with Datastar + xs
+description: Learn to build reactive web apps using the hypermedia approach where backend drives UI updates via immediate mode HTML streaming
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client.
+
+<Aside type="tip">
+See the complete working example at 
+<a href="https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc" target="_blank" rel="noopener noreferrer">xs/examples/datastar-todomvc</a>.
+</Aside>
+
+## What You'll Learn
+
+- Event sourcing with xs streams
+- Server-driven UI updates via Server-Sent Events  
+- Datastar reactive bindings
+- Hypermedia principles: server as single source of truth
+
+## Philosophy
+
+This tutorial demonstrates the hypermedia/immediate mode approach:
+- Server is the single source of truth
+- UI is a pure projection of server state  
+- Backend blasts HTML fragments to client via SSE
+- No client-side state management needed
+
+## Prerequisites
+
+- [xs](https://github.com/cablehead/xs) running
+- [minijinja-cli](https://github.com/mitsuhiko/minijinja) for templating
+- [http-nu](https://github.com/cablehead/http-nu) for serving
+
+## Tutorial Steps
+
+### 1. Empty Event Stream
+
+Start by exploring the todo event stream. With xs running, open a terminal:
+
+```bash
+# Watch the empty todos stream
+.cat -f | where topic == "todos"
+```
+
+This shows all todo events as they happen. Initially empty - the backend drives everything from this stream.
+
+```bash  
+# Check what's in the store already
+.cat | where topic == "todos"
+```
+
+### 2. Add First Todo
+
+Create your first todo by appending an event to the stream:
+
+```bash
+.append todos --meta {action: "add", text: "Learn xs"}
+```
+
+In your watching terminal, you'll see the event appear immediately. The event contains:
+- `topic: "todos"` 
+- `meta.action: "add"`  
+- `meta.text: "Learn xs"`
+
+This is pure event sourcing - every todo operation is an immutable event in the stream.
+
+### 3. Stream Processing
+
+Now see how events become state. The `project_todo_state` function processes the event stream:
+
+```bash  
+# Watch processed todo state updates
+.cat -f | project_todo_state | where active_count? != null
+```
+
+Add the threshold event that triggers state output:
+
+```bash
+.append xs.threshold
+```  
+
+You'll see the processed state with `active_count: 1` and your todo in the list. This state drives the HTML that gets sent to the browser.
+
+### 4. Add Multiple Todos
+
+Add more todos and watch state updates in real-time:
+
+```bash
+.append todos --meta {action: "add", text: "Build something cool"}
+.append todos --meta {action: "add", text: "Share with others"}  
+```
+
+Each append triggers immediate state recalculation. Your watching terminal shows `active_count` increasing. The hypermedia principle: every state change instantly becomes new HTML sent to connected browsers.
+
+### 5. Toggle Completion
+
+Mark the first todo as completed by referencing its ID:
+
+```bash
+.append todos --meta {action: "toggle", id: "1"}
+```
+
+Watch the state update: `active_count` decreases, `completed_count` increases. The todo's `completed` field flips to `true`. The server sends HTML with strikethrough styling to browsers instantly.
+
+### 6. Filter Active Todos
+
+Query only incomplete todos from the current state:
+
+```bash
+# See current state
+.cat -f | project_todo_state | where active_count? != null | get todos | where completed == false
+```
+
+The filtering happens server-side. When browsers request "show active only", the server processes the event stream and sends only the relevant HTML.
+
+### 7. Delete and Bulk Operations
+
+Try bulk operations:
+
+```bash
+# Toggle all todos
+.append todos --meta {action: "toggle-all"}
+
+# Clear completed todos  
+.append todos --meta {action: "clear-completed"}
+
+# Delete specific todo
+.append todos --meta {action: "delete", id: "2"}
+```
+
+Each operation is an event that triggers immediate state updates and HTML streaming to all connected clients.
+
+## Key Concepts
+
+**Event Sourcing**: Every change is an immutable event in the stream. Current state is derived by replaying events.
+
+**Immediate Mode**: Like game engines, the server continuously renders the complete UI state and sends updates.
+
+**Server-Side Truth**: No client-side state synchronization problems. The server owns all state transitions.
+
+**Hypermedia**: HTML is the application state. UI updates are HTML fragments, not JSON data.
+
+## Next Steps
+
+- Explore the complete example implementation
+- Try building your own hypermedia applications  
+- Experiment with different Datastar reactive patterns
+- Scale to multiple concurrent users via xs's built-in event broadcasting
