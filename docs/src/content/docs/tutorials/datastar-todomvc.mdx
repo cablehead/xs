@@ -227,7 +227,7 @@ Now let's visualize this projection as HTML fragments. First, save a Jinja2 temp
 > {%- for todo in todos %}
 > <li data-completed="{{ todo.completed }}">
 >   <label>
->     <input type="checkbox" {% if todo.completed %}checked{% endif %} />
+>     <input type="checkbox" {% if todo.completed %}checked{% endif %} disabled />
 >     {{ todo.text }}
 >   </label>
 > </li>
@@ -292,7 +292,7 @@ Now toggle the todo several more times and watch the HTML fragments update in re
 
 Each append immediately triggers a new HTML fragment in your watching terminal, showing the updated todo states.
 
-## Serve Over HTTP
+## Server-Sent Events Endpoint
 
 Now let's make our todo list available over HTTP. Save this closure to a file called `serve.nu`:
 
@@ -342,6 +342,22 @@ use ~/.config/nushell/modules/xs.nu *
 }
 ```
 
+Run the server:
+
+```bash
+cat serve.nu | http-nu :3001 -
+```
+
+Test the SSE endpoint with curl:
+
+```bash
+curl -sN http://localhost:3001/updates
+```
+
+You'll see HTML fragments streaming in Datastar's SSE format as events flow through the todos stream.
+
+## Reactive Web Interface
+
 Create an `index.html` that uses Datastar for reactive updates:
 
 ```html
@@ -364,10 +380,18 @@ Create an `index.html` that uses Datastar for reactive updates:
 </html>
 ```
 
-Now run the server:
+The key Datastar attribute is:
+
+- `data-on-load="@get('/updates')"` - connects to our SSE endpoint when the page loads
+
+Datastar will automatically replace the `#todos` element with HTML fragments streamed from the server.
+
+Visit http://localhost:3001 and then try appending events to see the web page update in real-time:
 
 ```bash
-cat serve.nu | http-nu :3001 -
+.append todos --meta {action: "add", text: "Learn datastar"}
+let todo = .head todos
+.append todos --meta {action: "toggle", id: $todo.id}
 ```
 
-Visit http://localhost:3001 to see your reactive TodoMVC. The `/` endpoint serves the `index.html` that uses Datastar, while `/updates` is a Server-Sent Events endpoint that runs our generate command and streams HTML fragments to connected browsers.
+Watch as each event immediately updates the web interface - this is hypermedia-driven reactive programming in action!
