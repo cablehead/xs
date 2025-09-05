@@ -1,10 +1,12 @@
 # Datastar TodoMVC
 
-TodoMVC implemented with Datastar frontend and [Nushell](https://www.nushell.sh) / [cross.stream](https://cablehead.github.io/xs/) backend.
+TodoMVC implemented with Datastar frontend and [Nushell](https://www.nushell.sh)
+/ [cross.stream](https://cablehead.github.io/xs/) backend.
 
 Based on: https://data-star.dev/examples/todomvc
 
-📖 **[Tutorial: Building TodoMVC with Datastar + xs](https://cablehead.github.io/xs/tutorials/datastar-todomvc/)**
+📖
+**[Tutorial: Building TodoMVC with Datastar + xs](https://cablehead.github.io/xs/tutorials/datastar-todomvc/)**
 
 ## Requirements
 
