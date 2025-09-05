@@ -235,6 +235,40 @@ Now let's visualize this projection as HTML fragments. First, save a Jinja2 temp
 > </ul>'# | save todo_template.html
 ```
 
+### minijinja-cli
+
+[minijinja-cli](https://github.com/mitsuhiko/minijinja) is a fantastic tool that converts JSON to HTML using Jinja2 templates at the command line. In our example:
+
+- `todo_template.html` - the template file
+- `-f json` - expect JSON input format
+- `-` - read the data that will be fed to the template from stdin
+
+```bash withOutput
+> [{
+>   id: "1"
+>   text: "Test todo"
+>   completed: false
+> } {
+>   id: "2"
+>   text: "Done todo"
+>   completed: true
+> }] | {todos: $in} | to json -r | minijinja-cli -f json todo_template.html -
+<ul id="todos">
+<li data-completed="false">
+  <label>
+    <input type="checkbox"  disabled />
+    Test todo
+  </label>
+</li>
+<li data-completed="true">
+  <label>
+    <input type="checkbox" checked disabled />
+    Done todo
+  </label>
+</li>
+</ul>
+```
+
 Now run the live stream with HTML rendering:
 
 ```bash withOutput
