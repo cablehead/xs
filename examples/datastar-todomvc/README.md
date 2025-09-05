@@ -16,7 +16,7 @@ Based on: https://data-star.dev/examples/todomvc
 ## Run
 
 ```bash
-cat serve.nu | http-nu :3001
+cat serve.nu | http-nu :3001 -
 ```
 
 Visit http://localhost:3001
@@ -34,5 +34,5 @@ Visit http://localhost:3001
 ## Tests
 
 ```bash
-nu -c 'source serve.nu; __test_all'
+nu -c 'source projection_test.nu; __test_all'
 ```
