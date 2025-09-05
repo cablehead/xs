@@ -10,15 +10,8 @@ import { Aside } from "@astrojs/starlight/components";
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
 
 <Aside type="tip">
-  See the complete working example at{" "}
-  <a
-    href="https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc"
-    target="_blank"
-    rel="noopener noreferrer"
-  >
-    xs/examples/datastar-todomvc
-  </a>
-  .
+  See the complete working example at
+  [xs/examples/datastar-todomvc](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc).
 </Aside>
 
 ## What You'll Learn
@@ -36,7 +29,7 @@ This tutorial demonstrates the hypermedia/immediate mode approach to web develop
 
 ## Add a Todo
 
-OK! Let's start by adding a todo event to the stream:
+What may not be intuitive about event sourcing - and by extension, [Datastar's](https://data-star.dev) hypermedia approach - is when you have an idea, you don't start with the UI. You start with the event stream. I like to call this "stream driven development". So, we're making a todo app? Let's start by adding a todo event to the stream and build from there:
 
 ```bash withOutput
 > .append todos --meta {action: "add", text: "Learn event sourcing"}
