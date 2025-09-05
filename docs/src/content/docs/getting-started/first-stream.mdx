@@ -227,7 +227,7 @@ Finally, let's pull a list of all our notes.
 We can filter directly by topic using `--topic` and then use the `each` command to pull out the content of each note:
 
 ```nushell withOutput
-> .cat --topic notes | each {.cas}
+> .cat | where topic == "notes" | each { .cas $in.hash }
 ───┬───────────────────
 0 │ a quick note
 1 │ submit TPS report

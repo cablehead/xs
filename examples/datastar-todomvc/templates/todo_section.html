@@ -1,0 +1,36 @@
+<section id="todos-section">
+  {% if todos %}
+  <ul>
+    {% for todo in todos %}
+    <li {% if todo.completed %} data-completed="true" {% endif %}>
+      <label>
+        <input
+          type="checkbox"
+          data-on-load="el.checked = {{ todo.completed | lower }}"
+          data-on-click__prevent="@post('/todos/{{ todo.id }}/toggle')"
+        />
+        {{ todo.text }}
+      </label>
+      <button type="button" data-on-click="@delete('/todos/{{ todo.id }}')">
+        Delete
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No todos yet. Add one above!</p>
+  {% endif %}
+
+  <footer>
+    <p>
+      <strong>{{ active_count }}</strong> {% if active_count == 1 %}item{% else
+      %}items{% endif %} pending
+    </p>
+    {% if completed_count > 0 %}
+    <button type="button" data-on-click="@delete('/todos/completed')">
+      Clear {{ completed_count }} completed {% if completed_count == 1 %}item{%
+      else %}items{% endif %}
+    </button>
+    {% endif %}
+  </footer>
+</section>

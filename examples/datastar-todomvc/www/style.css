@@ -1,0 +1,163 @@
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #2a2a2a;
+  --text-primary: #ffffff;
+  --text-secondary: #cccccc;
+  --text-muted: #666666;
+  --accent: #ff6600;
+  --border: #333333;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: monospace;
+  font-size: 1.1em;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  margin: 0;
+  padding: 2em;
+  line-height: 1.4;
+}
+
+main {
+  max-width: 40em;
+  margin: 0 auto;
+}
+
+h1 {
+  color: var(--accent);
+  font-size: 2.5em;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 2em;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+header {
+  background: var(--bg-secondary);
+  padding: 1.5em;
+  margin-bottom: 1em;
+  border: 2px solid var(--border);
+}
+
+header label {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1em;
+  font-weight: bold;
+}
+
+header input[type="checkbox"] {
+  width: 1.5em;
+  height: 1.5em;
+  margin-right: 0.75em;
+  accent-color: var(--accent);
+}
+
+header input[type="text"] {
+  width: 100%;
+  padding: 1em;
+  font-size: 1em;
+  font-family: inherit;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 2px solid var(--border);
+  outline: none;
+}
+
+header input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+header input[type="text"]::placeholder {
+  color: var(--text-muted);
+}
+
+section {
+  background: var(--bg-secondary);
+  border: 2px solid var(--border);
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+li {
+  padding: 1em;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+li:last-child {
+  border-bottom: none;
+}
+
+li[data-completed="true"] {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+li label {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  cursor: pointer;
+}
+
+input[type="checkbox"] {
+  width: 1.2em;
+  height: 1.2em;
+  margin-right: 0.75em;
+  accent-color: var(--accent);
+}
+
+button {
+  padding: 0.5em 1em;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: bold;
+  font-size: 0.9em;
+  text-transform: uppercase;
+}
+
+button:hover {
+  background: var(--text-primary);
+}
+
+footer {
+  padding: 1em;
+  background: var(--bg-tertiary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+}
+
+footer p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+footer strong {
+  color: var(--accent);
+}
+
+p {
+  padding: 2em;
+  text-align: center;
+  color: var(--text-muted);
+  margin: 0;
+  font-weight: bold;
+}

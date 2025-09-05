@@ -1,0 +1,488 @@
+---
+title: TodoMVC with Datastar
+description: Learn to build reactive web apps using the hypermedia approach where backend drives UI updates via immediate mode HTML streaming
+sidebar:
+  order: 3
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
+
+![Datastar TodoMVC Demo](../../../assets/datastar.gif)
+
+<Aside type="tip">
+  See the complete working example at
+  [xs/examples/datastar-todomvc](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc).
+</Aside>
+
+## What You'll Learn
+
+- Event sourcing with xs streams
+- Server-driven UI updates via Server-Sent Events streaming HTML fragments, no client-side state management
+- [Datastar](https://data-star.dev/) reactive bindings
+- Hypermedia principles: server owns all state, UI is pure projection
+
+## Prerequisites
+
+- [xs](https://github.com/cablehead/xs) running
+- [minijinja-cli](https://github.com/mitsuhiko/minijinja) for templating
+- [http-nu](https://github.com/cablehead/http-nu) for serving
+
+## Add a Todo
+
+What may not be intuitive about event sourcing - and by extension, [Datastar's](https://data-star.dev) hypermedia approach - is when you have an idea, you don't start with the UI. You start with the event stream. I like to call this "stream driven development". So, we're making a todo app? Let's start by adding a todo event to the stream and build from there:
+
+```bash withOutput
+> .append todos --meta {action: "add", text: "Learn event sourcing"}
+───────┬─────────────────────────────────────────────────────
+ topic │ todos
+ id    │ 03elvd78yq84vp6botmro8jyt
+ hash  │
+ meta  │ ────────┬──────────────────────
+       │  action │ add
+       │  text   │ Learn event sourcing
+       │ ────────┴──────────────────────
+ ttl   │
+───────┴─────────────────────────────────────────────────────
+```
+
+## See the Event
+
+Check what's in the store:
+
+```bash withOutput
+> .cat | where topic == "todos"
+─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
+ 0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Learn event sourcing
+   │       │                           │      │ ────────┴──────────────────────
+───┴───────┴───────────────────────────┴──────┴─────────────────────────────────
+```
+
+## Add Another Todo
+
+Now let's add a second todo and capture the returned frame:
+
+```bash withOutput
+> let todo = .append todos --meta {action: "add", text: "Build something cool"}
+> $todo
+───────┬─────────────────────────────────────────────────────
+ topic │ todos
+ id    │ 03elvd8txt25bf13qyggp0cdp
+ hash  │
+ meta  │ ────────┬──────────────────────
+       │  action │ add
+       │  text   │ Build something cool
+       │ ────────┴──────────────────────
+ ttl   │
+───────┴─────────────────────────────────────────────────────
+```
+
+## Completing a Todo
+
+OK, now let's mark that second todo as complete. With event streams, you express updates by appending more events. We'll make use of metadata to point to the frame we are modifying:
+
+```bash withOutput
+> .append todos --meta {action: "toggle", id: $todo.id}
+───────┬─────────────────────────────────────────────────────
+ topic │ todos
+ id    │ 03elvdlutpeeusqvf1xfdf7ig
+ hash  │
+ meta  │ ────────┬───────────────────────────
+       │  action │ toggle
+       │  id     │ 03elvd8txt25bf13qyggp0cdp
+       │ ────────┴───────────────────────────
+ ttl   │
+───────┴─────────────────────────────────────────────────────
+```
+
+Check the stream:
+
+```bash withOutput
+> .cat | where topic == "todos"
+─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
+ 0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Learn event sourcing
+   │       │                           │      │ ────────┴──────────────────────
+ 1 │ todos │ 03elvd8txt25bf13qyggp0cdp │      │ ────────┬──────────────────────
+   │       │                           │      │  action │ add
+   │       │                           │      │  text   │ Build something cool
+   │       │                           │      │ ────────┴──────────────────────
+ 2 │ todos │ 03elvdlutpeeusqvf1xfdf7ig │      │ ────────┬───────────────────────────
+   │       │                           │      │  action │ toggle
+   │       │                           │      │  id     │ 03elvd8txt25bf13qyggp0cdp
+   │       │                           │      │ ────────┴───────────────────────────
+───┴───────┴───────────────────────────┴──────┴─────────────────────────────────
+```
+
+You now have three events: two "add" events and one "toggle" event.
+
+## Aggregated View
+
+Raw events are awkward for presenting a summary of the current state of things. We want to create a projection of the stream. We can use an ad-hoc generator to aggregate events into state:
+
+```bash withOutput wrap
+> .cat | where topic == "todos" | generate {|frame, todos = []|
+>   match $frame.meta.action {
+>     "add" => {
+>       $todos
+>       | append {id: $frame.id text: $frame.meta.text completed: false}
+>       | {out: $in next: $in}
+>     }
+>     "toggle" => {
+>       $todos | each {|todo|
+>         if $todo.id == $frame.meta.id {
+>           {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+>         } else { $todo }
+>       } | {out: $in next: $in}
+>     }
+>     _ => {next: $todos}
+>   }
+> } | last
+─#─┬────────────id─────────────┬─────────text─────────┬─completed─
+ 0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
+ 1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ true
+───┴───────────────────────────┴──────────────────────┴───────────
+```
+
+The generate command processes each event to build current state:
+
+1. **Start with empty todos list** - `todos = []`
+2. **Process each frame** - for every event in the stream
+3. **"add" events** - append new todo with `completed: false`
+4. **"toggle" events** - find matching ID and flip completion status
+5. **Output current state** - `{out: $in next: $in}` emits the updated list
+6. **Get final result** - `| last` gives us the current aggregated state
+
+This shows the current aggregated state: a list of todos with their completion status.
+
+## Real-Time Aggregation
+
+Let's see the aggregated projection update in real-time. In a second terminal window, run the [same generate command](#aggregated-view) with live streaming:
+
+```bash withOutput
+> .cat -f | where topic == "todos" | generate {|frame, todos = []|
+>   match $frame.meta.action {
+>     "add" => {
+>       $todos
+>       | append {id: $frame.id text: $frame.meta.text completed: false}
+>       | {out: $in next: $in}
+>     }
+>     "toggle" => {
+>       $todos | each {|todo|
+>         if $todo.id == $frame.meta.id {
+>           {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+>         } else { $todo }
+>       } | {out: $in next: $in}
+>     }
+>     _ => {next: $todos}
+>   }
+> } | each { print ($in | table -e) }
+─#─┬────────────id─────────────┬─────────text─────────┬─completed─
+ 0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
+───┴───────────────────────────┴──────────────────────┴───────────
+
+─#─┬────────────id─────────────┬─────────text─────────┬─completed─
+ 0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
+ 1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ false
+───┴───────────────────────────┴──────────────────────┴───────────
+
+─#─┬────────────id─────────────┬─────────text─────────┬─completed─
+ 0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
+ 1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ true
+───┴───────────────────────────┴──────────────────────┴───────────
+```
+
+You see three outputs - one for each event processed so far. Now toggle that same todo back to incomplete:
+
+```bash withOutput
+> .append todos --meta {action: "toggle", id: $todo.id}
+```
+
+In your watching terminal, you immediately see the new aggregated state:
+
+```bash withOutput
+─#─┬────────────id─────────────┬─────────text─────────┬─completed─
+ 0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
+ 1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ false
+───┴───────────────────────────┴──────────────────────┴───────────
+```
+
+Notice both todos now show as incomplete. The aggregated projection automatically updated in real-time when the new event arrived - this is how reactive systems work with event streams.
+
+## HTML Visualization
+
+Now let's visualize this projection as HTML fragments. First, save a Jinja2 template:
+
+```bash withOutput
+> r#'<ul id="todos">
+> {%- for todo in todos %}
+> <li data-completed="{{ todo.completed }}">
+>   <label>
+>     <input type="checkbox" {% if todo.completed %}checked{% endif %} disabled />
+>     {{ todo.text }}
+>   </label>
+> </li>
+> {% endfor -%}
+> </ul>'# | save todo_template.html
+```
+
+### minijinja-cli
+
+[minijinja-cli](https://github.com/mitsuhiko/minijinja) is a fantastic tool that converts JSON to HTML using Jinja2 templates at the command line. In our example:
+
+- `todo_template.html` - the template file
+- `-f json` - expect JSON input format
+- `-` - read the data that will be fed to the template from stdin
+
+```bash withOutput
+> [{
+>   id: "1"
+>   text: "Test todo"
+>   completed: false
+> } {
+>   id: "2"
+>   text: "Done todo"
+>   completed: true
+> }] | {todos: $in} | to json -r | minijinja-cli -f json todo_template.html -
+<ul id="todos">
+<li data-completed="false">
+  <label>
+    <input type="checkbox"  disabled />
+    Test todo
+  </label>
+</li>
+<li data-completed="true">
+  <label>
+    <input type="checkbox" checked disabled />
+    Done todo
+  </label>
+</li>
+</ul>
+```
+
+Now run the live stream with HTML rendering:
+
+```bash withOutput
+> .cat -f | where topic == "todos" | generate {|frame, todos = []|
+>   match $frame.meta.action {
+>     "add" => {
+>       $todos
+>       | append {id: $frame.id text: $frame.meta.text completed: false}
+>       | {out: $in next: $in}
+>     }
+>     "toggle" => {
+>       $todos | each {|todo|
+>         if $todo.id == $frame.meta.id {
+>           {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+>         } else { $todo }
+>       } | {out: $in next: $in}
+>     }
+>     _ => {next: $todos}
+>   }
+> } | each { {todos: $in} | to json -r | minijinja-cli -f json todo_template.html - | print $in }
+<ul>
+<li data-completed="false">
+  <label>
+    <input type="checkbox"  />
+    Learn event sourcing
+  </label>
+</li>
+</ul>
+
+<ul>
+<li data-completed="false">
+  <label>
+    <input type="checkbox"  />
+    Learn event sourcing
+  </label>
+</li>
+<li data-completed="false">
+  <label>
+    <input type="checkbox"  />
+    Build something cool
+  </label>
+</li>
+</ul>
+
+...
+```
+
+Now toggle the todo several more times and watch the HTML fragments update in real-time:
+
+```bash withOutput
+> .append todos --meta {action: "toggle", id: $todo.id}
+> .append todos --meta {action: "toggle", id: $todo.id}
+> .append todos --meta {action: "toggle", id: $todo.id}
+```
+
+Each append immediately triggers a new HTML fragment in your watching terminal, showing the updated todo states.
+
+## Server-Sent Events Endpoint
+
+Now let's make our todo list available over HTTP. Save this closure to a file called `serve.nu`:
+
+```nushell
+# Point this to wherever you've installed the xs.nu module
+use ~/.config/nushell/modules/xs.nu *
+
+{|req|
+  match $req {
+    {method: "GET", path: "/"} => {
+      .static "." "index.html"
+    }
+    {method: "GET", path: "/updates"} => {
+      .response {headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        "access-control-allow-origin": "*"
+      }}
+
+      .cat -f | where topic == "todos" | generate {|frame, todos = []|
+        match $frame.meta.action {
+          "add" => {
+            $todos
+            | append {id: $frame.id text: $frame.meta.text completed: false}
+            | {out: $in next: $in}
+          }
+          "toggle" => {
+            $todos | each {|todo|
+              if $todo.id == $frame.meta.id {
+                {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+              } else { $todo }
+            } | {out: $in next: $in}
+          }
+          _ => {next: $todos}
+        }
+      } | each {
+        let html = {todos: $in} | to json -r | minijinja-cli -f json todo_template.html -
+        let sse_data = ($html | lines | each {|line| $"data: elements ($line)" } | str join "\n")
+        $"event: datastar-patch-elements\n($sse_data)\n\n"
+      }
+    }
+    _ => {
+      .response {status: 404}
+      "Not Found"
+    }
+  }
+}
+```
+
+Run the server:
+
+```bash
+cat serve.nu | http-nu :3001 -
+```
+
+Test the SSE endpoint with curl:
+
+```bash
+curl -sN http://localhost:3001/updates
+```
+
+You'll see HTML fragments streaming in Datastar's SSE format as events flow through the todos stream.
+
+## Reactive Web Interface
+
+Create an `index.html` that uses Datastar for reactive updates:
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>TodoMVC with Datastar</title>
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/gh/starfederation/datastar@main/bundles/datastar.js"
+    ></script>
+  </head>
+  <body>
+    <h1>TodoMVC with Datastar</h1>
+
+    <ul id="todos" data-on-load="@get('/updates')">
+      <li>Loading todos...</li>
+    </ul>
+  </body>
+</html>
+```
+
+The key Datastar attribute is:
+
+- `data-on-load="@get('/updates')"` - connects to our SSE endpoint when the page loads
+
+Datastar will automatically replace the `#todos` element with HTML fragments streamed from the server.
+
+Visit http://localhost:3001 and then try appending events to see the web page update in real-time:
+
+```bash
+.append todos --meta {action: "add", text: "Learn datastar"}
+let todo = .head todos
+.append todos --meta {action: "toggle", id: $todo.id}
+```
+
+Watch as each event immediately updates the web interface - this is hypermedia-driven reactive programming in action!
+
+## Complete the UI Loop
+
+Let's add an input field so users can add todos directly from the web interface. First, update the `index.html` to include an input field:
+
+```html
+<body>
+  <h1>TodoMVC with Datastar</h1>
+
+  <input
+    type="text"
+    placeholder="What needs to be done?"
+    data-signals-input
+    data-bind-input
+    data-on-keydown="
+      evt.key === 'Enter' && $input.trim() && @post('/add') && ($input = '');
+    "
+  />
+
+  <ul id="todos" data-on-load="@get('/updates')">
+    <li>Loading todos...</li>
+  </ul>
+</body>
+```
+
+The Datastar input attributes:
+
+- `data-signals-input` - creates a signal named `$input` for this field's value
+- `data-bind-input` - binds the field value to the `$input` signal
+- `data-on-keydown` - handles Enter key presses to submit the todo
+
+Now add the `/add` endpoint to your `serve.nu` by adding this case to the match block (you'll need to restart http-nu after updating the file):
+
+```nushell
+{method: "POST", path: "/add"} => {
+  let text = $in | from json | get input | str trim
+  if ($text | is-empty) {
+    .response {status: 400}
+    "Empty todo text"
+  } else {
+    .response {status: 204}
+    .append todos --meta {action: "add" text: $text} | ignore
+  }
+}
+```
+
+This endpoint:
+
+1. Parses the JSON body to extract the `input` field (Datastar sends `{"input": "todo text"}`)
+2. Trims whitespace and checks if the text is empty
+3. If valid, appends a new todo event to the stream
+4. Returns status 204 (No Content) on success
+
+Now the reactive loop is complete. When users type a todo and press Enter:
+
+1. **Browser** → POST to `/add` endpoint with the todo text
+2. **Server** → `.append todos --meta {action: "add" text: $text}` creates a new event in the stream
+3. **SSE endpoint** → `/updates` detects the new event via `.cat -f | where topic == "todos"`
+4. **Stream processing** → Generate command aggregates the new state and renders HTML
+5. **Browser update** → Datastar receives the SSE event and updates the `#todos` element
+
+All connected browsers update simultaneously because they're all listening to the same `/updates` SSE stream.
