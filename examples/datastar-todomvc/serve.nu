@@ -1,5 +1,5 @@
-use /Users/andy/.config/nushell/modules/xs.nu *
-use projection.nu *
+use ../../xs.nu *
+use ./projection.nu *
 
 def do_404 [req: record] {
   .response {status: 404}
