@@ -5,16 +5,27 @@ sidebar:
   order: 3
 ---
 
-import { Aside } from "@astrojs/starlight/components";
+import { Card, CardGrid } from "@astrojs/starlight/components";
 
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
 
 ![Datastar TodoMVC Demo](../../../assets/datastar.gif)
 
-<Aside type="tip">
-  See the complete working example at
-  [xs/examples/datastar-todomvc](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc).
-</Aside>
+<CardGrid>
+  <Card title="Live Demo" icon="rocket">
+    **[Try it live](https://datastar-todomvc.cross.stream)** - see the reactive
+    TodoMVC in action!
+  </Card>
+  <Card title="Original Guide" icon="open-book">
+    **[Datastar's TodoMVC example](https://data-star.dev/examples/todomvc)** -
+    the original implementation this is based on.
+  </Card>
+  <Card title="Source Code" icon="github">
+    **[View on
+    GitHub](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc)**
+    - explore the complete working example.
+  </Card>
+</CardGrid>
 
 ## What You'll Learn
 
@@ -385,7 +396,9 @@ curl -sN http://localhost:3001/updates
 
 You'll see HTML fragments streaming in Datastar's SSE format as events flow through the todos stream.
 
-## Reactive Web Interface
+## Finally, a little Datastar
+
+![Datastar TodoMVC Demo](../../../assets/datastar.gif)
 
 Create an `index.html` that uses Datastar for reactive updates:
 
@@ -409,13 +422,9 @@ Create an `index.html` that uses Datastar for reactive updates:
 </html>
 ```
 
-The key Datastar attribute is:
+When the `#todos` element loads, [`data-on-load`](https://data-star.dev/reference/attributes#data-on-load) executes the [`@get`](https://data-star.dev/reference/actions#get) action to connect to our `/updates` Server-Sent Events endpoint. Datastar receives the streamed HTML fragments and replaces the `#todos` element whenever the todo state changes.
 
-- `data-on-load="@get('/updates')"` - connects to our SSE endpoint when the page loads
-
-Datastar will automatically replace the `#todos` element with HTML fragments streamed from the server.
-
-Visit http://localhost:3001 and then try appending events to see the web page update in real-time:
+Visit http://localhost:3001 and then in your terminal try appending some more events:
 
 ```bash
 .append todos --meta {action: "add", text: "Learn datastar"}
@@ -449,33 +458,19 @@ Let's add an input field so users can add todos directly from the web interface.
 </body>
 ```
 
-The Datastar input attributes:
-
-- `data-signals-input` - creates a signal named `$input` for this field's value
-- `data-bind-input` - binds the field value to the `$input` signal
-- `data-on-keydown` - handles Enter key presses to submit the todo
+The input uses [`data-signals-input`](https://data-star.dev/reference/attributes#data-signals-input) to create a `$input` signal, [`data-bind-input`](https://data-star.dev/reference/attributes#data-bind-input) to sync the field value with the signal, and [`data-on-keydown`](https://data-star.dev/reference/attributes#data-on-keydown) to POST the todo text to our `/add` endpoint when Enter is pressed, then clear the input field.
 
 Now add the `/add` endpoint to your `serve.nu` by adding this case to the match block (you'll need to restart http-nu after updating the file):
 
 ```nushell
 {method: "POST", path: "/add"} => {
   let text = $in | from json | get input | str trim
-  if ($text | is-empty) {
-    .response {status: 400}
-    "Empty todo text"
-  } else {
-    .response {status: 204}
-    .append todos --meta {action: "add" text: $text} | ignore
-  }
+  .response {status: 204}
+  .append todos --meta {action: "add" text: $text} | ignore
 }
 ```
 
-This endpoint:
-
-1. Parses the JSON body to extract the `input` field (Datastar sends `{"input": "todo text"}`)
-2. Trims whitespace and checks if the text is empty
-3. If valid, appends a new todo event to the stream
-4. Returns status 204 (No Content) on success
+This endpoint parses the JSON body to extract the `input` field (Datastar sends `{"input": "todo text"}`), appends a new todo event to the stream, and returns status 204.
 
 Now the reactive loop is complete. When users type a todo and press Enter:
 
