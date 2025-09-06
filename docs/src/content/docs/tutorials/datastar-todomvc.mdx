@@ -5,18 +5,27 @@ sidebar:
   order: 3
 ---
 
-import { Aside } from "@astrojs/starlight/components";
-
-Based on: https://data-star.dev/examples/todomvc
+import { Card, CardGrid } from "@astrojs/starlight/components";
 
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
 
 ![Datastar TodoMVC Demo](../../../assets/datastar.gif)
 
-<Aside type="tip">
-  See the complete working example at
-  [xs/examples/datastar-todomvc](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc).
-</Aside>
+<CardGrid>
+  <Card title="Live Demo" icon="rocket">
+    **[Try it live](https://datastar-todomvc.cross.stream)** - see the reactive
+    TodoMVC in action!
+  </Card>
+  <Card title="Original Guide" icon="open-book">
+    **[Datastar's TodoMVC example](https://data-star.dev/examples/todomvc)** -
+    the original implementation this is based on.
+  </Card>
+  <Card title="Source Code" icon="github">
+    **[View on
+    GitHub](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc)**
+    - explore the complete working example.
+  </Card>
+</CardGrid>
 
 ## What You'll Learn
 
