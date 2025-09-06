@@ -449,33 +449,19 @@ Let's add an input field so users can add todos directly from the web interface.
 </body>
 ```
 
-The Datastar input attributes:
-
-- `data-signals-input` - creates a signal named `$input` for this field's value
-- `data-bind-input` - binds the field value to the `$input` signal
-- `data-on-keydown` - handles Enter key presses to submit the todo
+The input uses [`data-signals-input`](https://data-star.dev/reference/attributes#data-signals-input) to create a `$input` signal, [`data-bind-input`](https://data-star.dev/reference/attributes#data-bind-input) to sync the field value with the signal, and [`data-on-keydown`](https://data-star.dev/reference/attributes#data-on-keydown) to POST the todo text to our `/add` endpoint when Enter is pressed, then clear the input field.
 
 Now add the `/add` endpoint to your `serve.nu` by adding this case to the match block (you'll need to restart http-nu after updating the file):
 
 ```nushell
 {method: "POST", path: "/add"} => {
   let text = $in | from json | get input | str trim
-  if ($text | is-empty) {
-    .response {status: 400}
-    "Empty todo text"
-  } else {
-    .response {status: 204}
-    .append todos --meta {action: "add" text: $text} | ignore
-  }
+  .response {status: 204}
+  .append todos --meta {action: "add" text: $text} | ignore
 }
 ```
 
-This endpoint:
-
-1. Parses the JSON body to extract the `input` field (Datastar sends `{"input": "todo text"}`)
-2. Trims whitespace and checks if the text is empty
-3. If valid, appends a new todo event to the stream
-4. Returns status 204 (No Content) on success
+This endpoint parses the JSON body to extract the `input` field (Datastar sends `{"input": "todo text"}`), appends a new todo event to the stream, and returns status 204.
 
 Now the reactive loop is complete. When users type a todo and press Enter:
 
