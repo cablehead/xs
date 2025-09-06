@@ -387,7 +387,9 @@ curl -sN http://localhost:3001/updates
 
 You'll see HTML fragments streaming in Datastar's SSE format as events flow through the todos stream.
 
-## Reactive Web Interface
+## Finally, a little Datastar
+
+![Datastar TodoMVC Demo](../../../assets/datastar.gif)
 
 Create an `index.html` that uses Datastar for reactive updates:
 
@@ -411,13 +413,9 @@ Create an `index.html` that uses Datastar for reactive updates:
 </html>
 ```
 
-The key Datastar attribute is:
+When the `#todos` element loads, [`data-on-load`](https://data-star.dev/reference/attributes#data-on-load) executes the [`@get`](https://data-star.dev/reference/actions#get) action to connect to our `/updates` Server-Sent Events endpoint. Datastar receives the streamed HTML fragments and replaces the `#todos` element whenever the todo state changes.
 
-- `data-on-load="@get('/updates')"` - connects to our SSE endpoint when the page loads
-
-Datastar will automatically replace the `#todos` element with HTML fragments streamed from the server.
-
-Visit http://localhost:3001 and then try appending events to see the web page update in real-time:
+Visit http://localhost:3001 and then in your terminal try appending some more events:
 
 ```bash
 .append todos --meta {action: "add", text: "Learn datastar"}
