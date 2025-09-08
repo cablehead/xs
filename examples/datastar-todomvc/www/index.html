@@ -14,6 +14,8 @@
 
     <main>
       <h1>TodoMVC</h1>
+      
+      <p style="text-align: center; color: var(--text-secondary); margin: 0 0 2em 0;">A simple todo app demonstrating <a href="https://data-star.dev">Datastar</a> reactivity with <a href="https://cross.stream">cross.stream</a> backend.</p>
 
       <header>
         <label>
@@ -38,6 +40,34 @@
       <section id="todos-section" data-on-load="@get('/todos/updates')">
         <!-- Dynamic todo list and footer will be rendered here -->
       </section>
+
+      <nav style="margin-top: 3em; padding: 2em; background: var(--bg-secondary); border: 2px solid var(--border);">
+        <h3 style="color: var(--accent); text-align: center; margin: 0 0 1.5em 0; font-size: 1.2em; text-transform: uppercase; letter-spacing: 0.1em;">Built with</h3>
+        <ul style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1em; list-style: none; padding: 0; margin: 0;">
+          <li>
+            <a href="https://data-star.dev" style="display: flex; flex-direction: column; align-items: center; padding: 1em; background: var(--bg-tertiary); border: 1px solid var(--border); text-decoration: none; color: var(--text-secondary);">
+              <img src="assets/datastar.gif" alt="Datastar" style="width: 32px; height: 32px; margin-bottom: 0.5em;">
+              <span style="font-weight: bold; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.05em;">Datastar</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/cablehead/http-nu" style="display: flex; flex-direction: column; align-items: center; padding: 1em; background: var(--bg-tertiary); border: 1px solid var(--border); text-decoration: none; color: var(--text-secondary);">
+              <img src="assets/http-nu.png" alt="HTTP-NU" style="width: 32px; height: 32px; margin-bottom: 0.5em;">
+              <span style="font-weight: bold; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.05em;">HTTP-NU</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://www.nushell.sh" style="display: flex; flex-direction: column; align-items: center; padding: 1em; background: var(--bg-tertiary); border: 1px solid var(--border); text-decoration: none; color: var(--text-secondary);">
+              <span style="font-weight: bold; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.05em;">Nushell</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://www.cross.stream" style="display: flex; flex-direction: column; align-items: center; padding: 1em; background: var(--bg-tertiary); border: 1px solid var(--border); text-decoration: none; color: var(--text-secondary);">
+              <span style="font-weight: bold; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.05em;">cross.stream</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
     </main>
   </body>
 </html>
