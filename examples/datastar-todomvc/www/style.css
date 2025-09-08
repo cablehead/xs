@@ -162,35 +162,26 @@ p {
   font-weight: bold;
 }
 
-/* Intro paragraph links */
-p a {
-  color: var(--accent);
-  text-decoration: none;
+/* Intro section link cards */
+div a {
+  transition: all 0.2s ease;
 }
 
-p a:hover {
-  text-decoration: underline;
-}
-
-/* Navigation link hover states */
-nav a:hover {
+div a:hover {
   background: var(--bg-primary) !important;
   border-color: var(--accent) !important;
   color: var(--accent) !important;
+  transform: rotate(0deg) !important;
 }
 
 /* Mobile responsiveness */
 @media (max-width: 768px) {
-  nav ul {
-    grid-template-columns: repeat(2, 1fr) !important;
+  div[style*="padding: 2em"] {
+    padding: 1em !important;
   }
   
-  nav a img {
-    width: 24px !important;
-    height: 24px !important;
-  }
-  
-  nav a span {
-    font-size: 0.8em !important;
+  div a {
+    transform: rotate(0deg) !important;
+    margin: 0.2em !important;
   }
 }
