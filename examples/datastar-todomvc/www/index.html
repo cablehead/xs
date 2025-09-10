@@ -3,7 +3,26 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Todo App</title>
+    <title>TodoMVC - Datastar & cross.stream</title>
+    <meta name="description" content="A simple todo app demonstrating Datastar reactivity with HTTP-NU, Nushell, and cross.stream backend.">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://datastar-todomvc.cross.stream/">
+    <meta property="og:title" content="TodoMVC - Datastar & cross.stream">
+    <meta property="og:description" content="A simple todo app demonstrating Datastar reactivity with HTTP-NU, Nushell, and cross.stream backend.">
+    <meta property="og:image" content="https://datastar-todomvc.cross.stream/og.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="TodoMVC app built with Datastar and cross.stream">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://datastar-todomvc.cross.stream/">
+    <meta property="twitter:title" content="TodoMVC - Datastar & cross.stream">
+    <meta property="twitter:description" content="A simple todo app demonstrating Datastar reactivity with HTTP-NU, Nushell, and cross.stream backend.">
+    <meta property="twitter:image" content="https://datastar-todomvc.cross.stream/og.png">
+    
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
@@ -14,6 +33,33 @@
 
     <main>
       <h1>TodoMVC</h1>
+      <div style="text-align: center; color: var(--text-secondary); margin: 0; padding: 0 1em 0.5em 1em;">
+        <p style="margin: 0; padding-top: 0 !important; line-height: 1.8; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.3em;">
+          A simple todo app demonstrating 
+          <a href="https://data-star.dev/examples/todomvc" class="card" style="transform: rotate(-1.5deg);">
+            <img src="assets/datastar.gif" alt="Datastar" style="width: 24px; height: 24px;">
+            <span>Datastar</span>
+          </a>
+          reactivity with
+          <a href="https://github.com/cablehead/http-nu" class="card" style="transform: rotate(1deg);">
+            <img src="assets/http-nu.png" alt="HTTP-NU" style="width: 48px; height: auto;">
+            <span>HTTP-NU</span>
+          </a>
+          ,
+          <a href="https://www.nushell.sh" class="card" style="transform: rotate(-0.8deg);">
+            <span>Nushell</span>
+          </a>
+          , and
+          <a href="https://www.cross.stream" class="card" style="transform: rotate(1.2deg);">
+            <span>cross.<span style="color: #00bfff;">stream</span></span>
+          </a>
+          . See the
+          <a href="https://cablehead.github.io/xs/tutorials/datastar-todomvc/" class="card" style="transform: rotate(-2deg);">
+            <span>Tutorial</span>
+          </a>
+          for more details.
+        </p>
+      </div>
 
       <header>
         <label>
@@ -38,6 +84,14 @@
       <section id="todos-section" data-on-load="@get('/todos/updates')">
         <!-- Dynamic todo list and footer will be rendered here -->
       </section>
+      
+      <nav style="text-align: center; padding: 2em 0; color: var(--text-muted); font-size: 0.9em;">
+        <a href="https://data-star.dev/examples/todomvc" style="color: var(--text-secondary); text-decoration: none; margin: 0 1em;">Datastar</a>
+        <a href="https://github.com/cablehead/http-nu" style="color: var(--text-secondary); text-decoration: none; margin: 0 1em;">HTTP-NU</a>
+        <a href="https://www.nushell.sh" style="color: var(--text-secondary); text-decoration: none; margin: 0 1em;">Nushell</a>
+        <a href="https://www.cross.stream" style="color: var(--text-secondary); text-decoration: none; margin: 0 1em;">cross.<span style="color: #00bfff;">stream</span></a>
+        <a href="https://cablehead.github.io/xs/tutorials/datastar-todomvc/" style="color: var(--text-secondary); text-decoration: none; margin: 0 1em;">Tutorial</a>
+      </nav>
     </main>
   </body>
 </html>
