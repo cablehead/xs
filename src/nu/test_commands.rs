@@ -54,12 +54,19 @@ mod tests {
             )])
             .unwrap();
 
-        // Test piping a basic string to .append
-        let frame = nu_eval(
-            &engine,
-            PipelineData::empty(),
-            r#""test content" | .append topic"#,
-        );
+        // Test piping a basic string to .append (in spawn_blocking like real commands)
+        let frame = tokio::task::spawn_blocking({
+            let engine = engine.clone();
+            move || {
+                nu_eval(
+                    &engine,
+                    PipelineData::empty(),
+                    r#""test content" | .append topic"#,
+                )
+            }
+        })
+        .await
+        .unwrap();
         let frame = value_to_frame(frame);
         assert_eq!(frame.context_id, ctx.id);
         assert_eq!(frame.topic, "topic");
@@ -68,11 +75,18 @@ mod tests {
         assert_eq!(String::from_utf8(content).unwrap(), "test content");
 
         // Test piping a record to .append
-        let frame = nu_eval(
-            &engine,
-            PipelineData::empty(),
-            r#"{data: 123} | .append arecord"#,
-        );
+        let frame = tokio::task::spawn_blocking({
+            let engine = engine.clone();
+            move || {
+                nu_eval(
+                    &engine,
+                    PipelineData::empty(),
+                    r#"{data: 123} | .append arecord"#,
+                )
+            }
+        })
+        .await
+        .unwrap();
         let frame = value_to_frame(frame);
         assert_eq!(frame.context_id, ctx.id);
         assert_eq!(frame.topic, "arecord");
@@ -86,11 +100,18 @@ mod tests {
         );
 
         // Test custom meta is merged correctly
-        let frame = nu_eval(
-            &engine,
-            PipelineData::empty(),
-            r#".append custom-meta --meta {foo: "bar"}"#,
-        );
+        let frame = tokio::task::spawn_blocking({
+            let engine = engine.clone();
+            move || {
+                nu_eval(
+                    &engine,
+                    PipelineData::empty(),
+                    r#".append custom-meta --meta {foo: "bar"}"#,
+                )
+            }
+        })
+        .await
+        .unwrap();
         let frame = value_to_frame(frame);
         assert_eq!(frame.context_id, ctx.id);
         assert_eq!(frame.topic, "custom-meta");

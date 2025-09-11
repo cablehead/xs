@@ -194,7 +194,7 @@ impl Handler {
 
             // scope the handler's output to the handler's context
             output_frame.context_id = self.context_id;
-            let _ = store.append_sync(output_frame);
+            let _ = store.append(output_frame).await;
         }
 
         Ok(())
@@ -215,17 +215,19 @@ impl Handler {
             if frame.topic == format!("{topic}.register", topic = &self.topic)
                 || frame.topic == format!("{topic}.unregister", topic = &self.topic)
             {
-                let _ = store.append_sync(
-                    Frame::builder(
-                        format!("{topic}.unregistered", topic = &self.topic),
-                        self.context_id,
+                let _ = store
+                    .append(
+                        Frame::builder(
+                            format!("{topic}.unregistered", topic = &self.topic),
+                            self.context_id,
+                        )
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .build(),
                     )
-                    .meta(serde_json::json!({
-                        "handler_id": self.id.to_string(),
-                        "frame_id": frame.id.to_string(),
-                    }))
-                    .build(),
-                );
+                    .await;
                 break;
             }
 
@@ -242,18 +244,20 @@ impl Handler {
             }
 
             if let Err(err) = self.process_frame(&frame, store).await {
-                let _ = store.append_sync(
-                    Frame::builder(
-                        format!("{topic}.unregistered", topic = self.topic),
-                        self.context_id,
+                let _ = store
+                    .append(
+                        Frame::builder(
+                            format!("{topic}.unregistered", topic = self.topic),
+                            self.context_id,
+                        )
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                            "error": err.to_string(),
+                        }))
+                        .build(),
                     )
-                    .meta(serde_json::json!({
-                        "handler_id": self.id.to_string(),
-                        "frame_id": frame.id.to_string(),
-                        "error": err.to_string(),
-                    }))
-                    .build(),
-                );
+                    .await;
                 break;
             }
         }

@@ -260,19 +260,27 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
 
     let expected_meta = json!({"command_id": frame_command.id, "frame_id": frame_call.id});
 
-    // Expect sum event from tee side pipeline
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "sum");
-    assert_eq!(frame.meta.unwrap(), expected_meta);
-    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    // Collect the next two frames (sum and response can arrive in any order with single-writer)
+    let frame1 = recver.recv().await.unwrap();
+    let frame2 = recver.recv().await.unwrap();
+
+    let (sum_frame, response_frame) = if frame1.topic == "sum" {
+        (frame1, frame2)
+    } else {
+        (frame2, frame1)
+    };
+
+    // Verify sum frame
+    assert_eq!(sum_frame.topic, "sum");
+    assert_eq!(sum_frame.meta.unwrap(), expected_meta);
+    let content = store.cas_read(&sum_frame.hash.unwrap()).await?;
     let content_str = String::from_utf8(content)?;
     assert_eq!(content_str, "6");
 
-    // Then expect response with the collected pipeline
-    let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "numbers.response");
-    assert_eq!(frame.meta.unwrap(), expected_meta);
-    let content = store.cas_read(&frame.hash.unwrap()).await?;
+    // Verify response frame
+    assert_eq!(response_frame.topic, "numbers.response");
+    assert_eq!(response_frame.meta.unwrap(), expected_meta);
+    let content = store.cas_read(&response_frame.hash.unwrap()).await?;
     let content_str = String::from_utf8(content)?;
     let values: Vec<i64> = serde_json::from_str(&content_str)?;
     assert_eq!(values, vec![1, 2, 3]);
