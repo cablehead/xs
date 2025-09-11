@@ -1,8 +1,8 @@
 // index.ts
 // based on: https://github.com/FujoWebDev/fujocoded-plugins/blob/main/expressive-code-output/index.ts
 
-import { definePlugin, AttachedPluginData } from "@expressive-code/core";
-import { h } from "@expressive-code/core/hast";
+import { definePlugin, AttachedPluginData } from "expressive-code";
+import { h } from "expressive-code/hast";
 var outputData = new AttachedPluginData(() => ({ output: [] }));
 function pluginCodeOutput() {
   return definePlugin({
