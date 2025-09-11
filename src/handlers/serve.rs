@@ -16,14 +16,16 @@ async fn start_handler(
             Ok(())
         }
         Err(err) => {
-            let _ = store.append(
-                Frame::builder(format!("{topic}.unregistered"), frame.context_id)
-                    .meta(serde_json::json!({
-                        "handler_id": frame.id.to_string(),
-                        "error": err.to_string(),
-                    }))
-                    .build(),
-            );
+            let _ = store
+                .append(
+                    Frame::builder(format!("{topic}.unregistered"), frame.context_id)
+                        .meta(serde_json::json!({
+                            "handler_id": frame.id.to_string(),
+                            "error": err.to_string(),
+                        }))
+                        .build(),
+                )
+                .await;
             Ok(())
         }
     }

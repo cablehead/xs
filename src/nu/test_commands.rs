@@ -13,8 +13,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
         let engine = Engine::new().unwrap();
-        let ctx = store
-            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        let ctx = tokio::runtime::Handle::current()
+            .block_on(async {
+                store
+                    .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+                    .await
+            })
             .unwrap();
         (store, engine, ctx)
     }
@@ -154,20 +158,28 @@ mod tests {
             ))])
             .unwrap();
 
-        let _frame1 = store
-            .append(
-                Frame::builder("topic", ctx.id)
-                    .hash(store.cas_insert_sync("content1")?)
-                    .build(),
-            )
+        let _frame1 = tokio::runtime::Handle::current()
+            .block_on(async {
+                store
+                    .append(
+                        Frame::builder("topic", ctx.id)
+                            .hash(store.cas_insert_sync("content1")?)
+                            .build(),
+                    )
+                    .await
+            })
             .unwrap();
 
-        let frame2 = store
-            .append(
-                Frame::builder("topic", ctx.id)
-                    .hash(store.cas_insert_sync("content2")?)
-                    .build(),
-            )
+        let frame2 = tokio::runtime::Handle::current()
+            .block_on(async {
+                store
+                    .append(
+                        Frame::builder("topic", ctx.id)
+                            .hash(store.cas_insert_sync("content2")?)
+                            .build(),
+                    )
+                    .await
+            })
             .unwrap();
 
         let head_frame = nu_eval(&engine, PipelineData::empty(), ".head topic");
@@ -189,20 +201,28 @@ mod tests {
             ))])
             .unwrap();
 
-        let _frame1 = store
-            .append(
-                Frame::builder("topic1", ctx.id)
-                    .hash(store.cas_insert_sync("content1")?)
-                    .build(),
-            )
+        let _frame1 = tokio::runtime::Handle::current()
+            .block_on(async {
+                store
+                    .append(
+                        Frame::builder("topic1", ctx.id)
+                            .hash(store.cas_insert_sync("content1")?)
+                            .build(),
+                    )
+                    .await
+            })
             .unwrap();
 
-        let _frame2 = store
-            .append(
-                Frame::builder("topic2", ctx.id)
-                    .hash(store.cas_insert_sync("content2")?)
-                    .build(),
-            )
+        let _frame2 = tokio::runtime::Handle::current()
+            .block_on(async {
+                store
+                    .append(
+                        Frame::builder("topic2", ctx.id)
+                            .hash(store.cas_insert_sync("content2")?)
+                            .build(),
+                    )
+                    .await
+            })
             .unwrap();
 
         // Test basic .cat
@@ -240,12 +260,16 @@ mod tests {
             )])
             .unwrap();
 
-        let frame = store
-            .append(
-                Frame::builder("topic", ctx.id)
-                    .hash(store.cas_insert_sync("test")?)
-                    .build(),
-            )
+        let frame = tokio::runtime::Handle::current()
+            .block_on(async {
+                store
+                    .append(
+                        Frame::builder("topic", ctx.id)
+                            .hash(store.cas_insert_sync("test")?)
+                            .build(),
+                    )
+                    .await
+            })
             .unwrap();
 
         nu_eval(
@@ -267,12 +291,16 @@ mod tests {
             ))])
             .unwrap();
 
-        let frame = store
-            .append(
-                Frame::builder("topic", ctx.id)
-                    .hash(store.cas_insert_sync("test")?)
-                    .build(),
-            )
+        let frame = tokio::runtime::Handle::current()
+            .block_on(async {
+                store
+                    .append(
+                        Frame::builder("topic", ctx.id)
+                            .hash(store.cas_insert_sync("test")?)
+                            .build(),
+                    )
+                    .await
+            })
             .unwrap();
 
         let retrieved_frame = nu_eval(&engine, PipelineData::empty(), format!(".get {}", frame.id));

@@ -23,11 +23,14 @@ async fn try_start_task(
             "reason": e.to_string()
         });
 
-        if let Err(e) = store.append(
-            Frame::builder(format!("{topic}.parse.error"), frame.context_id)
-                .meta(meta)
-                .build(),
-        ) {
+        if let Err(e) = store
+            .append(
+                Frame::builder(format!("{topic}.parse.error"), frame.context_id)
+                    .meta(meta)
+                    .build(),
+            )
+            .await
+        {
             tracing::error!("Error appending error frame: {}", e);
         }
     }

@@ -9,19 +9,20 @@ use tempfile::TempDir;
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
 
-fn setup_test_env() -> (Store, nu::Engine, Frame) {
+async fn setup_test_env() -> (Store, nu::Engine, Frame) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.into_path());
     let engine = nu::Engine::new().unwrap();
     let ctx = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     (store, engine, ctx)
 }
 
 #[tokio::test]
 async fn test_serve_basic() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -37,6 +38,7 @@ async fn test_serve_basic() {
                 .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -69,7 +71,7 @@ async fn test_serve_basic() {
 
 #[tokio::test]
 async fn test_serve_duplex() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -85,6 +87,7 @@ async fn test_serve_duplex() {
                 .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -102,6 +105,7 @@ async fn test_serve_duplex() {
                 .maybe_hash(store.cas_insert(r#"henry"#).await.ok())
                 .build(),
         )
+        .await
         .unwrap();
     assert_eq!(
         recver.recv().await.unwrap().topic,
@@ -119,7 +123,7 @@ async fn test_serve_duplex() {
 
 #[tokio::test]
 async fn test_serve_compact() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     let script1 = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
     let _ = store
@@ -128,6 +132,7 @@ async fn test_serve_compact() {
                 .maybe_hash(store.cas_insert(script1).await.ok())
                 .build(),
         )
+        .await
         .unwrap();
 
     // replaces the previous generator
@@ -138,6 +143,7 @@ async fn test_serve_compact() {
                 .maybe_hash(store.cas_insert(script2).await.ok())
                 .build(),
         )
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -181,7 +187,7 @@ async fn test_serve_compact() {
 
 #[tokio::test]
 async fn test_serve_duplex_context_isolation() {
-    let (store, engine, ctx_a_frame) = setup_test_env();
+    let (store, engine, ctx_a_frame) = setup_test_env().await;
 
     // Spawn serve in the background
     {
@@ -209,6 +215,7 @@ async fn test_serve_duplex_context_isolation() {
 
     let ctx_b_frame = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(
         recver.recv().await.unwrap().id,
@@ -235,6 +242,7 @@ async fn test_serve_duplex_context_isolation() {
                 .hash(script_hash.clone())
                 .build(),
         )
+        .await
         .unwrap();
     println!(
         "Spawned Gen A ({}) in Ctx A ({})",
@@ -278,6 +286,7 @@ async fn test_serve_duplex_context_isolation() {
                 .hash(script_hash)
                 .build(),
         )
+        .await
         .unwrap();
     println!(
         "Spawned Gen B ({}) in Ctx B ({})",
@@ -322,6 +331,7 @@ async fn test_serve_duplex_context_isolation() {
                 .hash(msg_a_hash)
                 .build(),
         )
+        .await
         .unwrap();
     println!("Sent to Gen A in Ctx A: {:?}", send_a_frame);
 
@@ -366,6 +376,7 @@ async fn test_serve_duplex_context_isolation() {
                 .hash(msg_b_hash)
                 .build(),
         )
+        .await
         .unwrap();
     println!("Sent to Gen B in Ctx B: {:?}", send_b_frame);
 
@@ -407,7 +418,7 @@ async fn test_serve_duplex_context_isolation() {
 
 #[tokio::test]
 async fn test_respawn_after_terminate() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -433,6 +444,7 @@ async fn test_respawn_after_terminate() {
                 .hash(hash.clone())
                 .build(),
         )
+        .await
         .unwrap();
 
     // expect running
@@ -442,6 +454,7 @@ async fn test_respawn_after_terminate() {
 
     store
         .append(Frame::builder("sleeper.terminate", ctx.id).build())
+        .await
         .unwrap();
     // first see the terminate event itself
     assert_eq!(recver.recv().await.unwrap().topic, "sleeper.terminate");
@@ -453,6 +466,7 @@ async fn test_respawn_after_terminate() {
 
     store
         .append(Frame::builder("sleeper.spawn", ctx.id).hash(hash).build())
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "sleeper.spawn");
@@ -461,7 +475,7 @@ async fn test_respawn_after_terminate() {
 
 #[tokio::test]
 async fn test_serve_restart_until_terminated() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -476,6 +490,7 @@ async fn test_serve_restart_until_terminated() {
 
     store
         .append(Frame::builder("restarter.spawn", ctx.id).hash(hash).build())
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -503,6 +518,7 @@ async fn test_serve_restart_until_terminated() {
 
     store
         .append(Frame::builder("restarter.terminate", ctx.id).build())
+        .await
         .unwrap();
 
     // Wait until we receive a stopped frame with reason "terminate"
@@ -518,7 +534,7 @@ async fn test_serve_restart_until_terminated() {
 
 #[tokio::test]
 async fn test_duplex_terminate_stops() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -533,6 +549,7 @@ async fn test_duplex_terminate_stops() {
 
     store
         .append(Frame::builder("echo.spawn", ctx.id).hash(hash).build())
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -549,6 +566,7 @@ async fn test_duplex_terminate_stops() {
     // terminate while generator waits for input
     store
         .append(Frame::builder("echo.terminate", ctx.id).build())
+        .await
         .unwrap();
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.terminate");
@@ -561,6 +579,7 @@ async fn test_duplex_terminate_stops() {
 
     store
         .append(Frame::builder("echo.send", ctx.id).build())
+        .await
         .unwrap();
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.send");
@@ -571,7 +590,7 @@ async fn test_duplex_terminate_stops() {
 
 #[tokio::test]
 async fn test_parse_error_eviction() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -588,6 +607,7 @@ async fn test_parse_error_eviction() {
                 .hash(store.cas_insert(bad_script).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -616,6 +636,7 @@ async fn test_parse_error_eviction() {
                 .hash(store.cas_insert(good_script).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
 
     let frame = recver.recv().await.unwrap();
@@ -630,7 +651,7 @@ async fn test_parse_error_eviction() {
 #[tokio::test]
 async fn test_refresh_on_new_spawn() {
     // Verify that a new `.spawn` triggers a stop with `update_id` and restarts the generator.
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     // Spawn serve in the background
     {
@@ -648,6 +669,7 @@ async fn test_refresh_on_new_spawn() {
                 .hash(store.cas_insert(script1).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -668,6 +690,7 @@ async fn test_refresh_on_new_spawn() {
                 .hash(store.cas_insert(script2).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
 
     // The new spawn event arrives first
@@ -697,7 +720,7 @@ async fn test_refresh_on_new_spawn() {
 
 #[tokio::test]
 async fn test_terminate_one_of_two_generators() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -721,6 +744,7 @@ async fn test_terminate_one_of_two_generators() {
                 .hash(hash.clone())
                 .build(),
         )
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "gen1.spawn");
@@ -728,6 +752,7 @@ async fn test_terminate_one_of_two_generators() {
 
     store
         .append(Frame::builder("gen2.spawn", ctx.id).hash(hash).build())
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "gen2.spawn");
@@ -735,6 +760,7 @@ async fn test_terminate_one_of_two_generators() {
 
     store
         .append(Frame::builder("gen1.terminate", ctx.id).build())
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "gen1.terminate");
@@ -747,6 +773,7 @@ async fn test_terminate_one_of_two_generators() {
     let msg_hash = store.cas_insert("ping").await.unwrap();
     store
         .append(Frame::builder("gen2.send", ctx.id).hash(msg_hash).build())
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "gen2.send");
@@ -758,7 +785,7 @@ async fn test_terminate_one_of_two_generators() {
 
 #[tokio::test]
 async fn test_bytestream_ping() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -780,6 +807,7 @@ async fn test_bytestream_ping() {
                 .hash(store.cas_insert(script).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "pinger.spawn");
@@ -796,6 +824,7 @@ async fn test_bytestream_ping() {
 
     store
         .append(Frame::builder("pinger.terminate", ctx.id).build())
+        .await
         .unwrap();
 
     let stop = loop {
@@ -900,7 +929,7 @@ fn test_emit_event_helper() {
 
 #[tokio::test]
 async fn test_external_command_error_message() {
-    let (store, engine, ctx) = setup_test_env();
+    let (store, engine, ctx) = setup_test_env().await;
 
     {
         let store = store.clone();
@@ -918,6 +947,7 @@ async fn test_external_command_error_message() {
                 .hash(store.cas_insert(script).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
 
     let options = ReadOptions::builder()

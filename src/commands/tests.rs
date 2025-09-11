@@ -33,17 +33,19 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
                     .await?,
             )
             .build(),
-    )?;
+    ).await?;
     assert_eq!(recver.recv().await.unwrap().topic, "echo.define");
     assert_eq!(recver.recv().await.unwrap().topic, "echo.ready");
 
     // Call the command
-    let frame_call = store.append(
-        Frame::builder("echo.call", ctx.id)
-            .hash(store.cas_insert(r#"foo"#).await?)
-            .meta(json!({"args": {"n": 3}}))
-            .build(),
-    )?;
+    let frame_call = store
+        .append(
+            Frame::builder("echo.call", ctx.id)
+                .hash(store.cas_insert(r#"foo"#).await?)
+                .meta(json!({"args": {"n": 3}}))
+                .build(),
+        )
+        .await?;
     assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
 
     // Validate the response event with all outputs
@@ -90,6 +92,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
                 )
                 .build(),
         )
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.define");
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.ready");
@@ -102,6 +105,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
                 .meta(json!({"args": {}}))
                 .build(),
         )
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.call");
 
@@ -128,24 +132,28 @@ async fn test_command_single_value() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command
-    let frame_command = store.append(
-        Frame::builder("single.define", ctx.id)
-            .hash(
-                store
-                    .cas_insert(
-                        r#"{
+    let frame_command = store
+        .append(
+            Frame::builder("single.define", ctx.id)
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
                             run: {|frame| "single value output"}
                         }"#,
-                    )
-                    .await?,
-            )
-            .build(),
-    )?;
+                        )
+                        .await?,
+                )
+                .build(),
+        )
+        .await?;
     assert_eq!(recver.recv().await.unwrap().topic, "single.define");
     assert_eq!(recver.recv().await.unwrap().topic, "single.ready");
 
     // Call the command
-    let frame_call = store.append(Frame::builder("single.call", ctx.id).build())?;
+    let frame_call = store
+        .append(Frame::builder("single.call", ctx.id).build())
+        .await?;
     assert_eq!(recver.recv().await.unwrap().topic, "single.call");
 
     // Expect single response event
@@ -176,24 +184,28 @@ async fn test_command_empty_output() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command
-    let frame_command = store.append(
-        Frame::builder("empty.define", ctx.id)
-            .hash(
-                store
-                    .cas_insert(
-                        r#"{
+    let frame_command = store
+        .append(
+            Frame::builder("empty.define", ctx.id)
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
                             run: {|frame|}
                         }"#,
-                    )
-                    .await?,
-            )
-            .build(),
-    )?;
+                        )
+                        .await?,
+                )
+                .build(),
+        )
+        .await?;
     assert_eq!(recver.recv().await.unwrap().topic, "empty.define");
     assert_eq!(recver.recv().await.unwrap().topic, "empty.ready");
 
     // Call the command
-    let frame_call = store.append(Frame::builder("empty.call", ctx.id).build())?;
+    let frame_call = store
+        .append(Frame::builder("empty.call", ctx.id).build())
+        .await?;
     assert_eq!(recver.recv().await.unwrap().topic, "empty.call");
 
     // Expect single response event with empty array
@@ -220,26 +232,30 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command that outputs a simple pipeline of 1, 2, 3
-    let frame_command = store.append(
-        Frame::builder("numbers.define", ctx.id)
-            .hash(
-                store
-                    .cas_insert(
-                        r#"{
+    let frame_command = store
+        .append(
+            Frame::builder("numbers.define", ctx.id)
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
                             run: {|frame|
                                 [1 2 3] | tee { collect { math sum } | to json -r | .append sum }
                             }
                         }"#,
-                    )
-                    .await?,
-            )
-            .build(),
-    )?;
+                        )
+                        .await?,
+                )
+                .build(),
+        )
+        .await?;
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.define");
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.ready");
 
     // Call the command
-    let frame_call = store.append(Frame::builder("numbers.call", ctx.id).build())?;
+    let frame_call = store
+        .append(Frame::builder("numbers.call", ctx.id).build())
+        .await?;
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.call");
 
     let expected_meta = json!({"command_id": frame_command.id, "frame_id": frame_call.id});
@@ -284,6 +300,7 @@ async fn setup_test_environment() -> (Store, Frame) {
     let engine = nu::Engine::new().unwrap();
     let ctx = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .await
         .unwrap();
 
     {
@@ -306,9 +323,11 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     // Create two distinct contexts
     let ctx_a_frame = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     let ctx_b_frame = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .await
         .unwrap();
 
     let ctx_a = ctx_a_frame.id;
@@ -346,6 +365,7 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
                 .hash(cmd_a_script_hash)
                 .build(),
         )
+        .await
         .unwrap();
 
     // Expect define event for A
@@ -377,6 +397,7 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
                 .hash(cmd_b_script_hash)
                 .build(),
         )
+        .await
         .unwrap();
 
     // Expect define event for B
@@ -402,6 +423,7 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     println!("Calling testcmd in Ctx A ({})", ctx_a);
     let call_a_frame = store
         .append(Frame::builder("testcmd.call", ctx_a).build()) // Call in ctx_a
+        .await
         .unwrap();
 
     // Expect call event for A
@@ -433,6 +455,7 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     println!("Calling testcmd in Ctx B ({})", ctx_b);
     let call_b_frame = store
         .append(Frame::builder("testcmd.call", ctx_b).build()) // Call in ctx_b
+        .await
         .unwrap();
 
     // Expect call event for B

@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::oneshot;
 
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -22,6 +23,13 @@ use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
 // Context with all bits set to zero for system operations
 pub const ZERO_CONTEXT: Scru128Id = Scru128Id::from_bytes([0; 16]);
+
+const WRITER_QUEUE_CAP: usize = 1024;
+
+struct WriterRequest {
+    frame: Frame,
+    reply: oneshot::Sender<Result<Frame, crate::error::Error>>,
+}
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 pub struct Frame {
@@ -184,6 +192,7 @@ pub struct Store {
     contexts: Arc<RwLock<HashSet<Scru128Id>>>,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
+    writer_tx: mpsc::Sender<WriterRequest>,
 }
 
 impl Store {
@@ -209,6 +218,7 @@ impl Store {
 
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
+        let (writer_tx, writer_rx) = mpsc::channel::<WriterRequest>(WRITER_QUEUE_CAP);
 
         let mut contexts = HashSet::new();
         contexts.insert(ZERO_CONTEXT); // System context is always valid
@@ -222,6 +232,7 @@ impl Store {
             contexts: Arc::new(RwLock::new(contexts)),
             broadcast_tx,
             gc_tx,
+            writer_tx,
         };
 
         // Load context registrations
@@ -229,6 +240,14 @@ impl Store {
             if frame.topic == "xs.context" {
                 store.contexts.write().unwrap().insert(frame.id);
             }
+        }
+
+        // Spawn writer task
+        {
+            let store_clone = store.clone();
+            tokio::spawn(async move {
+                run_writer(writer_rx, store_clone).await;
+            });
         }
 
         // Spawn gc worker thread
@@ -516,47 +535,14 @@ impl Store {
         Ok(())
     }
 
-    pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
-        frame.id = scru128::new();
-
-        // Special handling for xs.context registration
-        if frame.topic == "xs.context" {
-            if frame.context_id != ZERO_CONTEXT {
-                return Err("xs.context frames must be in zero context".into());
-            }
-            frame.ttl = Some(TTL::Forever);
-            self.contexts.write().unwrap().insert(frame.id);
-        } else {
-            // Validate context exists
-            let contexts = self.contexts.read().unwrap();
-            if !contexts.contains(&frame.context_id) {
-                return Err(format!(
-                    "Invalid context: {context_id}",
-                    context_id = frame.context_id
-                )
-                .into());
-            }
-        }
-
-        // Check for null byte in topic (in case we're not storing the frame)
-        idx_topic_key_from_frame(&frame)?;
-
-        // only store the frame if it's not ephemeral
-        if frame.ttl != Some(TTL::Ephemeral) {
-            self.insert_frame(&frame)?;
-
-            // If this is a Head TTL, schedule a gc task
-            if let Some(TTL::Head(n)) = frame.ttl {
-                let _ = self.gc_tx.send(GCTask::CheckHeadTTL {
-                    context_id: frame.context_id,
-                    topic: frame.topic.clone(),
-                    keep: n,
-                });
-            }
-        }
-
-        let _ = self.broadcast_tx.send(frame.clone());
-        Ok(frame)
+    pub async fn append(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
+        let (tx, rx) = oneshot::channel();
+        self.writer_tx
+            .send(WriterRequest { frame, reply: tx })
+            .await
+            .map_err(|_| crate::error::Error::from("append path closed".to_string()))?;
+        rx.await
+            .map_err(|_| crate::error::Error::from("writer dropped reply".to_string()))?
     }
 
     fn iter_frames(
@@ -637,6 +623,64 @@ impl Store {
                 }
             }))
         }
+    }
+}
+
+async fn run_writer(mut rx: mpsc::Receiver<WriterRequest>, store: Store) {
+    while let Some(WriterRequest { mut frame, reply }) = rx.recv().await {
+        // 1) Assign ID (global_gen ⇒ monotonic across threads)
+        frame.id = scru128::new();
+
+        // 2..6) Do all work and construct result
+        let res = (|| -> Result<Frame, crate::error::Error> {
+            // Validate topic key (NUL check)
+            let _ = idx_topic_key_from_frame(&frame)?;
+
+            // xs.context: must be in ZERO_CONTEXT and is always Forever
+            if frame.topic == "xs.context" {
+                if frame.context_id != ZERO_CONTEXT {
+                    return Err("xs.context frames must be in zero context".into());
+                }
+                frame.ttl = Some(TTL::Forever);
+            } else {
+                // Validate context exists
+                let contexts = store.contexts.read().unwrap();
+                if !contexts.contains(&frame.context_id) {
+                    return Err(format!(
+                        "Invalid context: {context_id}",
+                        context_id = frame.context_id
+                    )
+                    .into());
+                }
+            }
+
+            // 3) Commit (unless Ephemeral)
+            if frame.ttl != Some(TTL::Ephemeral) {
+                store.insert_frame(&frame)?; // batch.commit() + persist(SyncAll) inside insert_frame
+            }
+
+            // 4) Head TTL GC scheduling
+            if let Some(TTL::Head(n)) = frame.ttl {
+                let _ = store.gc_tx.send(GCTask::CheckHeadTTL {
+                    context_id: frame.context_id,
+                    topic: frame.topic.clone(),
+                    keep: n,
+                });
+            }
+
+            // 5) Broadcast
+            let _ = store.broadcast_tx.send(frame.clone());
+
+            // 6) Register context after successful commit
+            if frame.topic == "xs.context" {
+                store.contexts.write().unwrap().insert(frame.id);
+            }
+
+            Ok(frame)
+        })();
+
+        // 7) Reply (never panic)
+        let _ = reply.send(res);
     }
 }
 

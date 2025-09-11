@@ -34,14 +34,14 @@ mod tests_read_options {
             topic: "ab".to_owned(),
             ..Default::default()
         };
-        let frame1 = store.append(frame1).unwrap();
+        let frame1 = store.append(frame1).await.unwrap();
 
         let frame2 = Frame {
             id: scru128::new(),
             topic: "abc".to_owned(),
             ..Default::default()
         };
-        let frame2 = store.append(frame2).unwrap();
+        let frame2 = store.append(frame2).await.unwrap();
 
         let keys = store.idx_topic.keys().flatten().collect::<Vec<_>>();
 
@@ -65,14 +65,14 @@ mod tests_read_options {
             topic: "hello".to_owned(),
             ..Default::default()
         };
-        let frame1 = store.append(frame1).unwrap();
+        let frame1 = store.append(frame1).await.unwrap();
 
         let frame2 = Frame {
             id: scru128::new(),
             topic: "hallo".to_owned(),
             ..Default::default()
         };
-        let frame2 = store.append(frame2).unwrap();
+        let frame2 = store.append(frame2).await.unwrap();
 
         assert_eq!(
             Some(frame1),
@@ -195,6 +195,7 @@ mod tests_store {
         let meta = serde_json::json!({"key": "value"});
         let frame = store
             .append(Frame::builder("stream", ZERO_CONTEXT).meta(meta).build())
+            .await
             .unwrap();
         let got = store.get(&frame.id);
         assert_eq!(Some(frame.clone()), got);
@@ -208,9 +209,11 @@ mod tests_store {
         // Append two initial clips
         let f1 = store
             .append(Frame::builder("stream", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let f2 = store
             .append(Frame::builder("stream", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // cat the full stream and follow new items with a heartbeat every 5ms
@@ -231,9 +234,11 @@ mod tests_store {
         // Append two more clips
         let f3 = store
             .append(Frame::builder("stream", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let f4 = store
             .append(Frame::builder("stream", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         assert_eq!(f3, recver.recv().await.unwrap());
         assert_eq!(f4, recver.recv().await.unwrap());
@@ -254,9 +259,11 @@ mod tests_store {
 
         let f1 = store
             .append(Frame::builder("/stream", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let f2 = store
             .append(Frame::builder("/stream", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         assert_eq!(
@@ -291,12 +298,15 @@ mod tests_store {
         // Add 3 items
         let frame1 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let _ = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Read with limit 2
@@ -319,6 +329,7 @@ mod tests_store {
         // Add 1 item
         let frame1 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Start read with limit 2 and follow
@@ -339,9 +350,11 @@ mod tests_store {
         // Add 2 more items
         let frame2 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let _frame3 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Assert we get one more item
@@ -359,18 +372,23 @@ mod tests_store {
         // Create 5 records upfront
         let frame1 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let frame3 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let _frame4 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let _frame5 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Start read with limit 3 and follow enabled
@@ -395,20 +413,23 @@ mod tests_store {
         );
     }
 
-    #[test]
-    fn test_read_sync() {
+    #[tokio::test]
+    async fn test_read_sync() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
 
         // Append three frames
         let frame1 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let frame3 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Test reading all frames
@@ -558,7 +579,7 @@ mod tests_context {
         assert!(result.unwrap_err().to_string().contains("null byte"));
 
         // Trying to append the frame should also fail
-        let result = store.append(frame);
+        let result = store.append(frame).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("null byte"));
     }
@@ -574,20 +595,25 @@ mod tests_context {
                 Frame::builder("xs.context", ZERO_CONTEXT) // Context registration must be in zero context
                     .build(),
             )
+            .await
             .unwrap();
         let context_id = context_frame.id;
 
         // Try to use invalid context (should return error)
         let invalid_context = scru128::new();
-        let result = store.append(Frame::builder("test", invalid_context).build());
+        let result = store
+            .append(Frame::builder("test", invalid_context).build())
+            .await;
         assert!(result.is_err());
 
         // Append frames to different contexts
         let frame1 = store
             .append(Frame::builder("test", context_id).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Test head in different contexts
@@ -611,15 +637,18 @@ mod tests_context {
         // Create a context
         let context_frame = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let context_id = context_frame.id;
 
         // Add frames with head:1 TTL in different contexts
         let _frame1 = store
             .append(Frame::builder("test", context_id).ttl(TTL::Head(1)).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", context_id).ttl(TTL::Head(1)).build())
+            .await
             .unwrap();
 
         let _frame3 = store
@@ -628,6 +657,7 @@ mod tests_context {
                     .ttl(TTL::Head(1))
                     .build(),
             )
+            .await
             .unwrap();
         let frame4 = store
             .append(
@@ -635,6 +665,7 @@ mod tests_context {
                     .ttl(TTL::Head(1))
                     .build(),
             )
+            .await
             .unwrap();
 
         // Wait for GC
@@ -645,34 +676,40 @@ mod tests_context {
         assert_eq!(store.head("test", ZERO_CONTEXT), Some(frame4.clone()));
     }
 
-    #[test]
-    fn test_read_sync_with_contexts() {
+    #[tokio::test]
+    async fn test_read_sync_with_contexts() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
 
         // Create two contexts
         let context1_frame = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let context1_id = context1_frame.id;
 
         let context2_frame = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let context2_id = context2_frame.id;
 
         // Add frames to different contexts
         let frame1 = store
             .append(Frame::builder("test", context1_id).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", context2_id).build())
+            .await
             .unwrap();
         let frame3 = store
             .append(Frame::builder("test", context1_id).build())
+            .await
             .unwrap();
         let frame4 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Test reading from specific contexts
@@ -724,25 +761,31 @@ mod tests_context {
         // Create contexts
         let context1_frame = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let context1_id = context1_frame.id;
         let context2_frame = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let context2_id = context2_frame.id;
 
         // Add frames to different contexts
         let frame1 = store
             .append(Frame::builder("test", context1_id).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", context2_id).build())
+            .await
             .unwrap();
         let frame3 = store
             .append(Frame::builder("test", context1_id).build())
+            .await
             .unwrap();
         let frame4 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Test reading without follow
@@ -857,12 +900,15 @@ mod tests_context {
         // Add new frame to each context
         let frame5 = store
             .append(Frame::builder("test", context1_id).build())
+            .await
             .unwrap();
         let frame6 = store
             .append(Frame::builder("test", context2_id).build())
+            .await
             .unwrap();
         let frame7 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         assert_eq!(rx1.recv().await, Some(frame5.clone()));
@@ -880,20 +926,23 @@ mod tests_context {
         assert_no_more_frames(&mut rx_all).await;
     }
 
-    #[test]
-    fn test_iter_frames_with_last_id() {
+    #[tokio::test]
+    async fn test_iter_frames_with_last_id() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
 
         // Add frames to ZERO_CONTEXT
         let _frame1 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let frame2 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let frame3 = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Test iter_frames with last_id in ZERO_CONTEXT
@@ -915,28 +964,42 @@ mod tests_context {
         );
     }
 
-    #[test]
-    fn test_iter_frames_context_scope_with_last_id() {
+    #[tokio::test]
+    async fn test_iter_frames_context_scope_with_last_id() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf());
 
         // Create two distinct contexts
         let ctx1 = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap()
             .id;
         let ctx2 = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap()
             .id;
 
         // Add frames in context 1
-        let ctx1_frame1 = store.append(Frame::builder("test", ctx1).build()).unwrap();
-        let ctx1_frame2 = store.append(Frame::builder("test", ctx1).build()).unwrap();
+        let ctx1_frame1 = store
+            .append(Frame::builder("test", ctx1).build())
+            .await
+            .unwrap();
+        let ctx1_frame2 = store
+            .append(Frame::builder("test", ctx1).build())
+            .await
+            .unwrap();
 
         // Add frames in context 2
-        let ctx2_frame1 = store.append(Frame::builder("test", ctx2).build()).unwrap();
-        let ctx2_frame2 = store.append(Frame::builder("test", ctx2).build()).unwrap();
+        let ctx2_frame1 = store
+            .append(Frame::builder("test", ctx2).build())
+            .await
+            .unwrap();
+        let ctx2_frame2 = store
+            .append(Frame::builder("test", ctx2).build())
+            .await
+            .unwrap();
 
         // Attempt to iterate from ctx1_frame1 in ctx1
         let frames_ctx1: Vec<_> = store
@@ -962,8 +1025,8 @@ mod tests_context {
         assert_eq!(frames_ctx2, vec![ctx2_frame1, ctx2_frame2]);
     }
 
-    #[test]
-    fn test_idx_context_key_range_end() {
+    #[tokio::test]
+    async fn test_idx_context_key_range_end() {
         // Test 1: Normal case - verify basic increment works
         let context_id = Scru128Id::from_u128(100);
         let next_id = Scru128Id::from_u128(101);
@@ -998,6 +1061,7 @@ mod tests_context {
         // Create first context normally
         let ctx1_frame = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let ctx1 = ctx1_frame.id;
 
@@ -1013,8 +1077,14 @@ mod tests_context {
         store.contexts.write().unwrap().insert(ctx2);
 
         // Add frames to both contexts
-        let frame1 = store.append(Frame::builder("test", ctx1).build()).unwrap();
-        let frame2 = store.append(Frame::builder("test", ctx2).build()).unwrap();
+        let frame1 = store
+            .append(Frame::builder("test", ctx1).build())
+            .await
+            .unwrap();
+        let frame2 = store
+            .append(Frame::builder("test", ctx2).build())
+            .await
+            .unwrap();
 
         // Test that range query correctly separates the contexts
         let frames1: Vec<_> = store.read_sync(None, None, Some(ctx1)).collect();
@@ -1031,12 +1101,15 @@ mod tests_context {
 
         let foo1 = store
             .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let _bar1 = store
             .append(Frame::builder("bar", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let foo2 = store
             .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         let options = ReadOptions::builder()
@@ -1056,9 +1129,11 @@ mod tests_context {
 
         let foo1 = store
             .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let _bar1 = store
             .append(Frame::builder("bar", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         let options = ReadOptions::builder()
@@ -1073,9 +1148,11 @@ mod tests_context {
 
         let foo2 = store
             .append(Frame::builder("foo", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         let _bar2 = store
             .append(Frame::builder("bar", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         assert_eq!(rx.recv().await, Some(foo2));
@@ -1097,6 +1174,7 @@ mod tests_ttl_expire {
         // Add permanent frame
         let permanent_frame = store
             .append(Frame::builder("test", ZERO_CONTEXT).build())
+            .await
             .unwrap();
 
         // Add frame with a TTL
@@ -1106,6 +1184,7 @@ mod tests_ttl_expire {
                     .ttl(TTL::Time(Duration::from_millis(20)))
                     .build(),
             )
+            .await
             .unwrap();
 
         // Immediate read should show both frames
@@ -1147,6 +1226,7 @@ mod tests_ttl_expire {
                     .meta(serde_json::json!({"order": 1}))
                     .build(),
             )
+            .await
             .unwrap();
 
         let _frame2 = store
@@ -1156,6 +1236,7 @@ mod tests_ttl_expire {
                     .meta(serde_json::json!({"order": 2}))
                     .build(),
             )
+            .await
             .unwrap();
 
         let frame3 = store
@@ -1165,6 +1246,7 @@ mod tests_ttl_expire {
                     .meta(serde_json::json!({"order": 3}))
                     .build(),
             )
+            .await
             .unwrap();
 
         let frame4 = store
@@ -1174,6 +1256,7 @@ mod tests_ttl_expire {
                     .meta(serde_json::json!({"order": 4}))
                     .build(),
             )
+            .await
             .unwrap();
 
         // Add a frame to a different topic to ensure isolation
@@ -1184,6 +1267,7 @@ mod tests_ttl_expire {
                     .meta(serde_json::json!({"order": 1}))
                     .build(),
             )
+            .await
             .unwrap();
 
         // Read all frames and assert exact expected set

@@ -337,13 +337,15 @@ async fn handle_stream_append(
         Err(e) => return response_400(e.to_string()),
     };
 
-    let frame = store.append(
-        Frame::builder(topic, context_id)
-            .maybe_hash(hash)
-            .maybe_meta(meta)
-            .maybe_ttl(ttl)
-            .build(),
-    )?;
+    let frame = store
+        .append(
+            Frame::builder(topic, context_id)
+                .maybe_hash(hash)
+                .maybe_meta(meta)
+                .maybe_ttl(ttl)
+                .build(),
+        )
+        .await?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -409,11 +411,14 @@ pub async fn serve(
         listeners.push(expose_listener);
     }
 
-    if let Err(e) = store.append(
-        Frame::builder("xs.start", store::ZERO_CONTEXT)
-            .maybe_meta(expose_meta)
-            .build(),
-    ) {
+    if let Err(e) = store
+        .append(
+            Frame::builder("xs.start", store::ZERO_CONTEXT)
+                .maybe_meta(expose_meta)
+                .build(),
+        )
+        .await
+    {
         tracing::error!("Failed to append xs.start frame: {}", e);
     }
 

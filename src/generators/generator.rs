@@ -72,30 +72,39 @@ pub(crate) fn emit_event(
     return_opts: Option<&ReturnOptions>,
     kind: GeneratorEventKind,
 ) -> Result<GeneratorEvent, Box<dyn std::error::Error + Send + Sync>> {
+    let handle = tokio::runtime::Handle::current();
     match &kind {
         GeneratorEventKind::Running => {
-            store.append(
-                Frame::builder(
-                    format!("{topic}.running", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(json!({ "source_id": source_id.to_string() }))
-                .build(),
-            )?;
+            handle.block_on(async {
+                store
+                    .append(
+                        Frame::builder(
+                            format!("{topic}.running", topic = loop_ctx.topic),
+                            loop_ctx.context_id,
+                        )
+                        .meta(json!({ "source_id": source_id.to_string() }))
+                        .build(),
+                    )
+                    .await
+            })?;
         }
 
         GeneratorEventKind::Recv { suffix, data } => {
             let hash = store.cas_insert_bytes_sync(data)?;
-            store.append(
-                Frame::builder(
-                    format!("{topic}.{suffix}", topic = loop_ctx.topic, suffix = suffix),
-                    loop_ctx.context_id,
-                )
-                .hash(hash)
-                .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
-                .meta(json!({ "source_id": source_id.to_string() }))
-                .build(),
-            )?;
+            handle.block_on(async {
+                store
+                    .append(
+                        Frame::builder(
+                            format!("{topic}.{suffix}", topic = loop_ctx.topic, suffix = suffix),
+                            loop_ctx.context_id,
+                        )
+                        .hash(hash)
+                        .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
+                        .meta(json!({ "source_id": source_id.to_string() }))
+                        .build(),
+                    )
+                    .await
+            })?;
         }
 
         GeneratorEventKind::Stopped(reason) => {
@@ -109,39 +118,51 @@ pub(crate) fn emit_event(
             if let StopReason::Error { message } = reason {
                 meta["message"] = json!(message);
             }
-            store.append(
-                Frame::builder(
-                    format!("{topic}.stopped", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(meta)
-                .build(),
-            )?;
+            handle.block_on(async {
+                store
+                    .append(
+                        Frame::builder(
+                            format!("{topic}.stopped", topic = loop_ctx.topic),
+                            loop_ctx.context_id,
+                        )
+                        .meta(meta)
+                        .build(),
+                    )
+                    .await
+            })?;
         }
 
         GeneratorEventKind::ParseError { message } => {
-            store.append(
-                Frame::builder(
-                    format!("{topic}.parse.error", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(json!({
-                    "source_id": source_id.to_string(),
-                    "reason": message,
-                }))
-                .build(),
-            )?;
+            handle.block_on(async {
+                store
+                    .append(
+                        Frame::builder(
+                            format!("{topic}.parse.error", topic = loop_ctx.topic),
+                            loop_ctx.context_id,
+                        )
+                        .meta(json!({
+                            "source_id": source_id.to_string(),
+                            "reason": message,
+                        }))
+                        .build(),
+                    )
+                    .await
+            })?;
         }
 
         GeneratorEventKind::Shutdown => {
-            store.append(
-                Frame::builder(
-                    format!("{topic}.shutdown", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(json!({ "source_id": source_id.to_string() }))
-                .build(),
-            )?;
+            handle.block_on(async {
+                store
+                    .append(
+                        Frame::builder(
+                            format!("{topic}.shutdown", topic = loop_ctx.topic),
+                            loop_ctx.context_id,
+                        )
+                        .meta(json!({ "source_id": source_id.to_string() }))
+                        .build(),
+                    )
+                    .await
+            })?;
         }
     }
 

@@ -116,13 +116,18 @@ impl Command for AppendCommand {
             })?
             .unwrap_or(self.context_id);
 
-        let frame = store.append(
-            Frame::builder(topic, context_id)
-                .maybe_hash(hash)
-                .meta(final_meta)
-                .maybe_ttl(ttl)
-                .build(),
-        )?;
+        let handle = tokio::runtime::Handle::current();
+        let frame = handle.block_on(async {
+            store
+                .append(
+                    Frame::builder(topic, context_id)
+                        .maybe_hash(hash)
+                        .meta(final_meta)
+                        .maybe_ttl(ttl)
+                        .build(),
+                )
+                .await
+        })?;
 
         Ok(PipelineData::Value(
             util::frame_to_value(&frame, span),

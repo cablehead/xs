@@ -124,6 +124,7 @@ async fn test_register_invalid_closure() {
                 )
                 .build(),
         )
+        .await
         .unwrap();
 
     // Ensure the register frame is processed
@@ -174,6 +175,7 @@ async fn test_register_parse_error() {
                 )
                 .build(),
         )
+        .await
         .unwrap();
 
     // Ensure the register frame is processed
@@ -217,6 +219,7 @@ async fn test_no_self_loop() {
                 )
                 .build(),
         )
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
@@ -227,6 +230,7 @@ async fn test_no_self_loop() {
     // Trigger the handler
     store
         .append(Frame::builder("a-frame", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     // we should see the trigger, and then a single echo
     assert_eq!(recver.recv().await.unwrap().topic, "a-frame");
@@ -242,9 +246,11 @@ async fn test_essentials() {
     // Create initial frames
     let pew1 = store
         .append(Frame::builder("pew", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     let pew2 = store
         .append(Frame::builder("pew", ZERO_CONTEXT).build())
+        .await
         .unwrap();
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -263,6 +269,7 @@ async fn test_essentials() {
                 }))
                 .build(),
         )
+        .await
         .unwrap();
 
     // Register handler with start pointing to the content of action.out
@@ -286,7 +293,7 @@ async fn test_essentials() {
         .build();
 
     // Start handler
-    let frame_handler = store.append(handler_proto.clone()).unwrap();
+    let frame_handler = store.append(handler_proto.clone()).await.unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.out"); // The pointer frame
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
 
@@ -311,6 +318,7 @@ async fn test_essentials() {
     // Unregister handler and restart - should resume from cursor
     store
         .append(Frame::builder("action.unregister", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.unregister");
     assert_eq!(recver.recv().await.unwrap().topic, "action.unregistered");
@@ -318,7 +326,7 @@ async fn test_essentials() {
     assert_no_more_frames(&mut recver).await;
 
     // Restart handler
-    let frame_handler_2 = store.append(handler_proto.clone()).unwrap();
+    let frame_handler_2 = store.append(handler_proto.clone()).await.unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
 
     // Assert active frame has the correct meta
@@ -332,6 +340,7 @@ async fn test_essentials() {
 
     let pew3 = store
         .append(Frame::builder("pew", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "pew");
 
@@ -356,6 +365,7 @@ async fn test_unregister_on_error() {
     // This frame will trigger the error when the handler comes online
     let frame_trigger = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
 
@@ -363,6 +373,7 @@ async fn test_unregister_on_error() {
     // unregister
     let _ = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
 
@@ -387,6 +398,7 @@ async fn test_unregister_on_error() {
                 )
                 .build(),
         )
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "error.register");
     assert_eq!(recver.recv().await.unwrap().topic, "error.active");
@@ -433,13 +445,14 @@ async fn test_return_options() {
         )
         .build();
 
-    let frame_handler = store.append(handler_proto).unwrap();
+    let frame_handler = store.append(handler_proto).await.unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
     assert_eq!(recver.recv().await.unwrap().topic, "echo.active");
 
     // Send first ping
     let frame1 = store
         .append(Frame::builder("ping", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "ping");
 
@@ -454,6 +467,7 @@ async fn test_return_options() {
     // Send second ping - should only see newest response due to Head(1)
     let frame2 = store
         .append(Frame::builder("ping", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "ping");
 
@@ -504,13 +518,14 @@ async fn test_binary_return_value() {
         )
         .build();
 
-    let frame_handler = store.append(handler_proto).unwrap();
+    let frame_handler = store.append(handler_proto).await.unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "binary.register");
     assert_eq!(recver.recv().await.unwrap().topic, "binary.active");
 
     // Send trigger frame
     let trigger_frame = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
@@ -572,12 +587,13 @@ async fn test_custom_append() {
         .build();
 
     // Start handler
-    let frame_handler = store.append(handler_proto.clone()).unwrap();
+    let frame_handler = store.append(handler_proto.clone()).await.unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
     assert_eq!(recver.recv().await.unwrap().topic, "action.active");
 
     let trigger_frame = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
@@ -618,6 +634,7 @@ async fn test_handler_replacement() {
                 )
                 .build(),
         )
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
@@ -640,6 +657,7 @@ async fn test_handler_replacement() {
                 )
                 .build(),
         )
+        .await
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
@@ -657,6 +675,7 @@ async fn test_handler_replacement() {
     // Send trigger - should be handled by handler2
     let trigger = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
@@ -699,6 +718,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
                 )
                 .build(),
         )
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
 
@@ -724,6 +744,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
                 )
                 .build(),
         )
+        .await
         .unwrap();
 
     // Wait for handler registration
@@ -733,6 +754,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
     // Send trigger frame
     let trigger = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
@@ -762,6 +784,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
                 .hash(store.cas_insert(r#"42"#).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "abc.init");
 
@@ -771,6 +794,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
                 .hash(store.cas_insert(r#"2"#).await.unwrap())
                 .build(),
         )
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "abc.delta");
 
@@ -796,6 +820,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
                 )?)
                 .build(),
         )
+        .await
         .unwrap();
 
     // Wait for handler registration
@@ -805,6 +830,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     // Send trigger frame
     let trigger = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
@@ -820,6 +846,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     // Send trigger frame
     let trigger = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
@@ -847,12 +874,14 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     // Create 2x contexts
     let ctx_frame1 = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     let ctx_id1 = ctx_frame1.id;
     assert_eq!(rx.recv().await.unwrap().topic, "xs.context");
 
     let ctx_frame2 = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+        .await
         .unwrap();
     let ctx_id2 = ctx_frame2.id;
     assert_eq!(rx.recv().await.unwrap().topic, "xs.context");
@@ -872,6 +901,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
                 )
                 .build(),
         )
+        .await
         .unwrap();
 
     let frame = rx.recv().await.unwrap();
@@ -898,6 +928,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
                 .hash(handler_hash.clone())
                 .build(),
         )
+        .await
         .unwrap();
     let frame = rx.recv().await.unwrap();
     assert_eq!(frame.id, handler_frame1.id);
@@ -910,6 +941,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
                 .hash(handler_hash)
                 .build(),
         )
+        .await
         .unwrap();
     let frame = rx.recv().await.unwrap();
     assert_eq!(frame.id, handler_frame2.id);
@@ -942,6 +974,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     // Trigger in the context 1's handler
     let trigger = store
         .append(Frame::builder("trigger", ctx_id1).build())
+        .await
         .unwrap();
 
     // Verify trigger received
@@ -969,6 +1002,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     // Trigger in ZERO_CONTEXT - should be ignored by both handlers
     let ignored_trigger = store
         .append(Frame::builder("trigger", ZERO_CONTEXT).build())
+        .await
         .unwrap();
 
     // Verify trigger received
@@ -982,6 +1016,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     // Unregister handler 1
     let _ = store
         .append(Frame::builder("echo.unregister", ctx_id1).build())
+        .await
         .unwrap();
 
     // Verify unregistration frames appear only in handler 1's context
@@ -998,6 +1033,7 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     // Trigger in the context 2's handler
     let trigger = store
         .append(Frame::builder("trigger", ctx_id2).build())
+        .await
         .unwrap();
 
     // Verify trigger received
