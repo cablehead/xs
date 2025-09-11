@@ -9,16 +9,13 @@ mod tests {
     use crate::nu::{commands, util, Engine};
     use crate::store::{Frame, Store, ZERO_CONTEXT};
 
-    fn setup_test_env() -> (Store, Engine, Frame) {
+    async fn setup_test_env() -> (Store, Engine, Frame) {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.into_path());
         let engine = Engine::new().unwrap();
-        let ctx = tokio::runtime::Handle::current()
-            .block_on(async {
-                store
-                    .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
-                    .await
-            })
+        let ctx = store
+            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
+            .await
             .unwrap();
         (store, engine, ctx)
     }
@@ -43,8 +40,8 @@ mod tests {
         serde_json::from_value(value).expect("Failed to deserialize JSON into Frame")
     }
 
-    fn setup_scru128_test_env() -> Engine {
-        let (_store, mut engine, _ctx) = setup_test_env();
+    async fn setup_scru128_test_env() -> Engine {
+        let (_store, mut engine, _ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(
                 commands::scru128_command::Scru128Command::new(),
@@ -53,9 +50,9 @@ mod tests {
         engine
     }
 
-    #[test]
-    fn test_append_command() {
-        let (store, mut engine, ctx) = setup_test_env();
+    #[tokio::test]
+    async fn test_append_command() {
+        let (store, mut engine, ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(
@@ -110,9 +107,9 @@ mod tests {
         assert!(frame.hash.is_none());
     }
 
-    #[test]
-    fn test_cas_command_string() {
-        let (store, mut engine, _ctx) = setup_test_env();
+    #[tokio::test]
+    async fn test_cas_command_string() {
+        let (store, mut engine, _ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
                 store.clone(),
@@ -127,9 +124,9 @@ mod tests {
         assert_eq!(content, "test content");
     }
 
-    #[test]
-    fn test_cas_command_binary() {
-        let (store, mut engine, _ctx) = setup_test_env();
+    #[tokio::test]
+    async fn test_cas_command_binary() {
+        let (store, mut engine, _ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
                 store.clone(),
@@ -148,9 +145,9 @@ mod tests {
         assert_eq!(retrieved_data, &binary_data);
     }
 
-    #[test]
-    fn test_head_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+    #[tokio::test]
+    async fn test_head_command() -> Result<(), Error> {
+        let (store, mut engine, ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(commands::head_command::HeadCommand::new(
                 store.clone(),
@@ -191,9 +188,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_cat_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+    #[tokio::test]
+    async fn test_cat_command() -> Result<(), Error> {
+        let (store, mut engine, ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
                 store.clone(),
@@ -251,9 +248,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_remove_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+    #[tokio::test]
+    async fn test_remove_command() -> Result<(), Error> {
+        let (store, mut engine, ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(
                 commands::remove_command::RemoveCommand::new(store.clone()),
@@ -282,9 +279,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_get_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+    #[tokio::test]
+    async fn test_get_command() -> Result<(), Error> {
+        let (store, mut engine, ctx) = setup_test_env().await;
         engine
             .add_commands(vec![Box::new(commands::get_command::GetCommand::new(
                 store.clone(),
@@ -317,9 +314,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_scru128_generate() {
-        let engine = setup_scru128_test_env();
+    #[tokio::test]
+    async fn test_scru128_generate() {
+        let engine = setup_scru128_test_env().await;
         let id_value = nu_eval(&engine, PipelineData::empty(), ".id");
 
         let id_string = id_value.as_str().unwrap();
@@ -327,9 +324,9 @@ mod tests {
         assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
     }
 
-    #[test]
-    fn test_scru128_unpack() {
-        let engine = setup_scru128_test_env();
+    #[tokio::test]
+    async fn test_scru128_unpack() {
+        let engine = setup_scru128_test_env().await;
         let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
         let unpacked = nu_eval(
             &engine,
@@ -350,9 +347,9 @@ mod tests {
         assert!(record.get("timestamp").unwrap().as_date().is_ok());
     }
 
-    #[test]
-    fn test_scru128_unpack_pipeline() {
-        let engine = setup_scru128_test_env();
+    #[tokio::test]
+    async fn test_scru128_unpack_pipeline() {
+        let engine = setup_scru128_test_env().await;
         let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
         let unpacked = nu_eval(
             &engine,
@@ -370,9 +367,9 @@ mod tests {
         assert!(record.get("node").is_some());
     }
 
-    #[test]
-    fn test_scru128_pack() {
-        let engine = setup_scru128_test_env();
+    #[tokio::test]
+    async fn test_scru128_pack() {
+        let engine = setup_scru128_test_env().await;
         let components =
             r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
         let packed = nu_eval(
@@ -386,9 +383,9 @@ mod tests {
         assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
     }
 
-    #[test]
-    fn test_scru128_pack_pipeline() {
-        let engine = setup_scru128_test_env();
+    #[tokio::test]
+    async fn test_scru128_pack_pipeline() {
+        let engine = setup_scru128_test_env().await;
         let components =
             r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
         let packed = nu_eval(
@@ -402,9 +399,9 @@ mod tests {
         assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
     }
 
-    #[test]
-    fn test_scru128_round_trip() {
-        let engine = setup_scru128_test_env();
+    #[tokio::test]
+    async fn test_scru128_round_trip() {
+        let engine = setup_scru128_test_env().await;
 
         let original_id = nu_eval(&engine, PipelineData::empty(), ".id");
         let original_id_str = original_id.as_str().unwrap();
@@ -420,9 +417,9 @@ mod tests {
         assert_eq!(original_id_str, repacked_id_str);
     }
 
-    #[test]
-    fn test_scru128_invalid_id() {
-        let engine = setup_scru128_test_env();
+    #[tokio::test]
+    async fn test_scru128_invalid_id() {
+        let engine = setup_scru128_test_env().await;
 
         let engine_clone = engine.clone();
         let result = std::thread::spawn(move || {

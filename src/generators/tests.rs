@@ -857,8 +857,8 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
     }
 }
 
-#[test]
-fn test_emit_event_helper() {
+#[tokio::test]
+async fn test_emit_event_helper() {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.into_path());
     let engine = nu::Engine::new().unwrap();
