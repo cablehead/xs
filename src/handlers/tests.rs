@@ -99,7 +99,7 @@ macro_rules! validate_field {
     }};
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_register_invalid_closure() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -144,7 +144,7 @@ async fn test_register_invalid_closure() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_register_parse_error() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -195,7 +195,7 @@ async fn test_register_parse_error() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 // This test is to ensure that a handler does not run its own output
 async fn test_no_self_loop() {
     let (store, _temp_dir) = setup_test_environment().await;
@@ -239,7 +239,7 @@ async fn test_no_self_loop() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_essentials() {
     let (store, _temp_dir) = setup_test_environment().await;
 
@@ -354,7 +354,7 @@ async fn test_essentials() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_unregister_on_error() {
     let (store, _temp_dir) = setup_test_environment().await;
 
@@ -414,7 +414,7 @@ async fn test_unregister_on_error() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_return_options() {
     let (store, _temp_dir) = setup_test_environment().await;
 
@@ -492,7 +492,7 @@ async fn test_return_options() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_binary_return_value() {
     let (store, _temp_dir) = setup_test_environment().await;
 
@@ -559,7 +559,7 @@ async fn test_binary_return_value() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_custom_append() {
     let (store, _temp_dir) = setup_test_environment().await;
 
@@ -608,7 +608,7 @@ async fn test_custom_append() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_handler_replacement() {
     let (store, _temp_dir) = setup_test_environment().await;
 
@@ -693,7 +693,7 @@ async fn test_handler_replacement() {
     assert_no_more_frames(&mut recver).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_handler_with_module() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -771,7 +771,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_handler_preserve_env() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -863,7 +863,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_handler_context_isolation() -> Result<(), Error> {
     let (store, engine, _temp_dir) = setup_test_environment_raw().await;
 

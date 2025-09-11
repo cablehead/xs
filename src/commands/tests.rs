@@ -6,7 +6,7 @@ use crate::error::Error;
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_command_with_pipeline() -> Result<(), Error> {
     let (store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
@@ -65,7 +65,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_command_error_handling() -> Result<(), Error> {
     let (store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
@@ -121,7 +121,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_command_single_value() -> Result<(), Error> {
     let (store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
@@ -173,7 +173,7 @@ async fn test_command_single_value() -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_command_empty_output() -> Result<(), Error> {
     let (store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
@@ -221,7 +221,7 @@ async fn test_command_empty_output() -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_command_tee_and_append() -> Result<(), Error> {
     let (store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
@@ -315,7 +315,7 @@ async fn setup_test_environment() -> (Store, Frame) {
     (store, ctx)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_command_definition_context_isolation() -> Result<(), Error> {
     let (store, engine) = setup_test_environment_raw().await; // Using a raw setup
 

@@ -545,6 +545,21 @@ impl Store {
             .map_err(|_| crate::error::Error::from("writer dropped reply".to_string()))?
     }
 
+    /// Synchronous wrapper around append for use in sync contexts
+    /// Requires that a tokio runtime is available in the current context
+    pub fn append_sync(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
+        let handle = tokio::runtime::Handle::try_current().map_err(|_| {
+            crate::error::Error::from("append_sync requires a tokio runtime context".to_string())
+        })?;
+
+        if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+            tokio::task::block_in_place(|| handle.block_on(async { self.append(frame).await }))
+        } else {
+            // Single-threaded runtime - cannot use block_in_place
+            handle.block_on(async { self.append(frame).await })
+        }
+    }
+
     fn iter_frames(
         &self,
         context_id: Option<Scru128Id>,

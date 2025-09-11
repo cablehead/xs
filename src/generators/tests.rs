@@ -887,6 +887,7 @@ async fn test_emit_event_helper() {
         task.return_options.as_ref(),
         GeneratorEventKind::Running,
     )
+    .await
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Running));
 
@@ -900,6 +901,7 @@ async fn test_emit_event_helper() {
             data: b"hi".to_vec(),
         },
     )
+    .await
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Recv { .. }));
     let frame = store.head("helper.data", ZERO_CONTEXT).unwrap();
@@ -913,6 +915,7 @@ async fn test_emit_event_helper() {
         task.return_options.as_ref(),
         GeneratorEventKind::Stopped(StopReason::Finished),
     )
+    .await
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Stopped(_)));
 
@@ -923,6 +926,7 @@ async fn test_emit_event_helper() {
         task.return_options.as_ref(),
         GeneratorEventKind::Shutdown,
     )
+    .await
     .unwrap();
     assert_eq!(store.head("helper.shutdown", ZERO_CONTEXT).is_some(), true);
 }

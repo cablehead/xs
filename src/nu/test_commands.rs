@@ -20,19 +20,10 @@ mod tests {
         (store, engine, ctx)
     }
 
-    // Helper to run Nu eval in its own thread
+    // Helper to run Nu eval directly
     fn nu_eval(engine: &Engine, input: PipelineData, command: impl Into<String>) -> Value {
-        let engine = engine.clone();
-        let command = command.into();
-        std::thread::spawn(move || {
-            engine
-                .eval(input, command)
-                .unwrap()
-                .into_value(Span::test_data())
-                .unwrap()
-        })
-        .join()
-        .unwrap()
+        let result = engine.eval(input, command.into()).unwrap();
+        result.into_value(Span::test_data()).unwrap()
     }
 
     fn value_to_frame(value: Value) -> Frame {
@@ -50,7 +41,7 @@ mod tests {
         engine
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_append_command() {
         let (store, mut engine, ctx) = setup_test_env().await;
         engine
@@ -107,7 +98,7 @@ mod tests {
         assert!(frame.hash.is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_cas_command_string() {
         let (store, mut engine, _ctx) = setup_test_env().await;
         engine
@@ -124,7 +115,7 @@ mod tests {
         assert_eq!(content, "test content");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_cas_command_binary() {
         let (store, mut engine, _ctx) = setup_test_env().await;
         engine
@@ -145,7 +136,7 @@ mod tests {
         assert_eq!(retrieved_data, &binary_data);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_head_command() -> Result<(), Error> {
         let (store, mut engine, ctx) = setup_test_env().await;
         engine
@@ -155,29 +146,21 @@ mod tests {
             ))])
             .unwrap();
 
-        let _frame1 = tokio::runtime::Handle::current()
-            .block_on(async {
-                store
-                    .append(
-                        Frame::builder("topic", ctx.id)
-                            .hash(store.cas_insert_sync("content1")?)
-                            .build(),
-                    )
-                    .await
-            })
-            .unwrap();
+        let _frame1 = store
+            .append(
+                Frame::builder("topic", ctx.id)
+                    .hash(store.cas_insert_sync("content1")?)
+                    .build(),
+            )
+            .await?;
 
-        let frame2 = tokio::runtime::Handle::current()
-            .block_on(async {
-                store
-                    .append(
-                        Frame::builder("topic", ctx.id)
-                            .hash(store.cas_insert_sync("content2")?)
-                            .build(),
-                    )
-                    .await
-            })
-            .unwrap();
+        let frame2 = store
+            .append(
+                Frame::builder("topic", ctx.id)
+                    .hash(store.cas_insert_sync("content2")?)
+                    .build(),
+            )
+            .await?;
 
         let head_frame = nu_eval(&engine, PipelineData::empty(), ".head topic");
 
@@ -188,7 +171,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_cat_command() -> Result<(), Error> {
         let (store, mut engine, ctx) = setup_test_env().await;
         engine
@@ -198,29 +181,21 @@ mod tests {
             ))])
             .unwrap();
 
-        let _frame1 = tokio::runtime::Handle::current()
-            .block_on(async {
-                store
-                    .append(
-                        Frame::builder("topic1", ctx.id)
-                            .hash(store.cas_insert_sync("content1")?)
-                            .build(),
-                    )
-                    .await
-            })
-            .unwrap();
+        let _frame1 = store
+            .append(
+                Frame::builder("topic1", ctx.id)
+                    .hash(store.cas_insert_sync("content1")?)
+                    .build(),
+            )
+            .await?;
 
-        let _frame2 = tokio::runtime::Handle::current()
-            .block_on(async {
-                store
-                    .append(
-                        Frame::builder("topic2", ctx.id)
-                            .hash(store.cas_insert_sync("content2")?)
-                            .build(),
-                    )
-                    .await
-            })
-            .unwrap();
+        let _frame2 = store
+            .append(
+                Frame::builder("topic2", ctx.id)
+                    .hash(store.cas_insert_sync("content2")?)
+                    .build(),
+            )
+            .await?;
 
         // Test basic .cat
         let value = nu_eval(&engine, PipelineData::empty(), ".cat");
@@ -248,7 +223,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_remove_command() -> Result<(), Error> {
         let (store, mut engine, ctx) = setup_test_env().await;
         engine
@@ -257,17 +232,13 @@ mod tests {
             )])
             .unwrap();
 
-        let frame = tokio::runtime::Handle::current()
-            .block_on(async {
-                store
-                    .append(
-                        Frame::builder("topic", ctx.id)
-                            .hash(store.cas_insert_sync("test")?)
-                            .build(),
-                    )
-                    .await
-            })
-            .unwrap();
+        let frame = store
+            .append(
+                Frame::builder("topic", ctx.id)
+                    .hash(store.cas_insert_sync("test")?)
+                    .build(),
+            )
+            .await?;
 
         nu_eval(
             &engine,
@@ -279,7 +250,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_command() -> Result<(), Error> {
         let (store, mut engine, ctx) = setup_test_env().await;
         engine
@@ -288,17 +259,13 @@ mod tests {
             ))])
             .unwrap();
 
-        let frame = tokio::runtime::Handle::current()
-            .block_on(async {
-                store
-                    .append(
-                        Frame::builder("topic", ctx.id)
-                            .hash(store.cas_insert_sync("test")?)
-                            .build(),
-                    )
-                    .await
-            })
-            .unwrap();
+        let frame = store
+            .append(
+                Frame::builder("topic", ctx.id)
+                    .hash(store.cas_insert_sync("test")?)
+                    .build(),
+            )
+            .await?;
 
         let retrieved_frame = nu_eval(&engine, PipelineData::empty(), format!(".get {}", frame.id));
 
@@ -314,7 +281,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scru128_generate() {
         let engine = setup_scru128_test_env().await;
         let id_value = nu_eval(&engine, PipelineData::empty(), ".id");
@@ -324,7 +291,7 @@ mod tests {
         assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scru128_unpack() {
         let engine = setup_scru128_test_env().await;
         let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
@@ -347,7 +314,7 @@ mod tests {
         assert!(record.get("timestamp").unwrap().as_date().is_ok());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scru128_unpack_pipeline() {
         let engine = setup_scru128_test_env().await;
         let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
@@ -367,7 +334,7 @@ mod tests {
         assert!(record.get("node").is_some());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scru128_pack() {
         let engine = setup_scru128_test_env().await;
         let components =
@@ -383,7 +350,7 @@ mod tests {
         assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scru128_pack_pipeline() {
         let engine = setup_scru128_test_env().await;
         let components =
@@ -399,7 +366,7 @@ mod tests {
         assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scru128_round_trip() {
         let engine = setup_scru128_test_env().await;
 
@@ -417,7 +384,7 @@ mod tests {
         assert_eq!(original_id_str, repacked_id_str);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_scru128_invalid_id() {
         let engine = setup_scru128_test_env().await;
 

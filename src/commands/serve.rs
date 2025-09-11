@@ -86,17 +86,15 @@ pub async fn serve(
                 tokio::spawn(async move {
                     if let Err(e) = execute_command(command, &frame, &store).await {
                         tracing::error!("Failed to execute command '{}': {:?}", name, e);
-                        let _ = tokio::runtime::Handle::current().block_on(async {
-                            store
-                                .append(
-                                    Frame::builder(format!("{name}.error"), frame.context_id)
-                                        .meta(serde_json::json!({
-                                            "error": e.to_string(),
-                                        }))
-                                        .build(),
-                                )
-                                .await
-                        });
+                        let _ = store
+                            .append(
+                                Frame::builder(format!("{name}.error"), frame.context_id)
+                                    .meta(serde_json::json!({
+                                        "error": e.to_string(),
+                                    }))
+                                    .build(),
+                            )
+                            .await;
                     }
                 });
             }
@@ -203,50 +201,43 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
                     store.cas_insert_sync(serde_json::to_string(&json_value)?)?
                 };
 
-                let _ = tokio::runtime::Handle::current().block_on(async {
-                    store
-                        .append(
-                            Frame::builder(
-                                format!(
-                                    "{topic}{suffix}",
-                                    topic = frame.topic.strip_suffix(".call").unwrap(),
-                                    suffix = resp_suffix
-                                ),
-                                frame.context_id,
-                            )
-                            .maybe_ttl(ttl.clone())
-                            .hash(hash)
-                            .meta(serde_json::json!({
-                                "command_id": command.id.to_string(),
-                                "frame_id": frame.id.to_string(),
-                            }))
-                            .build(),
-                        )
-                        .await
-                });
+                let _ = store.append_sync(
+                    Frame::builder(
+                        format!(
+                            "{topic}{suffix}",
+                            topic = frame.topic.strip_suffix(".call").unwrap(),
+                            suffix = resp_suffix
+                        ),
+                        frame.context_id,
+                    )
+                    .maybe_ttl(ttl.clone())
+                    .hash(hash)
+                    .meta(serde_json::json!({
+                        "command_id": command.id.to_string(),
+                        "frame_id": frame.id.to_string(),
+                    }))
+                    .build(),
+                );
                 Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
             }
             Err(err) => {
                 // Emit error event instead of propagating
                 let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-                let _ =
-                    tokio::runtime::Handle::current().block_on(async {
-                        store.append(
-                        Frame::builder(
-                            format!(
-                                "{topic}.error",
-                                topic = frame.topic.strip_suffix(".call").unwrap()
-                            ),
-                            frame.context_id,
-                        )
-                        .meta(serde_json::json!({
-                            "command_id": command.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                            "error": nu_protocol::format_cli_error(&working_set, &*err, None)
-                        }))
-                        .build(),
-                    ).await
-                    });
+                let _ = store.append_sync(
+                    Frame::builder(
+                        format!(
+                            "{topic}.error",
+                            topic = frame.topic.strip_suffix(".call").unwrap()
+                        ),
+                        frame.context_id,
+                    )
+                    .meta(serde_json::json!({
+                        "command_id": command.id.to_string(),
+                        "frame_id": frame.id.to_string(),
+                        "error": nu_protocol::format_cli_error(&working_set, &*err, None)
+                    }))
+                    .build(),
+                );
 
                 Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
             }

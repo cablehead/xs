@@ -65,46 +65,41 @@ pub enum StopReason {
     Update { update_id: Scru128Id },
 }
 
-pub(crate) fn emit_event(
+pub(crate) async fn emit_event(
     store: &Store,
     loop_ctx: &GeneratorLoop,
     source_id: Scru128Id,
     return_opts: Option<&ReturnOptions>,
     kind: GeneratorEventKind,
 ) -> Result<GeneratorEvent, Box<dyn std::error::Error + Send + Sync>> {
-    let handle = tokio::runtime::Handle::current();
     match &kind {
         GeneratorEventKind::Running => {
-            handle.block_on(async {
-                store
-                    .append(
-                        Frame::builder(
-                            format!("{topic}.running", topic = loop_ctx.topic),
-                            loop_ctx.context_id,
-                        )
-                        .meta(json!({ "source_id": source_id.to_string() }))
-                        .build(),
+            store
+                .append(
+                    Frame::builder(
+                        format!("{topic}.running", topic = loop_ctx.topic),
+                        loop_ctx.context_id,
                     )
-                    .await
-            })?;
+                    .meta(json!({ "source_id": source_id.to_string() }))
+                    .build(),
+                )
+                .await?;
         }
 
         GeneratorEventKind::Recv { suffix, data } => {
             let hash = store.cas_insert_bytes_sync(data)?;
-            handle.block_on(async {
-                store
-                    .append(
-                        Frame::builder(
-                            format!("{topic}.{suffix}", topic = loop_ctx.topic, suffix = suffix),
-                            loop_ctx.context_id,
-                        )
-                        .hash(hash)
-                        .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
-                        .meta(json!({ "source_id": source_id.to_string() }))
-                        .build(),
+            store
+                .append(
+                    Frame::builder(
+                        format!("{topic}.{suffix}", topic = loop_ctx.topic, suffix = suffix),
+                        loop_ctx.context_id,
                     )
-                    .await
-            })?;
+                    .hash(hash)
+                    .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
+                    .meta(json!({ "source_id": source_id.to_string() }))
+                    .build(),
+                )
+                .await?;
         }
 
         GeneratorEventKind::Stopped(reason) => {
@@ -118,51 +113,45 @@ pub(crate) fn emit_event(
             if let StopReason::Error { message } = reason {
                 meta["message"] = json!(message);
             }
-            handle.block_on(async {
-                store
-                    .append(
-                        Frame::builder(
-                            format!("{topic}.stopped", topic = loop_ctx.topic),
-                            loop_ctx.context_id,
-                        )
-                        .meta(meta)
-                        .build(),
+            store
+                .append(
+                    Frame::builder(
+                        format!("{topic}.stopped", topic = loop_ctx.topic),
+                        loop_ctx.context_id,
                     )
-                    .await
-            })?;
+                    .meta(meta)
+                    .build(),
+                )
+                .await?;
         }
 
         GeneratorEventKind::ParseError { message } => {
-            handle.block_on(async {
-                store
-                    .append(
-                        Frame::builder(
-                            format!("{topic}.parse.error", topic = loop_ctx.topic),
-                            loop_ctx.context_id,
-                        )
-                        .meta(json!({
-                            "source_id": source_id.to_string(),
-                            "reason": message,
-                        }))
-                        .build(),
+            store
+                .append(
+                    Frame::builder(
+                        format!("{topic}.parse.error", topic = loop_ctx.topic),
+                        loop_ctx.context_id,
                     )
-                    .await
-            })?;
+                    .meta(json!({
+                        "source_id": source_id.to_string(),
+                        "reason": message,
+                    }))
+                    .build(),
+                )
+                .await?;
         }
 
         GeneratorEventKind::Shutdown => {
-            handle.block_on(async {
-                store
-                    .append(
-                        Frame::builder(
-                            format!("{topic}.shutdown", topic = loop_ctx.topic),
-                            loop_ctx.context_id,
-                        )
-                        .meta(json!({ "source_id": source_id.to_string() }))
-                        .build(),
+            store
+                .append(
+                    Frame::builder(
+                        format!("{topic}.shutdown", topic = loop_ctx.topic),
+                        loop_ctx.context_id,
                     )
-                    .await
-            })?;
+                    .meta(json!({ "source_id": source_id.to_string() }))
+                    .build(),
+                )
+                .await?;
         }
     }
 
@@ -217,7 +206,8 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
                 GeneratorEventKind::ParseError {
                     message: e.to_string(),
                 },
-            );
+            )
+            .await;
             return;
         }
     };
@@ -246,7 +236,8 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         task.id,
         task.return_options.as_ref(),
         GeneratorEventKind::Running,
-    );
+    )
+    .await;
     let start_frame = store
         .head(
             &format!("{topic}.running", topic = loop_ctx.topic),
@@ -362,7 +353,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                                                     frame.id,
                                                     None,
                                                     GeneratorEventKind::ParseError { message: e.to_string() },
-                                                );
+                                                ).await;
                                             }
                                         }
                                     }
@@ -389,7 +380,8 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             task.id,
             task.return_options.as_ref(),
             GeneratorEventKind::Stopped(reason.clone()),
-        );
+        )
+        .await;
 
         match outcome {
             LoopOutcome::Continue => {
@@ -400,7 +392,8 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                     task.id,
                     task.return_options.as_ref(),
                     GeneratorEventKind::Running,
-                );
+                )
+                .await;
             }
             LoopOutcome::Update(new_task, _) => {
                 task = *new_task;
@@ -410,7 +403,8 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                     task.id,
                     task.return_options.as_ref(),
                     GeneratorEventKind::Running,
-                );
+                )
+                .await;
             }
             LoopOutcome::Terminate | LoopOutcome::Error(_) => {
                 let _ = emit_event(
@@ -419,7 +413,8 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                     task.id,
                     task.return_options.as_ref(),
                     GeneratorEventKind::Shutdown,
-                );
+                )
+                .await;
                 break;
             }
         }
@@ -513,7 +508,8 @@ fn spawn_thread(
                                         suffix: suffix.clone(),
                                         data: val.into_bytes(),
                                     },
-                                );
+                                )
+                                .await;
                             });
                         }
                     }
@@ -535,7 +531,8 @@ fn spawn_thread(
                                             suffix: suffix.clone(),
                                             data: val.into_bytes(),
                                         },
-                                    );
+                                    )
+                                    .await;
                                 });
                             }
                         }
@@ -563,7 +560,8 @@ fn spawn_thread(
                                                     suffix: suffix.clone(),
                                                     data: chunk.to_vec(),
                                                 },
-                                            );
+                                            )
+                                            .await;
                                         });
                                     }
                                     Err(_) => break,

@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use crate::nu::Engine;
 use crate::store::Store;
 
-fn setup_test_env() -> (Store, Engine) {
+async fn setup_test_env() -> (Store, Engine) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.into_path());
     let engine = Engine::new().unwrap();
@@ -20,9 +20,9 @@ fn eval_to_value(engine: &Engine, expr: &str) -> Value {
         .unwrap()
 }
 
-#[test]
-fn test_add_module() {
-    let (_store, mut engine) = setup_test_env();
+#[tokio::test(flavor = "multi_thread")]
+async fn test_add_module() {
+    let (_store, mut engine) = setup_test_env().await;
 
     // Add a module that exports two functions
     engine
@@ -49,9 +49,9 @@ fn test_add_module() {
     assert_eq!(result.as_int().unwrap(), 14);
 }
 
-#[test]
-fn test_add_module_syntax_error() {
-    let (_store, mut engine) = setup_test_env();
+#[tokio::test(flavor = "multi_thread")]
+async fn test_add_module_syntax_error() {
+    let (_store, mut engine) = setup_test_env().await;
 
     // Try to add a module with invalid syntax
     let result = engine.add_module(
@@ -66,9 +66,9 @@ fn test_add_module_syntax_error() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_add_multiple_modules() {
-    let (_store, mut engine) = setup_test_env();
+#[tokio::test(flavor = "multi_thread")]
+async fn test_add_multiple_modules() {
+    let (_store, mut engine) = setup_test_env().await;
 
     // Add first module
     engine
@@ -98,9 +98,9 @@ fn test_add_multiple_modules() {
     assert_eq!(str_result.as_str().unwrap(), "hello world");
 }
 
-#[test]
-fn test_add_module_env_var_persistence() {
-    let (_store, mut engine) = setup_test_env();
+#[tokio::test(flavor = "multi_thread")]
+async fn test_add_module_env_var_persistence() {
+    let (_store, mut engine) = setup_test_env().await;
 
     // Add a module that sets an environment variable
     engine
@@ -112,9 +112,9 @@ fn test_add_module_env_var_persistence() {
     assert_eq!(result.as_str().unwrap(), "hello");
 }
 
-#[test]
-fn test_engine_env_vars() {
-    let (_store, engine) = setup_test_env();
+#[tokio::test(flavor = "multi_thread")]
+async fn test_engine_env_vars() {
+    let (_store, engine) = setup_test_env().await;
 
     let engine = engine
         .with_env_vars([("TEST_VAR".to_string(), "test_value".to_string())])
@@ -131,11 +131,11 @@ use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::Stack;
 use nu_protocol::engine::StateWorkingSet;
 
-#[test]
-fn test_env_var_persistence() {
+#[tokio::test(flavor = "multi_thread")]
+async fn test_env_var_persistence() {
     // this test is just to build understanding of how Nushell works with respect to preserving
     // environment variables across evaluations
-    let (_store, engine) = setup_test_env();
+    let (_store, engine) = setup_test_env().await;
     let mut engine = engine;
 
     // First evaluation - set env var
