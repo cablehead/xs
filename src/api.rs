@@ -628,10 +628,14 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
         ])
         .map_err(|e| format!("Failed to add context commands to engine: {e}"))?;
 
-    // Execute the script
-    let result = engine
-        .eval(nu_protocol::PipelineData::empty(), script)
-        .map_err(|e| format!("Script execution failed:\n{e}"))?;
+    // Execute the script in spawn_blocking (like commands do)
+    let result = tokio::task::spawn_blocking(move || {
+        engine
+            .eval(nu_protocol::PipelineData::empty(), script)
+            .map_err(|e| format!("Script execution failed:\n{e}"))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))??;
 
     // Format output based on PipelineData type according to spec
     match result {
