@@ -77,7 +77,6 @@
         <input
           type="text"
           placeholder="What needs to be done?"
-          data-signals-input
           data-bind-input
           data-on-keydown="
             evt.key === 'Enter' && $input.trim() && @post('/todos/add') && ($input = '');
