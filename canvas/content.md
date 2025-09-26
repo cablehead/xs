@@ -1,7 +1,7 @@
 ## Key Partnerships
 
-- iroh for hole punching and P2P networking
-- Integrations with nushell, Obsidian, Logseq
+- [iroh](https://www.iroh.computer/) for hole punching and P2P networking
+- Integrations with [Nushell](https://www.nushell.sh), [Datastar](https://data-star.dev)
 - Overlapping tinkerer communities and indie dev networks
 
 ## Key Activities
