@@ -19,7 +19,7 @@
 - Capture anything (URL, clipboard, webhook) into a live stream in minutes
 - Compose from small, understandable pieces instead of large opaque stacks
 - Keep full control with append-only history for inspection and replay
-- Share work effortlessly as a living digital garden
+- Share a digital garden
 - Start locally, add always-on sync when ready
 
 ## Customer Relationships
