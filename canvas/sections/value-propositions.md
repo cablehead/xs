@@ -20,7 +20,7 @@
 2. **Capture**: They run a single command to append a URL to the stream.
 
    ```bash
-   .append url=https://example.com
+   "https://example.com" | .append url
    ```
 3. **Automation**: A small, visible handler they can read and understand picks
    up the event, launches a screenshot service, and saves the image to the
