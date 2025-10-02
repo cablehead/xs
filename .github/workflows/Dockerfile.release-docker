@@ -3,7 +3,7 @@ FROM ubuntu:latest
 RUN apt-get update && apt-get install -y libssl-dev curl git jq jo unzip
 
 # nu
-ARG NU_VERSION=0.104.0
+ARG NU_VERSION=0.106.1
 RUN curl --fail -L https://github.com/nushell/nushell/releases/download/${NU_VERSION}/nu-${NU_VERSION}-x86_64-unknown-linux-gnu.tar.gz | \
     tar -xz -C /usr/bin --strip-components=1 nu-${NU_VERSION}-x86_64-unknown-linux-gnu/nu && \
     mkdir -p /root/.config/nushell && nu -c "config nu --default" > /root/.config/nushell/config.nu && nu -c "config env --default" > /root/.config/nushell/env.nu
@@ -13,31 +13,13 @@ ARG WEBSOCAT_VERSION=1.13.0
 RUN curl --fail -L -o /usr/bin/websocat https://github.com/vi/websocat/releases/download/v${WEBSOCAT_VERSION}/websocat_max.x86_64-unknown-linux-musl && \
     chmod +x /usr/bin/websocat
 
-# caddy
-ARG CADDY_VERSION=2.8.4
-RUN curl --fail -L -o /tmp/caddy.tar.gz https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz && \
-    tar -xz -C /usr/bin -f /tmp/caddy.tar.gz caddy && \
-    rm /tmp/caddy.tar.gz && \
-    chmod +x /usr/bin/caddy
-
-# aws
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf aws awscliv2.zip
-
-# deno
-ARG DENO_VERSION=2.1.1
-RUN curl --fail -L -o /tmp/deno.zip https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip && \
-    unzip /tmp/deno.zip -d /usr/bin && \
-    chmod +x /usr/bin/deno && \
-    rm /tmp/deno.zip
-
 WORKDIR /app
 
 COPY target/release/xs /usr/local/bin/xs
-COPY target/release/scru128 /usr/bin/scru128
 COPY xs.nu /app/xs.nu
 
-# Run XS_START script content if set, otherwise sleep indefinitely
-ENTRYPOINT /bin/sh -c 'if [ -n "$XS_START" ]; then echo "$XS_START" > /tmp/xs_start.sh && chmod +x /tmp/xs_start.sh && exec /tmp/xs_start.sh; else exec sleep infinity; fi'
+# Set up xs.nu for Nushell and configure environment
+RUN yes | xs nu --install
+ENV XS_ADDR=/app/store
+
+ENTRYPOINT ["xs", "serve", "/app/store", "--expose", "0.0.0.0:3021"]

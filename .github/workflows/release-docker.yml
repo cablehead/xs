@@ -31,13 +31,7 @@ jobs:
     - name: Build in release mode
       run: cargo build --release --verbose
 
-    # Step 4: Install scru128-cli from GitHub
-    - name: Install scru128-cli from GitHub
-      run: |
-        cargo install --git https://github.com/cablehead/scru128-cli --branch main
-        mv ~/.cargo/bin/scru128 target/release/scru128
-
-    # Step 5: Determine Docker image tag based on ref type
+    # Step 4: Determine Docker image tag based on ref type
     - name: Determine image tag
       id: image_tag
       run: |
@@ -51,15 +45,15 @@ jobs:
           echo "IMAGE_TAG=latest" >> $GITHUB_ENV
         fi
 
-    # Step 6: Build Docker image
+    # Step 5: Build Docker image
     - name: Build Docker image
       run: |
         docker build -t $IMAGE_NAME:$IMAGE_TAG -f .github/workflows/Dockerfile.release-docker .
 
-    # Step 7: Log in to GitHub Container Registry
+    # Step 6: Log in to GitHub Container Registry
     - name: Log in to GitHub Container Registry
       run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-    # Step 8: Push Docker image to GHCR
+    # Step 7: Push Docker image to GHCR
     - name: Push Docker image
       run: docker push $IMAGE_NAME:$IMAGE_TAG

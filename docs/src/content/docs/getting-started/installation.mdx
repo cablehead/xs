@@ -45,6 +45,46 @@ cargo install cross-stream --locked
 ```
 </TabItem>
 
+<TabItem label="docker">
+Run `xs` in a container with a pre-built image:
+
+```sh
+docker pull ghcr.io/cablehead/xs:latest
+```
+
+Start a container with a persistent store:
+
+```sh
+docker run -d --init --name cross-stream -p 3021:3021 -v xs-store:/app/store ghcr.io/cablehead/xs:latest
+```
+
+The container exposes the HTTP API on port 3021. You can connect to the store in several ways:
+
+Using curl for HTTP API access:
+
+```sh
+curl http://localhost:3021/
+```
+
+Or run commands directly inside the container:
+
+```sh
+docker exec cross-stream xs cat /app/store
+```
+
+For an interactive Nushell session with xs.nu commands available:
+
+```sh
+docker exec -it cross-stream nu
+```
+
+You can now run xs.nu commands like:
+
+```nushell
+.cat
+```
+</TabItem>
+
 <TabItem label="nix">
 This method helps avoid potential OpenSSL linking issues during compilation.
 
@@ -86,8 +126,16 @@ cargo install cross-stream --locked
 
 ## Verifying Installation
 
+For most installation methods:
+
 ```sh
 xs --version
+```
+
+For Docker installations, verify the container is running:
+
+```sh
+curl http://localhost:3021/version
 ```
 
 ## Import `xs.nu`
@@ -96,6 +144,8 @@ xs --version
 
 `xs` is designed to be orchestrated with <Link to="nu" />, but it also works
 great with any POSIX shell, so this step is optional.
+
+For Docker installations, this is already done for you.
 
 </Aside>
 
