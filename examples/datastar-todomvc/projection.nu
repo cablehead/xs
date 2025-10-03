@@ -28,6 +28,8 @@ export def make_output_record [state: record] {
     todos: $state.todos
     active_count: $active_count
     completed_count: $completed_count
+    interaction_count: $state.interaction_count
+    time_to_first_view: $state.time_to_first_view
   }
 }
 
@@ -39,10 +41,17 @@ def conditional-pipe [
 }
 
 export def project_todo_state [] {
-  generate {|frame, state = {todos: [] live: false}|
+  generate {|frame, state = {todos: [] live: false interaction_count: 0 start_time: null time_to_first_view: null}|
     if ($frame.topic == "xs.threshold") {
+      let current_time = (date now | format date "%s%3f" | into float)
+      let time_to_first_view = if $state.start_time != null {
+        let ms = ($current_time - $state.start_time) | math round | into int
+        if $ms < 1 { 1 } else { $ms }
+      } else {
+        null
+      }
       return (
-        $state | update live { true } | {next: $in out: (make_output_record $in)}
+        $state | update live { true } | update time_to_first_view { $time_to_first_view } | {next: $in out: (make_output_record $in)}
       )
     }
 
@@ -50,7 +59,14 @@ export def project_todo_state [] {
       return {next: $state}
     }
 
-    let state = $state | update todos { todos.update $frame }
+    # Record start time on first todo action
+    let state = if $state.start_time == null {
+      $state | update start_time { date now | format date "%s%3f" | into float }
+    } else {
+      $state
+    }
+
+    let state = $state | update todos { todos.update $frame } | update interaction_count { $in + 1 }
 
     {next: $state} | conditional-pipe $state.live {
       insert out (make_output_record $state)

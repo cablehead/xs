@@ -180,7 +180,10 @@ p {
   border-color: var(--accent);
   color: var(--accent);
   transform: rotate(0deg) scale(1.1);
-  box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent), 0 0 60px var(--accent);
+  box-shadow:
+    0 0 20px var(--accent),
+    0 0 40px var(--accent),
+    0 0 60px var(--accent);
   text-shadow: 0 0 10px var(--accent);
 }
 
@@ -205,14 +208,68 @@ nav a:hover {
   color: var(--accent) !important;
 }
 
+/* Tracker-style metrics section */
+.tracker-metrics {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border: 2px outset var(--text-muted);
+  font-family: "Courier New", "Lucida Console", monospace;
+  font-size: 12px;
+  font-weight: bold;
+  margin-top: 1px;
+}
+
+.tracker-panel {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 2px inset var(--border);
+  padding: 8px 4px;
+  text-align: center;
+}
+
+.tracker-label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+
+.tracker-value {
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: bold;
+  background: var(--bg-primary);
+  padding: 2px 4px;
+  letter-spacing: 1px;
+  font-family: "Courier New", monospace;
+  border: 1px solid var(--border);
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   div[style*="padding: 2em"] {
     padding: 1em !important;
   }
-  
+
   div a {
     transform: rotate(0deg) !important;
     margin: 0.2em !important;
+  }
+
+  .tracker-metrics {
+    flex-direction: column;
+    gap: 0.5em;
+  }
+
+  .tracker-panel {
+    min-width: auto;
   }
 }

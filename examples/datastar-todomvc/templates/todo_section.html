@@ -33,4 +33,16 @@
     </button>
     {% endif %}
   </footer>
+  <div class="tracker-metrics">
+    <div class="tracker-panel">
+      <div class="tracker-label">INTERACTIONS</div>
+      <div class="tracker-value">{{ interaction_count }}</div>
+    </div>
+    {% if time_to_first_view %}
+    <div class="tracker-panel">
+      <div class="tracker-label">TIME TO FIRST VIEW</div>
+      <div class="tracker-value">{{ time_to_first_view }}ms</div>
+    </div>
+    {% endif %}
+  </div>
 </section>

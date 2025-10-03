@@ -104,30 +104,45 @@ def __test_project_state [] {
     return
   }
 
-  # First output (at threshold): 1 active, 1 completed
+  # First output (at threshold): 1 active, 1 completed, 3 interactions, time_to_first_view should be set
   let output1 = $outputs.0
   print "\n1. At threshold output:"
-  print $"   Todos: ($output1.todos | length), Active: ($output1.active_count), Completed: ($output1.completed_count)"
-  if $output1.active_count != 1 or $output1.completed_count != 1 {
-    print "❌ Expected active_count: 1, completed_count: 1"
+  print $"   Todos: ($output1.todos | length), Active: ($output1.active_count), Completed: ($output1.completed_count), Interactions: ($output1.interaction_count)"
+  print $"   Time to first view: ($output1.time_to_first_view)ms"
+  if $output1.active_count != 1 or $output1.completed_count != 1 or $output1.interaction_count != 3 {
+    print "❌ Expected active_count: 1, completed_count: 1, interaction_count: 3"
+    return
+  }
+  if $output1.time_to_first_view == null {
+    print "❌ Expected time_to_first_view to be set at threshold"
     return
   }
 
-  # Second output (after add todo3): 2 active, 1 completed
+  # Second output (after add todo3): 2 active, 1 completed, 4 interactions
   let output2 = $outputs.1
   print "\n2. After add todo3 output:"
-  print $"   Todos: ($output2.todos | length), Active: ($output2.active_count), Completed: ($output2.completed_count)"
-  if $output2.active_count != 2 or $output2.completed_count != 1 {
-    print "❌ Expected active_count: 2, completed_count: 1"
+  print $"   Todos: ($output2.todos | length), Active: ($output2.active_count), Completed: ($output2.completed_count), Interactions: ($output2.interaction_count)"
+  print $"   Time to first view: ($output2.time_to_first_view)ms"
+  if $output2.active_count != 2 or $output2.completed_count != 1 or $output2.interaction_count != 4 {
+    print "❌ Expected active_count: 2, completed_count: 1, interaction_count: 4"
+    return
+  }
+  if $output2.time_to_first_view != $output1.time_to_first_view {
+    print "❌ Expected time_to_first_view to remain the same after threshold"
     return
   }
 
-  # Third output (after toggle todo2): 1 active, 2 completed
+  # Third output (after toggle todo2): 1 active, 2 completed, 5 interactions
   let output3 = $outputs.2
   print "\n3. After toggle todo2 output:"
-  print $"   Todos: ($output3.todos | length), Active: ($output3.active_count), Completed: ($output3.completed_count)"
-  if $output3.active_count != 1 or $output3.completed_count != 2 {
-    print "❌ Expected active_count: 1, completed_count: 2"
+  print $"   Todos: ($output3.todos | length), Active: ($output3.active_count), Completed: ($output3.completed_count), Interactions: ($output3.interaction_count)"
+  print $"   Time to first view: ($output3.time_to_first_view)ms"
+  if $output3.active_count != 1 or $output3.completed_count != 2 or $output3.interaction_count != 5 {
+    print "❌ Expected active_count: 1, completed_count: 2, interaction_count: 5"
+    return
+  }
+  if $output3.time_to_first_view != $output1.time_to_first_view {
+    print "❌ Expected time_to_first_view to remain the same after threshold"
     return
   }
 

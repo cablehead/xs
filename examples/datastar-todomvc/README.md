@@ -9,7 +9,8 @@ TodoMVC implemented with Datastar frontend and [Nushell](https://www.nushell.sh)
 
 ## Resources
 
-- 📖 **[Tutorial: Building TodoMVC with Datastar + xs](https://cablehead.github.io/xs/tutorials/datastar-todomvc/)**
+- 📖
+  **[Tutorial: Building TodoMVC with Datastar + xs](https://cablehead.github.io/xs/tutorials/datastar-todomvc/)**
 - Based on: https://data-star.dev/examples/todomvc
 
 ## Requirements
