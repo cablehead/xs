@@ -11,7 +11,7 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
 
 fn setup_test_env() -> (Store, nu::Engine, Frame) {
     let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path());
+    let store = Store::new(temp_dir.keep());
     let engine = nu::Engine::new().unwrap();
     let ctx = store
         .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
@@ -25,9 +25,9 @@ async fn test_serve_basic() {
 
     {
         let store = store.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             serve(store, engine).await.unwrap();
-        });
+        }));
     }
 
     let script = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
@@ -73,9 +73,9 @@ async fn test_serve_duplex() {
 
     {
         let store = store.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             serve(store, engine).await.unwrap();
-        });
+        }));
     }
 
     let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true }"#;
@@ -148,9 +148,9 @@ async fn test_serve_compact() {
 
     {
         let store = store.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             serve(store, engine).await.unwrap();
-        });
+        }));
     }
 
     let frame = recver.recv().await.unwrap();
@@ -187,11 +187,11 @@ async fn test_serve_duplex_context_isolation() {
     {
         let store = store.clone();
         let engine = engine.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             if let Err(e) = serve(store, engine).await {
                 eprintln!("Serve task failed: {}", e);
             }
-        });
+        }));
     }
 
     // Subscribe to events
@@ -508,10 +508,10 @@ async fn test_serve_restart_until_terminated() {
     // Wait until we receive a stopped frame with reason "terminate"
     loop {
         let frame = recver.recv().await.unwrap();
-        if frame.topic == "restarter.stopped" {
-            if frame.meta.as_ref().unwrap()["reason"] == "terminate" {
-                break;
-            }
+        if frame.topic == "restarter.stopped"
+            && frame.meta.as_ref().unwrap()["reason"] == "terminate"
+        {
+            break;
         }
     }
 }
@@ -677,10 +677,8 @@ async fn test_refresh_on_new_spawn() {
     let mut stop;
     loop {
         stop = recver.recv().await.unwrap();
-        if stop.topic == "reload.stopped" {
-            if stop.meta.as_ref().unwrap()["reason"] == "update" {
-                break;
-            }
+        if stop.topic == "reload.stopped" && stop.meta.as_ref().unwrap()["reason"] == "update" {
+            break;
         }
     }
     let meta = stop.meta.unwrap();
@@ -831,7 +829,7 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
 #[test]
 fn test_emit_event_helper() {
     let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.into_path());
+    let store = Store::new(temp_dir.keep());
     let engine = nu::Engine::new().unwrap();
     let loop_ctx = GeneratorLoop {
         topic: "helper".into(),
@@ -895,7 +893,7 @@ fn test_emit_event_helper() {
         GeneratorEventKind::Shutdown,
     )
     .unwrap();
-    assert_eq!(store.head("helper.shutdown", ZERO_CONTEXT).is_some(), true);
+    assert!(store.head("helper.shutdown", ZERO_CONTEXT).is_some());
 }
 
 #[tokio::test]

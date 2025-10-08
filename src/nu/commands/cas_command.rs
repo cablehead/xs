@@ -78,14 +78,8 @@ impl Command for CasCommand {
 
         // Try to convert to string if valid UTF-8, otherwise return as binary
         let value = match String::from_utf8(contents.clone()) {
-            Ok(string) => Value::String {
-                val: string,
-                internal_span: span,
-            },
-            Err(_) => Value::Binary {
-                val: contents,
-                internal_span: span,
-            },
+            Ok(string) => Value::string(string, span),
+            Err(_) => Value::binary(contents, span),
         };
 
         Ok(PipelineData::Value(value, None))

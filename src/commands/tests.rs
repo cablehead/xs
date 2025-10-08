@@ -288,11 +288,11 @@ async fn setup_test_environment() -> (Store, Frame) {
 
     {
         let store = store.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             crate::commands::serve::serve(store, engine.clone())
                 .await
                 .unwrap();
-        });
+        }));
     }
 
     (store, ctx)
@@ -320,11 +320,11 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
     {
         let store = store.clone();
         let engine = engine.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             if let Err(e) = crate::commands::serve::serve(store, engine).await {
                 eprintln!("Command serve task failed: {}", e);
             }
-        });
+        }));
     }
 
     // Subscribe to events (global listener to see all frames)

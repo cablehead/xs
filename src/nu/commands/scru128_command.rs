@@ -77,12 +77,12 @@ fn convert_timestamp_to_datetime(mut nu_value: Value, span: nu_protocol::Span) -
         }) = record.get("timestamp")
         {
             let timestamp_ms = (*timestamp_float * 1000.0) as i64;
-            let datetime_value = Value::Date {
-                val: chrono::DateTime::from_timestamp_millis(timestamp_ms)
+            let datetime_value = Value::date(
+                chrono::DateTime::from_timestamp_millis(timestamp_ms)
                     .unwrap_or_else(chrono::Utc::now)
                     .into(),
-                internal_span: span,
-            };
+                span,
+            );
             // Create new record with updated timestamp
             let mut new_record = Record::new();
             for (key, value) in record.iter() {
@@ -92,10 +92,7 @@ fn convert_timestamp_to_datetime(mut nu_value: Value, span: nu_protocol::Span) -
                     new_record.push(key.clone(), value.clone());
                 }
             }
-            return Value::Record {
-                val: new_record.into(),
-                internal_span: span,
-            };
+            return Value::record(new_record, span);
         }
     }
     nu_value
@@ -197,13 +194,7 @@ impl Command for Scru128Command {
                 let result = crate::scru128::pack_from_json(json_value)
                     .map_err(|e| scru128_error(format!("Failed to pack components: {e}"), span))?;
 
-                Ok(PipelineData::Value(
-                    Value::String {
-                        val: result,
-                        internal_span: span,
-                    },
-                    None,
-                ))
+                Ok(PipelineData::Value(Value::string(result, span), None))
             }
             Some(unknown) => Err(ShellError::GenericError {
                 error: "Invalid subcommand".into(),
@@ -216,13 +207,7 @@ impl Command for Scru128Command {
                 let result = crate::scru128::generate()
                     .map_err(|e| scru128_error(format!("Failed to generate ID: {e}"), span))?;
 
-                Ok(PipelineData::Value(
-                    Value::String {
-                        val: result,
-                        internal_span: span,
-                    },
-                    None,
-                ))
+                Ok(PipelineData::Value(Value::string(result, span), None))
             }
         }
     }

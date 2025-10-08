@@ -11,7 +11,7 @@ mod tests {
 
     fn setup_test_env() -> (Store, Engine, Frame) {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
         let engine = Engine::new().unwrap();
         let ctx = store
             .append(Frame::builder("xs.context", ZERO_CONTEXT).build())

@@ -75,6 +75,7 @@ impl Engine {
             stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
 
         eval_block_with_early_return::<WithoutDebug>(&engine_state, &mut stack, &block, input)
+            .map(|exec_data| exec_data.body)
             .map_err(|e| {
                 let working_set = StateWorkingSet::new(&engine_state);
                 nu_protocol::format_cli_error(&working_set, &e, None)
@@ -97,6 +98,7 @@ impl Engine {
         )
         .map_err(Box::new)?;
         let closure = result
+            .body
             .into_value(Span::unknown())
             .map_err(Box::new)?
             .into_closure()
@@ -295,7 +297,7 @@ impl Engine {
         }
 
         self.state.current_job.background_thread_job = saved_bg_job;
-        eval_res.map_err(Box::new)
+        eval_res.map(|exec_data| exec_data.body).map_err(Box::new)
     }
 
     /// Kill the background ThreadJob whose name equals `name`.

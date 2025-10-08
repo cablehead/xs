@@ -15,11 +15,12 @@
     "@astrojs/solid-js": "^5.0.1",
     "@astrojs/starlight": "^0.30.3",
     "@beoe/rehype-mermaid": "^0.3.0",
-    "@fujocoded/expressive-code-output": "^0.0.1",
+    "@expressive-code/core": "^0.38.3",
+    "@fujocoded/expressive-code-output": "^0.1.0",
     "@mux/mux-player": "^3.5.3",
     "astro": "^5.0.2",
     "playwright": "^1.49.1",
     "sharp": "^0.32.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.3"
   }
 }

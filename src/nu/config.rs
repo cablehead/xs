@@ -103,7 +103,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
             let working_set = nu_protocol::engine::StateWorkingSet::new(&temp_engine_state);
             Error::from(nu_protocol::format_cli_error(&working_set, &err, None))
         })?;
-        let val = eval_result.into_value(Span::unknown())?;
+        let val = eval_result.body.into_value(Span::unknown())?;
 
         let modules = match val.get_data_by_key("modules") {
             Some(mod_val) => {
@@ -196,7 +196,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
         Error::from(nu_protocol::format_cli_error(&working_set, &err, None))
     })?;
 
-    let final_config_value = final_eval_result.into_value(Span::unknown())?;
+    let final_config_value = final_eval_result.body.into_value(Span::unknown())?;
 
     let run_val = final_config_value
         .get_data_by_key("run")

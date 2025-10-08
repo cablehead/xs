@@ -919,9 +919,9 @@ async fn test_handler_context_isolation() -> Result<(), Error> {
     // start the handler serve now to test startup compaction
     {
         let store = store.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             serve(store, engine).await.unwrap();
-        });
+        }));
     }
 
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1045,9 +1045,9 @@ async fn setup_test_environment() -> (Store, TempDir) {
 
     {
         let store = store.clone();
-        let _ = tokio::spawn(async move {
+        drop(tokio::spawn(async move {
             serve(store, engine).await.unwrap();
-        });
+        }));
     }
 
     (store, temp_dir)

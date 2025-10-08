@@ -274,9 +274,9 @@ impl Listener {
                     .map_err(io::Error::other)?;
 
                 // Parse ticket to get node address
-                let node_ticket: NodeTicket = ticket.parse().map_err(|e| {
-                    io::Error::new(io::ErrorKind::Other, format!("Invalid ticket: {}", e))
-                })?;
+                let node_ticket: NodeTicket = ticket
+                    .parse()
+                    .map_err(|e| io::Error::other(format!("Invalid ticket: {}", e)))?;
                 let node_addr = node_ticket.node_addr().clone();
 
                 // Connect to the server

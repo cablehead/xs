@@ -191,7 +191,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_get() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
         let meta = serde_json::json!({"key": "value"});
         let frame = store
             .append(Frame::builder("stream", ZERO_CONTEXT).meta(meta).build())
@@ -203,7 +203,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_follow() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Append two initial clips
         let f1 = store
@@ -250,7 +250,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_stream_basics() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         let f1 = store
             .append(Frame::builder("/stream", ZERO_CONTEXT).build())
@@ -398,7 +398,7 @@ mod tests_store {
     #[test]
     fn test_read_sync() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Append three frames
         let frame1 = store
@@ -566,7 +566,7 @@ mod tests_context {
     #[tokio::test]
     async fn test_context_operations() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Create a context
         let context_frame = store
@@ -606,7 +606,7 @@ mod tests_context {
     #[tokio::test]
     async fn test_context_ttl() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Create a context
         let context_frame = store
@@ -648,7 +648,7 @@ mod tests_context {
     #[test]
     fn test_read_sync_with_contexts() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Create two contexts
         let context1_frame = store
@@ -719,7 +719,7 @@ mod tests_context {
     #[tokio::test]
     async fn test_read_with_contexts() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Create contexts
         let context1_frame = store
@@ -883,7 +883,7 @@ mod tests_context {
     #[test]
     fn test_iter_frames_with_last_id() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Add frames to ZERO_CONTEXT
         let _frame1 = store
@@ -1027,7 +1027,7 @@ mod tests_context {
     #[tokio::test]
     async fn test_topic_filter_historical() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         let foo1 = store
             .append(Frame::builder("foo", ZERO_CONTEXT).build())
@@ -1052,7 +1052,7 @@ mod tests_context {
     #[tokio::test]
     async fn test_topic_filter_live() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         let foo1 = store
             .append(Frame::builder("foo", ZERO_CONTEXT).build())
@@ -1092,7 +1092,7 @@ mod tests_ttl_expire {
     #[tokio::test]
     async fn test_time_based_ttl_expiry() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Add permanent frame
         let permanent_frame = store
@@ -1137,7 +1137,7 @@ mod tests_ttl_expire {
     #[tokio::test]
     async fn test_head_based_ttl_retention() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.into_path());
+        let store = Store::new(temp_dir.keep());
 
         // Add 4 frames to the same topic with Head(2) TTL
         let _frame1 = store
