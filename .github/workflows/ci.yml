@@ -36,7 +36,6 @@ jobs:
       if: runner.os == 'macOS'
       run: echo "NIX_FIRST_BUILD_UID=400" >> $GITHUB_ENV
     - uses: cachix/install-nix-action@v27
-      if: runner.os == 'Linux'
       with:
         nix_path: nixpkgs=channel:nixos-unstable
     - name: Flake check
