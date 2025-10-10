@@ -79,7 +79,9 @@
               nushell
             ];
             shellHook = ''
-              nu
+              if [ -z "$CI" ]; then
+                nu
+              fi
             '';
           };
 
