@@ -86,16 +86,22 @@ You can now run xs.nu commands like:
 </TabItem>
 
 <TabItem label="nix">
-Install directly using the xs flake:
+Run xs without installing:
+
+```sh
+nix run github:cablehead/xs -- --version
+```
+
+Install to your profile:
 
 ```sh
 nix profile install github:cablehead/xs
 ```
 
-Or use the development shell with all Rust tooling and Nushell pre-configured:
+If you have the repository cloned, use the development shell with all Rust tooling and Nushell pre-configured:
 
 ```sh
-nix develop github:cablehead/xs
+nix develop
 ```
 
 This starts an interactive Nushell session with `xs.nu` commands available. Press Ctrl+D or type `exit` to return to your previous shell.
@@ -103,7 +109,7 @@ This starts an interactive Nushell session with `xs.nu` commands available. Pres
 For bash users who prefer not to auto-start Nushell:
 
 ```sh
-nix develop github:cablehead/xs#bash
+nix develop .#bash
 ```
 
 You can also add xs to your own flake:
@@ -113,7 +119,7 @@ You can also add xs to your own flake:
   inputs.xs.url = "github:cablehead/xs";
   
   outputs = { self, nixpkgs, xs }: {
-    # Use xs.packages.${system}.default
+    # Use xs.packages.${system}.default in your configuration
   };
 }
 ```
