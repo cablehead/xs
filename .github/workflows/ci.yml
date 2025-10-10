@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  cargo:
     if: (github.event_name == 'push' || github.event.pull_request.draft == false)
     strategy:
       matrix:
@@ -25,7 +25,7 @@ jobs:
     - name: Run clippy
       run: cargo clippy --verbose
 
-  nix:
+  nix-flake:
     if: (github.event_name == 'push' || github.event.pull_request.draft == false)
     strategy:
       matrix:
