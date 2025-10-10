@@ -86,39 +86,36 @@ You can now run xs.nu commands like:
 </TabItem>
 
 <TabItem label="nix">
-This method helps avoid potential OpenSSL linking issues during compilation.
+Install directly using the xs flake:
 
-Create a `flake.nix` file:
+```sh
+nix profile install github:cablehead/xs
+```
+
+Or use the development shell with all Rust tooling and Nushell pre-configured:
+
+```sh
+nix develop github:cablehead/xs
+```
+
+This starts an interactive Nushell session with `xs.nu` commands available. Press Ctrl+D or type `exit` to return to your previous shell.
+
+For bash users who prefer not to auto-start Nushell:
+
+```sh
+nix develop github:cablehead/xs#bash
+```
+
+You can also add xs to your own flake:
 
 ```nix
 {
-  description = "Development environment for xs.";
-
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.xs.url = "github:cablehead/xs";
+  
+  outputs = { self, nixpkgs, xs }: {
+    # Use xs.packages.${system}.default
   };
-
-  outputs = { self, nixpkgs }:
-      let
-        system = "x86_64-linux";
-        pkgs = nixpkgs.legacyPackages.${system};
-
-
-      in
-      {
-        devShell.x86_64-linux = pkgs.mkShell {
-            buildInputs = [ pkgs.openssl pkgs.rustc pkgs.cargo ];
-            nativeBuildInputs = [ pkgs.pkg-config ];
-        };
-      };
 }
-```
-
-Then run:
-
-```sh
-nix develop
-cargo install cross-stream --locked
 ```
 </TabItem>
 
