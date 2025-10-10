@@ -10,7 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  cargo:
+    if: (github.event_name == 'push' || github.event.pull_request.draft == false)
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -23,3 +24,24 @@ jobs:
       run: cargo test --verbose
     - name: Run clippy
       run: cargo clippy --verbose
+
+  nix-flake:
+    if: (github.event_name == 'push' || github.event.pull_request.draft == false)
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set NIX_FIRST_BUILD_UID (macOS only)
+      if: runner.os == 'macOS'
+      run: echo "NIX_FIRST_BUILD_UID=400" >> $GITHUB_ENV
+    - uses: cachix/install-nix-action@v27
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+    - name: Flake check
+      run: nix run . -- --version
+    - name: Test default dev shell
+      run: nix develop --command nu --version
+    - name: Test bash dev shell
+      run: nix develop .#bash --command bash --version
