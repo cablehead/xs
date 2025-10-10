@@ -9,12 +9,15 @@ permissions:
   contents: write      # required for gh release
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
   #-----------------------------------------------------------
   # 1. Build matrix - each row runs on its own VM
   #-----------------------------------------------------------
   build:
     name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
+    needs: ci
 
     strategy:
       matrix:
