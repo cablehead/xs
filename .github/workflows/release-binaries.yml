@@ -10,9 +10,16 @@ permissions:
 
 jobs:
   #-----------------------------------------------------------
+  # 0. Run CI checks first
+  #-----------------------------------------------------------
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  #-----------------------------------------------------------
   # 1. Build matrix - each row runs on its own VM
   #-----------------------------------------------------------
   build:
+    needs: ci
     name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
 
