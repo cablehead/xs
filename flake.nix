@@ -4,24 +4,26 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     crane.url = "github:ipetkov/crane";
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, crane, flake-utils, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
+  outputs = inputs @ { flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+
+      perSystem = { config, self', inputs', pkgs, system, ... }: let
+        pkgs = import inputs.nixpkgs {
           inherit system;
-          overlays = [ (import rust-overlay) ];
+          overlays = [ (import inputs.rust-overlay) ];
         };
 
         rustToolchain = pkgs.rust-bin.stable.latest.default;
 
-        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+        craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
@@ -35,9 +37,6 @@
           strictDeps = true;
           buildInputs = with pkgs; [
             openssl
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.darwin.apple-sdk.frameworks.Security
-            pkgs.darwin.apple-sdk.frameworks.SystemConfiguration
           ];
           nativeBuildInputs = with pkgs; [
             pkg-config
@@ -50,8 +49,7 @@
           inherit cargoArtifacts;
           doCheck = false;
         });
-      in
-      {
+      in {
         checks = {
           inherit cross-stream;
         };
@@ -61,14 +59,14 @@
           cross-stream = cross-stream;
         };
 
-        apps.default = flake-utils.lib.mkApp {
-          drv = cross-stream;
-          name = "xs";
+        apps.default = {
+          type = "app";
+          program = "${cross-stream}/bin/xs";
         };
 
         devShells = {
           default = craneLib.devShell {
-            checks = self.checks.${system};
+            checks = self'.checks;
             packages = with pkgs; [
               rust-analyzer
               rustfmt
@@ -83,7 +81,7 @@
           };
 
           bash = craneLib.devShell {
-            checks = self.checks.${system};
+            checks = self'.checks;
             packages = with pkgs; [
               rust-analyzer
               rustfmt
@@ -91,5 +89,6 @@
             ];
           };
         };
-      });
+      };
+    };
 }
