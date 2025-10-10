@@ -79,7 +79,7 @@
               nushell
             ];
             shellHook = ''
-              nu -i
+              nu
             '';
           };
 
