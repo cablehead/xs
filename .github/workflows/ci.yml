@@ -43,5 +43,9 @@ jobs:
       run: nix run . -- --version
     - name: Test default dev shell
       run: nix develop --command nu --version
+    - name: Verify xs available in default shell
+      run: nix develop --command xs --version
     - name: Test bash dev shell
       run: nix develop .#bash --command bash --version
+    - name: Verify xs available in bash shell
+      run: nix develop .#bash --command xs --version

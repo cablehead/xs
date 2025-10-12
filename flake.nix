@@ -72,6 +72,7 @@
               rustfmt
               clippy
               nushell
+              cross-stream
             ];
             shellHook = ''
               if [ -z "$CI" ]; then
@@ -86,6 +87,7 @@
               rust-analyzer
               rustfmt
               clippy
+              cross-stream
             ];
           };
         };
