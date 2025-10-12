@@ -92,19 +92,21 @@ Install directly using the xs flake:
 nix profile install github:cablehead/xs
 ```
 
-Or use the development shell with all Rust tooling and Nushell pre-configured:
+Or use the development shell with all Rust tooling, the `xs` executable, and Nushell pre-configured:
 
 ```sh
 nix develop github:cablehead/xs
 ```
 
-This starts an interactive Nushell session with `xs.nu` commands available. Press Ctrl+D or type `exit` to return to your previous shell.
+This starts an interactive Nushell session with the `xs` command and `xs.nu` commands available. Press Ctrl+D or type `exit` to return to your previous shell.
 
 For bash users who prefer not to auto-start Nushell:
 
 ```sh
 nix develop github:cablehead/xs#bash
 ```
+
+This provides the same `xs` executable and Rust tooling without auto-starting Nushell.
 
 You can also add xs to your own flake:
 
