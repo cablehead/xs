@@ -1,7 +1,7 @@
 <section id="todos-section">
   {% if todos %}
   <ul>
-    {% for todo in todos %}
+    {% for todo in todos | reverse %}
     <li {% if todo.completed %} data-completed="true" {% endif %}>
       <label>
         <input
