@@ -44,6 +44,8 @@ func (m *Xs) MacosEnv(
 
 func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
 	container := m.MacosEnv(ctx, src).
+		WithExec([]string{"rustup", "update", "stable"}).
+		WithExec([]string{"rustup", "default", "stable"}).
 		WithExec([]string{"rustup", "target", "add", "aarch64-apple-darwin"})
 
 	// First build attempt - this will likely fail due to libproc issue
