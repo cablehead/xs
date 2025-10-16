@@ -25,13 +25,15 @@ Always run `./scripts/check.sh` before committing. Use `cargo fmt` to fix format
 2. Get commits since last release: `git log --oneline --pretty=format:"* %s (%ad)" --date=short v{last}..HEAD`
 3. Create `changes/v{version}.md` with title and commit list
 4. Add highlights section for notable changes
-5. Commit changes and tag: `git tag v{version}`
+5. **PAUSE before committing** - Allow user to review and edit the changelog
+6. After user approval, commit changes and tag: `git tag v{version}`
 
 ## Version Bump Process
 
 When bumping version:
 1. Update version in `Cargo.toml`
 2. Run `cargo check` to update `Cargo.lock`
-3. Commit with message like `chore: bump version to X.Y.Z`
-4. Tag with `git tag vX.Y.Z`
-5. Push commits and tags: `git push && git push --tags`
+3. **PAUSE before git push** - Allow user to review changes
+4. Commit with message like `chore: bump version to X.Y.Z`
+5. Tag with `git tag vX.Y.Z`
+6. After user approval, push commits and tags: `git push && git push --tags`
