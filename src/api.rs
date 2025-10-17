@@ -794,10 +794,12 @@ mod tests {
         // Add context-specific commands
         engine
             .add_commands(vec![
-                Box::new(crate::nu::commands::cat_stream_command::CatStreamCommand::new(
-                    store.clone(),
-                    context_id,
-                )),
+                Box::new(
+                    crate::nu::commands::cat_stream_command::CatStreamCommand::new(
+                        store.clone(),
+                        context_id,
+                    ),
+                ),
                 Box::new(crate::nu::commands::head_command::HeadCommand::new(
                     store.clone(),
                     context_id,

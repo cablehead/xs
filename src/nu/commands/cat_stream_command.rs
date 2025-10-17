@@ -77,14 +77,13 @@ impl Command for CatStreamCommand {
         let last_id: Option<scru128::Scru128Id> = last_id
             .as_deref()
             .map(|s| {
-                s.parse()
-                    .map_err(|e| ShellError::GenericError {
-                        error: "Invalid last-id".into(),
-                        msg: format!("Failed to parse Scru128Id: {e}"),
-                        span: Some(call.head),
-                        help: None,
-                        inner: vec![],
-                    })
+                s.parse().map_err(|e| ShellError::GenericError {
+                    error: "Invalid last-id".into(),
+                    msg: format!("Failed to parse Scru128Id: {e}"),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })
             })
             .transpose()?;
 
@@ -145,11 +144,7 @@ impl Command for CatStreamCommand {
         });
 
         // Create ListStream from channel
-        let stream = ListStream::new(
-            std::iter::from_fn(move || rx.recv().ok()),
-            span,
-            signals,
-        );
+        let stream = ListStream::new(std::iter::from_fn(move || rx.recv().ok()), span, signals);
 
         Ok(PipelineData::ListStream(stream, None))
     }

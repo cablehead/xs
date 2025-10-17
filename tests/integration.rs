@@ -485,7 +485,10 @@ async fn test_exec_cat_streaming() {
         .expect("Failed to read threshold");
     assert!(result > 0, "Should read threshold frame");
     let threshold_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
-    assert_eq!(threshold_frame["topic"], "xs.threshold", "Should receive threshold frame indicating caught up");
+    assert_eq!(
+        threshold_frame["topic"], "xs.threshold",
+        "Should receive threshold frame indicating caught up"
+    );
 
     // Append new frame while following
     cmd!(cargo_bin("xs"), "append", store_path, "stream.test")
@@ -516,7 +519,10 @@ async fn test_exec_cat_streaming() {
     .read()
     .unwrap();
 
-    eprintln!("Output from .cat --topic stream.test --limit 1: '{}'", output);
+    eprintln!(
+        "Output from .cat --topic stream.test --limit 1: '{}'",
+        output
+    );
     assert!(!output.trim().is_empty(), "Output should not be empty");
 
     let frames: Vec<serde_json::Value> = output
@@ -537,8 +543,14 @@ async fn test_exec_cat_streaming() {
     .unwrap();
 
     let frame: serde_json::Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
-    assert!(frame.get("context_id").is_some(), "Should include context_id with --detail");
-    assert!(frame.get("ttl").is_some(), "Should include ttl with --detail");
+    assert!(
+        frame.get("context_id").is_some(),
+        "Should include context_id with --detail"
+    );
+    assert!(
+        frame.get("ttl").is_some(),
+        "Should include ttl with --detail"
+    );
 
     // Test 6: Without --detail, context_id and ttl are filtered
     let output = cmd!(
@@ -551,8 +563,14 @@ async fn test_exec_cat_streaming() {
     .unwrap();
 
     let frame: serde_json::Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
-    assert!(frame.get("context_id").is_none(), "Should not include context_id without --detail");
-    assert!(frame.get("ttl").is_none(), "Should not include ttl without --detail");
+    assert!(
+        frame.get("context_id").is_none(),
+        "Should not include context_id without --detail"
+    );
+    assert!(
+        frame.get("ttl").is_none(),
+        "Should not include ttl without --detail"
+    );
 
     // Clean up
     child.kill().await.unwrap();
