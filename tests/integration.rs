@@ -182,6 +182,42 @@ async fn test_integration() {
 }
 
 #[tokio::test]
+async fn test_cat_sse_format() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Append test data
+    cmd!(cargo_bin("xs"), "append", store_path, "test")
+        .stdin_bytes(b"hello")
+        .run()
+        .unwrap();
+
+    // Test SSE format
+    let output = cmd!(cargo_bin("xs"), "cat", store_path, "--sse")
+        .read()
+        .unwrap();
+
+    // Verify SSE format (not NDJSON)
+    assert!(output.contains("id: "), "Expected SSE id field");
+    assert!(output.contains("data: "), "Expected SSE data field");
+    assert!(!output.starts_with('{'), "Should not be plain NDJSON");
+
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_exec_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();

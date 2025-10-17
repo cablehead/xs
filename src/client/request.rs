@@ -31,8 +31,20 @@ where
     let mut builder = Request::builder()
         .method(method)
         .uri(parts.uri)
-        .header(hyper::header::USER_AGENT, "xs/0.1")
-        .header(hyper::header::ACCEPT, "*/*");
+        .header(hyper::header::USER_AGENT, "xs/0.1");
+
+    // Only set default Accept header if no custom Accept header is provided
+    let has_custom_accept = headers
+        .as_ref()
+        .map(|h| {
+            h.iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("Accept"))
+        })
+        .unwrap_or(false);
+
+    if !has_custom_accept {
+        builder = builder.header(hyper::header::ACCEPT, "*/*");
+    }
 
     if let Some(host) = parts.host {
         builder = builder.header(hyper::header::HOST, host);
