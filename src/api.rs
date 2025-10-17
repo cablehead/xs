@@ -607,7 +607,7 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Add context-specific commands
     engine
         .add_commands(vec![
-            Box::new(nu::commands::cat_command::CatCommand::new(
+            Box::new(nu::commands::cat_stream_command::CatStreamCommand::new(
                 store.clone(),
                 context_id,
             )),
@@ -794,7 +794,7 @@ mod tests {
         // Add context-specific commands
         engine
             .add_commands(vec![
-                Box::new(crate::nu::commands::cat_command::CatCommand::new(
+                Box::new(crate::nu::commands::cat_stream_command::CatStreamCommand::new(
                     store.clone(),
                     context_id,
                 )),

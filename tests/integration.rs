@@ -416,6 +416,149 @@ async fn test_exec_bytestream_behavior() {
 }
 
 #[tokio::test]
+async fn test_exec_cat_streaming() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Append initial test data
+    cmd!(cargo_bin("xs"), "append", store_path, "stream.test")
+        .stdin_bytes(b"initial")
+        .run()
+        .unwrap();
+
+    // Test 1: .cat without --follow (snapshot mode)
+    let output = cmd!(
+        cargo_bin("xs"),
+        "exec",
+        store_path,
+        ".cat --topic stream.test"
+    )
+    .read()
+    .unwrap();
+
+    let frames: Vec<serde_json::Value> = output
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0]["topic"], "stream.test");
+
+    // Test 2: .cat --follow streams new frames
+    let mut follow_child = tokio::process::Command::new(cargo_bin("xs"))
+        .arg("exec")
+        .arg(store_path)
+        .arg(".cat --topic stream.test --follow")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = follow_child.stdout.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stdout);
+
+    // Read initial frame (historical)
+    let mut line = String::new();
+    let result = tokio::time::timeout(Duration::from_secs(1), reader.read_line(&mut line))
+        .await
+        .expect("Timeout reading initial frame")
+        .expect("Failed to read initial frame");
+    assert!(result > 0, "Should read initial frame");
+    let initial_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    assert_eq!(initial_frame["topic"], "stream.test");
+
+    // Read threshold frame (indicates caught up to real-time)
+    line.clear();
+    let result = tokio::time::timeout(Duration::from_secs(1), reader.read_line(&mut line))
+        .await
+        .expect("Timeout reading threshold")
+        .expect("Failed to read threshold");
+    assert!(result > 0, "Should read threshold frame");
+    let threshold_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    assert_eq!(threshold_frame["topic"], "xs.threshold", "Should receive threshold frame indicating caught up");
+
+    // Append new frame while following
+    cmd!(cargo_bin("xs"), "append", store_path, "stream.test")
+        .stdin_bytes(b"streamed")
+        .run()
+        .unwrap();
+
+    // Should receive new frame via streaming
+    line.clear();
+    let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+        .await
+        .expect("Timeout reading streamed frame")
+        .expect("Failed to read streamed frame");
+    assert!(result > 0, "Should read streamed frame");
+    let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    assert_eq!(streamed_frame["topic"], "stream.test");
+
+    // Test 3: .cat --tail starts at end (skip for now - can block)
+    follow_child.kill().await.unwrap();
+
+    // Test 4: .cat --limit respects limit
+    let output = cmd!(
+        cargo_bin("xs"),
+        "exec",
+        store_path,
+        ".cat --topic stream.test --limit 1"
+    )
+    .read()
+    .unwrap();
+
+    eprintln!("Output from .cat --topic stream.test --limit 1: '{}'", output);
+    assert!(!output.trim().is_empty(), "Output should not be empty");
+
+    let frames: Vec<serde_json::Value> = output
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).expect(&format!("Failed to parse JSON: {}", l)))
+        .collect();
+    assert_eq!(frames.len(), 1, "Should respect --limit flag");
+
+    // Test 5: .cat --detail includes context_id and ttl
+    let output = cmd!(
+        cargo_bin("xs"),
+        "exec",
+        store_path,
+        ".cat --topic stream.test --limit 1 --detail"
+    )
+    .read()
+    .unwrap();
+
+    let frame: serde_json::Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
+    assert!(frame.get("context_id").is_some(), "Should include context_id with --detail");
+    assert!(frame.get("ttl").is_some(), "Should include ttl with --detail");
+
+    // Test 6: Without --detail, context_id and ttl are filtered
+    let output = cmd!(
+        cargo_bin("xs"),
+        "exec",
+        store_path,
+        ".cat --topic stream.test --limit 1"
+    )
+    .read()
+    .unwrap();
+
+    let frame: serde_json::Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
+    assert!(frame.get("context_id").is_none(), "Should not include context_id without --detail");
+    assert!(frame.get("ttl").is_none(), "Should not include ttl without --detail");
+
+    // Clean up
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_iroh_networking() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
