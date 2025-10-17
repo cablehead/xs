@@ -62,12 +62,7 @@ notes.**
 
 - Run `cargo publish` to publish to crates.io
 
-### 7. Website Update
-
-- Update `../www.cross.stream/www/index.html` release badge with new version, release date, and URL
-- Commit and push website changes
-
-### 8. Manual Verification Required
+### 7. Manual Verification Required
 
 **⚠️ macOS Verification Needed**
 
@@ -79,7 +74,17 @@ brew install cablehead/tap/cross-stream
 xs --version  # should show v$ARGUMENTS
 ```
 
-Confirm the installation works before considering the release complete.
+Confirm the installation works before proceeding to website update.
+
+### 8. Website Update (Final Step)
+
+**Only after verification passes:**
+
+- Update `../www.cross.stream/www/index.html` release badge:
+  - Update `version` attribute to `v$ARGUMENTS`
+  - Update `release-date` attribute to current UTC timestamp (ISO 8601 format)
+  - Update `release-url` attribute to `https://github.com/cablehead/xs/releases/tag/v$ARGUMENTS`
+- Commit and push website changes to make the release publicly visible
 
 ## Rollback Plan
 
