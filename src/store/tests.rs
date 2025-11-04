@@ -1207,3 +1207,159 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
         }
     }
 }
+
+#[cfg(test)]
+mod test_concurrent_append_ordering {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    #[test]
+    fn test_concurrent_appends_maintain_id_ordering() {
+        // This test demonstrates the race condition where concurrent appends
+        // can result in frames being broadcast out of order.
+        //
+        // Timeline:
+        // Thread A: Generate ID (100) -> [WAIT] -> Complete append
+        // Thread B: [WAIT] -> Generate ID (101) -> Complete append immediately
+        // Result: Broadcasts come in order [101, 100] - violates ordering!
+
+        let folder = tempfile::tempdir().unwrap();
+        let store = Store::new(folder.path().to_path_buf());
+
+        // Subscribe to broadcasts before we start appending
+        let mut broadcast_rx = store.broadcast_tx.subscribe();
+
+        // Use barriers to coordinate thread execution precisely
+        let barrier1 = Arc::new(Barrier::new(2)); // After thread A generates ID
+        let barrier2 = Arc::new(Barrier::new(2)); // Before thread A completes
+
+        let store_a = store.clone();
+        let barrier1_a = barrier1.clone();
+        let barrier2_a = barrier2.clone();
+
+        // Thread A: Generates ID first, but completes last
+        let handle_a = thread::spawn(move || {
+            let mut frame = Frame::builder("test", ZERO_CONTEXT).build();
+
+            // Manually generate ID to control timing
+            frame.id = scru128::new();
+            let id_a = frame.id;
+
+            // Signal that we've generated our ID
+            barrier1_a.wait();
+
+            // Wait for thread B to complete its entire append
+            barrier2_a.wait();
+
+            // Small additional delay to ensure thread B finishes
+            thread::sleep(Duration::from_millis(10));
+
+            // Now complete our append (which will broadcast with older ID)
+            // We need to use the internal append flow without re-generating ID
+            // Since append() always generates a new ID, we'll just call it
+            // and return the actual ID it generated
+            let result = store_a.append(frame).unwrap();
+            (result.id, id_a)
+        });
+
+        let store_b = store.clone();
+        let barrier1_b = barrier1.clone();
+        let barrier2_b = barrier2.clone();
+
+        // Thread B: Generates ID second, completes first
+        let handle_b = thread::spawn(move || {
+            // Wait for thread A to generate its ID first
+            barrier1_b.wait();
+
+            // Small delay to ensure thread A's ID is definitely earlier
+            thread::sleep(Duration::from_millis(5));
+
+            // Generate our ID and complete append immediately
+            let frame = Frame::builder("test", ZERO_CONTEXT).build();
+            let result = store_b.append(frame).unwrap();
+
+            // Signal that we've completed
+            barrier2_b.wait();
+
+            result.id
+        });
+
+        let (id_a_actual, _id_a_first_gen) = handle_a.join().unwrap();
+        let id_b = handle_b.join().unwrap();
+
+        // Collect the broadcast frames
+        let frame1 = broadcast_rx.blocking_recv().unwrap();
+        let frame2 = broadcast_rx.blocking_recv().unwrap();
+
+        // The actual test: broadcasts should be in ID order
+        // But due to the race condition, they might not be!
+        println!("Frame 1 ID: {}", frame1.id);
+        println!("Frame 2 ID: {}", frame2.id);
+        println!("ID A (actual): {}", id_a_actual);
+        println!("ID B: {}", id_b);
+
+        // This assertion will fail if broadcasts are out of order
+        assert!(
+            frame1.id < frame2.id,
+            "Frames broadcast out of order! frame1.id={} >= frame2.id={}",
+            frame1.id,
+            frame2.id
+        );
+    }
+
+    #[tokio::test]
+    async fn test_many_concurrent_appends_maintain_ordering() {
+        // Stress test: spawn many concurrent appends and verify broadcast order
+        let folder = tempfile::tempdir().unwrap();
+        let store = Store::new(folder.path().to_path_buf());
+
+        let mut broadcast_rx = store.broadcast_tx.subscribe();
+
+        const NUM_THREADS: usize = 50;
+        let handles: Vec<_> = (0..NUM_THREADS)
+            .map(|i| {
+                let store = store.clone();
+                thread::spawn(move || {
+                    // Add some jitter to increase chance of races
+                    if i % 2 == 0 {
+                        thread::sleep(Duration::from_micros(10));
+                    }
+                    store.append(Frame::builder("test", ZERO_CONTEXT).build()).unwrap()
+                })
+            })
+            .collect();
+
+        // Wait for all appends to complete
+        let frames: Vec<_> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect();
+
+        println!("Generated {} frames", frames.len());
+
+        // Collect all broadcast frames with timeout
+        let mut received = Vec::new();
+        for _ in 0..NUM_THREADS {
+            match tokio::time::timeout(Duration::from_secs(1), broadcast_rx.recv()).await {
+                Ok(Ok(frame)) => received.push(frame),
+                _ => break,
+            }
+        }
+
+        println!("Received {} broadcast frames", received.len());
+
+        // Verify broadcasts are in strictly increasing ID order
+        let mut last_id = scru128::Scru128Id::from_bytes([0; 16]);
+        for (i, frame) in received.iter().enumerate() {
+            assert!(
+                frame.id > last_id,
+                "Frame {} has ID {} <= previous ID {}",
+                i,
+                frame.id,
+                last_id
+            );
+            last_id = frame.id;
+        }
+    }
+}

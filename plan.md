@@ -415,6 +415,27 @@ Arguments against:
 
 **Verdict**: The race condition is a real correctness issue that should be fixed. Even if rare, violating ordering guarantees in an append-only log is a fundamental problem.
 
+## Failing Test
+
+A test has been added to `src/store/tests.rs` that demonstrates the race condition:
+
+```rust
+#[tokio::test]
+async fn test_many_concurrent_appends_maintain_ordering() {
+    // Spawns 50 concurrent threads calling append()
+    // Verifies that broadcast frames are in strictly increasing ID order
+}
+```
+
+**Test Output:**
+```
+Frame 3 has ID 03ez5q26huint1lc9cxudzcmz <= previous ID 03ez5q26i5gdykepf79nfa4ty
+```
+
+The test reliably fails, proving that concurrent appends result in out-of-order broadcasts. This validates the problem analysis and provides a clear success criterion for any fix.
+
 ## Conclusion
 
 Start with **Approach 1** (Mutex) for its simplicity and correctness guarantees. Monitor performance in production. If append contention becomes a bottleneck (unlikely given current usage), refactor to **Approach 3** (Async Channel) for better throughput while maintaining ordered semantics.
+
+The failing test in `src/store/tests.rs:1312` should pass once serialization is implemented.
