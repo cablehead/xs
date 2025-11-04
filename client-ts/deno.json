@@ -1,0 +1,28 @@
+{
+  "name": "@xs/client",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "tasks": {
+    "check": "deno check mod.ts",
+    "test": "deno test --allow-net",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false,
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "compilerOptions": {
+    "lib": ["deno.window"],
+    "strict": true
+  }
+}

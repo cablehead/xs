@@ -1,0 +1,34 @@
+{
+  "name": "@xs/client",
+  "version": "0.1.0",
+  "description": "TypeScript client for xs store HTTP API",
+  "type": "module",
+  "main": "./mod.ts",
+  "types": "./mod.ts",
+  "exports": {
+    ".": {
+      "types": "./mod.ts",
+      "default": "./mod.ts"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc",
+    "test": "echo 'Tests require a running xs server. See client_test.ts for Deno tests.'"
+  },
+  "keywords": [
+    "xs",
+    "store",
+    "event-stream",
+    "typescript",
+    "client"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
