@@ -461,7 +461,7 @@ Let's add an input field so users can add todos directly from the web interface.
 </body>
 ```
 
-The input uses [`data-signals-input`](https://data-star.dev/reference/attributes#data-signals-input) to create a `$input` signal, [`data-bind-input`](https://data-star.dev/reference/attributes#data-bind-input) to sync the field value with the signal, and [`data-on-keydown`](https://data-star.dev/reference/attributes#data-on-keydown) to POST the todo text to our `/add` endpoint when Enter is pressed, then clear the input field.
+The input uses [`data-signals-input`](https://data-star.dev/reference/attributes#data-signals) to create a `$input` signal, [`data-bind-input`](https://data-star.dev/reference/attributes#data-bind) to sync the field value with the signal, and [`data-on-keydown`](https://data-star.dev/reference/attributes#data-on-keydown) to POST the todo text to our `/add` endpoint when Enter is pressed, then clear the input field.
 
 Now add the `/add` endpoint to your `serve.nu` by adding this case to the match block (you'll need to restart http-nu after updating the file):
 
