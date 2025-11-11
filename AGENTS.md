@@ -1,5 +1,7 @@
 ## Git Commit Style Preferences
 
+**NEVER commit unless explicitly asked by the user.**
+
 When committing: review `git diff`
 
 - Use conventional commit format: `type: subject line`
@@ -15,25 +17,14 @@ Example good commit messages from this project:
 - `feat: add a --fallback option to .static to support SPAs`
 - `refactor: remove axum dependency, consolidate unix socket, tcp and tls handling`
 
+## Tone and Communication
+
+Prefer calm, matter-of-fact technical tone like "docs: improve release process with lessons from 0.6.4".
+
 ## Code Quality
 
 Always run `./scripts/check.sh` before committing. Use `cargo fmt` to fix formatting issues.
 
 ## Release Process
 
-1. Find last stable release: `git tag --sort=-version:refname | grep -v dev | head -1`
-2. Get commits since last release: `git log --oneline --pretty=format:"* %s (%ad)" --date=short v{last}..HEAD`
-3. Create `changes/v{version}.md` with title and commit list
-4. Add highlights section for notable changes
-5. **PAUSE before committing** - Allow user to review and edit the changelog
-6. After user approval, commit changes and tag: `git tag v{version}`
-
-## Version Bump Process
-
-When bumping version:
-1. Update version in `Cargo.toml`
-2. Run `cargo check` to update `Cargo.lock`
-3. **PAUSE before git push** - Allow user to review changes
-4. Commit with message like `chore: bump version to X.Y.Z`
-5. Tag with `git tag vX.Y.Z`
-6. After user approval, push commits and tags: `git push && git push --tags`
+Use `/release [version]` command to execute the automated release workflow. See `.claude/commands/release.md` for details.
