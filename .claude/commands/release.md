@@ -47,8 +47,22 @@ notes.**
 - Commit changes with message: `chore: release $ARGUMENTS`
 - Create and push git tag `v$ARGUMENTS`
 - This triggers GitHub workflow to build cross-platform binaries
+- **Output Release Binaries workflow watch command:**
+  ```
+  gh run watch <run-id> --repo cablehead/xs --exit-status
+  ```
 
-### 5. Wait for CI Completion
+### 5. Parallel Prep (While CI Runs)
+
+- Clone `../homebrew-tap` if not present: `git clone https://github.com/cablehead/homebrew-tap.git`
+- Clone `../www.cross.stream` if not present: `git clone https://github.com/cablehead/www.cross.stream.git`
+- Pre-stage website update in `../www.cross.stream/www/index.html`:
+  - Update `version` attribute to `v$ARGUMENTS`
+  - Update `release-url` to `https://github.com/cablehead/xs/releases/tag/v$ARGUMENTS`
+  - Update `release-date` once available from `gh release view v$ARGUMENTS --json publishedAt --jq '.publishedAt'`
+  - **Do not commit or push yet**
+
+### 6. Wait for CI Completion
 
 - Get the latest workflow run ID: `gh run list --limit 1`
 - Monitor build with: `gh run watch <run-id> --exit-status`
@@ -58,7 +72,7 @@ notes.**
 - **Important**: Verify release notes are set correctly with `gh release view v$ARGUMENTS --json body`
 - If release body is just the commit message, update it: `gh release edit v$ARGUMENTS --notes-file changes/v$ARGUMENTS.md`
 
-### 6. Homebrew Formula Update
+### 7. Homebrew Formula Update
 
 - First check available assets: `gh release view v$ARGUMENTS`
 - Download macOS tarball and calculate SHA256:
@@ -70,7 +84,7 @@ notes.**
 - Update `../homebrew-tap/Formula/cross-stream.rb` with new version, URL, and SHA256 checksum
 - Commit and push homebrew formula changes
 
-### 7. Manual Verification Required
+### 8. Manual Verification Required
 
 **⚠️ CRITICAL: macOS Verification BEFORE Publishing to Crates.io**
 
@@ -84,7 +98,7 @@ xs --version  # should show v$ARGUMENTS
 
 **STOP HERE if verification fails.** Publishing to crates.io is irreversible.
 
-### 8. Cargo Registry Publication
+### 9. Cargo Registry Publication
 
 **Only proceed after macOS verification passes.**
 
@@ -92,16 +106,11 @@ xs --version  # should show v$ARGUMENTS
 - Run `cargo publish` to publish to crates.io
 - **Warning**: This step cannot be undone - you cannot unpublish from crates.io
 
-### 9. Website Update (Final Step)
+### 10. Website Update (Final Step)
 
 **Only after cargo publish succeeds:**
 
-- Get the release published timestamp: `gh release view v$ARGUMENTS --json publishedAt --jq '.publishedAt'`
-- Update `../www.cross.stream/www/index.html` release badge:
-  - Update `version` attribute to `v$ARGUMENTS`
-  - Update `release-date` attribute to the timestamp from GitHub (ISO 8601 format)
-  - Update `release-url` attribute to `https://github.com/cablehead/xs/releases/tag/v$ARGUMENTS`
-- Commit and push website changes to make the release publicly visible
+- Commit and push pre-staged website changes from step 5 to make the release publicly visible
 
 ## Release Complete
 
