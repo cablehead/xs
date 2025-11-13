@@ -8,7 +8,7 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
 
 #[tokio::test]
 async fn test_command_with_pipeline() -> Result<(), Error> {
-    let (store, ctx) = setup_test_environment().await;
+    let (_dir, store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
@@ -65,7 +65,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_error_handling() -> Result<(), Error> {
-    let (store, ctx) = setup_test_environment().await;
+    let (_dir, store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
@@ -119,7 +119,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_single_value() -> Result<(), Error> {
-    let (store, ctx) = setup_test_environment().await;
+    let (_dir, store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
@@ -167,7 +167,7 @@ async fn test_command_single_value() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_empty_output() -> Result<(), Error> {
-    let (store, ctx) = setup_test_environment().await;
+    let (_dir, store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
@@ -211,7 +211,7 @@ async fn test_command_empty_output() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_tee_and_append() -> Result<(), Error> {
-    let (store, ctx) = setup_test_environment().await;
+    let (_dir, store, ctx) = setup_test_environment().await;
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
@@ -278,7 +278,7 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
     }
 }
 
-async fn setup_test_environment() -> (Store, Frame) {
+async fn setup_test_environment() -> (TempDir, Store, Frame) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
     let engine = nu::Engine::new().unwrap();
@@ -295,12 +295,12 @@ async fn setup_test_environment() -> (Store, Frame) {
         }));
     }
 
-    (store, ctx)
+    (temp_dir, store, ctx)
 }
 
 #[tokio::test]
 async fn test_command_definition_context_isolation() -> Result<(), Error> {
-    let (store, engine) = setup_test_environment_raw().await; // Using a raw setup
+    let (_dir, store, engine) = setup_test_environment_raw().await; // Using a raw setup
 
     // --- Setup ---
     // Create two distinct contexts
@@ -473,9 +473,9 @@ async fn test_command_definition_context_isolation() -> Result<(), Error> {
 }
 
 // Helper function to setup store and engine without spawning serve
-async fn setup_test_environment_raw() -> (Store, nu::Engine) {
+async fn setup_test_environment_raw() -> (TempDir, Store, nu::Engine) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
     let engine = nu::Engine::new().unwrap();
-    (store, engine)
+    (temp_dir, store, engine)
 }
