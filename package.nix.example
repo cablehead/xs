@@ -1,0 +1,51 @@
+# Example package definition for xs (cross-stream)
+# This would be located at: pkgs/by-name/cr/cross-stream/package.nix
+
+{
+  lib,
+  rustPlatform,
+  fetchFromGitHub,
+  pkg-config,
+  openssl,
+}:
+
+rustPlatform.buildRustPackage rec {
+  pname = "cross-stream";
+  version = "0.6.4";
+
+  src = fetchFromGitHub {
+    owner = "cablehead";
+    repo = "xs";
+    rev = "v${version}";
+    hash = lib.fakeHash;  # Will be replaced with actual hash during build
+  };
+
+  cargoHash = lib.fakeHash;  # Will be replaced with actual hash during build
+
+  nativeBuildInputs = [
+    pkg-config
+  ];
+
+  buildInputs = [
+    openssl
+  ];
+
+  # Tests require filesystem and network access, fail in Nix sandbox
+  # Similar to http-nu package
+  doCheck = false;
+
+  # Include xs.nu module in the package
+  postInstall = ''
+    install -Dm644 xs.nu $out/share/cross-stream/xs.nu
+  '';
+
+  meta = {
+    description = "Local-first event streaming for building reactive workflows and automation";
+    homepage = "https://github.com/cablehead/xs";
+    changelog = "https://github.com/cablehead/xs/blob/v${version}/changes/v${version}.md";
+    license = lib.licenses.mit;
+    maintainers = with lib.maintainers; [ ]; # Will add maintainer handle
+    mainProgram = "xs";
+    platforms = lib.platforms.unix;
+  };
+}

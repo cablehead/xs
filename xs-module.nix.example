@@ -1,0 +1,117 @@
+# Example NixOS module for xs (cross-stream) service
+# This would be located at: nixos/modules/services/misc/xs.nix
+
+{ config, lib, pkgs, ... }:
+
+let
+  cfg = config.services.xs;
+in
+{
+  options.services.xs = {
+    enable = lib.mkEnableOption "xs (cross-stream) event streaming service";
+
+    package = lib.mkPackageOption pkgs "cross-stream" { };
+
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "xs";
+      description = "User account under which xs runs.";
+    };
+
+    group = lib.mkOption {
+      type = lib.types.str;
+      default = "xs";
+      description = "Group under which xs runs.";
+    };
+
+    dataDir = lib.mkOption {
+      type = lib.types.path;
+      default = "/var/lib/xs/store";
+      description = "Directory where xs stores its data.";
+    };
+
+    expose = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = ":3021";
+      description = ''
+        Optional TCP address to expose the HTTP API.
+        Can be [HOST]:PORT for TCP binding.
+        If null (default), xs only listens on Unix socket.
+      '';
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    # Create the service user and group
+    users.users = lib.optionalAttrs (cfg.user == "xs") {
+      xs = {
+        isSystemUser = true;
+        group = cfg.group;
+        description = "xs (cross-stream) service user";
+        home = cfg.dataDir;
+      };
+    };
+
+    users.groups = lib.optionalAttrs (cfg.group == "xs") {
+      xs = { };
+    };
+
+    # Define the systemd service
+    systemd.services.xs = {
+      description = "xs (cross-stream) event streaming service";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+
+      serviceConfig = {
+        Type = "simple";
+        User = cfg.user;
+        Group = cfg.group;
+
+        # Create and manage the data directory
+        StateDirectory = "xs";
+        StateDirectoryMode = "0750";
+
+        # Service execution
+        ExecStart = "${lib.getExe cfg.package} serve ${cfg.dataDir}"
+          + lib.optionalString (cfg.expose != null) " --expose ${cfg.expose}";
+
+        # Restart policy
+        Restart = "on-failure";
+        RestartSec = "5s";
+
+        # Security hardening
+        PrivateTmp = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        NoNewPrivileges = true;
+        PrivateDevices = true;
+        ProtectKernelTunables = true;
+        ProtectControlGroups = true;
+        RestrictSUIDSGID = true;
+
+        # Allow writes to data directory
+        ReadWritePaths = [ cfg.dataDir ];
+
+        # Restrict capabilities
+        CapabilityBoundingSet = [ "" ];
+
+        # Network access (needed if expose is set)
+        PrivateNetwork = false;
+
+        # System call filtering
+        SystemCallFilter = [ "@system-service" "~@privileged" ];
+        SystemCallErrorNumber = "EPERM";
+      };
+
+      # Ensure data directory exists before starting
+      preStart = ''
+        mkdir -p ${cfg.dataDir}
+        chown ${cfg.user}:${cfg.group} ${cfg.dataDir}
+        chmod 0750 ${cfg.dataDir}
+      '';
+    };
+  };
+
+  meta.maintainers = with lib.maintainers; [ ]; # Will add maintainer handle
+}
