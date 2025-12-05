@@ -1,0 +1,106 @@
+<main
+  data-on-keys:ctrl-n="$timing.start = performance.now(); $timing.startEpoch = Date.now(); @post('/select/down')"
+  data-on-keys:ctrl-p="$timing.start = performance.now(); $timing.startEpoch = Date.now(); @post('/select/up')"
+  style="height: 100%; display: flex; flex-direction: column;"
+>
+  <div style="display:none" data-init="$timing.roundTrip = Math.round((performance.now() - $timing.start) * 10) / 10; $timing.serverToRender = Math.round((Date.now() - {{ serverTimestamp }}) * 10) / 10; $timing.browserToServer = Math.round(({{ eventTimestamp }} - $timing.startEpoch) * 10) / 10"></div>
+  <style>
+    .two-pane-container {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 1rem;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .pane {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .item-list {
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .item-list li {
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+      font-family: monospace;
+      font-size: 0.9rem;
+      transition: background 0.2s ease, font-weight 0.2s ease;
+    }
+
+    .item-list li:hover {
+      background: #f5f5f5;
+    }
+
+    .item-list li.selected {
+      background: #e3f2fd;
+      font-weight: 600;
+    }
+
+    .content-pane {
+      padding: 1rem;
+    }
+
+    .content-pane pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .item-id {
+      color: #666;
+      font-size: 0.8rem;
+    }
+
+    .content-item:hover {
+      opacity: 0.7 !important;
+    }
+  </style>
+
+  <div class="two-pane-container">
+    <!-- Left Pane: Item List -->
+    <div class="pane">
+      <ul class="item-list">
+        {% for item in items %}
+        <li
+          id="item-{{ item.id }}"
+          data-on:click="@post('/select/{{ item.id }}')"
+          {% if selectedId == item.id %}class="selected" data-init="el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })"{% endif %}
+        >
+          <div class="item-id">
+            base: {{ item.base }}<br>
+            current: {{ item.id }}
+          </div>
+          <div>{{ item.type }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <!-- Right Pane: Content Display -->
+    <div class="pane content-pane">
+      {% for item in items %}
+      <div
+        id="content-{{ item.id }}"
+        class="content-item"
+        data-on:click="@post('/select/{{ item.id }}')"
+        {% if selectedId == item.id %}data-init="el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })"{% endif %}
+        style="{% if selectedId == item.id %}opacity: 1; background: #e3f2fd; padding: 1rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: pointer;{% else %}opacity: 0.4; padding: 1rem; margin-bottom: 0.5rem; cursor: pointer;{% endif %}"
+      >
+        {% if item.type == "image" %}
+        <img src="/asset/{{ item.hash }}" style="max-width: 100%; height: auto; display: block;" alt="Image content" />
+        {% else %}
+        <pre>{{ item.content }}</pre>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</main>

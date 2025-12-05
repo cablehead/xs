@@ -26,7 +26,7 @@ Bootstrap the store:
 r#'{ run: {|| x-macos-pasteboard | lines } }'# | .append pb.spawn
 
 # register a handler to map raw clipboard data to content
-cat handler-pb.map.nu | .append pb.map.register
+cat ../handler-pb.map.nu | .append pb.map.register
 ```
 
 Start UI:

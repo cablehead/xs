@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pasteboard Viewer</title>
+    <!-- Default theme (if not already installed) -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@quietui/quiet-browser@1.6.2/dist/themes/quiet.css"
+    />
+
+    <!-- Quiet Restyle -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@quietui/quiet-browser@1.6.2/dist/themes/restyle.css"
+    />
+
+    <link rel="stylesheet" href="/syntax-highlight.css" />
+
+    <script type="importmap">
+      {
+        "imports": {
+          "datastar": "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.6/bundles/datastar.js"
+        }
+      }
+    </script>
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.6/bundles/datastar.js"
+    ></script>
+    <script type="module" src="/datastar-on-keys.js"></script>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      main {
+        flex: 1;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body data-signals="{timing: {start: 0, startEpoch: 0, roundTrip: 0, serverToRender: 0, browserToServer: 0}}" data-init="@get('{{ updatesEndpoint }}')">
+    <h1>Pasteboard Viewer ({{ mode }})</h1>
+
+    <main>loading...</main>
+
+    <div style="position: fixed; bottom: 10px; right: 10px; font-family: monospace; font-size: 12px; background: #f0f0f0; padding: 4px 8px; border-radius: 4px;">
+      roundtrip: <span data-text="$timing.roundTrip"></span>ms | browser→stored: <span data-text="$timing.browserToServer"></span>ms | server→render: <span data-text="$timing.serverToRender"></span>ms
+    </div>
+  </body>
+</html>
