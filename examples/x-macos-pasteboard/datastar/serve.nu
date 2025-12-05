@@ -19,11 +19,11 @@ use lib *
     }
 
     {method: "GET" , path: "/internal"} => {
-      {updatesEndpoint: "/updates/internal", mode: "internal"} | .mj "www/index.html.j2"
+      {updatesEndpoint: "/updates/internal", mode: "internal"} | .mj "templates/index.html.j2"
     }
 
     {method: "GET" , path: "/external"} => {
-      {updatesEndpoint: "/updates/external", mode: "external"} | .mj "www/index.html.j2"
+      {updatesEndpoint: "/updates/external", mode: "external"} | .mj "templates/index.html.j2"
     }
 
     {method: "GET" , path: "/updates/internal"} => {
@@ -41,7 +41,7 @@ use lib *
       # Use generate to maintain selection state and render (internal .mj)
       .cat -T selection -f
       | process-selection $items $initial_state
-      | render-sse-internal $items "www/two-pane.html.j2"
+      | render-sse-internal $items "templates/two-pane.html.j2"
     }
 
     {method: "GET" , path: "/updates/external"} => {
@@ -59,7 +59,7 @@ use lib *
       # Use generate to maintain selection state and render (external minijinja-cli)
       .cat -T selection -f
       | process-selection $items $initial_state
-      | render-sse-external $items "www/two-pane.html.j2"
+      | render-sse-external $items "templates/two-pane.html.j2"
     }
 
     {method: "POST", path: "/select/down"} => {
