@@ -1,5 +1,5 @@
 use /Users/andy/s/03erbwsly19fej1b1zw5wv7r3/xs.nu *
-use lib *
+use /Users/andy/s/03f0eraf6qp340335mgjkkvlj/xs/examples/x-macos-pasteboard/datastar/lib *
 
 {|req|
   let body = $in
@@ -64,12 +64,12 @@ use lib *
 
     {method: "POST", path: "/select/down"} => {
       .response {status: 204}
-      .append selection --meta {action: "down"} --ttl ephemeral | ignore
+      null | .append selection --meta {action: "down"} --ttl ephemeral | ignore
     }
 
     {method: "POST", path: "/select/up"} => {
       .response {status: 204}
-      .append selection --meta {action: "up"} --ttl ephemeral | ignore
+      null | .append selection --meta {action: "up"} --ttl ephemeral | ignore
     }
 
     {method: "POST"} => {
@@ -77,7 +77,7 @@ use lib *
       let select_match = ($req.path | parse "/select/{id}")
       if ($select_match | length) > 0 {
         .response {status: 204}
-        .append selection --meta {action: "select", id: $select_match.id.0} --ttl ephemeral | ignore
+        null | .append selection --meta {action: "select", id: $select_match.id.0} --ttl ephemeral | ignore
       } else {
         .response {status: 404}
         "Not Found"
