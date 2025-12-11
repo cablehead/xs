@@ -9,6 +9,20 @@ import { Link } from '../../../utils/links';
 
 cross.stream uses special topic suffixes to coordinate between components and track their lifecycle. This reference documents all suffixes, organized by component type.
 
+## Topic Naming Convention
+
+When choosing topic names, **use hyphens (`-`) instead of dots (`.`)**:
+
+```nushell
+# Good - uses hyphens
+"my-topic" | .append
+
+# Avoid - dots can collide with system suffixes
+"my.topic" | .append
+```
+
+Dots are reserved for the suffix convention (e.g., `.spawn`, `.recv`, `.register`). Using dots in topic names could accidentally collide with system suffixes, leading to unexpected behavior.
+
 ## Generators
 
 <table>
