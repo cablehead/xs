@@ -725,7 +725,10 @@ fn find_paths() -> Result<(PathBuf, PathBuf), String> {
     }
 }
 
-fn install(lib_path: Option<PathBuf>, autoload_path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn install(
+    lib_path: Option<PathBuf>,
+    autoload_path: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Use explicit paths if provided, otherwise discover them
     let (xs_path, stub_path) = match (lib_path, autoload_path) {
         (Some(lib), Some(auto)) => (lib, auto),
