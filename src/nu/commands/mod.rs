@@ -5,5 +5,6 @@ pub mod cat_command;
 pub mod cat_stream_command;
 pub mod get_command;
 pub mod head_command;
+pub mod head_stream_command;
 pub mod remove_command;
 pub mod scru128_command;

@@ -577,6 +577,75 @@ async fn test_exec_cat_streaming() {
 }
 
 #[tokio::test]
+async fn test_exec_head_streaming() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Append initial test data
+    cmd!(cargo_bin("xs"), "append", store_path, "head.test")
+        .stdin_bytes(b"initial")
+        .run()
+        .unwrap();
+
+    // .head --follow should emit current head first, then stream new frames
+    let mut follow_child = tokio::process::Command::new(cargo_bin("xs"))
+        .arg("exec")
+        .arg(store_path)
+        .arg(".head head.test --follow")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = follow_child.stdout.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stdout);
+
+    // Should receive current head immediately
+    let mut line = String::new();
+    let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+        .await
+        .expect("Timeout waiting for current head")
+        .expect("Failed to read current head");
+    assert!(result > 0, "Should receive current head frame");
+    let head_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    assert_eq!(
+        head_frame["topic"], "head.test",
+        "First frame from .head --follow should be the current head"
+    );
+
+    // Append new frame while following
+    cmd!(cargo_bin("xs"), "append", store_path, "head.test")
+        .stdin_bytes(b"updated")
+        .run()
+        .unwrap();
+
+    // Should receive new frame via streaming
+    line.clear();
+    let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+        .await
+        .expect("Timeout waiting for streamed frame")
+        .expect("Failed to read streamed frame");
+    assert!(result > 0, "Should receive streamed frame");
+    let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    assert_eq!(streamed_frame["topic"], "head.test");
+
+    // Clean up
+    follow_child.kill().await.unwrap();
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_iroh_networking() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();

@@ -611,7 +611,7 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                 store.clone(),
                 context_id,
             )),
-            Box::new(nu::commands::head_command::HeadCommand::new(
+            Box::new(nu::commands::head_stream_command::HeadStreamCommand::new(
                 store.clone(),
                 context_id,
             )),
@@ -800,10 +800,12 @@ mod tests {
                         context_id,
                     ),
                 ),
-                Box::new(crate::nu::commands::head_command::HeadCommand::new(
-                    store.clone(),
-                    context_id,
-                )),
+                Box::new(
+                    crate::nu::commands::head_stream_command::HeadStreamCommand::new(
+                        store.clone(),
+                        context_id,
+                    ),
+                ),
                 Box::new(crate::nu::commands::append_command::AppendCommand::new(
                     store.clone(),
                     context_id,
