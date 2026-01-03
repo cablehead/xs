@@ -1,7 +1,7 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{
-    Category, ListStream, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
+    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type, Value,
 };
 use std::time::Duration;
 
@@ -143,8 +143,24 @@ impl Command for CatStreamCommand {
             });
         });
 
-        // Create ListStream from channel
-        let stream = ListStream::new(std::iter::from_fn(move || rx.recv().ok()), span, signals);
+        // Create ListStream from channel with signal-aware polling
+        let stream = ListStream::new(
+            std::iter::from_fn(move || {
+                use std::sync::mpsc::RecvTimeoutError;
+                loop {
+                    if signals.interrupted() {
+                        return None;
+                    }
+                    match rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(value) => return Some(value),
+                        Err(RecvTimeoutError::Timeout) => continue,
+                        Err(RecvTimeoutError::Disconnected) => return None,
+                    }
+                }
+            }),
+            span,
+            Signals::empty(),
+        );
 
         Ok(PipelineData::ListStream(stream, None))
     }
