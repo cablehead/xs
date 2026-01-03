@@ -28,7 +28,7 @@ fn get_or_create_secret() -> Result<SecretKey, BoxError> {
             SecretKey::from_str(&secret).map_err(|e| {
                 Box::new(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("Invalid secret key: {}", e),
+                    format!("Invalid secret key: {e}"),
                 )) as BoxError
             })
         }
@@ -74,10 +74,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
 
             // Parse the ticket string to get the NodeTicket, then extract NodeAddr
             let node_ticket: NodeTicket = ticket.parse().map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Invalid ticket format: {}",
-                    e
-                ))) as BoxError
+                Box::new(std::io::Error::other(format!("Invalid ticket format: {e}"))) as BoxError
             })?;
             let node_addr = node_ticket.node_addr().clone();
 

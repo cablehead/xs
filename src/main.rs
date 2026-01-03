@@ -818,15 +818,15 @@ fn run_scru128(cmd: CommandScru128) -> Result<(), Box<dyn std::error::Error + Se
     match cmd.command {
         Some(Scru128Command::Unpack { id }) => {
             let result = xs::scru128::unpack(&id)?;
-            println!("{}", result);
+            println!("{result}");
         }
         Some(Scru128Command::Pack) => {
             let result = xs::scru128::pack()?;
-            println!("{}", result);
+            println!("{result}");
         }
         None => {
             let result = xs::scru128::generate()?;
-            println!("{}", result);
+            println!("{result}");
         }
     }
     Ok(())

@@ -26,7 +26,7 @@ fn get_or_create_secret() -> io::Result<SecretKey> {
             SecretKey::from_str(&secret).map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Invalid secret key: {}", e),
+                    format!("Invalid secret key: {e}"),
                 )
             })
         }
@@ -147,7 +147,7 @@ impl Listener {
 
                 let conn = incoming.await.map_err(|e| {
                     tracing::error!("Failed to accept iroh connection: {}", e);
-                    io::Error::other(format!("Connection failed: {}", e))
+                    io::Error::other(format!("Connection failed: {e}"))
                 })?;
 
                 let remote_node_id = "unknown"; // We'll use a placeholder for now
@@ -160,7 +160,7 @@ impl Listener {
                         remote_node_id,
                         e
                     );
-                    io::Error::other(format!("Failed to accept stream: {}", e))
+                    io::Error::other(format!("Failed to accept stream: {e}"))
                 })?;
 
                 tracing::debug!("Accepted bidirectional stream from {}", remote_node_id);
@@ -174,7 +174,7 @@ impl Listener {
                     .await
                     .map_err(|e| {
                         tracing::error!("Failed to read handshake from {}: {}", remote_node_id, e);
-                        io::Error::other(format!("Failed to read handshake: {}", e))
+                        io::Error::other(format!("Failed to read handshake: {e}"))
                     })?;
 
                 if handshake_buf != HANDSHAKE {
@@ -186,7 +186,7 @@ impl Listener {
                     );
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        format!("Invalid handshake from {}", remote_node_id),
+                        format!("Invalid handshake from {remote_node_id}"),
                     ));
                 }
 
@@ -211,7 +211,7 @@ impl Listener {
                 .await
                 .map_err(|e| {
                     tracing::error!("Failed to bind iroh endpoint: {}", e);
-                    io::Error::other(format!("Failed to bind endpoint: {}", e))
+                    io::Error::other(format!("Failed to bind endpoint: {e}"))
                 })?;
 
             tracing::debug!("Iroh endpoint bound successfully");
@@ -235,7 +235,7 @@ impl Listener {
         } else {
             let mut addr = addr.to_owned();
             if addr.starts_with(':') {
-                addr = format!("127.0.0.1{}", addr);
+                addr = format!("127.0.0.1{addr}");
             };
             let listener = TcpListener::bind(addr).await?;
             Ok(Listener::Tcp(listener))
@@ -317,7 +317,7 @@ impl std::fmt::Display for Listener {
                 write!(f, "{}", path.display())
             }
             Listener::Iroh(_, ticket) => {
-                write!(f, "iroh://{}", ticket)
+                write!(f, "iroh://{ticket}")
             }
         }
     }
