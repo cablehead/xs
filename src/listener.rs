@@ -343,9 +343,18 @@ impl Listener {
                 Ok(Box::new(stream))
             }
             Listener::Unix(listener) => {
-                let stream =
-                    UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
-                Ok(Box::new(stream))
+                #[cfg(unix)]
+                {
+                    let stream =
+                        UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
+                    Ok(Box::new(stream))
+                }
+                #[cfg(windows)]
+                {
+                    let path = listener.local_addr()?;
+                    let stream = WinUnixStream::connect(&path).await?;
+                    Ok(Box::new(stream))
+                }
             }
             Listener::Iroh(_, ticket) => {
                 let secret_key = get_or_create_secret()?;
