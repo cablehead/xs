@@ -1099,11 +1099,11 @@ mod tests_ttl_expire {
             .append(Frame::builder("test", ZERO_CONTEXT).build())
             .unwrap();
 
-        // Add frame with a TTL
+        // Add frame with a TTL (use 100ms for reliable cross-platform timing)
         let expiring_frame = store
             .append(
                 Frame::builder("test", ZERO_CONTEXT)
-                    .ttl(TTL::Time(Duration::from_millis(20)))
+                    .ttl(TTL::Time(Duration::from_millis(100)))
                     .build(),
             )
             .unwrap();
@@ -1117,8 +1117,8 @@ mod tests_ttl_expire {
             vec![permanent_frame.clone(), expiring_frame.clone()]
         );
 
-        // Wait for TTL to expire
-        sleep(Duration::from_millis(50)).await;
+        // Wait for TTL to expire (200ms gives margin for Windows timer resolution)
+        sleep(Duration::from_millis(200)).await;
 
         // Read after expiry should only show permanent frame
         let recver = store.read(ReadOptions::default()).await;
