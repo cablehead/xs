@@ -1207,3 +1207,105 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
         }
     }
 }
+
+mod tests_append_race {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+    use tempfile::TempDir;
+
+    /// Test that concurrent appends broadcast frames in scru128 ID order.
+    /// This test attempts to expose a race condition between ID generation,
+    /// writing, and broadcasting.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn test_concurrent_append_broadcast_order() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Arc::new(Store::new(temp_dir.keep()));
+
+        // Subscribe to broadcasts before spawning tasks
+        let mut rx = store
+            .read(
+                ReadOptions::builder()
+                    .follow(FollowOption::On)
+                    .context_id(ZERO_CONTEXT)
+                    .build(),
+            )
+            .await;
+
+        // Wait for threshold marker
+        let threshold = rx.recv().await.unwrap();
+        assert_eq!(threshold.topic, "xs.threshold");
+
+        let num_threads = 8;
+        let appends_per_thread = 50;
+
+        // Use a barrier to maximize concurrent contention
+        let barrier = Arc::new(Barrier::new(num_threads));
+        let completed = Arc::new(AtomicUsize::new(0));
+
+        // Spawn OS threads (not async tasks) for true parallelism
+        let mut handles = Vec::new();
+        for thread_id in 0..num_threads {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            let completed = Arc::clone(&completed);
+            handles.push(std::thread::spawn(move || {
+                // All threads wait here, then start simultaneously
+                barrier.wait();
+                for i in 0..appends_per_thread {
+                    let _ = store.append(
+                        Frame::builder("race-test", ZERO_CONTEXT)
+                            .meta(serde_json::json!({"thread": thread_id, "seq": i}))
+                            .build(),
+                    );
+                }
+                completed.fetch_add(1, Ordering::SeqCst);
+            }));
+        }
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Collect all broadcast frames
+        let expected_count = num_threads * appends_per_thread;
+        let mut received = Vec::with_capacity(expected_count);
+
+        loop {
+            if received.len() >= expected_count {
+                break;
+            }
+            match tokio::time::timeout(Duration::from_secs(5), rx.recv()).await {
+                Ok(Some(frame)) if frame.topic == "race-test" => {
+                    received.push(frame);
+                }
+                Ok(Some(_)) => {
+                    // Skip non-test frames (like pulses)
+                    continue;
+                }
+                Ok(None) => panic!("Channel closed unexpectedly"),
+                Err(_) => panic!(
+                    "Timeout waiting for frames, got {} of {}",
+                    received.len(),
+                    expected_count
+                ),
+            }
+        }
+
+        // Verify frames were received in scru128 ID order
+        let mut out_of_order = Vec::new();
+        for i in 1..received.len() {
+            if received[i].id < received[i - 1].id {
+                out_of_order.push((i - 1, i, received[i - 1].id, received[i].id));
+            }
+        }
+
+        assert!(
+            out_of_order.is_empty(),
+            "Frames received out of scru128 order! Found {} violations:\n{:?}",
+            out_of_order.len(),
+            out_of_order.iter().take(10).collect::<Vec<_>>()
+        );
+    }
+}

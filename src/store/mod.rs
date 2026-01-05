@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use scru128::Scru128Id;
 
@@ -184,6 +184,7 @@ pub struct Store {
     contexts: Arc<RwLock<HashSet<Scru128Id>>>,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
+    append_lock: Arc<Mutex<()>>,
 }
 
 impl Store {
@@ -222,6 +223,7 @@ impl Store {
             contexts: Arc::new(RwLock::new(contexts)),
             broadcast_tx,
             gc_tx,
+            append_lock: Arc::new(Mutex::new(())),
         };
 
         // Load context registrations
@@ -517,6 +519,11 @@ impl Store {
     }
 
     pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
+        // Serialize all appends to ensure ID generation, write, and broadcast
+        // happen atomically. This guarantees subscribers receive frames in
+        // scru128 ID order.
+        let _guard = self.append_lock.lock().unwrap();
+
         frame.id = scru128::new();
 
         // Special handling for xs.context registration
