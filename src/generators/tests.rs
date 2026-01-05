@@ -771,7 +771,10 @@ async fn test_bytestream_ping() {
         .build();
     let mut recver = store.read(options).await;
 
-    let script = r#"{ run: {|| ^nu -c "loop { print ping; sleep 100ms }" } }"#;
+    #[cfg(windows)]
+    let script = r#"{ run: {|| ^ping -t 127.0.0.1 } }"#;
+    #[cfg(not(windows))]
+    let script = r#"{ run: {|| ^ping -i 0.1 127.0.0.1 } }"#;
     let spawn = store
         .append(
             Frame::builder("pinger.spawn", ctx.id)
