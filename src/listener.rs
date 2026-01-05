@@ -103,6 +103,15 @@ pub const ALPN: &[u8] = b"XS/1.0";
 /// The connecting side must send this handshake, the listening side must consume it.
 pub const HANDSHAKE: [u8; 5] = *b"xs..!";
 
+/// Check if a string looks like a Windows absolute path (e.g., "C:\..." or "D:\...")
+fn is_windows_path(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
+
 /// Get the secret key or generate a new one.
 /// Uses IROH_SECRET environment variable if available, otherwise generates a new one.
 fn get_or_create_secret() -> io::Result<SecretKey> {
@@ -313,7 +322,7 @@ impl Listener {
             tracing::info!("Iroh ticket: {}", ticket);
 
             Ok(Listener::Iroh(endpoint, ticket))
-        } else if addr.starts_with('/') || addr.starts_with('.') {
+        } else if addr.starts_with('/') || addr.starts_with('.') || is_windows_path(addr) {
             // attempt to remove the socket unconditionally
             let _ = std::fs::remove_file(addr);
             let listener = UnixListener::bind(addr)?;
