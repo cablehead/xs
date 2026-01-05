@@ -5,8 +5,13 @@ use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
 use std::sync::Arc;
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
+
+#[cfg(windows)]
+use crate::listener::WinUnixStream as UnixStream;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 
 use super::types::{BoxError, ConnectionKind, RequestParts};
 
