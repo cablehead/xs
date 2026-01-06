@@ -290,6 +290,18 @@ h1 {
   color: var(--accent-blue-light);
 }
 
+.footer-links a.brand-link {
+  color: var(--text-primary);
+}
+
+.footer-links a.brand-link span {
+  color: var(--accent-blue);
+}
+
+.footer-links a.brand-link:hover span {
+  color: var(--accent-blue-light);
+}
+
 @media (max-width: 499px) {
   .console {
     display: none;
