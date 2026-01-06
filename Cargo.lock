@@ -7468,8 +7468,9 @@ dependencies = [
 
 [[package]]
 name = "win_uds"
-version = "0.1.5"
-source = "git+https://github.com/cablehead/win_uds?branch=main#3da3d090cb85da56869ff304cd31053505fdd3b1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0781e3f90c7f910d8e69cf6e323662dd49c75a78306005ac8f0d85af01d51206"
 dependencies = [
  "async-io",
  "futures-io",
