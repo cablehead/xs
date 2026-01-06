@@ -324,7 +324,7 @@ async fn test_exec_streaming_behavior() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
-    let _child = spawn_xs_supervisor(store_path).await;
+    let mut supervisor = spawn_xs_supervisor(store_path).await;
 
     let sock_path = store_path.join("sock");
     let start = std::time::Instant::now();
@@ -375,9 +375,7 @@ async fn test_exec_streaming_behavior() {
 
     // Clean up
     let _ = child.kill().await;
-
-    // Clean up
-    child.kill().await.unwrap();
+    supervisor.kill().await.unwrap();
 }
 
 #[tokio::test]
@@ -385,7 +383,7 @@ async fn test_exec_bytestream_behavior() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
-    let _child = spawn_xs_supervisor(store_path).await;
+    let mut supervisor = spawn_xs_supervisor(store_path).await;
 
     let sock_path = store_path.join("sock");
     let start = std::time::Instant::now();
@@ -397,10 +395,17 @@ async fn test_exec_bytestream_behavior() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Test ByteStream - reading from /dev/urandom should produce binary stream
-    let script = "open /dev/urandom | first 10";
+    // Test that binary data passes through without JSON encoding
+    // Create a temp file with binary content, then open it to get a ByteStream
+    let bin_path = store_path.join("test.bin");
+    // Use forward slashes for cross-platform nushell compatibility
+    let bin_path_str = bin_path.display().to_string().replace('\\', "/");
+    let script = format!(
+        r#"0x[00 01 02 03 04 05 06 07 08 09] | save -f "{}"; open "{}""#,
+        bin_path_str, bin_path_str
+    );
 
-    let output = cmd!(cargo_bin("xs"), "exec", store_path, script)
+    let output = cmd!(cargo_bin("xs"), "exec", store_path, &script)
         .stdout_capture()
         .run()
         .unwrap();
@@ -413,6 +418,8 @@ async fn test_exec_bytestream_behavior() {
     assert!(!output_str.starts_with('[')); // Not a JSON array
     assert!(!output_str.starts_with('"')); // Not a JSON string
     assert!(!output_str.starts_with('{')); // Not a JSON object
+
+    supervisor.kill().await.unwrap();
 }
 
 #[tokio::test]

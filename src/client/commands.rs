@@ -134,7 +134,11 @@ where
                     Ok(())
                 }
                 Err(e) => {
-                    // Check if this is a file not found error and convert to NotFound
+                    // Check if this is an entry not found error
+                    if matches!(e, cacache::Error::EntryNotFound(_, _)) {
+                        return Err(Box::new(crate::error::NotFound));
+                    }
+                    // Also check for IO not found errors in the chain
                     let boxed_err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
                     if crate::error::has_not_found_io_error(&boxed_err) {
                         return Err(Box::new(crate::error::NotFound));

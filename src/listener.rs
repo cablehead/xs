@@ -6,9 +6,95 @@ use iroh::endpoint::{RecvStream, SendStream};
 use iroh::{Endpoint, RelayMode, SecretKey, Watcher};
 use iroh_base::ticket::NodeTicket;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+
+#[cfg(unix)]
+use tokio::net::UnixListener;
+#[cfg(unix)]
 #[cfg(test)]
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::UnixStream;
+
+#[cfg(windows)]
+mod win_uds_compat {
+    use std::io;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+    use win_uds::net::{AsyncListener, AsyncStream};
+
+    /// Wrapper to adapt win_uds AsyncStream to tokio's AsyncRead/AsyncWrite
+    pub struct WinUnixStream(tokio_util::compat::Compat<AsyncStream>);
+
+    impl WinUnixStream {
+        pub async fn connect<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
+            use tokio_util::compat::FuturesAsyncReadCompatExt;
+            let stream = AsyncStream::connect(path).await?;
+            Ok(Self(stream.compat()))
+        }
+    }
+
+    impl AsyncRead for WinUnixStream {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.0).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for WinUnixStream {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.0).poll_write(cx, buf)
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.0).poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.0).poll_shutdown(cx)
+        }
+    }
+
+    /// Wrapper for win_uds AsyncListener
+    pub struct WinUnixListener {
+        inner: AsyncListener,
+        path: std::path::PathBuf,
+    }
+
+    impl WinUnixListener {
+        pub fn bind<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
+            let path_buf = path.as_ref().to_path_buf();
+            Ok(Self {
+                inner: AsyncListener::bind(path)?,
+                path: path_buf,
+            })
+        }
+
+        pub async fn accept(&self) -> io::Result<(WinUnixStream, ())> {
+            use tokio_util::compat::FuturesAsyncReadCompatExt;
+            let (stream, _addr) = self.inner.accept().await?;
+            Ok((WinUnixStream(stream.compat()), ()))
+        }
+
+        pub fn local_addr(&self) -> io::Result<std::path::PathBuf> {
+            Ok(self.path.clone())
+        }
+    }
+}
+
+#[cfg(windows)]
+use win_uds_compat::WinUnixListener as UnixListener;
+#[cfg(windows)]
+pub use win_uds_compat::WinUnixStream;
+
+#[cfg(test)]
+use tokio::net::TcpStream;
 
 /// The ALPN for xs protocol.
 pub const ALPN: &[u8] = b"XS/1.0";
@@ -16,6 +102,15 @@ pub const ALPN: &[u8] = b"XS/1.0";
 /// The handshake to send when connecting.
 /// The connecting side must send this handshake, the listening side must consume it.
 pub const HANDSHAKE: [u8; 5] = *b"xs..!";
+
+/// Check if a string looks like a Windows absolute path (e.g., "C:\..." or "D:\...")
+fn is_windows_path(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
 
 /// Get the secret key or generate a new one.
 /// Uses IROH_SECRET environment variable if available, otherwise generates a new one.
@@ -227,7 +322,7 @@ impl Listener {
             tracing::info!("Iroh ticket: {}", ticket);
 
             Ok(Listener::Iroh(endpoint, ticket))
-        } else if addr.starts_with('/') || addr.starts_with('.') {
+        } else if addr.starts_with('/') || addr.starts_with('.') || is_windows_path(addr) {
             // attempt to remove the socket unconditionally
             let _ = std::fs::remove_file(addr);
             let listener = UnixListener::bind(addr)?;
@@ -257,9 +352,18 @@ impl Listener {
                 Ok(Box::new(stream))
             }
             Listener::Unix(listener) => {
-                let stream =
-                    UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
-                Ok(Box::new(stream))
+                #[cfg(unix)]
+                {
+                    let stream =
+                        UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
+                    Ok(Box::new(stream))
+                }
+                #[cfg(windows)]
+                {
+                    let path = listener.local_addr()?;
+                    let stream = WinUnixStream::connect(&path).await?;
+                    Ok(Box::new(stream))
+                }
             }
             Listener::Iroh(_, ticket) => {
                 let secret_key = get_or_create_secret()?;
@@ -312,9 +416,17 @@ impl std::fmt::Display for Listener {
                 write!(f, "{}:{}", addr.ip(), addr.port())
             }
             Listener::Unix(listener) => {
-                let addr = listener.local_addr().unwrap();
-                let path = addr.as_pathname().unwrap();
-                write!(f, "{}", path.display())
+                #[cfg(unix)]
+                {
+                    let addr = listener.local_addr().unwrap();
+                    let path = addr.as_pathname().unwrap();
+                    write!(f, "{}", path.display())
+                }
+                #[cfg(windows)]
+                {
+                    let path = listener.local_addr().unwrap();
+                    write!(f, "{}", path.display())
+                }
             }
             Listener::Iroh(_, ticket) => {
                 write!(f, "iroh://{ticket}")

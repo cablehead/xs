@@ -2,6 +2,15 @@ use base64::prelude::*;
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+/// Check if a string looks like a Windows absolute path (e.g., "C:\..." or "D:\...")
+fn is_windows_path(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ConnectionKind {
     Unix(std::path::PathBuf),
@@ -41,8 +50,8 @@ impl RequestParts {
             });
         }
 
-        // Unix socket case
-        if addr.starts_with('/') || addr.starts_with('.') {
+        // Unix socket case (also handles Windows paths like "C:\...")
+        if addr.starts_with('/') || addr.starts_with('.') || is_windows_path(addr) {
             let socket_path = if std::path::Path::new(addr).is_dir() {
                 std::path::Path::new(addr).join("sock")
             } else {
