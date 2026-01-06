@@ -398,7 +398,8 @@ async fn test_exec_bytestream_behavior() {
     // Test that binary data passes through without JSON encoding
     // Create a temp file with binary content, then open it to get a ByteStream
     let bin_path = store_path.join("test.bin");
-    let bin_path_str = bin_path.display();
+    // Use forward slashes for cross-platform nushell compatibility
+    let bin_path_str = bin_path.display().to_string().replace('\\', "/");
     let script = format!(
         r#"0x[00 01 02 03 04 05 06 07 08 09] | save -f "{}"; open "{}""#,
         bin_path_str, bin_path_str
