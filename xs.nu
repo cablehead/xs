@@ -238,13 +238,13 @@ export def .import [path: string] {
   }
 }
 
-# Execute a Nushell script with store helper commands available
-export def .exec [script?: string] {
+# Evaluate a Nushell script with store helper commands available
+export def .eval [script?: string] {
   let input_script = if $script != null { $script } else { $in }
   if $input_script == null {
     error make {msg: "No script provided as argument or via pipeline"}
   }
-  xs exec (xs-addr) $input_script
+  xs eval (xs-addr) -c $input_script
 }
 
 # Generate a new SCRU128 ID

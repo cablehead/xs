@@ -66,7 +66,7 @@ All xs commands that accept an `<addr>` parameter can connect to remote stores:
 ```sh
 xs cat :3021
 "hello world" | xs append 192.168.1.100:8080 chat
-xs exec :3021 '.cat --topic notes'
+xs eval :3021 -c '.cat --topic notes'
 ```
 
 
@@ -77,7 +77,7 @@ Use the full iroh ticket from the server:
 ```sh
 xs cat iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d
 "hello p2p QUIC" | xs append iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d chat
-xs exec iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d '.head status'
+xs eval iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d -c '.head status'
 ```
 
 ## Environment Configuration
@@ -130,9 +130,9 @@ xs serve ./store --expose iroh://
 xs cat iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d --follow
 ```
 
-### Remote Execution
+### Remote Evaluation
 ```sh
-# Execute Nushell scripts on remote store
-xs exec :3021 '{topic: "heartbeat", timestamp: (date now)}'
-xs exec iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d 'ls | each { $in } | .append files'
+# Evaluate Nushell scripts on remote store
+xs eval :3021 -c '{topic: "heartbeat", timestamp: (date now)}'
+xs eval iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d -c 'ls | each { $in } | .append files'
 ```

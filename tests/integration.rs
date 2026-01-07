@@ -218,7 +218,7 @@ async fn test_cat_sse_format() {
 }
 
 #[tokio::test]
-async fn test_exec_integration() {
+async fn test_eval_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -235,13 +235,13 @@ async fn test_exec_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Test simple string expression
-    let output = cmd!(cargo_bin("xs"), "exec", store_path, "\"hello world\"")
+    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "\"hello world\"")
         .read()
         .unwrap();
     assert_eq!(output.trim(), "hello world");
 
     // Test simple math expression
-    let output = cmd!(cargo_bin("xs"), "exec", store_path, "2 + 3")
+    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "2 + 3")
         .read()
         .unwrap();
     assert_eq!(output.trim(), "5");
@@ -249,8 +249,9 @@ async fn test_exec_integration() {
     // Test JSON output for structured data
     let output = cmd!(
         cargo_bin("xs"),
-        "exec",
+        "eval",
         store_path,
+        "-c",
         "{name: \"test\", value: 42}"
     )
     .read()
@@ -260,7 +261,7 @@ async fn test_exec_integration() {
     assert_eq!(parsed["value"], 42);
 
     // Test script from stdin
-    let output = cmd!(cargo_bin("xs"), "exec", store_path, "-")
+    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-")
         .stdin_bytes(b"\"from stdin\"")
         .read()
         .unwrap();
@@ -269,8 +270,9 @@ async fn test_exec_integration() {
     // Test store helper commands - append a note and read it back
     cmd!(
         cargo_bin("xs"),
-        "exec",
+        "eval",
         store_path,
+        "-c",
         r#""test note" | .append note"#
     )
     .run()
@@ -278,8 +280,9 @@ async fn test_exec_integration() {
 
     let output = cmd!(
         cargo_bin("xs"),
-        "exec",
+        "eval",
         store_path,
+        "-c",
         ".head note | get hash | .cas $in"
     )
     .read()
@@ -287,14 +290,14 @@ async fn test_exec_integration() {
     assert_eq!(output.trim(), "test note");
 
     // Test error handling with invalid script (external command failure)
-    let result = cmd!(cargo_bin("xs"), "exec", store_path, "hello world").run();
+    let result = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "hello world").run();
     assert!(
         result.is_err(),
         "Expected command to fail with invalid script"
     );
 
     // Test that we get a meaningful error message (not a hard-coded one)
-    let output = cmd!(cargo_bin("xs"), "exec", store_path, "hello world")
+    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "hello world")
         .stderr_capture()
         .unchecked()
         .run()
@@ -303,13 +306,20 @@ async fn test_exec_integration() {
     assert!(!output.status.success());
     let stderr_msg = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr_msg.contains("Script execution failed") && !stderr_msg.trim().is_empty(),
+        stderr_msg.contains("Script evaluation failed") && !stderr_msg.trim().is_empty(),
         "Expected meaningful error message from nushell, got: '{}'",
         stderr_msg
     );
 
     // Test error handling with syntax error
-    let result = cmd!(cargo_bin("xs"), "exec", store_path, "{ invalid syntax").run();
+    let result = cmd!(
+        cargo_bin("xs"),
+        "eval",
+        store_path,
+        "-c",
+        "{ invalid syntax"
+    )
+    .run();
     assert!(
         result.is_err(),
         "Expected command to fail with syntax error"
@@ -320,7 +330,7 @@ async fn test_exec_integration() {
 }
 
 #[tokio::test]
-async fn test_exec_streaming_behavior() {
+async fn test_eval_streaming_behavior() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -343,8 +353,9 @@ async fn test_exec_streaming_behavior() {
     // Use tokio::process directly to capture streaming behavior
     let start = std::time::Instant::now();
     let mut child = tokio::process::Command::new(cargo_bin("xs"))
-        .arg("exec")
+        .arg("eval")
         .arg(store_path)
+        .arg("-c")
         .arg(script)
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -379,7 +390,7 @@ async fn test_exec_streaming_behavior() {
 }
 
 #[tokio::test]
-async fn test_exec_bytestream_behavior() {
+async fn test_eval_bytestream_behavior() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -405,7 +416,7 @@ async fn test_exec_bytestream_behavior() {
         bin_path_str, bin_path_str
     );
 
-    let output = cmd!(cargo_bin("xs"), "exec", store_path, &script)
+    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", &script)
         .stdout_capture()
         .run()
         .unwrap();
@@ -423,7 +434,7 @@ async fn test_exec_bytestream_behavior() {
 }
 
 #[tokio::test]
-async fn test_exec_cat_streaming() {
+async fn test_eval_cat_streaming() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -448,8 +459,9 @@ async fn test_exec_cat_streaming() {
     // Test 1: .cat without --follow (snapshot mode)
     let output = cmd!(
         cargo_bin("xs"),
-        "exec",
+        "eval",
         store_path,
+        "-c",
         ".cat --topic stream.test"
     )
     .read()
@@ -464,8 +476,9 @@ async fn test_exec_cat_streaming() {
 
     // Test 2: .cat --follow streams new frames
     let mut follow_child = tokio::process::Command::new(cargo_bin("xs"))
-        .arg("exec")
+        .arg("eval")
         .arg(store_path)
+        .arg("-c")
         .arg(".cat --topic stream.test --follow")
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -519,8 +532,9 @@ async fn test_exec_cat_streaming() {
     // Test 4: .cat --limit respects limit
     let output = cmd!(
         cargo_bin("xs"),
-        "exec",
+        "eval",
         store_path,
+        "-c",
         ".cat --topic stream.test --limit 1"
     )
     .read()
@@ -542,8 +556,9 @@ async fn test_exec_cat_streaming() {
     // Test 5: .cat --detail includes context_id and ttl
     let output = cmd!(
         cargo_bin("xs"),
-        "exec",
+        "eval",
         store_path,
+        "-c",
         ".cat --topic stream.test --limit 1 --detail"
     )
     .read()
@@ -562,8 +577,9 @@ async fn test_exec_cat_streaming() {
     // Test 6: Without --detail, context_id and ttl are filtered
     let output = cmd!(
         cargo_bin("xs"),
-        "exec",
+        "eval",
         store_path,
+        "-c",
         ".cat --topic stream.test --limit 1"
     )
     .read()
@@ -584,7 +600,7 @@ async fn test_exec_cat_streaming() {
 }
 
 #[tokio::test]
-async fn test_exec_head_streaming() {
+async fn test_eval_head_streaming() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -608,8 +624,9 @@ async fn test_exec_head_streaming() {
 
     // .head --follow should emit current head first, then stream new frames
     let mut follow_child = tokio::process::Command::new(cargo_bin("xs"))
-        .arg("exec")
+        .arg("eval")
         .arg(store_path)
+        .arg("-c")
         .arg(".head head.test --follow")
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -757,7 +774,7 @@ async fn test_iroh_networking() {
 }
 
 #[tokio::test]
-async fn test_exec_ls_outputs_plain_json() {
+async fn test_eval_ls_outputs_plain_json() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -773,7 +790,7 @@ async fn test_exec_ls_outputs_plain_json() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let output = cmd!(cargo_bin("xs"), "exec", store_path, "ls Cargo.toml")
+    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "ls Cargo.toml")
         .read()
         .unwrap();
 

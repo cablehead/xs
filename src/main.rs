@@ -43,8 +43,8 @@ enum Command {
     Nu(CommandNu),
     /// Generate and manipulate SCRU128 IDs
     Scru128(CommandScru128),
-    /// Execute a Nushell script with store helper commands available
-    Exec(CommandExec),
+    /// Evaluate a Nushell script with store helper commands available
+    Eval(CommandEval),
 }
 
 #[derive(Parser, Debug)]
@@ -185,14 +185,18 @@ struct CommandGet {
 }
 
 #[derive(Parser, Debug)]
-struct CommandExec {
+struct CommandEval {
     /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(value_parser)]
     addr: String,
 
-    /// Nushell script to execute, or "-" to read from stdin
+    /// Script file to evaluate, or "-" to read from stdin
     #[clap(value_parser)]
-    script: String,
+    file: Option<String>,
+
+    /// Evaluate script from command line
+    #[clap(short = 'c', long = "commands")]
+    commands: Option<String>,
 }
 
 fn extract_addr_from_command(command: &Command) -> Option<String> {
@@ -206,7 +210,7 @@ fn extract_addr_from_command(command: &Command) -> Option<String> {
         Command::Get(cmd) => Some(cmd.addr.clone()),
         Command::Import(cmd) => Some(cmd.addr.clone()),
         Command::Version(cmd) => Some(cmd.addr.clone()),
-        Command::Exec(cmd) => Some(cmd.addr.clone()),
+        Command::Eval(cmd) => Some(cmd.addr.clone()),
         Command::Serve(_) | Command::Nu(_) | Command::Scru128(_) => None,
     }
 }
@@ -261,7 +265,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Get(args) => get(args).await,
         Command::Import(args) => import(args).await,
         Command::Version(args) => version(args).await,
-        Command::Exec(args) => exec(args).await,
+        Command::Eval(args) => eval(args).await,
         Command::Nu(args) => run_nu(args),
         Command::Scru128(args) => run_scru128(args),
     };
@@ -560,21 +564,30 @@ async fn version(args: CommandVersion) -> Result<(), Box<dyn std::error::Error +
     Ok(())
 }
 
-async fn exec(args: CommandExec) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn eval(args: CommandEval) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use tokio::io::{stdin, AsyncReadExt};
 
     // Read script content
-    let script = if args.script == "-" {
-        // Read from stdin
-        let mut script_content = String::new();
-        stdin().read_to_string(&mut script_content).await?;
-        script_content
-    } else {
-        args.script
+    let script = match (&args.file, &args.commands) {
+        (Some(_), Some(_)) => {
+            eprintln!("Error: cannot specify both file and --commands");
+            std::process::exit(1);
+        }
+        (None, None) => {
+            eprintln!("Error: provide a file or use --commands");
+            std::process::exit(1);
+        }
+        (Some(path), None) if path == "-" => {
+            let mut script_content = String::new();
+            stdin().read_to_string(&mut script_content).await?;
+            script_content
+        }
+        (Some(path), None) => tokio::fs::read_to_string(path).await?,
+        (None, Some(cmd)) => cmd.clone(),
     };
 
-    // Call the client exec function (streams directly to stdout)
-    xs::client::exec(&args.addr, script).await?;
+    // Call the client eval function (streams directly to stdout)
+    xs::client::eval(&args.addr, script).await?;
     Ok(())
 }
 

@@ -90,16 +90,16 @@ let note_id = (.head note).id
 .get $note_id
 ```
 
-### `.exec`
+### `.eval`
 
-Execute a Nushell script with store helper commands available. Wraps [`xs exec`](../cli/#exec).
+Evaluate a Nushell script with store helper commands available. Wraps [`xs eval`](../cli/#eval).
 
 ```nushell
-.exec [<script>]
+.eval [<script>]
 ```
 
 ```nushell
-".cat --topic note | length" | .exec
+".cat --topic note | length" | .eval
 ```
 
 ## SCRU128 ID Operations

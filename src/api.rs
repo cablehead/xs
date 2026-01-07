@@ -53,7 +53,7 @@ enum Routes {
     CasGet(ssri::Integrity),
     CasPost,
     Import,
-    Exec,
+    Eval,
     Version,
     NotFound,
     BadRequest(String),
@@ -147,7 +147,7 @@ fn match_route(
 
         (&Method::POST, "/cas") => Routes::CasPost,
         (&Method::POST, "/import") => Routes::Import,
-        (&Method::POST, "/exec") => Routes::Exec,
+        (&Method::POST, "/eval") => Routes::Eval,
 
         (&Method::GET, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
             Ok(id) => Routes::StreamItemGet(id),
@@ -234,7 +234,7 @@ async fn handle(
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
-        Routes::Exec => handle_exec(&store, req.into_body()).await,
+        Routes::Eval => handle_eval(&store, req.into_body()).await,
 
         Routes::NotFound => response_404(),
         Routes::BadRequest(msg) => response_400(msg),
@@ -587,7 +587,7 @@ fn empty() -> BoxBody<Bytes, BoxError> {
         .boxed()
 }
 
-async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
+async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Read the script from the request body
     let bytes = body.collect().await?.to_bytes();
     let script =
@@ -626,7 +626,7 @@ async fn handle_exec(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Execute the script
     let result = engine
         .eval(nu_protocol::PipelineData::empty(), script)
-        .map_err(|e| format!("Script execution failed:\n{e}"))?;
+        .map_err(|e| format!("Script evaluation failed:\n{e}"))?;
 
     // Format output based on PipelineData type according to spec
     match result {
@@ -772,7 +772,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_exec_logic() {
+    async fn test_handle_eval_logic() {
         // Test the core nushell execution logic by testing the engine directly
         use crate::nu::Engine;
         use crate::store::Store;

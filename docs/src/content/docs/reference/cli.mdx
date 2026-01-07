@@ -201,24 +201,25 @@ Example:
 cat dump.jsonl | xs import ./store
 ```
 
-### `exec`
+### `eval`
 
-Execute a Nushell script with store helper commands available.
+Evaluate a Nushell script with store helper commands available.
 
 ```sh
-xs exec <addr> <script>
+xs eval <addr> [file] [-c <commands>]
 ```
 
-| Option     | Description                                                |
-| ---------- | ---------------------------------------------------------- |
-| `<addr>`   | Address to connect to ([HOST]:PORT, `<PATH>`, or `iroh://...`) |
-| `<script>` | Nushell script to execute, or "-" to read from stdin      |
+| Option       | Description                                                    |
+| ------------ | -------------------------------------------------------------- |
+| `<addr>`     | Address to connect to ([HOST]:PORT, `<PATH>`, or `iroh://...`) |
+| `[file]`     | Script file to evaluate, or "-" to read from stdin             |
+| `-c <commands>` | Evaluate script from command line                           |
 
-The exec command runs a Nushell script with access to store helper commands like `.cat`, `.append`, `.head`, `.get`, `.cas`, and `.remove`. 
+The eval command runs a Nushell script with access to store helper commands like `.cat`, `.append`, `.head`, `.get`, `.cas`, and `.remove`.
 
 **Output format auto-detection:**
 - `ByteStream` → raw bytes
-- `ListStream` of structured data → JSONL stream  
+- `ListStream` of structured data → JSONL stream
 - `ListStream` of primitives → JSONL stream
 - `ListStream` of mixed types → JSONL stream
 - Single `Value` (string/number) → raw text
@@ -229,21 +230,24 @@ Examples:
 
 ```sh
 # Simple expression
-xs exec ./store '"hello world"'
+xs eval ./store -c '"hello world"'
 
 # Math expression
-xs exec ./store '2 + 3'
+xs eval ./store -c '2 + 3'
 
 # JSON output
-xs exec ./store '{name: "test", value: 42}'
+xs eval ./store -c '{name: "test", value: 42}'
 
 # Script from stdin
-echo '"from stdin"' | xs exec ./store -
+echo '"from stdin"' | xs eval ./store -
+
+# Script from file
+xs eval ./store script.nu
 
 # Using store helpers
-xs exec ./store '"my note" | .append note'
-xs exec ./store '.head note'
-xs exec ./store '.cat --topic note'
+xs eval ./store -c '"my note" | .append note'
+xs eval ./store -c '.head note'
+xs eval ./store -c '.cat --topic note'
 ```
 
 ### `version`

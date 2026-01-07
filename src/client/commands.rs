@@ -294,11 +294,11 @@ fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
         .boxed()
 }
 
-pub async fn exec(
+pub async fn eval(
     addr: &str,
     script: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let res = request::request(addr, Method::POST, "exec", None, script, None).await?;
+    let res = request::request(addr, Method::POST, "eval", None, script, None).await?;
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
