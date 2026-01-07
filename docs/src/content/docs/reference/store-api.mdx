@@ -35,7 +35,7 @@ Query Parameters:
 Response: newline-delimited JSON frames or SSE stream, based on Accept header.
 Use `"Accept: text/event-stream"` for SSE.
 
-### `POST /{topic}`
+### `POST /append/{topic}`
 
 Append frame to topic
 
@@ -43,7 +43,7 @@ Append frame to topic
 curl --unix-socket ./store/sock \
     -H "xs-meta: $(echo -n '{\"key\":\"value\"}' | base64)" \
     -X POST --data "content" \
-    "http://localhost/topic?ttl=forever"
+    "http://localhost/append/topic?ttl=forever"
 ```
 
 Query Parameters:

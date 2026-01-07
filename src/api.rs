@@ -159,8 +159,8 @@ fn match_route(
             Err(e) => Routes::BadRequest(format!("Invalid frame ID: {e}")),
         },
 
-        (&Method::POST, path) if path.starts_with('/') => {
-            let topic = path.trim_start_matches('/').to_string();
+        (&Method::POST, path) if path.starts_with("/append/") => {
+            let topic = path.strip_prefix("/append/").unwrap().to_string();
             let context_id = match params.get("context") {
                 None => crate::store::ZERO_CONTEXT,
                 Some(ctx) => match ctx.parse() {

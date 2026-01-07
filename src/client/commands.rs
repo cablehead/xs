@@ -107,7 +107,15 @@ where
         vec![("xs-meta".to_string(), encoded)]
     });
 
-    let res = request::request(addr, Method::POST, topic, query.as_deref(), body, headers).await?;
+    let res = request::request(
+        addr,
+        Method::POST,
+        &format!("append/{topic}"),
+        query.as_deref(),
+        body,
+        headers,
+    )
+    .await?;
     let body = res.collect().await?.to_bytes();
     Ok(body)
 }
