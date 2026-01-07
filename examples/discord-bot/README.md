@@ -58,7 +58,7 @@ Load xs.nu and set store path:
 
 ```nushell
 use xs.nu *
-$env.XS_ADDR = realpath ./store
+$env.XS_ADDR = "./store" | path expand
 ```
 
 Spawn Discord websocket connection:

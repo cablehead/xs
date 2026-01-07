@@ -53,7 +53,7 @@ Since we're using `./store` instead of the default location, set `XS_ADDR`
 in your client terminal before running any commands:
 
 ```nushell
-$env.XS_ADDR = (realpath ./store)
+$env.XS_ADDR = "./store" | path expand
 ```
 
 Without this, the client will try to connect to the default path
