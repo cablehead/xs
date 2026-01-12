@@ -328,27 +328,32 @@ async fn handle_stream_append(
         .get("xs-meta")
         .map(|x| x.to_str())
         .transpose()
-        .unwrap()
-        .map(|s| {
-            // First decode the Base64-encoded string
-            base64::prelude::BASE64_STANDARD
-                .decode(s)
-                .map_err(|e| format!("xs-meta isn't valid Base64: {e}"))
-                .and_then(|decoded| {
-                    // Then parse the decoded bytes as UTF-8 string
-                    String::from_utf8(decoded)
-                        .map_err(|e| format!("xs-meta isn't valid UTF-8: {e}"))
-                        .and_then(|json_str| {
-                            // Finally parse the UTF-8 string as JSON
-                            serde_json::from_str(&json_str)
-                                .map_err(|e| format!("xs-meta isn't valid JSON: {e}"))
-                        })
-                })
-        })
-        .transpose()
     {
-        Ok(meta) => meta,
-        Err(e) => return response_400(e.to_string()),
+        Ok(opt) => {
+            match opt {
+                Some(s) => {
+                    // First decode the Base64-encoded string
+                    match base64::prelude::BASE64_STANDARD
+                        .decode(s)
+                        .map_err(|e| format!("xs-meta isn't valid Base64: {e}"))
+                        .and_then(|decoded| {
+                            // Then parse the decoded bytes as UTF-8 string
+                            String::from_utf8(decoded)
+                                .map_err(|e| format!("xs-meta isn't valid UTF-8: {e}"))
+                                .and_then(|json_str| {
+                                    // Finally parse the UTF-8 string as JSON
+                                    serde_json::from_str(&json_str)
+                                        .map_err(|e| format!("xs-meta isn't valid JSON: {e}"))
+                                })
+                        }) {
+                        Ok(meta) => Some(meta),
+                        Err(e) => return response_400(e),
+                    }
+                }
+                None => None,
+            }
+        }
+        Err(_) => return response_400("xs-meta header contains invalid UTF-8".to_string()),
     };
 
     let frame = store.append(
