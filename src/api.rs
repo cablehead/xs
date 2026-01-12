@@ -112,7 +112,8 @@ fn match_route(
         }
 
         (&Method::GET, p) if p.starts_with("/head/") => {
-            let topic = p.strip_prefix("/head/")
+            let topic = p
+                .strip_prefix("/head/")
                 .expect("Path prefix validated by starts_with")
                 .to_string();
             let follow = params.contains_key("follow");
@@ -162,7 +163,8 @@ fn match_route(
         },
 
         (&Method::POST, path) if path.starts_with("/append/") => {
-            let topic = path.strip_prefix("/append/")
+            let topic = path
+                .strip_prefix("/append/")
                 .expect("Path prefix validated by starts_with")
                 .to_string();
             let context_id = match params.get("context") {
@@ -215,11 +217,9 @@ async fn handle(
             let reader = store.cas_reader(hash).await?;
             let stream = ReaderStream::new(reader);
 
-            let stream = stream.map(|frame| {
-                match frame {
-                    Ok(data) => Ok(hyper::body::Frame::data(data)),
-                    Err(e) => Err(format!("Error reading CAS data: {e}").into()),
-                }
+            let stream = stream.map(|frame| match frame {
+                Ok(data) => Ok(hyper::body::Frame::data(data)),
+                Err(e) => Err(format!("Error reading CAS data: {e}").into()),
             });
 
             let body = StreamBody::new(stream).boxed();
@@ -260,18 +260,16 @@ async fn handle_stream_cat(
     let accept_type_clone = accept_type.clone();
     let stream = stream.map(move |frame| {
         let bytes = match accept_type_clone {
-            AcceptType::Ndjson => {
-                match serde_json::to_vec(&frame) {
-                    Ok(mut encoded) => {
-                        encoded.push(b'\n');
-                        encoded
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to serialize frame: {e}");
-                        return Err(format!("Failed to serialize frame: {e}").into());
-                    }
+            AcceptType::Ndjson => match serde_json::to_vec(&frame) {
+                Ok(mut encoded) => {
+                    encoded.push(b'\n');
+                    encoded
                 }
-            }
+                Err(e) => {
+                    eprintln!("Failed to serialize frame: {e}");
+                    return Err(format!("Failed to serialize frame: {e}").into());
+                }
+            },
             AcceptType::EventStream => format!(
                 "id: {id}\ndata: {data}\n\n",
                 id = frame.id,
@@ -361,8 +359,8 @@ async fn handle_stream_append(
             .build(),
     )?;
 
-    let frame_json = serde_json::to_string(&frame)
-        .map_err(|e| format!("Failed to serialize frame: {e}"))?;
+    let frame_json =
+        serde_json::to_string(&frame).map_err(|e| format!("Failed to serialize frame: {e}"))?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
@@ -504,8 +502,8 @@ async fn listener_loop(
 
 fn response_frame_or_404(frame: Option<store::Frame>) -> HTTPResult {
     if let Some(frame) = frame {
-        let frame_json = serde_json::to_string(&frame)
-            .map_err(|e| format!("Failed to serialize frame: {e}"))?;
+        let frame_json =
+            serde_json::to_string(&frame).map_err(|e| format!("Failed to serialize frame: {e}"))?;
         Ok(Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "application/json")
@@ -555,14 +553,12 @@ async fn handle_head_get(
     let topic = topic.to_string();
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
         .filter(move |frame| frame.topic == topic)
-        .map(|frame| {
-            match serde_json::to_vec(&frame) {
-                Ok(mut bytes) => {
-                    bytes.push(b'\n');
-                    Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
-                }
-                Err(e) => Err(format!("Failed to serialize frame: {e}").into()),
+        .map(|frame| match serde_json::to_vec(&frame) {
+            Ok(mut bytes) => {
+                bytes.push(b'\n');
+                Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
             }
+            Err(e) => Err(format!("Failed to serialize frame: {e}").into()),
         });
 
     let body = if let Some(frame) = current_head {
@@ -596,8 +592,8 @@ async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPRe
 
     store.insert_frame(&frame)?;
 
-    let frame_json = serde_json::to_string(&frame)
-        .map_err(|e| format!("Failed to serialize frame: {e}"))?;
+    let frame_json =
+        serde_json::to_string(&frame).map_err(|e| format!("Failed to serialize frame: {e}"))?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
