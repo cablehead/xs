@@ -295,9 +295,9 @@ async fn test_essentials() {
     assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-    assert_eq!(meta["tail"], false);
-    // The last_id should the frame pointed to the pointer frame
-    assert_eq!(meta["last_id"], pew1.id.to_string());
+    assert_eq!(meta["from_latest"], false);
+    // The from_id should the frame pointed to the pointer frame
+    assert_eq!(meta["from_id"], pew1.id.to_string());
 
     // Should process frame2 (since pew1 was before the start point)
     validate_frame!(recver.recv().await.unwrap(), {
@@ -326,9 +326,9 @@ async fn test_essentials() {
     assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
-    assert_eq!(meta["tail"], false);
-    // The last_id should now be pew2
-    assert_eq!(meta["last_id"], pew2.id.to_string());
+    assert_eq!(meta["from_latest"], false);
+    // The from_id should now be pew2
+    assert_eq!(meta["from_id"], pew2.id.to_string());
 
     let pew3 = store
         .append(Frame::builder("pew", ZERO_CONTEXT).build())
