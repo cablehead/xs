@@ -1,0 +1,256 @@
+name: Check build
+
+on: [push, pull_request]
+
+env:
+  CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  codespell:
+    name: Run codespell
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run codespell
+        uses: codespell-project/actions-codespell@v2
+
+  run-tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Run tests
+        run: |
+          cargo test --all-targets --all-features
+
+  run-fuzzer:
+    name: Run fuzzer
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Install cargo-fuzz
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-fuzz
+          locked: false
+
+      - name: Run stream fuzzer for a limited time
+        run: |
+          RUST_BACKTRACE=1 cargo fuzz run stream -- -max_total_time=900
+
+  build-docs:
+    name: Build docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Build docs
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+        run: |
+          cargo doc --no-deps --all-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src,clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Run clippy
+        run: cargo clippy --all-features --all-targets
+
+      - name: Run clippy (fuzz)
+        run: cargo clippy --manifest-path fuzz/Cargo.toml --all-features --all-targets
+
+  rustfmt:
+    name: Format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rustfmt
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Run cargo fmt
+        run: cargo fmt -- --check
+
+      - name: Run cargo fmt (fuzzer)
+        run: cargo fmt --manifest-path fuzz/Cargo.toml -- --check
+
+  min-vers:
+    name: Minimal crate versions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Install cargo-hack
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-hack
+          locked: false
+
+      - name: Install cargo-minimal-versions
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-minimal-versions
+          locked: false
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Check minimal versions
+        run: cargo minimal-versions check
+
+  features:
+    name: Feature powerset (nightly)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Install cargo-hack
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-hack
+          locked: false
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Check powerset
+        run: |
+          cargo hack check \
+            --feature-powerset \
+            --no-dev-deps \
+            --exclude-features aws-lc-rs,rustls-tls12 \
+            --group-features client,fastrand,sha1_smol \
+            --group-features server,sha1_smol
+
+  msrv:
+    name: Feature powerset (MSRV)
+
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            image: ubuntu-latest
+          - arch: aarch64
+            image: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.image }}
+
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.arch }}-unknown-linux-gnu
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+
+      - name: Get latest compatible dependencies for MSRV
+        run: CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo update
+
+      - name: Install cargo-hack
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-hack
+          locked: false
+
+      - name: Install 1.79.0 toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.79.0
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Add problem matchers
+        run: echo "::add-matcher::.github/rust.json"
+
+      - name: Check powerset (${{ matrix.arch }})
+        run: |
+          cargo hack check \
+            --feature-powerset \
+            --no-dev-deps \
+            --exclude-features rustls-tls12,nightly \
+            --group-features client,fastrand,sha1_smol \
+            --group-features server,sha1_smol

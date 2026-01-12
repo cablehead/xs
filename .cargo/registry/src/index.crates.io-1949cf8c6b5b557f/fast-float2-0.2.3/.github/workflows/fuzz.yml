@@ -1,0 +1,25 @@
+name: Fuzz
+
+on:
+  [pull_request, workflow_dispatch]
+
+jobs:
+  fuzz:
+    name: Fuzz  ${{matrix.target}}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fast_float, roundtrip_f64]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - run: cargo install cargo-fuzz
+      - run: cargo check
+      - run: |
+            cd fuzz
+            cargo +nightly fuzz run --release ${{matrix.target}} -- -max_total_time=300

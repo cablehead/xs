@@ -1,0 +1,28 @@
+[package]
+name = "atoi_simd"
+version = "0.16.1"
+authors = ["Dmitry Rodionov <gh@rdmtr.com>"]
+description = "Fast `&[u8]` to integer parser"
+documentation = "https://docs.rs/atoi_simd/"
+repository = "https://github.com/RoDmitry/atoi_simd"
+categories = ["parsing", "no-std"]
+keywords = ["atoi", "parseint", "parse", "u8", "simd"]
+include = ["src"]
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+edition = "2018"
+
+[lib]
+name = "atoi_simd"
+path = "src/lib.rs"
+
+[dependencies]
+debug_unsafe = "0.1"
+
+[dev-dependencies]
+arrayvec = "0.7"
+numtoa = "0.2"
+
+[features]
+default = ["std"]
+std = ["arrayvec/std"]

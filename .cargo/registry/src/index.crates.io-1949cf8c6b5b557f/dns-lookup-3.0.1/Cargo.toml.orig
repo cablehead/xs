@@ -1,0 +1,30 @@
+[package]
+name = "dns-lookup"
+version = "3.0.1"
+edition = "2021"
+authors = ["Josh Driver <keeperofdakeys@gmail.com>"]
+description = "A simple dns resolving api, much like rust's unstable api. Also includes getaddrinfo and getnameinfo wrappers for libc variants."
+documentation = "https://docs.rs/dns-lookup"
+repository = "https://github.com/keeperofdakeys/dns-lookup/"
+readme = "README.md"
+keywords = ["dns", "resolve", "lookup", "getaddrinfo", "getnameinfo"]
+license = "MIT/Apache-2.0"
+include = [
+    "src/**",
+    "README.md",
+    "LICENSE*",
+    "Cargo.*"
+]
+
+[dependencies]
+socket2 = "^0.6.0"
+cfg-if = "^1.0"
+
+# Note that version of windows-sys is pinned to version used in socket2 release
+# due to use of shared variables like SOCKADDR.
+[target."cfg(windows)".dependencies.windows-sys]
+version = "^0.60"
+features = ["Win32_Networking_WinSock", "Win32_Foundation"]
+
+[target."cfg(unix)".dependencies]
+libc = "^0.2"

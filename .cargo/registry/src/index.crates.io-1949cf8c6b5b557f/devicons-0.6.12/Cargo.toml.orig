@@ -1,0 +1,20 @@
+[package]
+name = "devicons"
+version = "0.6.12"
+edition = "2021"
+authors = ["Alexandre Pasmantier <alex.pasmant@gmail.com>"]
+license = "Apache-2.0"
+description = "A Rust library that provides filetype glyphs (icons) for a wide range of common file formats."
+readme = "README.md"
+homepage = "https://github.com/alexpasmantier/rust-devicons"
+repository = "https://github.com/alexpasmantier/rust-devicons"
+keywords = ["icons", "filetype", "glyphs", "nerd-fonts", "rust"]
+categories = [
+  "command-line-utilities",
+  "command-line-interface",
+  "filesystem",
+  "development-tools",
+]
+
+[dependencies]
+lazy_static = "1.5.0"

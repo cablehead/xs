@@ -1,0 +1,27 @@
+error: EnumConversions only works with enums that have unnamed single fields
+ --> tests/compile_fail/named_enum.rs:6:5
+  |
+6 |     A { value : u8 },
+  |     ^^^^^^^^^^^^^^^^
+
+error[E0412]: cannot find type `Enum` in this scope
+ --> tests/compile_fail/named_enum.rs:3:10
+  |
+3 | #[derive(Debug)]
+  |          ^^^^^ not found in this scope
+  |
+help: consider importing this struct
+  |
+1 + use syn::token::Enum;
+  |
+
+error[E0433]: failed to resolve: use of undeclared type `Enum`
+ --> tests/compile_fail/named_enum.rs:6:5
+  |
+6 |     A { value : u8 },
+  |     ^^^^^^^^^^^^^^^^ use of undeclared type `Enum`
+  |
+help: consider importing this struct
+  |
+1 + use syn::token::Enum;
+  |

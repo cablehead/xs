@@ -1,0 +1,24 @@
+[package]
+name = "simple-dns"
+version = "0.9.3"
+authors = ["Ilson Roberto Balliego Junior <ilson.balliego@gmail.com>"]
+edition = "2021"
+description = "Rust implementation to parse and write DNS packets"
+repository = "https://github.com/balliegojr/simple-dns"
+license = "MIT"
+keywords = ["dns", "parser"]
+categories = ["parser-implementations", "network-programming"]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitflags = "2.4"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[lib]
+bench = false
+
+[[bench]]
+name = "packet_bench"
+harness = false

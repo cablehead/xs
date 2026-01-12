@@ -1,0 +1,41 @@
+[package]
+name = "scru128"
+version = "3.2.3"
+authors = ["LiosK <contact@mail.liosk.net>"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.70"
+description = "SCRU128: Sortable, Clock and Random number-based Unique identifier"
+repository = "https://github.com/scru128/rust"
+documentation = "https://docs.rs/scru128"
+keywords = ["identifier", "uuid", "guid", "ulid", "ksuid"]
+categories = ["algorithms"]
+
+[features]
+default = ["global_gen"]
+std = ["fstr/std"]
+rand08 = ["dep:rand_core06"]
+rand09 = ["dep:rand_core09"]
+default_rng = ["std", "rand", "dep:rand09", "dep:rand_chacha"]
+global_gen = ["default_rng"]
+serde = ["dep:serde"]
+
+rand = ["rand08"] # Deprecated alias. This enables the deprecated blanket impl.
+
+[dependencies]
+fstr = { version = "0.2", default-features = false }
+rand09 = { package = "rand", version = "0.9", optional = true }
+rand_chacha = { version = "0.9", optional = true }
+rand_core06 = { package = "rand_core", version = "0.6", default-features = false, optional = true }
+rand_core09 = { package = "rand_core", version = "0.9", default-features = false, optional = true }
+serde = { version = "1.0", default-features = false, optional = true }
+
+[dev-dependencies]
+rand09 = { package = "rand", version = "0.9", default-features = false, features = ["std_rng"] }
+regex = { version = "1.11", default-features = false, features = ["std"] }
+serde_test = "1.0"
+
+[package.metadata.docs.rs]
+# RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features --no-deps --open
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

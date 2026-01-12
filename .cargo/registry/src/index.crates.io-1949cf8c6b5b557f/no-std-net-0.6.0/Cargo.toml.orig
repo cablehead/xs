@@ -1,0 +1,32 @@
+[package]
+name = "no-std-net"
+description = "Rust's std::net... without the 'std'."
+version = "0.6.0"
+authors = ["M@ Dunlap <mattdunlap@gmail.com>"]
+categories = [
+    "embedded",
+    "network-programming",
+    "no-std",
+]
+repository = "https://github.com/dunmatt/no-std-net"
+edition = "2018"
+license = "MIT"
+readme = "README.md"
+
+[badges]
+maintenance = { status = "actively-developed" }
+travis-ci = { repository = "dunmatt/no-std-net" }
+
+[dependencies]
+serde = { version = "^1", default-features = false, optional = true }
+
+[dev-dependencies]
+serde_test = "^1"
+
+[features]
+# Makes the library act as a facade to std::net types
+std = []
+# Like `#![feature(ip)]`, see https://github.com/rust-lang/rust/issues/27709
+unstable_ip = []
+# Deprecated. Does nothing.
+i128 = []

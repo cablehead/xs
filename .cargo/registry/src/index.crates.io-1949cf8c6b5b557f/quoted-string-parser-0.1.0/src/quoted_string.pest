@@ -1,0 +1,40 @@
+quoted_string = { SOI ~ sws ~ dquote ~ content ~ dquote ~ EOI }
+quoted_text = { SOI ~ content ~ EOI }
+content = { (qdtext | quoted_pair )* }
+qdtext = {
+  (
+    lws |
+    "\u{21}" |
+    '\u{23}'..'\u{5B}' |
+    '\u{5D}'..'\u{7E}' |
+    utf8_nonascii
+  )
+}
+quoted_pair = {
+  "\u{5c}" ~
+  (
+    '\u{00}'..'\u{09}' |
+    '\u{0B}'..'\u{0C}' |
+    '\u{0E}'..'\u{7F}'
+  )
+}
+wsp = { (sp | htab) }
+utf8_nonascii = {
+  (
+    '\u{C0}'..'\u{DF}' ~ utf8_cont{1} |
+    '\u{E0}'..'\u{EF}' ~ utf8_cont{2} |
+    '\u{F0}'..'\u{F7}' ~ utf8_cont{3} |
+    '\u{F8}'..'\u{FB}' ~ utf8_cont{4} |
+    '\u{FC}'..'\u{FD}' ~ utf8_cont{5}
+  )
+}
+utf8_cont = { '\u{80}'..'\u{BF}' }
+lws = {
+  ((wsp)* ~ cr ~ lf)* ~ (wsp)+      // linear whitespace
+}
+sws = { (lws)? }                    // sept whitespace
+sp = { "\u{20}" }                   // space
+htab = { "\u{09}"}                  // hoizontal tab
+cr = { "\u{0D}" }                   // carrieage return
+lf = { "\u{0A}" }                   // linefeed
+dquote = { "\u{22}"}                // " (Double Quote)

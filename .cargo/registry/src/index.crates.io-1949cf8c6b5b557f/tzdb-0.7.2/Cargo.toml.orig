@@ -1,0 +1,33 @@
+[package]
+name = "tzdb"
+version = "0.7.2"
+edition = "2021"
+authors = ["René Kijewski <crates.io@k6i.de>"]
+repository = "https://github.com/Kijewski/tzdb"
+description = "Static time zone information for tz-rs"
+license = "Apache-2.0"
+keywords = ["date", "time", "timezone", "zone", "calendar"]
+categories = ["date-and-time"]
+readme = "README.md"
+rust-version = "1.81.0"
+
+[dependencies]
+tzdb_data = { version = "0.2.0", default-features = false, path = "../tzdb_data" }
+
+iana-time-zone = { version = "0.1.60", default-features = false, features = ["fallback"], optional = true }
+tz-rs = { version = "0.7.0", default-features = false }
+
+[features]
+default = ["local", "now", "std"]
+# Enables querying the current time in a given time zone:
+now = ["std"]
+# Enable functions to query the current system time:
+local = ["std", "dep:iana-time-zone"]
+# Enable the use of features in the `std` crate:
+std = ["alloc", "tz-rs/std"]
+# Enable the use of features in the `alloc` crate:
+alloc = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--generate-link-to-definition", "--cfg=docsrs"]

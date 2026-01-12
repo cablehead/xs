@@ -1,0 +1,74 @@
+[workspace]
+members = ["iroh-metrics-derive"]
+
+[package]
+name = "iroh-metrics"
+version = "0.35.0"
+edition = "2021"
+readme = "README.md"
+description = "metrics for iroh"
+license = "MIT OR Apache-2.0"
+authors = ["arqu <asmir@n0.computer>", "n0 team"]
+repository = "https://github.com/n0-computer/iroh-metrics"
+
+# Sadly this also needs to be updated in .github/workflows/ci.yml
+rust-version = "1.81"
+
+[lints.rust]
+missing_debug_implementations = "warn"
+# We use this --cfg for documenting the cargo features on which an API
+# is available.  To preview this locally use: RUSTFLAGS="--cfg
+# iroh_docsrs cargo +nightly doc --all-features".  We use our own
+# iroh_docsrs instead of the common docsrs to avoid also enabling this
+# feature in any dependencies, because some indirect dependencies
+# require a feature enabled when using `--cfg docsrs` which we can not
+# do.  To enable for a crate set `#![cfg_attr(iroh_docsrs,
+# feature(doc_cfg))]` in the crate.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(iroh_docsrs)"] }
+
+[lints.clippy]
+unused-async = "warn"
+
+[dependencies]
+iroh-metrics-derive = { path = "./iroh-metrics-derive", version = "0.2.0" }
+itoa = "1"
+serde = { version = "1", features = ["derive", "rc"] }
+snafu = { version = "0.8.5", features = ["rust_1_81"] }
+tracing = "0.1"
+
+# static_core feature
+erased_set = { version = "0.8", optional = true }
+
+# service feature
+http-body-util = { version = "0.1.0", optional = true }
+hyper = { version = "1", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1.1", features = ["tokio"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+tokio = { version = "1", features = ["rt", "net", "fs"], optional = true }
+postcard = { version = "1.1.1", features = ["use-std"] }
+
+[dev-dependencies]
+postcard = { version = "1.1.1", features = ["use-std"] }
+tokio = { version = "1", features = ["io-util", "sync", "rt", "net", "fs", "macros", "time", "test-util"] }
+
+[features]
+default = ["metrics"]
+# Enables counters and other metrics being tracked.
+# If disabled, all counters return 0. Macros like `inc!` will do nothing.
+metrics = []
+# Enables functionality to run a local metrics server that current metrics
+# are served at in prometheus format.
+# Pulls in quite a few libraries to make exposing an HTTP server possible.
+service = [
+    "metrics",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:reqwest",
+    "dep:tokio",
+]
+# Enables a global, static metrics collector
+static_core = ["metrics", "dep:erased_set"]
+
+[package.metadata.docs.rs]
+all-features = true

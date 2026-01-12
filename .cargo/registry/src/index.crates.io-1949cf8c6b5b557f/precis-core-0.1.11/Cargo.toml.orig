@@ -1,0 +1,31 @@
+[package]
+name = "precis-core"
+version = "0.1.11"
+authors = ["Santiago Carot-Nemesio <sancane@gmail.com>"]
+description = """
+PRECIS Framework: Preparation, Enforcement, and Comparison of
+Internationalized Strings in Application Protocols as defined
+in rfc8264
+"""
+documentation = "https://docs.rs/precis-core"
+homepage = "https://github.com/sancane/precis"
+repository = "https://github.com/sancane/precis"
+readme = "README.md"
+keywords = ["Preparation", "Enforcement", "Comparison", "precis", "rfc8264"]
+license = "MIT/Apache-2.0"
+categories = ["text-processing", "internationalization"]
+edition = "2018"
+
+[dev-dependencies]
+precis-tools = "0.1.9"
+ucd-parse.workspace = true
+
+[build-dependencies]
+precis-tools = "0.1.9"
+ucd-parse.workspace = true
+
+[dependencies]
+unicode-normalization.workspace = true
+
+[features]
+networking = ["precis-tools/networking"]

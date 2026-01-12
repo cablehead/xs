@@ -1,0 +1,17 @@
+[package]
+name = "filesize"
+description = "Find the physical space used by a file"
+version = "0.2.0"
+authors = ["Thomas Hurst <tom@hur.st>"]
+edition = "2018"
+license = "MIT"
+repository = "https://github.com/Freaky/rust-filesize"
+keywords = ["file", "compressed", "sparse", "disk", "usage"]
+categories = ["os"]
+readme = "README.md"
+
+[badges]
+travis-ci = { repository = "Freaky/rust-filesize" }
+
+[target."cfg(windows)".dependencies]
+winapi = { version = "0.3.8", features = ["fileapi", "winerror"] }

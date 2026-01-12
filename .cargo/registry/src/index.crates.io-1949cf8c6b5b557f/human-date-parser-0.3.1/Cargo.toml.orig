@@ -1,0 +1,19 @@
+[package]
+name = "human-date-parser"
+description = "Parses strings that express dates in a human way into ones usable by code."
+license = "MIT"
+homepage = "https://github.com/technologicalMayhem/human-date-parser"
+repository = "https://github.com/technologicalMayhem/human-date-parser"
+readme = "Readme.md"
+version = "0.3.1"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4"
+pest = "2"
+pest_consume = "1.1.3"
+pest_derive = "2"
+thiserror = "1.0.38"
+
+[dev-dependencies]
+concat-idents = { git = "https://github.com/technologicalMayhem/concat-idents" }

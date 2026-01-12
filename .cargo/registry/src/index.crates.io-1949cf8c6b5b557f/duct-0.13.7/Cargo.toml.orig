@@ -1,0 +1,22 @@
+[package]
+name = "duct"
+version = "0.13.7"
+authors = ["oconnor663@gmail.com"]
+description = "a library for running child processes"
+repository = "https://github.com/oconnor663/duct.rs"
+documentation = "https://docs.rs/duct"
+readme = "README.md"
+license = "MIT"
+keywords = ["process", "subprocess", "command", "child", "pipe"]
+edition = "2021"
+
+[dependencies]
+os_pipe = "1.0.0"
+shared_child = "1.0.0"
+once_cell = "1.0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.43"
+
+[dev-dependencies]
+tempfile = "3.3.0"

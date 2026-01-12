@@ -323,12 +323,7 @@ async fn handle_stream_append(
         }
     };
 
-    let meta = match parts
-        .headers
-        .get("xs-meta")
-        .map(|x| x.to_str())
-        .transpose()
-    {
+    let meta = match parts.headers.get("xs-meta").map(|x| x.to_str()).transpose() {
         Ok(opt) => {
             match opt {
                 Some(s) => {

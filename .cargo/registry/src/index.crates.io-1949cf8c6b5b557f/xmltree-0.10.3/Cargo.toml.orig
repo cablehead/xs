@@ -1,0 +1,20 @@
+[package]
+name = "xmltree"
+version = "0.10.3"
+authors = ["Andrew Chin <achin@eminence32.net>"]
+description = "Parse an XML file into a simple tree-like structure"
+documentation = "https://docs.rs/xmltree/"
+repository = "https://github.com/eminence/xmltree-rs"
+keywords = ["xml", "parse", "xmltree"]
+license = "MIT"
+readme = "README.md"
+categories = ["parsing", "data-structures"]
+edition = "2018"
+
+[dependencies]
+xml-rs = "0.8"
+indexmap = { version = "1.4.0", optional = true }
+
+[features]
+default = []
+attribute-order = ["indexmap"]

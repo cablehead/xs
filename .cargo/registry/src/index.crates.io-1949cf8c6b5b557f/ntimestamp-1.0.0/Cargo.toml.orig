@@ -1,0 +1,45 @@
+[package]
+name = "ntimestamp"
+version = "1.0.0"
+authors = ["Nuh <nuh@nuh.dev>"]
+edition = "2021"
+description = "Strictly monotonic unix timestamp in microseconds"
+license = "MIT"
+repository = "https://github.com/nuhvi/timestamp"
+keywords = ["time", "monotonic", "timestamp"]
+categories = ["date-and-time"]
+
+[dependencies]
+once_cell = "1.20.3"
+document-features = "0.2.10"
+
+# Optional dependencies
+serde = { version = "1.0.217", default-features = false, features = ["derive"], optional = true }
+base32 = { version = "0.5.1", optional = true }
+httpdate = { version = "1.0.3", optional = true }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+getrandom = { version = "0.2.15", default-features = false }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2.15", default-features = false, features = ["js"] }
+js-sys = "0.3.77"
+
+[dev-dependencies]
+postcard = { version = "1.1.1", features = ["alloc"] }
+
+[features]
+## Enable serde derive for [Timestamp]
+serde = ["dep:serde"]
+## Enable encoding the timestamp as a sortable base32 string with Crockford alphabet.
+base32 = ["dep:base32"]
+## Enable [Timestamp::parse_http_date] and [Timestamp::format_http_date]
+httpdate = ["dep:httpdate"]
+
+full = ["serde", "base32", "httpdate"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+# [lints.clippy]
+unwrap_used = "deny"

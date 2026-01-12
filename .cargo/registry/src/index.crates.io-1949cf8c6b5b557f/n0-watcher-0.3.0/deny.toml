@@ -1,0 +1,33 @@
+[advisories]
+ignore = [
+]
+
+[bans]
+deny = [
+    "aws-lc",
+    "aws-lc-rs",
+    "aws-lc-sys",
+    "native-tls",
+    "openssl",
+]
+multiple-versions = "allow"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "Zlib",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+[[licenses.clarify]]
+expression = "MIT AND ISC AND OpenSSL"
+name = "ring"
+
+[[licenses.clarify.license-files]]
+hash = 3171872035
+path = "LICENSE"
+
+[sources]
+allow-git = []

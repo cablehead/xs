@@ -1,0 +1,33 @@
+[package]
+name = "pnet_packet"
+version = "0.34.0"
+authors = ["Robert Clipsham <robert@octarineparrot.com>"]
+license = "MIT/Apache-2.0"
+homepage = "https://github.com/libpnet/libpnet"
+repository = "https://github.com/libpnet/libpnet"
+description = "Cross-platform, binary packet parsing and manipulation"
+readme = "../README.md"
+keywords = ["networking", "packet", "parsing", "raw"]
+categories = ["network-programming", "parser-implementations"]
+edition = "2018"
+
+[dependencies]
+pnet_base = { path = "../pnet_base", version = "0.34.0", default-features = false }
+pnet_macros_support = { path = "../pnet_macros_support", version = "0.34.0" }
+pnet_macros = { path = "../pnet_macros", version = "0.34.0" }
+
+[features]
+std = ["pnet_base/std"]
+default = ["std"]
+
+[dev-dependencies]
+hex = "0.4.3"
+criterion = { version = "0.5.1", features = ["html_reports"] } #added HTML feature becuase of the annoying warnings when running the tests
+
+[build-dependencies]
+glob = "0.3.1"
+
+[[bench]]
+name = "bench_pnet_packet"
+path = "benches/packet_benchmarks.rs"
+harness = false

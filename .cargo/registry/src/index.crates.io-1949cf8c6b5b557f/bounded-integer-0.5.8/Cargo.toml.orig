@@ -1,0 +1,41 @@
+[package]
+name = "bounded-integer"
+version = "0.5.8"
+description = "Bounded integers"
+keywords = ["bounded", "integer", "macro", "refinement"]
+license = "ISC"
+repository = "https://github.com/Kestrer/bounded-integer"
+readme = "README.md"
+edition = "2021"
+
+[dependencies]
+bounded-integer-macro = { path = "./macro", version = "=0.5.8", optional = true }
+
+arbitrary1 = { package = "arbitrary", version = "1.0.2", optional = true }
+bytemuck1 = { package = "bytemuck", version = "1.7.2", optional = true }
+num-traits02 = { package = "num-traits", version = "0.2.14", default-features = false, features = ["i128"], optional = true }
+serde1 = { package = "serde", version = "1.0.124", default-features = false, optional = true }
+zerocopy = { version = "0.8.14", features = ["derive"], optional = true }
+
+[features]
+std = ["alloc"]
+alloc = []
+
+types = []
+
+macro = ["bounded-integer-macro"]
+__examples = ["macro", "bounded-integer-macro/generate_tests"]
+
+step_trait = []
+
+serde = ["serde1"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "doc_cfg"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(doc_cfg)'] }
+
+[workspace]
+members = ["macro"]

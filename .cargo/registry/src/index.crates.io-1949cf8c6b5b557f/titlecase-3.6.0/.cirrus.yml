@@ -1,0 +1,161 @@
+env:
+  PATH: "$HOME/.cargo/bin:$PATH"
+  RUST_VERSION: '1.70.0' # Needs to be <= FreeBSD version
+  WASM_VERSION: '1.73.0'
+  AWS_ACCESS_KEY_ID: ENCRYPTED[5c3f77d4196c6b47340a4f07f6dec015753bf26df6f7323467217282d614988db7568c67785129a46a6de7fe8117c2af]
+  AWS_SECRET_ACCESS_KEY: ENCRYPTED[4c49da1c017860dd66710621efb3edb855c7da0dcad438a7bf9a3dbf41adfd15905cbe14df679ba2a83cff5a9ec2afdc]
+
+task:
+  name: Build (Alpine Linux)
+  container:
+    image: alpine:3.21
+    cpu: 4
+  environment:
+    RUST_VERSION: "stable"
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.toml
+  install_script:
+    - apk --update add curl git gcc musl-dev
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION}
+  test_script:
+    - cargo test
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
+
+task:
+  name: Build (Debian Linux)
+  container:
+    image: debian:12-slim
+    cpu: 4
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock
+  install_script:
+    - apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl gcc libc6-dev musl-tools
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION}
+    - rustup target add x86_64-unknown-linux-musl
+    - mkdir ~/bin
+    - curl -L https://releases.wezm.net/upload-to-s3/0.2.0/upload-to-s3-0.2.0-x86_64-unknown-linux-musl.tar.gz | tar xzf - -C ~/bin
+  test_script:
+    - cargo test
+  publish_script: |
+    tag=$(git describe --exact-match HEAD 2>/dev/null || true)
+    if [ -n "$tag" ]; then
+      cargo build --release --locked --target x86_64-unknown-linux-musl
+      tarball="titlecase-${tag}-x86_64-unknown-linux-musl.tar.gz"
+      strip target/x86_64-unknown-linux-musl/release/titlecase
+      tar zcf "$tarball" -C target/x86_64-unknown-linux-musl/release titlecase
+      ~/bin/upload-to-s3 -b releases.wezm.net "$tarball" "titlecase/$tag/$tarball"
+    fi
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
+
+task:
+  name: Build (Web Assembly)
+  container:
+    image: debian:12-slim
+    cpu: 4
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock
+  install_script:
+    - apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl gcc libc6-dev
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${WASM_VERSION}
+    - rustup target add wasm32-unknown-unknown
+  build_script:
+    - cargo build --lib --features wasm --target wasm32-unknown-unknown
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
+
+task:
+  name: Build (FreeBSD)
+  freebsd_instance:
+    image_family: freebsd-13-4
+    cpu: 4
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock
+  install_script:
+    - pkg install -y git-lite rust ca_root_nss
+    - fetch -o - https://releases.wezm.net/upload-to-s3/0.2.0/upload-to-s3-0.2.0-amd64-unknown-freebsd.tar.gz | tar xzf - -C /usr/local/bin
+  test_script:
+    - cargo test
+  publish_script: |
+    tag=$(git describe --exact-match HEAD 2>/dev/null || true)
+    if [ -n "$tag" ]; then
+      cargo build --release --locked
+      tarball="titlecase-${tag}-amd64-unknown-freebsd.tar.gz"
+      strip target/release/titlecase
+      tar zcf "$tarball" -C target/release titlecase
+      upload-to-s3 -b releases.wezm.net "$tarball" "titlecase/$tag/$tarball"
+    fi
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
+
+task:
+  name: Build (Mac OS)
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-monterey-base:latest
+  env:
+    PATH: "$HOME/.cargo/bin:$HOME/bin:$PATH"
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock
+  install_script:
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION}
+    - mkdir ~/bin
+    - curl -L https://releases.wezm.net/upload-to-s3/0.2.0/upload-to-s3-0.2.0-universal-apple-darwin.tar.gz | tar xzf - -C ~/bin
+    - rustup target add x86_64-apple-darwin
+  test_script:
+    - cargo test
+  publish_script: |
+    tag=$(git describe --exact-match HEAD 2>/dev/null || true)
+    if [ -n "$tag" ]; then
+      cargo build --release --locked
+      cargo build --release --locked --target x86_64-apple-darwin
+      mv target/release/titlecase target/release/titlecase.$CIRRUS_ARCH
+      lipo target/release/titlecase.$CIRRUS_ARCH target/x86_64-apple-darwin/release/titlecase -create -output target/release/titlecase
+      lipo -info target/release/titlecase
+      tarball="titlecase-${tag}-universal-apple-darwin.tar.gz"
+      strip target/release/titlecase
+      tar zcf "$tarball" -C target/release titlecase
+      upload-to-s3 -b releases.wezm.net "$tarball" "titlecase/$tag/$tarball"
+    fi
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
+
+task:
+  name: Build (Windows)
+  windows_container:
+    image: cirrusci/windowsservercore:cmake
+    cpu: 4
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock
+  environment:
+    CIRRUS_SHELL: powershell
+  install_script:
+    - Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+    - .\rustup-init -y --profile minimal --default-toolchain $env:RUST_VERSION
+    - Invoke-WebRequest https://releases.wezm.net/upload-to-s3/0.2.0/upload-to-s3-0.2.0-x86_64-pc-windows-msvc.zip -OutFile upload-to-s3.zip
+    - Expand-Archive upload-to-s3.zip -DestinationPath .
+    - git fetch --tags
+  test_script: |
+    ~\.cargo\bin\cargo test
+    if ($LASTEXITCODE) { Throw }
+  publish_script: |
+    try {
+      $tag=$(git describe --exact-match HEAD 2>$null)
+      if ($LASTEXITCODE) { Throw }
+    } catch {
+      $tag=""
+    }
+    if ( $tag.Length -gt 0 ) {
+      ~\.cargo\bin\cargo build --release --locked
+      if ($LASTEXITCODE) { Throw }
+      $tarball="titlecase-$tag-x86_64-pc-windows-msvc.zip"
+      cd target\release
+      strip titlecase.exe
+      if ($LASTEXITCODE) { Throw }
+      Compress-Archive .\titlecase.exe "$tarball"
+      cd ..\..
+      .\upload-to-s3 -b releases.wezm.net "target\release\$tarball" "titlecase/$tag/$tarball"
+      if ($LASTEXITCODE) { Throw }
+    }
+  before_cache_script: Remove-Item -Recurse -Force -Path $HOME/.cargo/registry/index

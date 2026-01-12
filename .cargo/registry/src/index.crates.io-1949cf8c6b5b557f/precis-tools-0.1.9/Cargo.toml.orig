@@ -1,0 +1,24 @@
+[package]
+name = "precis-tools"
+version = "0.1.9"
+authors = ["Santiago Carot-Nemesio <sancane@gmail.com>"]
+description = """
+Tools and parsers to generate PRECIS tables from the Unicode Character Database (UCD)
+"""
+documentation = "https://docs.rs/precis-tools"
+homepage = "https://github.com/sancane/precis"
+repository = "https://github.com/sancane/precis"
+readme = "README.md"
+keywords = ["Preparation", "Enforcement", "Comparison", "Internationalized", "precis"]
+license = "MIT/Apache-2.0"
+categories = ["text-processing", "internationalization"]
+edition = "2018"
+
+[dependencies]
+lazy_static.workspace = true
+regex.workspace = true
+reqwest = { workspace = true, optional = true }
+ucd-parse.workspace = true
+
+[features]
+networking = ["reqwest"]

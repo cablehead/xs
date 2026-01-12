@@ -1,0 +1,19 @@
+[package]
+name = "n0-snafu"
+version = "0.2.2"
+edition = "2021"
+readme = "README.md"
+description = "Utitilities for working with snafu"
+license = "MIT OR Apache-2.0"
+authors = ["n0 team"]
+repository = "https://github.com/n0-computer/n0-snafu"
+keywords = ["errors", "snafu"]
+
+rust-version = "1.83"
+
+[dependencies]
+anyhow = { version = "1.0.96", features = ["backtrace"] }
+btparse = "0.2.0"
+color-backtrace = { version = "0.7.0", features = ["use-btparse-crate"] }
+snafu = { version = "0.8.5", features = ["rust_1_81", "std", "backtraces-impl-backtrace-crate"] }
+tracing-error = "0.2.1"

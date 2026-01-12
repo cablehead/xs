@@ -1,0 +1,59 @@
+[package]
+name = "iroh-base"
+version = "0.91.2"
+edition = "2024"
+readme = "README.md"
+description = "base type and utilities for Iroh"
+license = "MIT OR Apache-2.0"
+authors = ["n0 team"]
+repository = "https://github.com/n0-computer/iroh"
+
+# Sadly this also needs to be updated in .github/workflows/ci.yml
+rust-version = "1.85"
+
+[lints]
+workspace = true
+
+[dependencies]
+curve25519-dalek = { version = "4.1.3", features = ["serde", "rand_core", "zeroize"], optional = true }
+data-encoding = { version = "2.3.3", optional = true }
+ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core", "zeroize"], optional = true }
+derive_more = { version = "2.0.1", features = ["display"], optional = true }
+url = { version = "2.5.3", features = ["serde"], optional = true }
+postcard = { version = "1", default-features = false, features = ["alloc", "use-std", "experimental-derive"], optional = true }
+rand_core = { version = "0.6.4", optional = true }
+serde = { version = "1", features = ["derive", "rc"] }
+snafu = { version = "0.8.5", features = ["rust_1_81"], optional = true }
+n0-snafu = "0.2.0"
+nested_enum_utils = "0.2.0"
+
+[dev-dependencies]
+postcard = { version = "1", features = ["use-std"] }
+proptest = "1.0.0"
+rand = "0.8"
+serde_json = "1"
+serde_test = "1"
+
+
+[features]
+default = ["ticket", "relay"]
+ticket = ["key", "dep:postcard", "dep:data-encoding"]
+key = [
+  "dep:curve25519-dalek",
+  "dep:ed25519-dalek",
+  "dep:url",
+  "dep:derive_more",
+  "dep:snafu",
+  "dep:data-encoding",
+  "dep:rand_core",
+  "relay",
+]
+relay = [
+  "dep:url",
+  "dep:derive_more",
+  "dep:snafu",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "iroh_docsrs"]

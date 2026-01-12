@@ -1,0 +1,75 @@
+[package]
+name = "netdev"
+version = "0.36.0"
+authors = ["shellrow <shellrow@fortnium.com>"]
+edition = "2021"
+description = "Cross-platform library for network interface"
+repository = "https://github.com/shellrow/netdev"
+readme = "README.md"
+keywords = ["network"]
+categories = ["network-programming"]
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+ipnet = { version = "2.11" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+# DL Open
+dlopen2 = { version = "0.5", default-features = false }
+once_cell = "1"
+# netlink
+netlink-packet-core = "0.7"
+netlink-packet-route = "0.22.0"
+netlink-sys = "0.8"
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.59"
+features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_NetworkManagement_Ndis",
+]
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+system-configuration = "0.6"
+
+[dev-dependencies]
+serde_json = "1.0"
+
+[features]
+default = ["gateway"]
+serde = ["dep:serde", "ipnet/serde"]
+gateway = []
+
+[[example]]
+name = "list_interfaces"
+path = "examples/list_interfaces.rs"
+
+[[example]]
+name = "default_interface"
+path = "examples/default_interface.rs"
+required-features = ["gateway"]
+
+[[example]]
+name = "default_gateway"
+path = "examples/default_gateway.rs"
+required-features = ["gateway"]
+
+[[example]]
+name = "serialize"
+path = "examples/serialize.rs"
+required-features = ["serde", "gateway"]
+
+[[example]]
+name = "global_ips"
+path = "examples/global_ips.rs"
+required-features = ["gateway"]
+
+[[example]]
+name = "stats"
+path = "examples/stats.rs"

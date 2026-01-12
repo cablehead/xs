@@ -1,0 +1,29 @@
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.i686-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+neon"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.armv7-unknown-linux-gnueabi]
+rustflags = ["-C", "target-feature=+neon"]
+
+[target.armv7-unknown-linux-gnueabihf]
+rustflags = ["-C", "target-feature=+neon"]
+
+[target.loongarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+lasx"]
+
+[target.powerpc-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+altivec"]
+
+[target.s390x-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+vector"]

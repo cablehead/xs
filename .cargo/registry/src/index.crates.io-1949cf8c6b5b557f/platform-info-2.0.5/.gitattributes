@@ -1,0 +1,9 @@
+# v2022.06.23 [rivy]
+
+# default; use LF EOLs for text files
+* text=auto eol=lf
+
+# CRLF required; force required CRLF EOLs for WinOS BAT/CMD and MSVC SLN files
+*.[bB][aA][tT]    text eol=crlf
+*.[cC][mM][dD]    text eol=crlf
+*.[sS][lL][nN]    text eol=crlf

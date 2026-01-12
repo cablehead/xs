@@ -1,0 +1,19 @@
+[package]
+name = "codepage"
+version = "0.1.2"
+authors = ["Henri Sivonen <hsivonen@hsivonen.fi>"]
+description = "Mapping between Windows code page numbers and encoding_rs character encodings"
+license = "Apache-2.0 OR MIT"
+documentation = "https://docs.rs/codepage/"
+homepage = "https://docs.rs/codepage/"
+repository = "https://github.com/hsivonen/codepage"
+readme = "README.md"
+keywords = ["encoding", "codepage", "unicode", "windows", "win32"]
+categories = ["text-processing", "encoding"]
+rust-version = "1.36"
+
+[dependencies]
+encoding_rs = { version = "0.8.34", default-features = false }
+
+[badges.maintenance]
+status = "passively-maintained"

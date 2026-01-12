@@ -1,0 +1,20 @@
+[package]
+name = "iroh-metrics-derive"
+version = "0.2.0"
+edition = "2021"
+description = "derive macros for iroh-metrics"
+license = "MIT OR Apache-2.0"
+authors = ["Frando <franz@n0.computer>", "n0 team"]
+repository = "https://github.com/n0-computer/iroh-metrics"
+
+# Sadly this also needs to be updated in .github/workflows/ci.yml
+rust-version = "1.81"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+heck = "0.5"
+proc-macro2 = "1"
+quote = "1"
+syn = "2"

@@ -1,0 +1,23 @@
+[package]
+name = "fuzzy-matcher"
+version = "0.3.7"
+authors = ["Jinzhou Zhang <lotabout@gmail.com>"]
+description = "Fuzzy Matching Library"
+documentation = "https://docs.rs/fuzzy-matcher"
+homepage = "https://github.com/lotabout/fuzzy-matcher"
+repository = "https://github.com/lotabout/fuzzy-matcher"
+readme  = "README.md"
+keywords = ["fuzzy", "match", "text", "search"]
+license = "MIT"
+edition = "2018"
+
+[features]
+default = []
+compact = []
+
+
+[dependencies]
+thread_local = "1.0.0"
+
+[dev-dependencies]
+termion = "1.5.1"

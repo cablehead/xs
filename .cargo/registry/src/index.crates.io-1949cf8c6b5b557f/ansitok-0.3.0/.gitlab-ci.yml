@@ -1,0 +1,45 @@
+stages:
+  - build
+  - lint
+  - test
+
+check:
+  stage: build
+  parallel:
+    matrix:
+      - image: [rust:latest, rustlang/rust:nightly]
+  image: ${image}
+  script:
+    - cargo check --verbose
+
+clippy:
+  stage: lint
+  image: "rust:latest"
+  before_script:
+    - rustup component add clippy
+  script:
+    - cargo clippy --all
+
+fmt:
+  stage: lint
+  image: "rust:latest"
+  before_script:
+    - rustup component add rustfmt
+  script:
+    - cargo fmt --all -- --check
+
+test:
+  stage: test
+  parallel:
+    matrix:
+      - image: [rust:latest, rustlang/rust:nightly]
+        feature: ["", "std"]
+  image: ${image}
+  script:
+    - cargo test --no-default-features --features=${feature}
+
+test_ignored:
+  stage: test
+  image: "rust:latest"
+  script:
+    - cargo test -- --ignored

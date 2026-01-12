@@ -1,0 +1,12 @@
+{
+    "outdir": "./reports/servers",
+    "servers": [
+        {
+            "agent": "tokio-websockets",
+            "url": "ws://127.0.0.1:9006"
+        }
+    ],
+    "cases": ["*"],
+    "exclude-cases": [],
+    "exclude-agent-cases": {}
+}

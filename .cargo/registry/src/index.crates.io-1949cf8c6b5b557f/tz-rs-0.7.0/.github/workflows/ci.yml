@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  schedule:
+    - cron: "0 0 * * 0"
+
+jobs:
+  doc:
+    name: "Doc"
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup set profile minimal
+          rustup toolchain install nightly
+          rustup override set nightly
+
+      - name: Doc
+        run: RUSTDOCFLAGS="-D warnings --cfg docsrs" cargo doc --all-features --no-deps
+
+  test:
+    name: "Test"
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup set profile minimal
+          rustup toolchain install 1.81 stable nightly --component clippy
+          rustup override set stable
+
+      - name: Test
+        run: ./check_release.sh
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: true

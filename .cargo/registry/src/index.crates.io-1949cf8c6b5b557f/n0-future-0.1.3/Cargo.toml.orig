@@ -1,0 +1,55 @@
+[package]
+name = "n0-future"
+version = "0.1.3"
+edition = "2021"
+readme = "README.md"
+description = "Number 0's way of doing rust futures. Re-exports what we think are useful abstractions and good implementations."
+license = "MIT OR Apache-2.0"
+authors = ["Philipp Krüger <philipp@n0.computer>", "n0 team"]
+repository = "https://github.com/n0-computer/n0-future"
+keywords = ["wasm", "io", "stream", "sink", "runtime"]
+
+[dependencies]
+derive_more = { version = "1", features = ["debug", "display"] }
+futures-buffered = "0.2.11"
+futures-lite = "2.5"
+futures-util = { version = "0.3", features = ["sink"] }
+tokio = { version = "1.28", features = [] }
+tokio-util = { version = "0.7.14", features = [] }
+
+# non-wasm-in-browser dependencies
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+tokio = { version = "1.28", features = ["rt", "time"] }
+tokio-util = { version = "0.7.14", features = ["rt"] }
+
+# wasm-in-browser dependencies
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+futures-util = "0.3"
+js-sys = "0.3"
+pin-project = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-time = "1"
+send_wrapper = "0.6"
+
+[build-dependencies]
+cfg_aliases = { version = "0.2" }
+
+
+# Package settings
+
+[lints.rust]
+missing_debug_implementations = "warn"
+
+# We use this --cfg for documenting the cargo features on which an API
+# is available.  To preview this locally use:
+# `RUSTDOCFLAGS="--cfg n0_future_docsrs" cargo +nightly doc --all-features`
+# We use our own n0_future_docsrs instead of the common docsrs to avoid
+# also enabling this feature in any dependencies, because some indirect
+# dependencies require a feature enabled when using `--cfg docsrs` which
+# we can not do.  To enable for a crate set
+# `#![cfg_attr(n0_future_docsrs, feature(doc_auto_cfg))]` in the crate.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(n0_future_docsrs)"] }
+
+[lints.clippy]
+unused-async = "warn"

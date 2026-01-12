@@ -1,0 +1,165 @@
+on: [push, pull_request]
+
+name: Basic CI
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_MIN_SRV: "1.71.1"
+
+jobs:
+  check:
+    name: cargo check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check
+
+  test:
+    name: cargo test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
+
+  fmt:
+    name: cargo fmt --all -- --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: cargo clippy -- -D warnings
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add clippy
+      - run: cargo clippy --all-targets -- -D warnings
+
+  min_version:
+    name: Minimum Supported Rust Version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_MIN_SRV }}
+      - run: cargo test
+
+  coverage:
+    name: Code Coverage
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        job:
+          - { os: ubuntu-latest  , features: unix }
+          - { os: macos-latest   , features: macos }
+          - { os: windows-latest , features: windows }
+    steps:
+    - uses: actions/checkout@v6
+    - name: Initialize workflow variables
+      id: vars
+      shell: bash
+      run: |
+        ## VARs setup
+        outputs() { step_id="vars"; for var in "$@" ; do echo steps.${step_id}.outputs.${var}="${!var}"; echo "${var}=${!var}" >> $GITHUB_OUTPUT; done; }
+        # toolchain
+        TOOLCHAIN="nightly" ## default to "nightly" toolchain (required for certain required unstable compiler flags) ## !maint: refactor when stable channel has needed support
+        # * specify gnu-type TOOLCHAIN for windows; `grcov` requires gnu-style code coverage data files
+        case ${{ matrix.job.os }} in windows-*) TOOLCHAIN="$TOOLCHAIN-x86_64-pc-windows-gnu" ;; esac;
+        # * use requested TOOLCHAIN if specified
+        if [ -n "${{ matrix.job.toolchain }}" ]; then TOOLCHAIN="${{ matrix.job.toolchain }}" ; fi
+        outputs TOOLCHAIN
+        # target-specific options
+        # * CODECOV_FLAGS
+        CODECOV_FLAGS=$( echo "${{ matrix.job.os }}" | sed 's/[^[:alnum:]]/_/g' )
+        outputs CODECOV_FLAGS
+
+    - name: rust toolchain ~ install
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: llvm-tools-preview
+    - name: Test
+      run: cargo test --no-fail-fast
+      env:
+        CARGO_INCREMENTAL: "0"
+        RUSTC_WRAPPER: ""
+        RUSTFLAGS: "-Cinstrument-coverage -Zcoverage-options=branch -Ccodegen-units=1 -Copt-level=0 -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+        RUSTDOCFLAGS: "-Cpanic=abort"
+        LLVM_PROFILE_FILE: "parse_datetime-%p-%m.profraw"
+    - name: "`grcov` ~ install"
+      id: build_grcov
+      shell: bash
+      run: |
+        git clone https://github.com/mozilla/grcov.git ~/grcov/
+        cd ~/grcov
+        # Hardcode the version of crossbeam-epoch. See
+        # https://github.com/uutils/coreutils/issues/3680
+        sed -i -e "s|tempfile =|crossbeam-epoch = \"=0.9.8\"\ntempfile =|" Cargo.toml
+        cargo install --path .
+        cd -
+# Uncomment when the upstream issue
+# https://github.com/mozilla/grcov/issues/849 is fixed
+#      uses: actions-rs/install@v0.1
+#      with:
+#        crate: grcov
+#        version: latest
+#        use-tool-cache: false
+    - name: Generate coverage data (via `grcov`)
+      id: coverage
+      shell: bash
+      run: |
+        ## Generate coverage data
+        COVERAGE_REPORT_DIR="target/debug"
+        COVERAGE_REPORT_FILE="${COVERAGE_REPORT_DIR}/lcov.info"
+        mkdir -p "${COVERAGE_REPORT_DIR}"
+        # display coverage files
+        grcov . --binary-path="${COVERAGE_REPORT_DIR}" --output-type files --ignore build.rs --ignore "vendor/*" --ignore "/*" --ignore "[a-zA-Z]:/*" --excl-br-line "^\s*((debug_)?assert(_eq|_ne)?!|#\[derive\()" | sort --unique
+        # generate coverage report
+        grcov . --binary-path="${COVERAGE_REPORT_DIR}" --output-type lcov --output-path "${COVERAGE_REPORT_FILE}" --branch --ignore build.rs --ignore "vendor/*" --ignore "/*" --ignore "[a-zA-Z]:/*" --excl-br-line "^\s*((debug_)?assert(_eq|_ne)?!|#\[derive\()"
+        echo "report=${COVERAGE_REPORT_FILE}" >> $GITHUB_OUTPUT
+    - name: Upload coverage results (to Codecov.io)
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ${{ steps.coverage.outputs.report }}
+        ## flags: IntegrationTests, UnitTests, ${{ steps.vars.outputs.CODECOV_FLAGS }}
+        flags: ${{ steps.vars.outputs.CODECOV_FLAGS }}
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  fuzz:
+    name: Run the fuzzers
+    runs-on: ubuntu-latest
+    env:
+      RUN_FOR: 60
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@nightly
+    - name: Install `cargo-fuzz`
+      run: cargo install cargo-fuzz
+    - uses: Swatinem/rust-cache@v2
+    - name: Run from_str for XX seconds
+      shell: bash
+      run: |
+        ## Run it
+        cd fuzz
+        cargo +nightly fuzz run fuzz_parse_datetime -- -max_total_time=${{ env.RUN_FOR }} -detect_leaks=0

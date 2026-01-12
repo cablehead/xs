@@ -1,0 +1,21 @@
+[package]
+name = "testing_table"
+version = "0.3.0"
+edition = "2018"
+authors = ["Maxim Zhiburt <zhiburt@gmail.com>"]
+description = "An easy to use library for pretty print tables of Rust `struct`s and `enum`s."
+repository = "https://github.com/zhiburt/tabled"
+homepage = "https://github.com/zhiburt/tabled"
+documentation = "https://docs.rs/testing_table"
+license = "MIT"
+keywords = ["table", "testing", "pretty-table", "assert", "test"]
+categories = ["text-processing", "development-tools", "development-tools::testing"]
+readme = "README.md"
+
+[features]
+std = []
+ansi = ["ansitok"]
+
+[dependencies]
+ansitok = { version = "0.3", optional = true }
+unicode-width = "0.2"

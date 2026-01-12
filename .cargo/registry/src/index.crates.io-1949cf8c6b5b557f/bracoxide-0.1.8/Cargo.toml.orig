@@ -1,0 +1,16 @@
+[package]
+name = "bracoxide"
+version = "0.1.8"
+edition = "2021"
+description = "A feature-rich library for brace pattern combination, permutation generation, and error handling."
+repository = "https://github.com/atahabaki/bracoxide"
+license = "MIT"
+keywords = ["brace_expansion","parsing","combination","permutation","string_manipulation"]
+categories = ["parser-implementations"]
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "explode_benchmark"
+harness = false

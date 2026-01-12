@@ -1,0 +1,157 @@
+use std::cmp::Ord;
+use std::cmp::Ordering;
+use std::fmt;
+
+/// A representation of either a single codepoint or a range of codepoints.
+#[derive(Debug)]
+pub enum Codepoints {
+    /// A single codepoint.
+    Single(u32),
+    /// A range of codepoints.
+    Range(std::ops::RangeInclusive<u32>),
+}
+
+impl fmt::Display for Codepoints {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Codepoints::Single(cp) => write!(f, "single codepoint {:#06x}", cp),
+            Codepoints::Range(range) => write!(f, "codepoints range: [{}..{}]",
+                range.start(), range.end()),
+        }
+    }
+}
+
+impl PartialEq<std::ops::RangeInclusive<u32>> for Codepoints {
+    fn eq(&self, other: &std::ops::RangeInclusive<u32>) -> bool {
+        match self {
+            Codepoints::Single(ref c) => &(*c..=*c) == other,
+            Codepoints::Range(ref r) => r == other,
+        }
+    }
+}
+
+impl PartialEq<Codepoints> for std::ops::RangeInclusive<u32> {
+    fn eq(&self, other: &Codepoints) -> bool {
+        other.eq(self)
+    }
+}
+
+impl PartialEq<u32> for Codepoints {
+    fn eq(&self, other: &u32) -> bool {
+        match self {
+            Codepoints::Single(ref c) => c == other,
+            Codepoints::Range(ref r) => r.contains(other),
+        }
+    }
+}
+
+impl PartialEq<Codepoints> for u32 {
+    fn eq(&self, other: &Codepoints) -> bool {
+        other.eq(self)
+    }
+}
+
+impl PartialEq<(u32, u32)> for Codepoints {
+    fn eq(&self, other: &(u32, u32)) -> bool {
+        match self {
+            Codepoints::Single(ref c) => &(*c, *c) == other,
+            Codepoints::Range(ref r) => &(*r.start(), *r.end()) == other,
+        }
+    }
+}
+
+impl PartialEq<Codepoints> for (u32, u32) {
+    fn eq(&self, other: &Codepoints) -> bool {
+        other.eq(self)
+    }
+}
+
+impl PartialEq<Codepoints> for Codepoints {
+    fn eq(&self, other: &Codepoints) -> bool {
+        match self {
+            Codepoints::Single(ref c) => other == c,
+            Codepoints::Range(ref r) => other == r,
+        }
+    }
+}
+
+impl Eq for Codepoints {}
+
+impl PartialOrd<u32> for Codepoints {
+    fn partial_cmp(&self, other: &u32) -> Option<Ordering> {
+        if self.lt(other) {
+            Some(Ordering::Less)
+        } else if self.gt(other) {
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
+    }
+    fn lt(&self, other: &u32) -> bool {
+        match self {
+            Codepoints::Single(ref c) => c < other,
+            Codepoints::Range(ref r) => r.end() < other,
+        }
+    }
+    fn le(&self, other: &u32) -> bool {
+        match self {
+            Codepoints::Single(ref c) => c <= other,
+            Codepoints::Range(ref r) => r.start() <= other,
+        }
+    }
+    fn gt(&self, other: &u32) -> bool {
+        match self {
+            Codepoints::Single(ref c) => c > other,
+            Codepoints::Range(ref r) => r.start() > other,
+        }
+    }
+    fn ge(&self, other: &u32) -> bool {
+        match self {
+            Codepoints::Single(ref c) => c >= other,
+            Codepoints::Range(ref r) => r.end() >= other,
+        }
+    }
+}
+
+impl PartialOrd<Codepoints> for u32 {
+    fn partial_cmp(&self, other: &Codepoints) -> Option<Ordering> {
+        match other {
+            Codepoints::Single(ref c) => Some(self.cmp(c)),
+            Codepoints::Range(ref r) => {
+                if self < r.start() {
+                    Some(Ordering::Less)
+                } else if self > r.end() {
+                    Some(Ordering::Greater)
+                } else {
+                    Some(Ordering::Equal)
+                }
+            }
+        }
+    }
+
+    fn lt(&self, other: &Codepoints) -> bool {
+        match other {
+            Codepoints::Single(ref c) => self < c,
+            Codepoints::Range(ref r) => self < r.start(),
+        }
+    }
+    fn le(&self, other: &Codepoints) -> bool {
+        match other {
+            Codepoints::Single(ref c) => self <= c,
+            Codepoints::Range(ref r) => self <= r.end(),
+        }
+    }
+    fn gt(&self, other: &Codepoints) -> bool {
+        match other {
+            Codepoints::Single(ref c) => self > c,
+            Codepoints::Range(ref r) => self > r.end(),
+        }
+    }
+    fn ge(&self, other: &Codepoints) -> bool {
+        match other {
+            Codepoints::Single(ref c) => self >= c,
+            Codepoints::Range(ref r) => self >= r.start(),
+        }
+    }
+}
+

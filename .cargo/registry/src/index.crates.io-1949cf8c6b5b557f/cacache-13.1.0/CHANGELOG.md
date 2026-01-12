@@ -1,0 +1,364 @@
+# `cacache` Release Changelog
+
+<a name="13.1.0"></a>
+## 13.1.0 (2024-11-26)
+
+### Features
+
+* **link:** add hard_link_hash (#82) ([ab5f1c91](https://github.com/zkat/cacache-rs/commit/ab5f1c91857188f01a93fb60c47b25ee711d545d))
+
+### Bug Fixes
+
+* **docs:** improved documentation for remove_fully (#78) ([3a712473](https://github.com/zkat/cacache-rs/commit/3a712473645d05b256b430102ae809190e5d4f60))
+* **tokio:** add safe access join handles (#85) ([146a593c](https://github.com/zkat/cacache-rs/commit/146a593c8e3abea8bc4c1888ae6781a3f2e1422e))
+
+<a name="13.0.0"></a>
+## 13.0.0 (2024-02-15)
+
+### Bug Fixes
+
+* **sync:** Added the feature flags for compilation without the async runtime. Fixes #64. (#65) ([ffa1ab72](https://github.com/zkat/cacache-rs/commit/ffa1ab7254e0b051e6d65fe16b71ab44be04c968))
+    * **BREAKING CHANGE**: this bumps the MSRV to 1.70.0
+* **remove_fully:** Remove the key content when set `remove_fully` to `true` (#63) ([761d7155](https://github.com/zkat/cacache-rs/commit/761d71558a4b9f06907cb5ff43247fdbd158716b))
+    * **BREAKING CHANGE**: this is technically a fix, but maybe people didn't expect this.
+
+<a name="12.0.0"></a>
+## 12.0.0 (2023-10-07)
+
+### Features
+
+* **remove_fully:** add option for remove cache entry (#54) ([34ee6798](https://github.com/zkat/cacache-rs/commit/34ee679816cad95f617fbed11ad93b5f248ab50f))
+* **reflink:** Separate reflink behavior into their own functions (#58) ([cfdf4eed](https://github.com/zkat/cacache-rs/commit/cfdf4eed4d19138ea8937b12333db8280d137b3a))
+    * **BREAKING CHANGE**: some signatures for copy have changed, and copy no longer automatically reflinks
+
+<a name="11.7.1"></a>
+## 11.7.1 (2023-09-11)
+
+### Bug Fixes
+
+* **sync-only:** remove futures dep when no async features are being used ([100609ab](https://github.com/zkat/cacache-rs/commit/100609abee0715a12f1bf5688aa6b462b2b8c713))
+* **mmap:** fix unused method warning ([c735d83a](https://github.com/zkat/cacache-rs/commit/c735d83a316ebe2844803132fa81f6dcb9f28b79))
+* **deps:** moved to reflink-copy (#55) ([6624d66c](https://github.com/zkat/cacache-rs/commit/6624d66c16d2aedf6d8369c71c627ff7d817f72a))
+
+<a name="11.7.0"></a>
+## 11.7.0 (2023-09-11)
+
+### Features
+
+* **sync-only:** add support for removing async runtime dependency altogether (#56) ([60622267](https://github.com/zkat/cacache-rs/commit/606222678931cd809af35c1a38a58933b5fc6d7e))
+
+<a name="11.6.0"></a>
+## 11.6.0 (2023-05-21)
+
+### Features
+
+* **mmap:** new feature for mmap-based optimization (#49) ([58de0b2d](https://github.com/zkat/cacache-rs/commit/58de0b2d1016c964d6f18f042f10e2a744415b08))
+* **xxhash:** Add xxhash support and some utilities for making it easier to use (#51) ([41392e74](https://github.com/zkat/cacache-rs/commit/41392e7469b7e49b5b35aaacf77eb8a877a1484c))
+
+### Bug Fixes
+
+* **mmap:** pre-allocate temp file before mmapping (#50) ([1ac1d647](https://github.com/zkat/cacache-rs/commit/1ac1d647e0e25e1230bca376f9f294336dd57943))
+
+<a name="11.5.2"></a>
+## 11.5.2 (2023-04-01)
+
+### Bug Fixes
+
+* **deps:** move async-attributes over to dev-dependencies ([b7c10eca](https://github.com/zkat/cacache-rs/commit/b7c10ecaaf38893507ac8cba27a8ba45eb309dce))
+
+<a name="11.5.1"></a>
+## 11.5.1 (2023-04-01)
+
+### Bug Fixes
+
+* **deps:** bump ssri too ([4950998f](https://github.com/zkat/cacache-rs/commit/4950998f77444786ef747cbacfea5214741e350d))
+
+<a name="11.5.0"></a>
+## 11.5.0 (2023-04-01)
+
+This release upgrades miette and thiserror in lockstep, bringing in syn2, in
+order to avoid [potential issues with the
+upgrade](https://github.com/yaahc/eyre/pull/92).
+
+### Features
+
+* **deps:** bump miette and thiserror ([364f9da6](https://github.com/zkat/cacache-rs/commit/364f9da65eccedc51af9e05ab326496fb98d4ed7))
+
+<a name="11.4.0"></a>
+## 11.4.0 (2023-03-10)
+
+### Features
+
+* **link:** implement hard_link_hash_sync too ([b88217cc](https://github.com/zkat/cacache-rs/commit/b88217cc548a91d0c168f8604a32b78f3366fe46))
+
+### Bug Fixes
+
+* **security:** bump tempfile version to 3.4.0 (#45) ([02d7f146](https://github.com/zkat/cacache-rs/commit/02d7f146f17c5db3f1c6e3970dc378493254b23d))
+
+<a name="11.3.0"></a>
+## 11.3.0 (2023-03-05)
+
+### Features
+
+* **links:** add support for hard linking from the cache (#43) ([89eee6c1](https://github.com/zkat/cacache-rs/commit/89eee6c1aebd3b271619a4b55fac7f0afc5f07bb))
+
+<a name="11.2.0"></a>
+## 11.2.0 (2023-02-28)
+
+### Features
+
+* **link_to:** Add support for linking to existing files from the cache (#41) ([ac56fd9c](https://github.com/zkat/cacache-rs/commit/ac56fd9ce6a453a707df9a0603fc041e4e785d79))
+* **copy:** add support for reflink-copy and unsafe-copy (#42) ([d39e8380](https://github.com/zkat/cacache-rs/commit/d39e83801dc4f1e6479dacd50dcf1372658a598f))
+
+<a name="11.1.0"></a>
+## 11.1.0 (2023-02-19)
+
+### Features
+
+* **index:** Add support for raw index metadata and expose index functions ([9991f56b](https://github.com/zkat/cacache-rs/commit/9991f56b4c689149257dbe86357cbcab8fa228e9))
+
+<a name="11.0.2"></a>
+## 11.0.2 (2023-02-19)
+
+### Bug Fixes
+
+* **ls:** make sure `ls` sees entry deletions (#40) ([53c28952](https://github.com/zkat/cacache-rs/commit/53c289523fc0d1bc9708e3e252f84b532e405329))
+
+<a name="11.0.1"></a>
+## 11.0.1 (2023-02-19)
+
+### Features
+
+* **deps:** bump ssri to 8.0.0 ([f8cbfefc](https://github.com/zkat/cacache-rs/commit/f8cbfefc129861cece61a80dda3e5a4d9d6de053))
+
+<a name="11.0.0"></a>
+## 11.0.0 (2023-01-29)
+
+This release includes a number of nice improvements to error reporting,
+integrating [`miette`](https://crates.io/crates/miette) to provide more
+helpful, contextual error messages, as well as adding
+[`tokio`](https://crates.io/crates/tokio) as an optional runtime, instead of
+`async-std`.
+
+It also includes a number of bug fixes and performance improvements.
+
+Note that this release also bumps the MSRV to 1.67.0, which will hopefully
+stay there for a while. Apologies if you're still on an earlier version of
+`rustc`: the ecosystem moved forward and ultimately, we needed to move with
+it.
+
+### Bug Fixes
+
+* **write:** set tmpfile length in async writer (#35) ([6d84ff0a](https://github.com/zkat/cacache-rs/commit/6d84ff0aed53aea727b32f6b3d16ee0d045aa0e4))
+    * **BREAKING CHANGE**: This commit also bumps the MSRV for cacache to 1.66.1.
+* **deps:** only include rt-multi-threaded for tokio when running tests ([526386ad](https://github.com/zkat/cacache-rs/commit/526386ada8a6b3ebee3222edb93ef401959e7f6e))
+* **msrv:** be less aggressive about MSRV bump ([dca57e11](https://github.com/zkat/cacache-rs/commit/dca57e11001f8ee06077af77dfffe3bc9df5af2a))
+* **perf:** do the inner fn trick to reduce generic compilation load ([da259ae4](https://github.com/zkat/cacache-rs/commit/da259ae43233e0b0cb23a2195700d3bca2942340))
+
+### Features
+
+* **async:** Add tokio as an executor option (#36) ([e34dcfdc](https://github.com/zkat/cacache-rs/commit/e34dcfdc250c87010afa07279dc7d6aefce9866b))
+* **errors:** integrate miette and generally improve error reporting (#38) ([c2d5390a](https://github.com/zkat/cacache-rs/commit/c2d5390a84639ddc62b0581c76dd986442cfca7d))
+    * **BREAKING CHANGE**: This bumps the MSRV to 1.67.0 and documents it in the README.
+
+<a name="10.0.1"></a>
+## 10.0.1 (2022-02-25)
+
+### Bug Fixes
+
+* **mmap:** mmap needs equal buffer lengths (#33) ([684a3e8a](https://github.com/zkat/cacache-rs/commit/684a3e8a682d7ddc60a18671bc182373f2bc6c28))
+
+<a name="10.0.0"></a>
+## 10.0.0 (2022-01-23)
+
+### Breaking Changes
+
+* **msrv:** bump MSRV to 1.54, thanks to socket ([323ecacc](https://github.com/zkat/cacache-rs/commit/323ecacc3b1e9b70bfac5f3e0838b099e9c6f8a4))
+
+### Bug Fixes
+
+* **security:** replaced memmap with memmap2 (#30) ([03d4596b](https://github.com/zkat/cacache-rs/commit/03d4596baa330a057011e5238983095c08039360))
+
+<a name="9.0.0"></a>
+## 9.0.0 (2021-09-16)
+
+### Bug Fixes
+
+* **clippy:** appease the paperclip ([8d08e452](https://github.com/zkat/cacache-rs/commit/8d08e452984f0bf5a266b1939f3ce2d7ab3aed7d))
+* **cleanup:** general house cleaning, bumping deps, etc ([9163a584](https://github.com/zkat/cacache-rs/commit/9163a58481e28b8ecca62268f1cf32e4e68f47db))
+
+### Features
+
+* **license:** change license to Apache-2.0 ([97890872](https://github.com/zkat/cacache-rs/commit/97890872d559b0c37aba8414c8f8b1055276c6cb))
+    * **BREAKING CHANGE**: This is a significant licensing change. Please review.
+
+<a name="8.0.0"></a>
+## 8.0.0 (2020-07-18)
+
+#### Breaking Changes
+
+- **write:** Use mmap for small writes (#26) ([803d0c3e](https://github.com/zkat/cacache-rs/commit/803d0c3ede199c20aec1b514daf21fab9ee68ac2), breaks [#](https://github.com/zkat/cacache-rs/issues/)). This bumps the minimum Rust version from 1.39 to 1.43 due to a dependency's breaking change in a patch version.
+
+<a name="7.0.0"></a>
+
+## 7.0.0 (2020-04-30)
+
+This release is mostly a major overhaul of the external error API, switching out of `anyhow` in favor of more bespoke error handling that works nicer in a library.
+
+#### Breaking Changes
+
+- **errors:** remove anyhow and use custom error types (#24) ([bb815f5f](https://github.com/zkat/cacache-rs/commit/bb815f5f22ea932814b8b3e120fd6cac24831d01), breaks [#](https://github.com/zkat/cacache-rs/issues/))
+
+#### Bug Fixes
+
+- **list_sync:** make sure the public interface allows using the Item type (#25) ([88a76189](https://github.com/zkat/cacache-rs/commit/88a76189fce954949ff3026b96158f700f5e2325))
+
+<a name="6.0.0"></a>
+
+## 6.0.0 (2019-11-12)
+
+#### Breaking Changes
+
+- **chown:** stop changing owner/group on unix platforms ([d5bb0dff](https://github.com/zkat/cacache-rs/commit/d5bb0dffb623d0a61d7680829ca36ce10ceb2f53))
+- **deps:** upgrade to latest async-std and regular futures crate ([c44b781a](https://github.com/zkat/cacache-rs/commit/c44b781a34bb4f95667ccb784671060ee3c0bcca))
+- **license:** upgrade to Parity 7.0 release ([b54ec598](https://github.com/zkat/cacache-rs/commit/b54ec598cb11272edd685f4db45f6ff8bbeb9747))
+
+<a name="5.0.0"></a>
+
+## 5.0.0 (2019-10-24)
+
+#### Breaking Changes
+
+- **api:** rewrite entire API to be like std::fs (#21) ([743476b2](https://github.com/zkat/cacache-rs/commit/743476b274eb07844b7b73137770df856cd7e4c4))
+- **license:** bump Parity license to 7.0.0-pre.3 ([0395b0fb](https://github.com/zkat/cacache-rs/commit/0395b0fbffc65004f2b099aee9075251c8354e06))
+
+#### Features
+
+- **api:** rewrite entire API to be like std::fs (#21) ([743476b2](https://github.com/zkat/cacache-rs/commit/743476b274eb07844b7b73137770df856cd7e4c4))
+- **license:** bump Parity license to 7.0.0-pre.3 ([0395b0fb](https://github.com/zkat/cacache-rs/commit/0395b0fbffc65004f2b099aee9075251c8354e06))
+
+<a name="4.0.0"></a>
+
+## 4.0.0 (2019-10-21)
+
+#### Bug Fixes
+
+- **fmt:** cargo fmt --all ([38115599](https://github.com/zkat/cacache-rs/commit/38115599ca9cc9f6426b950d16399f9e03871dd3))
+
+#### Breaking Changes
+
+- **errors:**
+  - improved errors messaging and context (#20) ([62298cdf](https://github.com/zkat/cacache-rs/commit/62298cdf351d7ed10b54417ae7a702d07b4b4765))
+  - Replace failure with anyhow crate (#17) ([ee149a70](https://github.com/zkat/cacache-rs/commit/ee149a70cab9ec37951aef47a21c40a0d6efb234))
+
+#### Features
+
+- **errors:**
+  - improved errors messaging and context (#20) ([62298cdf](https://github.com/zkat/cacache-rs/commit/62298cdf351d7ed10b54417ae7a702d07b4b4765))
+  - Replace failure with anyhow crate (#17) ([ee149a70](https://github.com/zkat/cacache-rs/commit/ee149a70cab9ec37951aef47a21c40a0d6efb234))
+- **license:** Add in Patron license to make proprietary stuff more clear ([fbeb6ec0](https://github.com/zkat/cacache-rs/commit/fbeb6ec0ff77e022d87dc03865d4136bbbd8fbc6))
+- **rm:** Accept AsRef<str> for keys ([64939851](https://github.com/zkat/cacache-rs/commit/649398512f339933605ed70cade3ca16962a6b26))
+
+<a name="3.0.0"></a>
+
+## 3.0.0 (2019-10-19)
+
+#### Features
+
+- **api:** get::read -> get::data ([b02f41e0](https://github.com/zkat/cacache-rs/commit/b02f41e07fab0929006e8027395503ff001a6002))
+- **async:** reorganize async APIs to be the primary APIs ([662aea9b](https://github.com/zkat/cacache-rs/commit/662aea9b5a829ca4ca9673f2d82917065d675c62))
+- **get:** get::info -> get::entry ([dafc79f4](https://github.com/zkat/cacache-rs/commit/dafc79f481366f3254c13efaf101c79e018d7e19))
+- **ls:** cacache::ls::all -> ls::all_sync ([c4300167](https://github.com/zkat/cacache-rs/commit/c43001674441e68dd376cf003e17167360ab670e))
+
+#### Bug Fixes
+
+- **check:** {Async}Get::check wasn't working correctly ([d08629cf](https://github.com/zkat/cacache-rs/commit/d08629cf5547f6aad8147f319fee5d30accf89a2))
+- **open:** use actual file paths instead of just cache for open APIs ([03ff1970](https://github.com/zkat/cacache-rs/commit/03ff19709ab13ff4fc61ae8b52ace93db2c9dada))
+
+#### Breaking Changes
+
+- **api:** get::read -> get::data ([b02f41e0](https://github.com/zkat/cacache-rs/commit/b02f41e07fab0929006e8027395503ff001a6002), breaks [#](https://github.com/zkat/cacache-rs/issues/))
+- **async:** reorganize async APIs to be the primary APIs ([662aea9b](https://github.com/zkat/cacache-rs/commit/662aea9b5a829ca4ca9673f2d82917065d675c62), breaks [#](https://github.com/zkat/cacache-rs/issues/))
+- **get:** get::info -> get::entry ([dafc79f4](https://github.com/zkat/cacache-rs/commit/dafc79f481366f3254c13efaf101c79e018d7e19), breaks [#](https://github.com/zkat/cacache-rs/issues/))
+- **ls:** cacache::ls::all -> ls::all_sync ([c4300167](https://github.com/zkat/cacache-rs/commit/c43001674441e68dd376cf003e17167360ab670e), breaks [#](https://github.com/zkat/cacache-rs/issues/))
+
+<a name="2.0.1"></a>
+
+## 2.0.1 (2019-10-15)
+
+- Just adds some examples of the core API.
+
+<a name="2.0.0"></a>
+
+## 2.0.0 (2019-10-15)
+
+#### Features
+
+- **async:** add extra async versions of APIs (#6) ([18190bfc](https://github.com/zkat/cacache-rs/commit/18190bfc356fdf871f9f284b54fc48da32e44ead))
+- **license:**
+  - relicense to Parity+Apache ([4d9404b9](https://github.com/zkat/cacache-rs/commit/4d9404b9a606cfc52fce06999ab5a640bda8fc26))
+
+#### Bug Fixes
+
+- **windows:** add windows support ([97f44573](https://github.com/zkat/cacache-rs/commit/97f44573d55c96172aecf4be553eba064e43d58e))
+
+#### Breaking Changes
+
+- **license:** relicense to Parity+Apache ([4d9404b9](https://github.com/zkat/cacache-rs/commit/4d9404b9a606cfc52fce06999ab5a640bda8fc26))
+
+<a name="1.0.1"></a>
+
+## 1.0.1 (2019-07-01)
+
+Initial History generation.
+
+#### Features
+
+- **api:** AsRef all the things! ([5af622eb](https://github.com/zkat/cacache-rs.git/commit/5af622eb30b9f177117ce2f8ad17690313fba50a))
+- **content:** add baseline read functionality ([e98bfb17](https://github.com/zkat/cacache-rs.git/commit/e98bfb17da0f4b862954e5f7636ea6284cd81367))
+- **error:**
+  - Add SizeError ([0bbe080a](https://github.com/zkat/cacache-rs.git/commit/0bbe080a6ef636175ce07936ca8a7d26243509fb))
+  - add wrapper for atomicwrites ([dbb8c79b](https://github.com/zkat/cacache-rs.git/commit/dbb8c79b00f89e1b6303be179a6389328e1a762c))
+- **errors:** add errors module ([b0464849](https://github.com/zkat/cacache-rs.git/commit/b0464849e6cd32b047bbdfaa000e961dc2d87e86))
+- **exports:** re-export ssri::Algorithm and serde_json::Value ([87adc8cf](https://github.com/zkat/cacache-rs.git/commit/87adc8cf9f63211edc943e72ec28de797de574ea))
+- **get:**
+  - add get::open() and get::open_hash() ([6e9a2f9f](https://github.com/zkat/cacache-rs.git/commit/6e9a2f9f87ecfb82a7bfd90fb748053a79de4e75))
+  - add external cacache::get api ([d91d2141](https://github.com/zkat/cacache-rs.git/commit/d91d2141761abf0e6180dc2ecd8c486637cf9232))
+- **index:**
+  - make inserter.commit() return integrity ([257fc9b6](https://github.com/zkat/cacache-rs.git/commit/257fc9b6d0cb3f99547059821255b1719dd6be2f))
+  - implement delete() ([33a5dbbd](https://github.com/zkat/cacache-rs.git/commit/33a5dbbd51fc8d9ae180e8eac3f0600d8cbe37df))
+  - implemented find() ([44eb2acc](https://github.com/zkat/cacache-rs.git/commit/44eb2acc98b242747ff09460e0c276593dfe3840))
+  - implemented index::insert() ([322e68ff](https://github.com/zkat/cacache-rs.git/commit/322e68ffaa118ed519e1fe2f395b7cdfa903d91b))
+  - port index::insert() ([9ffc090b](https://github.com/zkat/cacache-rs.git/commit/9ffc090b3b2248def2aa9390ca1fd4028fb3663b))
+- **ls:** implemented cacache::ls::all() ([b0f351ea](https://github.com/zkat/cacache-rs.git/commit/b0f351ea269778e2e0be1d1388698d7a4b97ccd0))
+- **path:** ported content_path ([0f768fa5](https://github.com/zkat/cacache-rs.git/commit/0f768fa5c09445cc7dc81bcaea2639cf598f5107))
+- **put:**
+  - privatize Put and PutOpts fields ([7f1602e2](https://github.com/zkat/cacache-rs.git/commit/7f1602e28fcecc02c47a43867c43dc8b420ca120))
+  - make PutOpts Clone ([27ce700b](https://github.com/zkat/cacache-rs.git/commit/27ce700bd69e1b72ab761521b0ba6fe0fc93ece1))
+  - Add put::Put and put::PutOpts ([15f017fe](https://github.com/zkat/cacache-rs.git/commit/15f017fe2151ad70dd75fbc90bae4c1cfccc00df))
+  - initial implementation of cacache::put ([815d7a3c](https://github.com/zkat/cacache-rs.git/commit/815d7a3c9e880eccd89baf4565e627658c5ac553))
+- **read:**
+  - added has_content() ([bff95f20](https://github.com/zkat/cacache-rs.git/commit/bff95f20ec3f79a356a30733145f44adc99d2f83))
+  - added content read and read_to_string ([70cf52e1](https://github.com/zkat/cacache-rs.git/commit/70cf52e136624bbff415d2641d56331191649f17))
+- **rm:**
+  - added external rm api ([346cf5fb](https://github.com/zkat/cacache-rs.git/commit/346cf5fb2379b9486186eca6aa14b72106818fc4))
+  - added content/rm ([eac29d94](https://github.com/zkat/cacache-rs.git/commit/eac29d941b0e36c143d3262e891fdbf991e316d7))
+- **write:** initial hack for write ([e452fdcd](https://github.com/zkat/cacache-rs.git/commit/e452fdcd16fae12d79602814979312767264a3b7))
+
+#### Bug Fixes
+
+- **api:** use &str keys ([cf0fbe23](https://github.com/zkat/cacache-rs.git/commit/cf0fbe233f721f7ad3637eaf01207e3015f74ecd))
+- **content:** make rm use our own Error ([f3b6abf4](https://github.com/zkat/cacache-rs.git/commit/f3b6abf45c0408228e3bf8a0fe1e744d0b32c0bd))
+- **fmt:**
+  - cargo fmt ([0349d115](https://github.com/zkat/cacache-rs.git/commit/0349d115f4e8d7aa59c6f7a0455b94be898efd46))
+  - cargo fmt ([bc56a1b3](https://github.com/zkat/cacache-rs.git/commit/bc56a1b3fee36f4ec2c3508ab34c3459904e1978))
+- **index:**
+  - get rid of last compiler warning ([22c4b301](https://github.com/zkat/cacache-rs.git/commit/22c4b3010f9a851dd53073bbe1307ecbf01ef30e))
+  - make fields public, too ([65040481](https://github.com/zkat/cacache-rs.git/commit/6504048181415a4818fb6f713c7f9d7be665064a))
+  - switch to using new error module ([6f78e00c](https://github.com/zkat/cacache-rs.git/commit/6f78e00c42d59b73c725ebb4105983aee84459ff))
+  - make Entry use actual Integrity objects ([7ad0633c](https://github.com/zkat/cacache-rs.git/commit/7ad0633c4363a35a53e832dcac18b4672f462cc8))
+  - pass references instead of using .as_path() ([fc067e95](https://github.com/zkat/cacache-rs.git/commit/fc067e95d9c8dbb29ca1732e1e6bbd7b503239cc))
+  - remove unneeded integrity() method ([b579be61](https://github.com/zkat/cacache-rs.git/commit/b579be617f32a26ab557fb7944da89754e40c6ea))
+- **lint:** clippy told me to do this ([cba2f0d3](https://github.com/zkat/cacache-rs.git/commit/cba2f0d39afe71293742f97dcfd6c610031e5bfa))
+- **put:** fix warnings ([4a6950ff](https://github.com/zkat/cacache-rs.git/commit/4a6950ff5ddf6d3f110d2cf9bedeb1ef3134d1fa))
+- **write:** use shared Error type for write() ([8bf623b8](https://github.com/zkat/cacache-rs.git/commit/8bf623b8efab138f9a247edc45e477a08ab9213c))

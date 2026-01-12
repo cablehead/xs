@@ -1,0 +1,40 @@
+[package]
+name = "lean_string"
+description = "Compact, clone-on-write string."
+version = "0.5.1"
+edition = "2024"
+authors = ["ryota2357"]
+repository = "https://github.com/ryota2357/lean_string"
+readme = "README.md"
+license = "MIT"
+keywords = ["string", "sso", "cow"]
+categories = ["data-structures", "no-std"]
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+itoa = "1.0"
+ryu = "1.0"
+castaway = { version = "0.2.4", default-features = false, features = ["alloc"] }
+arbitrary = { version = "1", optional = true, default-features = false }
+serde = { version = "1.0", optional = true, default-features = false }
+
+[dev-dependencies]
+paste = "1.0.15"
+proptest = { version = "1.7.0", features = ["attr-macro"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[target.'cfg(loom)']
+dependencies.loom = { version = "0.7.2", optional = true }
+dev-dependencies.dhat = "0.3.3"
+
+# https://github.com/tokio-rs/loom/issues/352
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

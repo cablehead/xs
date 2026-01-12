@@ -1,0 +1,43 @@
+[package]
+name = "n0-watcher"
+version = "0.3.0"
+edition = "2021"
+readme = "README.md"
+description = "async watchable values"
+license = "MIT OR Apache-2.0"
+authors = ["dignifiedquire <me@dignifiedquire.com>", "n0 team"]
+repository = "https://github.com/n0-computer/n0-watcher"
+keywords = ["async", "watcher"]
+
+
+[dependencies]
+derive_more = { version = "1.0.0", features = ["debug"] }
+n0-future = "0.1.2"
+snafu = "0.8.6"
+
+# non-wasm-in-browser dependencies
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+
+# wasm-in-browser dependencies
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+
+[dev-dependencies]
+n0-future = "0.1.2"
+rand = "0.8"
+tokio = { version = "1", features = ["macros", "sync", "rt-multi-thread", "time", "test-util"] }
+tokio-util = { version = "0.7", features = ["io-util", "io", "rt"] }
+
+[lints.rust]
+missing_debug_implementations = "warn"
+# We have our own `watcher_loom` cfg to enable tokio-rs/loom testing.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(watcher_docsrs)", "cfg(watcher_loom)"] }
+
+[lints.clippy]
+unused-async = "warn"
+
+[profile.release]
+debug = true
+
+[profile.dev-ci]
+inherits = 'dev'
+opt-level = 1

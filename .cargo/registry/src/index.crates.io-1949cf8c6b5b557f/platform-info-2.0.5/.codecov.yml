@@ -1,0 +1,17 @@
+# CodeCov configuration
+# ref: <https://docs.codecov.com/docs/common-recipe-list>
+
+#comment: false ## disable PR coverage commentary posts
+
+coverage:
+  status:
+    # `informational: true` == show status but prevent blocking/failure of CI
+    project:
+      default:
+        informational: true
+    changes:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true

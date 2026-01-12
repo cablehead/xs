@@ -25,6 +25,21 @@ Prefer calm, matter-of-fact technical tone like "docs: improve release process w
 
 Always run `./scripts/check.sh` before committing. Use `cargo fmt` to fix formatting issues.
 
+## Naming Conventions & Consistency
+
+xs follows a consistent naming schema across CLI, API, and internal components.
+Refer to [Naming Schema Documentation](docs/naming-schema/NAMING_SCHEMA.md) when:
+- Adding new CLI commands or flags
+- Designing new API endpoints
+- Naming internal functions and structures
+- Reviewing code for consistency
+
+Key principles:
+- Use `from-latest` and `from-id` for stream positioning (not `tail` or `last-id`)
+- Use `head` for "most recent frame" (aligns with Git conventions)
+- Use `cat`, `append`, `follow`, `remove` for core operations
+- Maintain consistency between CLI flags, API routes, and internal naming
+
 ## Release Process
 
 Use `/release [version]` command to execute the automated release workflow. See `.claude/commands/release.md` for details.

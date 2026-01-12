@@ -1,0 +1,49 @@
+[package]
+name = "value-log"
+description = "Value log implementation for key-value separated LSM storage"
+license = "MIT OR Apache-2.0"
+version = "1.9.0"
+edition = "2021"
+rust-version = "1.74.0"
+readme = "README.md"
+include = ["src/**/*", "LICENSE-APACHE", "LICENSE-MIT", "README.md"]
+repository = "https://github.com/fjall-rs/value-log"
+homepage = "https://github.com/fjall-rs/value-log"
+keywords = ["database", "blobdb", "lsm", "wisckey", "key-value"]
+categories = ["data-structures", "database-implementations", "algorithms"]
+
+[lib]
+name = "value_log"
+path = "src/lib.rs"
+
+[features]
+default = []
+serde = ["dep:serde"]
+bytes = ["dep:bytes"]
+
+[dependencies]
+bytes = { version = "1", optional = true }
+byteorder = "1.5.0"
+byteview = { version = "0.6.1" }
+interval-heap = "0.0.5"
+log = "0.4.22"
+path-absolutize = "3.1.1"
+rustc-hash = "2.0.0"
+serde = { version = "1.0.215", optional = true, features = ["derive"] }
+tempfile = "3.12.0"
+xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
+varint-rs = "2.2.0"
+
+[dev-dependencies]
+criterion = "0.5.1"
+rand = "0.9.0"
+test-log = "0.2.16"
+lz4_flex = { version = "0.11.3" }
+
+# half 2.5.0 has MSRV 1.81
+half = "=2.4.0"
+
+[[bench]]
+name = "value_log"
+harness = false
+path = "benches/value_log.rs"

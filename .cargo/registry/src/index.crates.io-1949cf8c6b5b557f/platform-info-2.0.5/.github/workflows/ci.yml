@@ -1,0 +1,207 @@
+# spell-checker:ignore (rust) clippy rustdoc rustfmt rustup RUSTC RUSTFLAGS RUSTDOCFLAGS profraw
+# spell-checker:ignore (abbrevs/acronyms) MSVC (bash) alnum esac (jargon) maint (utils) codecov grcov lcov markdownlint sccache () uutils
+# spell-checker:ignore (people) dtolnay ; Swatinem ; DavidAnson
+
+on: [push, pull_request]
+
+name: CI
+
+env:
+  PROJECT_NAME: platform-info
+  PROJECT_DESC: 'Cross-platform host machine info'
+  PROJECT_AUTH: 'uutils'
+  # * `rust` caching configuration
+  RUSTC_WRAPPER: 'sccache'
+  SCCACHE_GHA_ENABLED: 'true'
+
+# terminate execution of the current workflow group when there is a newer changeset detected
+# * the group is defined by "WORKFLOW_NAME-REF", where REF can be a branch, tag, or pull-request reference
+# * workflows executing for the default branch are excluded from termination
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  style_format:
+    name: Style/format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.7
+      - run: cargo fmt --all -- --check
+
+  style_lint:
+    name: Style/lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: DavidAnson/markdownlint-cli2-action@v18
+        with:
+          fix: true
+          globs: |
+            *.md
+            docs/src/**/*.md
+            src/**/*.md
+      - run: cargo clippy --all-targets -- -D warnings
+
+  style_spellcheck:
+    name: Style/spellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: streetsidesoftware/cspell-action@v6 ## ref: <https://github.com/streetsidesoftware/cspell-action>
+        with:
+          incremental_files_only: false
+          verbose: true
+
+  test:
+    name: Build/Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Build/Test Info
+        shell: bash
+        run: |
+          ## Build/Test Info
+          # repo/commit info
+          echo "## repo/commit"
+          echo GITHUB_REPOSITORY=${GITHUB_REPOSITORY}
+          echo GITHUB_REF=${GITHUB_REF}
+          echo GITHUB_SHA=${GITHUB_SHA}
+          # environment
+          echo "## environment"
+          echo "CI='${CI}'"
+          echo "PWD='${PWD}'"
+          # tooling info display
+          echo "## tooling"
+          which gcc >/dev/null 2>&1 && (gcc --version | head -1) || true
+          rustup -V 2>/dev/null
+          rustup show active-toolchain
+          cargo -V
+          rustc -V
+          # dependencies
+          echo "## crate dependency list"
+          # * note: for applications, use `--locked` for `cargo fetch`` and `cargo tree`) and commit *Cargo.lock*
+          cargo fetch --quiet
+          cargo tree --edges=no-dev --prefix=none --workspace | grep -vE "\(.*[/\\]${GITHUB_REPOSITORY##*/}\)" | sort --unique
+      - run: cargo test --all-features -- --test-threads 1
+        env:
+          RUST_BACKTRACE: '1'
+
+  coverage:
+    name: Code Coverage
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        job:
+          - { os: ubuntu-latest }
+          - { os: macos-latest }
+          - { os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize/setup workflow
+        id: vars
+        shell: bash
+        run: |
+          ## VARs and paths setup
+          outputs() { step_id="${{ github.action }}"; for var in "$@" ; do echo steps.${step_id}.outputs.${var}="${!var}"; echo "${var}=${!var}" >> $GITHUB_OUTPUT; done; }
+          # toolchain
+          TOOLCHAIN="nightly" ## default to "nightly" toolchain (required for certain required unstable compiler flags) ## !maint: refactor when stable channel has needed support
+          # * specify gnu-type TOOLCHAIN for windows; `grcov` requires gnu-style code coverage data files
+          case ${{ matrix.job.os }} in windows-*) TOOLCHAIN="$TOOLCHAIN-x86_64-pc-windows-msvc" ;; esac;
+          # * use requested TOOLCHAIN if specified
+          if [ -n "${{ matrix.job.toolchain }}" ]; then TOOLCHAIN="${{ matrix.job.toolchain }}" ; fi
+          outputs TOOLCHAIN
+          # target-specific options
+          # * CARGO_FEATURES_OPTION
+          CARGO_FEATURES_OPTION='--all-features' ;  ## default to '--all-features' for code coverage
+          if [ -n "${{ matrix.job.features }}" ]; then CARGO_FEATURES_OPTION='--features=${{ matrix.job.features }}' ; fi
+          outputs CARGO_FEATURES_OPTION
+          # * CODECOV_FLAGS
+          CODECOV_FLAGS=$( echo "${{ matrix.job.os }}" | sed 's/[^[:alnum:]]/_/g' )
+          outputs CODECOV_FLAGS
+          # * code coverage
+          COVERAGE_REPORT_DIR="target/debug/coverage"
+          PROFILES_DIR="${COVERAGE_REPORT_DIR}/profiles"
+          mkdir -p "${COVERAGE_REPORT_DIR}" "${PROFILES_DIR}"
+          outputs COVERAGE_REPORT_DIR PROFILES_DIR
+          LLVM_PROFILE_FILE="${PROFILES_DIR}/profile-%p-%m.profraw"
+          outputs LLVM_PROFILE_FILE
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.vars.outputs.TOOLCHAIN }}
+          components: llvm-tools
+      - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.7
+      - run: cargo install grcov
+      - name: Test
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: '0'
+          LLVM_PROFILE_FILE: ${{ steps.vars.outputs.LLVM_PROFILE_FILE }}
+          RUSTC_WRAPPER: ''
+          RUSTFLAGS: '-C instrument-coverage'
+          RUSTDOCFLAGS: ''
+        run: |
+          ## Test
+          cargo test ${{ steps.vars.outputs.CARGO_FEATURES_OPTION }} --no-fail-fast -- --test-threads 1
+      - name: Test examples
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: '0'
+          LLVM_PROFILE_FILE: ${{ steps.vars.outputs.LLVM_PROFILE_FILE }}
+          RUSTC_WRAPPER: ''
+          RUSTFLAGS: '-C instrument-coverage'
+          RUSTDOCFLAGS: ''
+        run: |
+          ## Test examples
+          cargo test ${{ steps.vars.outputs.CARGO_FEATURES_OPTION }} --examples --no-fail-fast -- --test-threads 1
+      - name: Generate coverage data (via `grcov`)
+        id: coverage
+        shell: bash
+        run: |
+          ## Generate coverage data
+          outputs() { step_id="${{ github.action }}"; for var in "$@" ; do echo steps.${step_id}.outputs.${var}="${!var}"; echo "${var}=${!var}" >> $GITHUB_OUTPUT; done; }
+          #
+          COVERAGE_REPORT_DIR='${{ steps.vars.outputs.COVERAGE_REPORT_DIR }}'
+          LLVM_PROFILE_FILE='${{ steps.vars.outputs.LLVM_PROFILE_FILE }}'
+          PROFILES_DIR='${{ steps.vars.outputs.PROFILES_DIR }}'
+          BINARY_PATH='target/debug'
+          COVERAGE_REPORT_FILE="${COVERAGE_REPORT_DIR}/lcov.info"
+          # display coverage files
+          grcov . --binary-path "${BINARY_PATH}" --source-dir . --output-type files --ignore build.rs --ignore "examples/*" --ignore "vendor/*" --ignore "/*" --ignore "[a-zA-Z]:/*" --excl-br-line "^\s*((debug_)?assert(_eq|_ne)?!|#\[derive\()" | sort --unique
+          # generate coverage report
+          grcov . --binary-path "${BINARY_PATH}" --source-dir . --output-type lcov --output-path "${COVERAGE_REPORT_FILE}" --ignore build.rs --ignore "examples/*" --ignore "vendor/*" --ignore "/*" --ignore "[a-zA-Z]:/*" --excl-br-line "^\s*((debug_)?assert(_eq|_ne)?!|#\[derive\()"
+          report=${COVERAGE_REPORT_FILE}
+          outputs report
+      - name: Upload coverage results (to Codecov.io)
+        uses: codecov/codecov-action@v5
+        # if: steps.vars.outputs.HAS_CODECOV_TOKEN
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ steps.coverage.outputs.report }}
+          ## flags: IntegrationTests, UnitTests, ${{ steps.vars.outputs.CODECOV_FLAGS }}
+          flags: ${{ steps.vars.outputs.CODECOV_FLAGS }}
+          name: codecov-umbrella
+          fail_ci_if_error: false

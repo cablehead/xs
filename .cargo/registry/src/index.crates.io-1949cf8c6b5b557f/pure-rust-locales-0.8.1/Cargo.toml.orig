@@ -1,0 +1,19 @@
+[package]
+name = "pure-rust-locales"
+version = "0.8.1"
+authors = ["Cecile Tonglet <cecile.tonglet@cecton.com>"]
+description = "Pure Rust locales imported directly from the GNU C Library. `LC_COLLATE` and `LC_CTYPE` are not yet supported."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cecton/pure-rust-locales"
+homepage = "https://github.com/cecton/pure-rust-locales"
+documentation = "https://docs.rs/pure-rust-locales"
+readme = "README.md"
+keywords = ["locale", "libc", "i18n", "internationalisation", "no_std"]
+edition = "2018"
+include = ["src/**/*.rs", "tests/**/*.rs", "README.md", "LICENSE.Apache-2.0", "LICENSE.MIT"]
+rust-version = "1.56.0"
+
+[workspace]
+members = [
+    "generate-api",
+]

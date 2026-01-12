@@ -1,0 +1,29 @@
+[package]
+name = "titlecase"
+description = "Capitalize text according to a style defined by John Gruber for Daring Fireball."
+version = "3.6.0"
+edition = "2021"
+authors = ["Wesley Moore <wes@wezm.net>"]
+rust-version = "1.70.0"
+
+documentation = "https://docs.rs/titlecase"
+repository = "https://github.com/wezm/titlecase"
+
+readme = "README.md"
+license = "MIT"
+
+keywords = ["title", "case", "capitalization", "capitalisation", "wasm"]
+categories = ["text-processing"]
+
+[lib]
+# cdylib is for WASM
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+regex = { version = "1.10", default-features = false, features = ["std", "unicode-perl"]}
+wasm-bindgen = { version = "0.2.92", optional = true }
+
+[features]
+default = ["perf"]
+perf = ["regex/perf"]
+wasm = ["dep:wasm-bindgen"]

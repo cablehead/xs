@@ -1,0 +1,63 @@
+[package]
+name = "cacache"
+version = "13.1.0"
+authors = ["Kat Marchán <kzm@zkat.tech>"]
+edition = "2021"
+description = "Content-addressable, key-value, high-performance, on-disk cache."
+license = "Apache-2.0"
+repository = "https://github.com/zkat/cacache-rs"
+homepage = "https://github.com/zkat/cacache-rs"
+readme = "README.md"
+categories = ["caching", "filesystem"]
+
+[dependencies]
+async-std = { version = "1.10.0", features = ["unstable"], optional = true }
+digest = "0.10.6"
+either = "1.6.1"
+futures = { version = "0.3.17", optional = true }
+hex = "0.4.3"
+memmap2 = { version = "0.5.8", optional = true }
+miette = "5.7.0"
+reflink-copy = "0.1.9"
+serde = "1.0.130"
+serde_derive = "1.0.130"
+serde_json = "1.0.68"
+sha1 = "0.10.5"
+sha2 = "0.10.6"
+ssri = "9.0.0"
+tempfile = "3.4.0"
+thiserror = "1.0.40"
+tokio = { version = "1.12.0", features = [
+    "fs",
+    "io-util",
+    "macros",
+    "rt",
+], optional = true }
+tokio-stream = { version = "0.1.7", features = ["io-util"], optional = true }
+walkdir = "2.3.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2.144", optional = true }
+
+[dev-dependencies]
+async-attributes = { version = "1.1.2" }
+criterion = "0.4.0"
+lazy_static = "1.4.0"
+tokio = { version = "1.12.0", features = [
+    "fs",
+    "io-util",
+    "macros",
+    "rt",
+    "rt-multi-thread",
+] }
+
+[[bench]]
+name = "benchmarks"
+harness = false
+
+[features]
+default = ["async-std", "mmap"]
+mmap = ["memmap2", "libc"]
+async-std = ["dep:async-std", "futures"]
+link_to = []
+tokio-runtime = ["tokio", "tokio-stream", "futures"]

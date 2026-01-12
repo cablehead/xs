@@ -1,0 +1,21 @@
+name: Miri
+
+on:
+  [pull_request, workflow_dispatch]
+
+jobs:
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+      - run: cargo check
+      - run: cargo build
+      - run: |
+            rustup component add --toolchain nightly miri
+            cargo miri test

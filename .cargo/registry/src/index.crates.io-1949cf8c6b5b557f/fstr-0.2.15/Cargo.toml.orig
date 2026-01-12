@@ -1,0 +1,27 @@
+[package]
+name = "fstr"
+version = "0.2.15"
+authors = ["LiosK <contact@mail.liosk.net>"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.63"
+description = "A stack-allocated fixed-length string type"
+repository = "https://github.com/LiosK/fstr-rs"
+documentation = "https://docs.rs/fstr"
+
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = []
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1.0", default-features = false, optional = true }
+
+[dev-dependencies]
+serde_test = { version = "1.0", default-features = false }
+
+[package.metadata.docs.rs]
+# RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features --no-deps --open
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

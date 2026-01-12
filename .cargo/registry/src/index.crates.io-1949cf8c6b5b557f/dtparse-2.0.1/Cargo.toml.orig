@@ -1,0 +1,26 @@
+[package]
+name = "dtparse"
+version = "2.0.1"
+authors = ["Bradlee Speice <bradlee@speice.io>"]
+description = "A dateutil-compatible timestamp parser for Rust"
+repository = "https://github.com/bspeice/dtparse.git"
+readme = "README.md"
+categories = ["date-and-time"]
+license = "Apache-2.0"
+exclude = ["/*.py"]
+
+[badges]
+travis-ci = { repository = "bspeice/dtparse" }
+maintenance = { status = "passively-maintained" }
+
+[lib]
+name = "dtparse"
+
+[dependencies]
+chrono = { version = "0.4.24", default-features = false, features = ["clock"] }
+lazy_static = "1.4.0"
+num-traits = "0.2.15"
+rust_decimal = { version = "1.29.1", default-features = false }
+
+[dev-dependencies]
+base64 = "0.21.0"

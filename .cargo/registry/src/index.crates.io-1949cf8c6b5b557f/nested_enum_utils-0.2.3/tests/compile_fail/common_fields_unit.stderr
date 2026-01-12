@@ -1,0 +1,7 @@
+error: Expected named variants in enum
+ --> tests/compile_fail/common_fields_unit.rs:3:1
+  |
+3 | #[common_fields({ x: u64 })]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `common_fields` (in Nightly builds, run with -Z macro-backtrace for more info)

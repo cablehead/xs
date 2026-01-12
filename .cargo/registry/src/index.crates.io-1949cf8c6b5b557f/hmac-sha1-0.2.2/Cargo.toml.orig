@@ -1,0 +1,23 @@
+[package]
+edition = "2018"
+name = "hmac-sha1"
+version = "0.2.2"
+authors = ["Philip Woolford <woolford.philip@gmail.com>"]
+keywords = ["hmac", "sha1"]
+description = "A simple wrapper around the RustCrypto hmac and sha1 crates for simple HMAC-SHA1 generation."
+license = "BSD-3-Clause"
+repository = "https://github.com/pantsman0/rust-hmac-sha1"
+readme = "README.md"
+
+include = [
+    "**/*.rs",
+    "LICENSE",
+    "Cargo.toml",
+    ]
+
+[dependencies]
+hmac = "0.12.1"
+sha1 = "0.10.6"
+
+[dev-dependencies]
+hex = "0.4.3"

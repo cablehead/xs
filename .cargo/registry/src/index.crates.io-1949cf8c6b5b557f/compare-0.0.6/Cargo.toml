@@ -1,0 +1,17 @@
+[package]
+
+name = "compare"
+version = "0.0.6"
+license = "MIT/Apache-2.0"
+description = "Experimental comparators for collections to be generic over"
+
+authors = [
+    "Alexis Beingessner <a.beingessner@gmail.com>",
+    "Andrew Paseltiner <apaseltiner@gmail.com>",
+]
+
+repository = "https://github.com/contain-rs/compare"
+homepage = "https://github.com/contain-rs/compare"
+documentation = "https://contain-rs.github.io/compare/compare"
+keywords = ["data-structures"]
+readme = "README.md"

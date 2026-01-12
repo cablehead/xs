@@ -1,0 +1,19 @@
+[package]
+authors = ["Paul Woolcock <paul@woolcock.us>"]
+name = "pwd"
+version = "1.4.0"
+edition = "2021"
+documentation = "https://docs.rs/pwd"
+homepage = "https://gitlab.com/pwoolcoc/pwd.git"
+repository = "https://gitlab.com/pwoolcoc/pwd.git"
+license = "CC-PDDC"
+readme = "README.adoc"
+keywords = ["unix", "passwd", "pwd", "ffi", "linux"]
+categories = ["external-ffi-bindings", "filesystem"]
+description = """
+Safe interface to pwd.h
+"""
+
+[dependencies]
+libc = "0.2"
+thiserror = "1.0"

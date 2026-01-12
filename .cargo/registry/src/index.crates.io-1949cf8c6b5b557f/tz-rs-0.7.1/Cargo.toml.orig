@@ -1,0 +1,24 @@
+[package]
+name = "tz-rs"
+version = "0.7.1"
+edition = "2024"
+rust-version = "1.85"
+authors = ["x-hgg-x"]
+repository = "https://github.com/x-hgg-x/tz-rs"
+description = "A pure Rust reimplementation of libc functions localtime, gmtime and mktime."
+license = "MIT OR Apache-2.0"
+keywords = ["date", "time", "timezone", "zone", "calendar"]
+categories = ["date-and-time", "parser-implementations"]
+readme = "README.md"
+
+[lib]
+name = "tz"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = []

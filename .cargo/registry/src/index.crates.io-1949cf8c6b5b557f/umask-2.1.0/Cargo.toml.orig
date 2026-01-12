@@ -1,0 +1,14 @@
+[package]
+name = "umask"
+version = "2.1.0"
+authors = ["dystroy <denys.seguret@gmail.com>"]
+repository = "https://github.com/Canop/umask"
+description = "utility to deal with unix access mode"
+edition = "2018"
+keywords = ["unix", "umask", "permission", "mode"]
+license = "MIT"
+categories = ["os::unix-apis"]
+readme = "README.md"
+
+[dependencies]
+thiserror = "1.0.40"

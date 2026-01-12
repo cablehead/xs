@@ -1,0 +1,36 @@
+[package]
+name = "os_display"
+version = "0.1.4"
+authors = ["Jan Verbeek <jan.verbeek@posteo.nl>"]
+description = "Display strings in a safe platform-appropriate way"
+keywords = ["shell", "cli", "terminal", "text", "no_std"]
+categories = ["value-formatting", "text-processing"]
+repository = "https://github.com/blyxxyz/os_display"
+documentation = "https://docs.rs/os_display"
+license = "MIT"
+readme = "README.md"
+edition = "2021"
+rust-version = "1.66"
+exclude = ["fuzz", ".gitignore", ".github", "scripts"]
+
+[dependencies]
+unicode-width = { version = "0.2.0", default-features = false }
+
+[features]
+default = ["native", "alloc", "std"]
+
+# Enable quoting for OsStr and in the style of the current platform
+native = []
+
+# Enable bash/ksh-style quoting
+unix = []
+
+# Enable PowerShell-style quoting
+windows = []
+
+# Use the relevant parts of the standard library
+alloc = []
+std = ["alloc"]
+
+[package.metadata.docs.rs]
+all-features = true

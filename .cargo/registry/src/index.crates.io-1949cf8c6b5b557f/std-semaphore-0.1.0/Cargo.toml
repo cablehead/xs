@@ -1,0 +1,13 @@
+[package]
+name = "std-semaphore"
+version = "0.1.0"
+authors = ["The Rust Project Developers", "Invenia Technical Computing", "Eric Davies <iamed2@gmail.com>"]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/invenia/std-semaphore"
+homepage = "https://github.com/invenia/std-semaphore"
+documentation = "https://invenia.github.io/std-semaphore"
+description = """
+A counting, blocking sempahore extracted from rust 1.7.0.
+"""
+
+[dependencies]

@@ -1,0 +1,65 @@
+error[E0119]: conflicting implementations of trait `From<u32>` for type `Outer`
+  --> tests/compile_fail/nested_duplicate_type.rs:11:1
+   |
+4  | #[enum_conversions(Outer)]
+   | ------------------------ first implementation here
+...
+11 | #[enum_conversions(Outer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `Outer`
+   |
+   = note: this error originates in the attribute macro `enum_conversions` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `From<u8>` for type `Outer`
+  --> tests/compile_fail/nested_duplicate_type.rs:11:1
+   |
+4  | #[enum_conversions(Outer)]
+   | ------------------------ first implementation here
+...
+11 | #[enum_conversions(Outer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `Outer`
+   |
+   = note: this error originates in the attribute macro `enum_conversions` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `TryFrom<Outer>` for type `u32`
+  --> tests/compile_fail/nested_duplicate_type.rs:11:1
+   |
+4  | #[enum_conversions(Outer)]
+   | -------------------------- first implementation here
+...
+11 | #[enum_conversions(Outer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `u32`
+   |
+   = note: this error originates in the attribute macro `enum_conversions` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `TryFrom<&Outer>` for type `&u32`
+  --> tests/compile_fail/nested_duplicate_type.rs:11:1
+   |
+4  | #[enum_conversions(Outer)]
+   | -------------------------- first implementation here
+...
+11 | #[enum_conversions(Outer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `&u32`
+   |
+   = note: this error originates in the attribute macro `enum_conversions` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `TryFrom<Outer>` for type `u8`
+  --> tests/compile_fail/nested_duplicate_type.rs:11:1
+   |
+4  | #[enum_conversions(Outer)]
+   | -------------------------- first implementation here
+...
+11 | #[enum_conversions(Outer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `u8`
+   |
+   = note: this error originates in the attribute macro `enum_conversions` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0119]: conflicting implementations of trait `TryFrom<&Outer>` for type `&u8`
+  --> tests/compile_fail/nested_duplicate_type.rs:11:1
+   |
+4  | #[enum_conversions(Outer)]
+   | -------------------------- first implementation here
+...
+11 | #[enum_conversions(Outer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `&u8`
+   |
+   = note: this error originates in the attribute macro `enum_conversions` (in Nightly builds, run with -Z macro-backtrace for more info)

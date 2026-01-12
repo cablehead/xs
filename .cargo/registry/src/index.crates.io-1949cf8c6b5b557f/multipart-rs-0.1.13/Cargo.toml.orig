@@ -1,0 +1,25 @@
+[package]
+name = "multipart-rs"
+version = "0.1.13"
+edition = "2021"
+license = "MIT"
+description = "A simple, zero-allocation, streaming, async multipart reader & writer for Rust"
+repository = "https://github.com/feliwir/multipart-rs"
+keywords = ["multipart", "http", "async", "streaming", "zero-allocation"]
+categories = ["web-programming", "asynchronous", "network-programming"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = "1.5.0"
+futures-core = "0.3.30"
+futures-util = "0.3.30"
+memchr = "2.7.1"
+mime = "0.3.17"
+uuid = { version = "1.10.0", features = ["v4"] }
+
+[profile.dev]
+opt-level = 1
+
+[dev-dependencies]
+futures-test = "0.3.30"

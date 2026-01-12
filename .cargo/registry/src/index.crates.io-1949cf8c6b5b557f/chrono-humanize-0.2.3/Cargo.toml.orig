@@ -1,0 +1,25 @@
+[package]
+authors = ["Cyril Plisko <cyril.plisko@mountall.com>"]
+categories = ["date-and-time", "value-formatting"]
+description = "Human-friendly time expressions - similar to Python arrow.humanize"
+documentation = "https://docs.rs/chrono-humanize"
+homepage = "https://gitlab.com/imp/chrono-humanize-rs"
+keywords = ["humanize", "chrono", "time", "date", "arrow"]
+license = "MIT/Apache-2.0"
+name = "chrono-humanize"
+readme = "README.md"
+repository = "https://gitlab.com/imp/chrono-humanize-rs.git"
+version = "0.2.3"
+edition = "2018"
+
+[badges]
+gitlab = { repository = "imp/chrono-humanize-rs" }
+travis-ci = { repository = "imp/chrono-humanize-rs" }
+maintenance = { status = "experimental" }
+
+[dependencies]
+chrono = { version = "0.4", features = ["clock", "std"], default-features = false }
+
+[features]
+pedantic = []
+wasmbind = ["chrono/wasmbind"]

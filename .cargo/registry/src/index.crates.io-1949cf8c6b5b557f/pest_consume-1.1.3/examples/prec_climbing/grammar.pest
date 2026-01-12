@@ -1,0 +1,9 @@
+WHITESPACE = _{ " " }
+plus = { "+" }
+minus = { "-" }
+times = { "*" }
+operator = _{ plus | minus | times }
+number = { ASCII_DIGIT+ }
+expr = { term ~ (operator ~ term)* }
+term = { number | "(" ~ expr ~ ")" }
+calculation = { SOI ~ expr ~ EOI }

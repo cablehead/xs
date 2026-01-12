@@ -1,0 +1,20 @@
+[package]
+name = "varint-rs"
+version = "2.2.0"
+authors = ["Leon Davis <bodged@pm.me>"]
+edition = "2018"
+
+description = "A small, zero dependency varint implementation in Rust."
+repository = "https://github.com/LeonskiDev/varint-rs"
+readme = "README.md"
+license = "Apache-2.0"
+
+keywords = ["varint", "google", "zigzag"]
+categories = ["algorithms", "compression", "encoding", "no-std"]
+
+[features]
+default = ["std", "signed"]
+std = []
+signed = []
+
+[dependencies]

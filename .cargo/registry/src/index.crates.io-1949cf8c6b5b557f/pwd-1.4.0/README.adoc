@@ -1,0 +1,30 @@
+= pwd module for unix-y systems
+
+image::https://img.shields.io/crates/v/pwd.svg?style=flat-square[link="https://crates.io/crates/pwd",alt="crates.io"]
+image::https://deps.rs/repo/gitlab/pwoolcoc/pwd/status.svg[link="https://deps.rs/repo/gitlab/pwoolcoc/pwd",alt="dependency status"]
+
+This is a small veneer over pwd.h, mostly just hides away the `unsafe` parts.
+
+== Installation
+
+In the `[dependencies]` section of your `Cargo.toml`, add the following line:
+
+[source="rust"]
+----
+[dependencies]
+pwd = "1"
+----
+
+== Usage
+
+[source="rust"]
+----
+use pwd::Passwd;
+
+fn main() {
+    let me = Passwd::current_user();
+    println!("my username is {}, home directory is {}, and my shell is {}. My uid/gid are {}/{}",
+             me.name, me.dir, me.shell, me.uid, me.gid);
+}
+----
+

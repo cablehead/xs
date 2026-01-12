@@ -1,0 +1,27 @@
+[package]
+name = "print-positions"
+version = "0.6.1"
+authors = ["Bob Hyman"]
+
+description = """
+A library providing string segmentation on grapheme clusters and ANSI escape sequences
+for accurate length arithmetic based on visible print positions.
+"""
+keywords = ["text", "unicode", "grapheme", "ansi", "escape-sequence"]
+readme = "README.md"
+
+repository = "https://github.com/bobhy/print-positions"
+documentation = "https://docs.rs/print-positions"
+
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+unicode-segmentation = "1.10.1"
+
+[dev-dependencies]
+anyhow = "1.0.69"

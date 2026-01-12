@@ -1,0 +1,54 @@
+[package]
+name = "crypto_box"
+version = "0.9.1"
+description = """
+Pure Rust implementation of NaCl's crypto_box public-key authenticated
+encryption primitive which combines the X25519 Elliptic Curve Diffie-Hellman
+function and the XSalsa20Poly1305 authenticated encryption cipher
+"""
+authors = ["RustCrypto Developers"]
+license = "Apache-2.0 OR MIT"
+readme = "README.md"
+documentation = "https://docs.rs/crypto_box"
+homepage = "https://github.com/RustCrypto/nacl-compat"
+repository = "https://github.com/RustCrypto/nacl-compat/tree/master/crypto_box"
+categories = ["cryptography", "no-std"]
+keywords = ["nacl", "libsodium", "public-key", "x25519", "xsalsa20poly1305"]
+edition = "2021"
+rust-version = "1.60"
+
+[dependencies]
+aead = { version = "0.5.2", default-features = false }
+crypto_secretbox = { version = "0.1.1", default-features = false, path = "../crypto_secretbox" }
+curve25519-dalek = { version = "4", default-features = false, features = ["zeroize"] }
+subtle = { version = "2", default-features = false }
+zeroize = { version = "1", default-features = false }
+
+# optional dependencies
+chacha20 = { version = "0.9", optional = true }
+blake2 = { version = "0.10", optional = true, default-features = false }
+salsa20 = { version = "0.10", optional = true }
+serdect = { version = "0.2", optional = true, default-features = false }
+
+[dev-dependencies]
+bincode = "1"
+hex-literal = "0.4"
+rand = "0.8"
+rmp-serde = "1"
+
+[features]
+default = ["alloc", "getrandom", "salsa20"]
+alloc = ["aead/alloc"]
+std = ["aead/std"]
+
+chacha20 = ["dep:chacha20", "crypto_secretbox/chacha20"]
+getrandom = ["aead/getrandom", "rand_core"]
+heapless = ["aead/heapless"]
+rand_core = ["aead/rand_core"]
+salsa20 = ["dep:salsa20", "crypto_secretbox/salsa20"]
+seal = ["dep:blake2", "alloc"]
+serde = ["dep:serdect"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

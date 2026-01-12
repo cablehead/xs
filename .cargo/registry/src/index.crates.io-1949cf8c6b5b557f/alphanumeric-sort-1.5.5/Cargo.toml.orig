@@ -1,0 +1,36 @@
+[package]
+name = "alphanumeric-sort"
+version = "1.5.5"
+authors = ["Magic Len <len@magiclen.org>"]
+edition = "2021"
+rust-version = "1.56"
+repository = "https://github.com/magiclen/alphanumeric-sort"
+homepage = "https://magiclen.org/alphanumeric-sort"
+keywords = ["sort", "alphanumeric", "path", "file", "number"]
+categories = ["no-std", "algorithms"]
+description = "This crate can help you sort order for files and folders whose names contain numerals."
+license = "MIT"
+include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE", "benches/bench.rs", "examples/sort_files_by_file_names.rs"]
+
+[dependencies]
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[features]
+default = ["std"]
+
+std = []
+
+[[example]]
+name = "sort_files_by_file_names"
+required-features = ["std"]
+
+[[bench]]
+name = "bench"
+required-features = ["std"]
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

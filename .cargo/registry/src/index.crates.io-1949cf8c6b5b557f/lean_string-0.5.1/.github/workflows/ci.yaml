@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: "always"
+  RUSTFLAGS: "-D warnings"
+  PROPTEST_CASES: 10000
+  MIRIFLAGS: "-Zmiri-strict-provenance"
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Lint check
+        run: |
+          cargo check --all-features
+          cargo clippy --all-features
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        opt: ["", "--release"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Test (default)
+        run: cargo test ${{ matrix.opt }}
+
+      - name: Test (no-default-features)
+        run: cargo test ${{ matrix.opt }} --no-default-features
+
+      - name: Test (all-features)
+        run: cargo test ${{ matrix.opt }} --all-features
+
+      - name: Test (Loom)
+        run: RUSTFLAGS="--cfg loom" cargo test --test loom ${{ matrix.opt }} --features loom -- --test-threads=1
+
+  miri:
+    name: Miri (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: 64-bit LE
+            target: x86_64-unknown-linux-gnu
+          - name: 64-bit BE
+            target: powerpc64-unknown-linux-gnu
+          - name: 32-bit LE
+            target: i686-unknown-linux-gnu
+          - name: 32-bit BE
+            target: powerpc-unknown-linux-gnu
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup +nightly component add miri
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          prefix-key: rust
+          shared-key: miri-${{ matrix.target }}
+
+      - name: Test (default)
+        run: cargo +nightly miri test --target ${{ matrix.target }}
+
+      - name: Test (no-default-features)
+        run: cargo +nightly miri test --target ${{ matrix.target }} --no-default-features
+
+      - name: Test (all-features)
+        run: cargo +nightly miri test --target ${{ matrix.target }} --all-features

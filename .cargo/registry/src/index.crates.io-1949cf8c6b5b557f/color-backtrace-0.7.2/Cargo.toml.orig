@@ -1,0 +1,39 @@
+[package]
+name = "color-backtrace"
+version = "0.7.2"
+authors = ["Joel Höner <athre0z@zyantific.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/athre0z/color-backtrace"
+description = "Colorful panic backtraces"
+readme = "README.md"
+rust-version = "1.70"
+
+keywords = ["backtrace", "color", "colour", "stacktrace", "pretty"]
+
+[features]
+default = ["use-backtrace-crate"]
+
+# Print module memory mappings. Only takes effect on Linux.
+resolve-modules = ["dep:regex", "use-backtrace-crate"]
+
+# Uses backtrace-rs crate. Reliable. Preferred over btparse if both are enabled.
+use-backtrace-crate = ["dep:backtrace"]
+
+# Uses btparse to parse the unstable debug repr of std::backtrace::Backtrace.
+# Not guaranteed to work if Rust decides to change the format, but fewer dependencies.
+use-btparse-crate = ["dep:btparse"]
+
+[dependencies]
+termcolor = "1.1.2"
+backtrace = { version = "0.3.57", optional = true }
+regex = { version = "1.4.6", optional = true }
+btparse = { version = "0.2.0", optional = true }
+
+[[example]]
+name = "fmt_to_string"
+required-features = ["use-backtrace-crate"]
+
+[[example]]
+name = "fmt_to_string_std"
+required-features = ["use-btparse-crate"]

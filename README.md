@@ -68,6 +68,21 @@ to get started.
 - **Local-first**: Your data stays on your machine, no cloud dependencies
   required
 
+## Naming Conventions
+
+xs follows industry best practices for naming consistency across CLI, API, and
+internal components. See the
+[Naming Schema Documentation](docs/naming-schema/NAMING_SCHEMA.md) for a
+comprehensive guide to terminology including:
+
+- **Temporal Navigation**: `head` (most recent), `from-latest`, `from-id`
+- **Stream Operations**: `append`, `cat`, `follow`, `remove`
+- **Data Structures**: frames, streams, topics, contexts
+- **CLI/API Consistency**: How commands map across layers
+
+For migrating from deprecated flags like `--tail` and `--last-id`, see the
+[Quick Reference](docs/naming-schema/NAMING_QUICK_REFERENCE.md).
+
 ## Connect
 
 Join our [Discord](https://discord.com/invite/YNbScHBHrh) to ask questions or

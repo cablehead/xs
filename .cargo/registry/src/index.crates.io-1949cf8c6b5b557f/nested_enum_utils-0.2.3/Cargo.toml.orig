@@ -1,0 +1,22 @@
+[package]
+name = "nested_enum_utils"
+version = "0.2.3"
+edition = "2021"
+readme = "README.md"
+description = "Macros to provide conversions for nested enums"
+license = "MIT OR Apache-2.0"
+authors = ["Rüdiger Klaehn <rklaehn@protonmail.com>"]
+repository = "https://github.com/n0-computer/nested-enum-utils"
+keywords = ["enum", "conversion", "macros", "protocol"]
+
+[dependencies]
+proc-macro-crate = "3.1.0"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
+
+[lib]
+proc-macro = true
+
+[dev-dependencies]
+trybuild = "1.0.96"

@@ -1,0 +1,17 @@
+[package]
+name = "double-ended-peekable"
+version = "0.1.0"
+categories = ["algorithms", "no-std::no-alloc", "rust-patterns"]
+edition = "2021"
+license = "MIT"
+keywords = [
+    "iterator",
+    "lookahead",
+    "no_std",
+    "peek",
+    "peekable",
+]
+repository = "https://github.com/dodomorandi/double-ended-peekable"
+description = """
+An adapter providing peeking features to double-ended iterators.
+"""

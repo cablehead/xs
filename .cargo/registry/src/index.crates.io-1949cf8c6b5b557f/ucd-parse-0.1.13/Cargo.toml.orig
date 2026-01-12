@@ -1,0 +1,18 @@
+[package]
+name = "ucd-parse"
+version = "0.1.13"  #:version
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = """
+A library for parsing data files in the Unicode character database.
+"""
+documentation = "https://docs.rs/ucd-parse"
+homepage = "https://github.com/BurntSushi/ucd-generate"
+repository = "https://github.com/BurntSushi/ucd-generate"
+readme = "README.md"
+keywords = ["unicode", "database", "character", "property"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+rust-version = "1.70"
+
+[dependencies]
+regex-lite = "0.1.0"

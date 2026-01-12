@@ -1,0 +1,25 @@
+target/
+history.txt
+history.sqlite3*
+.DS_Store
+target-coverage/
+tarpaulin-report.html
+
+# ignore the git mailmap file
+.mailmap
+
+# JetBrains' IDE items
+.idea/*
+
+# VSCode's IDE items
+.vscode/*
+
+# Helix configuration folder
+.helix/*
+.helix
+
+# Visual Studio
+.vs/*
+*.rsproj
+*.rsproj.user
+*.sln

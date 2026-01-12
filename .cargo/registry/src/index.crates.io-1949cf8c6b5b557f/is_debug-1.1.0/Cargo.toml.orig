@@ -1,0 +1,20 @@
+[package]
+name = "is_debug"
+version = "1.1.0"
+authors = ["baoyachi <liaoymxsdl@gmail.com>"]
+description = "get build model is debug"
+keywords = ["build", "build-model", "model", "debug", "release"]
+categories = ["development-tools", "development-tools::build-utils"]
+repository = "https://github.com/baoyachi/rust_is_debug"
+license = "MIT AND Apache-2.0"
+edition = "2018"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = ["std"]
+std = []
+
+[dev-dependencies]
+xshell = "0.2.7"
