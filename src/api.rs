@@ -112,7 +112,9 @@ fn match_route(
         }
 
         (&Method::GET, p) if p.starts_with("/head/") => {
-            let topic = p.strip_prefix("/head/").unwrap().to_string();
+            let topic = p.strip_prefix("/head/")
+                .expect("Path prefix validated by starts_with")
+                .to_string();
             let follow = params.contains_key("follow");
             let context_id = match params.get("context") {
                 None => crate::store::ZERO_CONTEXT,
@@ -160,7 +162,9 @@ fn match_route(
         },
 
         (&Method::POST, path) if path.starts_with("/append/") => {
-            let topic = path.strip_prefix("/append/").unwrap().to_string();
+            let topic = path.strip_prefix("/append/")
+                .expect("Path prefix validated by starts_with")
+                .to_string();
             let context_id = match params.get("context") {
                 None => crate::store::ZERO_CONTEXT,
                 Some(ctx) => match ctx.parse() {
@@ -212,8 +216,10 @@ async fn handle(
             let stream = ReaderStream::new(reader);
 
             let stream = stream.map(|frame| {
-                let frame = frame.unwrap();
-                Ok(hyper::body::Frame::data(frame))
+                match frame {
+                    Ok(data) => Ok(hyper::body::Frame::data(data)),
+                    Err(e) => Err(format!("Error reading CAS data: {e}").into()),
+                }
             });
 
             let body = StreamBody::new(stream).boxed();
@@ -255,14 +261,24 @@ async fn handle_stream_cat(
     let stream = stream.map(move |frame| {
         let bytes = match accept_type_clone {
             AcceptType::Ndjson => {
-                let mut encoded = serde_json::to_vec(&frame).unwrap();
-                encoded.push(b'\n');
-                encoded
+                match serde_json::to_vec(&frame) {
+                    Ok(mut encoded) => {
+                        encoded.push(b'\n');
+                        encoded
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to serialize frame: {e}");
+                        return Err(format!("Failed to serialize frame: {e}").into());
+                    }
+                }
             }
             AcceptType::EventStream => format!(
                 "id: {id}\ndata: {data}\n\n",
                 id = frame.id,
-                data = serde_json::to_string(&frame).unwrap_or_default()
+                data = serde_json::to_string(&frame).unwrap_or_else(|e| {
+                    eprintln!("Failed to serialize frame for event stream: {e}");
+                    "{}".to_string()
+                })
             )
             .into_bytes(),
         };
@@ -345,10 +361,12 @@ async fn handle_stream_append(
             .build(),
     )?;
 
+    let frame_json = serde_json::to_string(&frame)
+        .map_err(|e| format!("Failed to serialize frame: {e}"))?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
-        .body(full(serde_json::to_string(&frame).unwrap()))?)
+        .body(full(frame_json))?)
 }
 
 async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> HTTPResult {
@@ -379,12 +397,28 @@ async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> 
 async fn handle_version() -> HTTPResult {
     let version = env!("CARGO_PKG_VERSION");
     let version_info = serde_json::json!({ "version": version });
+    let version_json = serde_json::to_string(&version_info)
+        .map_err(|e| format!("Failed to serialize version info: {e}"))?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
-        .body(full(serde_json::to_string(&version_info).unwrap()))?)
+        .body(full(version_json))?)
 }
 
+/// Start the API server on the given store.
+///
+/// Binds to a Unix domain socket at `store.path/sock` and optionally
+/// on an additional address (TCP or Unix socket) if `expose` is provided.
+///
+/// # Arguments
+///
+/// * `store` - The event store to serve
+/// * `engine` - Nushell engine instance for eval commands
+/// * `expose` - Optional additional listening address ([HOST]:PORT for TCP or <PATH> for Unix domain socket)
+///
+/// # Returns
+///
+/// Returns an error if socket binding or server operation fails.
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
@@ -470,10 +504,12 @@ async fn listener_loop(
 
 fn response_frame_or_404(frame: Option<store::Frame>) -> HTTPResult {
     if let Some(frame) = frame {
+        let frame_json = serde_json::to_string(&frame)
+            .map_err(|e| format!("Failed to serialize frame: {e}"))?;
         Ok(Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "application/json")
-            .body(full(serde_json::to_string(&frame).unwrap()))?)
+            .body(full(frame_json))?)
     } else {
         response_404()
     }
@@ -520,16 +556,27 @@ async fn handle_head_get(
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
         .filter(move |frame| frame.topic == topic)
         .map(|frame| {
-            let mut bytes = serde_json::to_vec(&frame).unwrap();
-            bytes.push(b'\n');
-            Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
+            match serde_json::to_vec(&frame) {
+                Ok(mut bytes) => {
+                    bytes.push(b'\n');
+                    Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
+                }
+                Err(e) => Err(format!("Failed to serialize frame: {e}").into()),
+            }
         });
 
     let body = if let Some(frame) = current_head {
-        let mut head_bytes = serde_json::to_vec(&frame).unwrap();
-        head_bytes.push(b'\n');
-        let head_chunk = Ok(hyper::body::Frame::data(Bytes::from(head_bytes)));
-        StreamBody::new(futures::stream::once(async { head_chunk }).chain(stream)).boxed()
+        match serde_json::to_vec(&frame) {
+            Ok(mut head_bytes) => {
+                head_bytes.push(b'\n');
+                let head_chunk = Ok(hyper::body::Frame::data(Bytes::from(head_bytes)));
+                StreamBody::new(futures::stream::once(async { head_chunk }).chain(stream)).boxed()
+            }
+            Err(e) => {
+                eprintln!("Failed to serialize head frame: {e}");
+                StreamBody::new(stream).boxed()
+            }
+        }
     } else {
         StreamBody::new(stream).boxed()
     };
@@ -549,10 +596,12 @@ async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPRe
 
     store.insert_frame(&frame)?;
 
+    let frame_json = serde_json::to_string(&frame)
+        .map_err(|e| format!("Failed to serialize frame: {e}"))?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
-        .body(full(serde_json::to_string(&frame).unwrap()))?)
+        .body(full(frame_json))?)
 }
 
 fn response_404() -> HTTPResult {
@@ -824,7 +873,9 @@ mod tests {
                 let text = value.into_string().unwrap();
                 assert_eq!(text, "hello world");
             }
-            _ => panic!("Expected Value, got {:?}", result),
+            _ => {
+                panic!("Expected PipelineData::Value, got {:?}", result);
+            }
         }
 
         // Test simple math expression - result should be an integer
@@ -836,7 +887,9 @@ mod tests {
             PipelineData::Value(nu_protocol::Value::Int { val, .. }, ..) => {
                 assert_eq!(val, 5);
             }
-            _ => panic!("Expected Int Value, got {:?}", result),
+            _ => {
+                panic!("Expected Int value in PipelineData, got {:?}", result);
+            }
         }
     }
 }
