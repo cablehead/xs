@@ -73,7 +73,7 @@ struct CommandCat {
     #[clap(long, short = 'p')]
     pulse: Option<u64>,
 
-    /// Begin long after the end of the stream
+    /// Skip existing events, only show new ones
     #[clap(long, short = 't')]
     tail: bool,
 
@@ -229,8 +229,7 @@ To start a store at this location, run:
 
 If using xs.nu conveniences (.cat, .append, etc.), the address is determined by:
   1. $env.XS_ADDR if set
-  2. ~/.config/cross.stream/XS_ADDR file if it exists
-  3. {default_path} (default)
+  2. {default_path} (default)
 
 To use a different address temporarily:
   with-env {{XS_ADDR: \"./my-store\"}} {{ .cat }}
