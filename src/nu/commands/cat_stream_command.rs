@@ -56,7 +56,11 @@ impl Command for CatStreamCommand {
                 "(DEPRECATED: use --from-id) start from a specific frame ID",
                 None,
             )
-            .switch("tail", "(DEPRECATED: use --from-latest) start at end of stream", Some('t'))
+            .switch(
+                "tail",
+                "(DEPRECATED: use --from-latest) start at end of stream",
+                Some('t'),
+            )
             .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
             .category(Category::Experimental)
     }
