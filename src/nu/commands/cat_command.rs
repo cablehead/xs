@@ -31,9 +31,15 @@ impl Command for CatCommand {
                 None,
             )
             .named(
-                "last-id",
+                "from-id",
                 SyntaxShape::String,
                 "start from a specific frame ID",
+                None,
+            )
+            .named(
+                "last-id",
+                SyntaxShape::String,
+                "(DEPRECATED: use --from-id) start from a specific frame ID",
                 None,
             )
             .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
@@ -53,16 +59,24 @@ impl Command for CatCommand {
     ) -> Result<PipelineData, ShellError> {
         let limit: Option<usize> = call.get_flag(engine_state, stack, "limit")?;
 
+        // Handle from_id with backward compatibility
+        let from_id: Option<String> = call.get_flag(engine_state, stack, "from-id")?;
         let last_id: Option<String> = call.get_flag(engine_state, stack, "last-id")?;
-        let last_id: Option<scru128::Scru128Id> = last_id
-            .as_deref()
-            .map(|s| s.parse().expect("Failed to parse Scru128Id"));
+
+        let from_id: Option<scru128::Scru128Id> = if let Some(id_str) = from_id {
+            Some(id_str.parse().expect("Failed to parse Scru128Id"))
+        } else if let Some(id_str) = last_id {
+            eprintln!("DEPRECATION WARNING: --last-id is deprecated, use --from-id instead");
+            Some(id_str.parse().expect("Failed to parse Scru128Id"))
+        } else {
+            None
+        };
 
         let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
 
         let frames = self
             .store
-            .read_sync(last_id.as_ref(), None, Some(self.context_id))
+            .read_sync(from_id.as_ref(), None, Some(self.context_id))
             .filter(|frame| match &topic {
                 Some(t) => frame.topic == *t,
                 None => true,

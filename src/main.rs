@@ -73,13 +73,17 @@ struct CommandCat {
     #[clap(long, short = 'p')]
     pulse: Option<u64>,
 
-    /// Skip existing events, only show new ones
-    #[clap(long, short = 't')]
-    tail: bool,
+    /// Start reading from the latest frame (skip existing data)
+    #[clap(long)]
+    from_latest: bool,
 
-    /// Last event ID to start from
-    #[clap(long, short = 'l')]
-    last_id: Option<String>,
+    /// Include all frames from the beginning (default behavior)
+    #[clap(long)]
+    from_beginning: bool,
+
+    /// Resume reading from a specific frame ID
+    #[clap(long)]
+    from_id: Option<String>,
 
     /// Limit the number of events
     #[clap(long)]
@@ -100,6 +104,14 @@ struct CommandCat {
     /// Filter by topic
     #[clap(long = "topic", short = 'T')]
     topic: Option<String>,
+
+    /// (DEPRECATED: use --from-latest) Skip existing events, only show new ones
+    #[clap(long, short = 't', hide = true)]
+    tail: bool,
+
+    /// (DEPRECATED: use --from-id) Last event ID to start from
+    #[clap(long, short = 'l', hide = true)]
+    last_id: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -343,7 +355,15 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .as_deref()
         .and_then(|context| scru128::Scru128Id::from_str(context).ok())
         .or_else(|| (!args.all).then_some(ZERO_CONTEXT));
-    let last_id = if let Some(last_id) = &args.last_id {
+
+    // Handle from_id with backward compatibility
+    let from_id = if let Some(from_id) = &args.from_id {
+        match scru128::Scru128Id::from_str(from_id) {
+            Ok(id) => Some(id),
+            Err(_) => return Err(format!("Invalid from-id: {from_id}").into()),
+        }
+    } else if let Some(last_id) = &args.last_id {
+        eprintln!("DEPRECATION WARNING: --last-id is deprecated, use --from-id instead");
         match scru128::Scru128Id::from_str(last_id) {
             Ok(id) => Some(id),
             Err(_) => return Err(format!("Invalid last-id: {last_id}").into()),
@@ -351,9 +371,21 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     } else {
         None
     };
+
+    // Handle from_latest with backward compatibility
+    let from_latest = if args.from_latest {
+        args.from_latest
+    } else if args.tail {
+        eprintln!("DEPRECATION WARNING: --tail is deprecated, use --from-latest instead");
+        true
+    } else {
+        false
+    };
+
     // Build options in one chain
     let options = ReadOptions::builder()
-        .tail(args.tail)
+        .from_latest(from_latest)
+        .from_beginning(args.from_beginning)
         .follow(if let Some(pulse) = args.pulse {
             FollowOption::WithHeartbeat(Duration::from_millis(pulse))
         } else if args.follow {
@@ -361,7 +393,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         } else {
             FollowOption::Off
         })
-        .maybe_last_id(last_id)
+        .maybe_from_id(from_id)
         .maybe_limit(args.limit.map(|l| l as usize))
         .maybe_context_id(context_id)
         .maybe_topic(args.topic.clone())

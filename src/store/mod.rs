@@ -85,20 +85,82 @@ where
     }
 }
 
-#[derive(PartialEq, Deserialize, Clone, Debug, Default, bon::Builder)]
+#[derive(PartialEq, Clone, Debug, Default, bon::Builder)]
 pub struct ReadOptions {
-    #[serde(default)]
+    #[serde(default, skip)]
     #[builder(default)]
     pub follow: FollowOption,
-    #[serde(default, deserialize_with = "deserialize_bool")]
+    #[serde(default, skip)]
     #[builder(default)]
-    pub tail: bool,
-    #[serde(rename = "last-id")]
-    pub last_id: Option<Scru128Id>,
+    pub from_latest: bool,
+    #[serde(default, skip)]
+    #[builder(default)]
+    pub from_beginning: bool,
+    #[serde(skip)]
+    pub from_id: Option<Scru128Id>,
     pub limit: Option<usize>,
     #[serde(rename = "context-id")]
     pub context_id: Option<Scru128Id>,
     pub topic: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ReadOptions {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct ReadOptionsRaw {
+            #[serde(default)]
+            pub follow: FollowOption,
+            #[serde(default)]
+            pub tail: Option<bool>,
+            #[serde(default)]
+            pub from_latest: Option<bool>,
+            #[serde(default)]
+            pub from_beginning: Option<bool>,
+            #[serde(rename = "last-id")]
+            pub last_id: Option<Scru128Id>,
+            #[serde(rename = "from-id")]
+            pub from_id: Option<Scru128Id>,
+            #[serde(rename = "context-id")]
+            pub context_id: Option<Scru128Id>,
+            pub limit: Option<usize>,
+            pub topic: Option<String>,
+        }
+
+        let raw = ReadOptionsRaw::deserialize(deserializer)?;
+
+        // Handle from_latest backward compatibility
+        let from_latest = if let Some(val) = raw.from_latest {
+            val
+        } else if let Some(val) = raw.tail {
+            eprintln!("DEPRECATION WARNING: --tail is deprecated, use --from-latest instead");
+            val
+        } else {
+            false
+        };
+
+        // Handle from_id backward compatibility
+        let from_id = if let Some(id) = raw.from_id {
+            Some(id)
+        } else if let Some(id) = raw.last_id {
+            eprintln!("DEPRECATION WARNING: --last-id is deprecated, use --from-id instead");
+            Some(id)
+        } else {
+            None
+        };
+
+        Ok(ReadOptions {
+            follow: raw.follow,
+            from_latest,
+            from_beginning: raw.from_beginning.unwrap_or(false),
+            from_id,
+            limit: raw.limit,
+            context_id: raw.context_id,
+            topic: raw.topic,
+        })
+    }
 }
 
 impl ReadOptions {
@@ -125,14 +187,19 @@ impl ReadOptions {
             params.push(("context-id", context_id.to_string()));
         }
 
-        // Add tail if true
-        if self.tail {
-            params.push(("tail", "true".to_string()));
+        // Add from-latest if true
+        if self.from_latest {
+            params.push(("from-latest", "true".to_string()));
         }
 
-        // Add last-id if present
-        if let Some(last_id) = self.last_id {
-            params.push(("last-id", last_id.to_string()));
+        // Add from-beginning if true
+        if self.from_beginning {
+            params.push(("from-beginning", "true".to_string()));
+        }
+
+        // Add from-id if present
+        if let Some(from_id) = self.from_id {
+            params.push(("from-id", from_id.to_string()));
         }
 
         // Add limit if present
@@ -264,7 +331,7 @@ impl Store {
         };
 
         // Only create done channel if we're doing historical processing
-        let done_rx = if !options.tail {
+        let done_rx = if !options.from_latest {
             let (done_tx, done_rx) = tokio::sync::oneshot::channel();
             let tx_clone = tx.clone();
             let store = self.clone();
@@ -278,9 +345,9 @@ impl Store {
                 let mut count = 0;
 
                 let iter: Box<dyn Iterator<Item = Frame>> = if let Some(ref topic) = options.topic {
-                    store.iter_frames_by_topic(options.context_id, topic, options.last_id.as_ref())
+                    store.iter_frames_by_topic(options.context_id, topic, options.from_id.as_ref())
                 } else {
-                    store.iter_frames(options.context_id, options.last_id.as_ref())
+                    store.iter_frames(options.context_id, options.from_id.as_ref())
                 };
 
                 for frame in iter {
