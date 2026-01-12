@@ -52,7 +52,7 @@ bon = "2.3"
 tempfile = "3.23"
 
 nu-cli = "0.109.1"
-nu-command = "0.109.1"
+nu-command = { version = "0.109.1", features = ["sqlite"] }
 nu-protocol = "0.109.1"
 nu-cmd-lang = "0.109.1"
 nu-engine = "0.109.1"

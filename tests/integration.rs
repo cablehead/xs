@@ -973,3 +973,39 @@ macro_rules! assert_frame_received {
         $crate::assert_frame_received_sync($rx, None, std::panic::Location::caller()).await;
     };
 }
+
+#[tokio::test]
+async fn test_sqlite_commands_available() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let db_path = temp_dir.path().join("test.db");
+    let db_path_str = db_path.to_str().unwrap();
+
+    // Create a sqlite database using into sqlite, then query it
+    let script = format!(
+        r#"[[name value]; [foo 42]] | into sqlite "{}"; open "{}" | query db "SELECT * FROM main""#,
+        db_path_str, db_path_str
+    );
+
+    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", &script)
+        .read()
+        .unwrap();
+
+    assert!(output.contains("foo"), "Expected 'foo' in output: {output}");
+    assert!(output.contains("42"), "Expected '42' in output: {output}");
+
+    child.kill().await.unwrap();
+}
