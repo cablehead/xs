@@ -1308,4 +1308,200 @@ mod tests_append_race {
             out_of_order.iter().take(10).collect::<Vec<_>>()
         );
     }
+
+    /// Tests backward compatibility: old `tail` parameter should be accepted as `from_latest`
+    #[test]
+    fn test_backward_compat_tail_parameter() {
+        // Old parameter name should deserialize to new field
+        let query = "tail=true";
+        let opts = ReadOptions::from_query(Some(query)).expect("Failed to parse query");
+        assert_eq!(
+            opts.from_latest, true,
+            "tail=true should set from_latest=true"
+        );
+        assert_eq!(
+            opts.from_beginning, false,
+            "from_beginning should default to false"
+        );
+    }
+
+    /// Tests backward compatibility: old `last-id` parameter should be accepted as `from-id`
+    #[test]
+    fn test_backward_compat_last_id_parameter() {
+        let id = scru128::new();
+        let query = format!("last-id={}", id);
+        let opts = ReadOptions::from_query(Some(query.as_str())).expect("Failed to parse query");
+        assert_eq!(
+            opts.from_id,
+            Some(id),
+            "last-id should be parsed into from_id"
+        );
+    }
+
+    /// Tests that new parameters take precedence over old ones
+    #[test]
+    fn test_new_parameters_take_precedence() {
+        // When both old and new parameters are provided, new ones should win
+        let query = "tail=false&from-latest=true";
+        let opts = ReadOptions::from_query(Some(query)).expect("Failed to parse query");
+        assert_eq!(
+            opts.from_latest, true,
+            "from-latest should take precedence over tail"
+        );
+    }
+
+    /// Tests that from-beginning is properly handled
+    #[test]
+    fn test_from_beginning_parameter() {
+        let query = "from-beginning=true";
+        let opts = ReadOptions::from_query(Some(query)).expect("Failed to parse query");
+        assert_eq!(
+            opts.from_beginning, true,
+            "from-beginning should be parsed correctly"
+        );
+        assert_eq!(
+            opts.from_latest, false,
+            "from_latest should default to false"
+        );
+    }
+
+    /// Tests that to_query_string uses new parameter names
+    #[test]
+    fn test_to_query_string_uses_new_names() {
+        let opts = ReadOptions::builder()
+            .from_latest(true)
+            .maybe_from_id(Some(scru128::new()))
+            .build();
+
+        let qs = opts.to_query_string();
+        assert!(
+            qs.contains("from-latest"),
+            "Query string should contain 'from-latest'"
+        );
+        assert!(
+            qs.contains("from-id"),
+            "Query string should contain 'from-id'"
+        );
+        assert!(
+            !qs.contains("tail"),
+            "Query string should NOT contain 'tail'"
+        );
+        assert!(
+            !qs.contains("last-id"),
+            "Query string should NOT contain 'last-id'"
+        );
+    }
+
+    /// Tests mutual exclusivity: both tail and from-latest false defaults to false
+    #[test]
+    fn test_both_flags_false() {
+        let query = "tail=false&from-latest=false";
+        let opts = ReadOptions::from_query(Some(query)).expect("Failed to parse query");
+        assert_eq!(opts.from_latest, false, "Both should be false");
+    }
+
+    /// Tests that empty query string produces defaults
+    #[test]
+    fn test_empty_query_string() {
+        let opts = ReadOptions::from_query(Some("")).expect("Failed to parse empty query");
+        assert_eq!(
+            opts.from_latest, false,
+            "from_latest should default to false"
+        );
+        assert_eq!(
+            opts.from_beginning, false,
+            "from_beginning should default to false"
+        );
+        assert_eq!(opts.from_id, None, "from_id should default to None");
+        assert_eq!(
+            opts.follow,
+            FollowOption::Off,
+            "follow should default to Off"
+        );
+    }
+
+    /// Tests round-trip: serialize and deserialize preserves values
+    #[test]
+    fn test_roundtrip_serialization() {
+        let original = ReadOptions::builder()
+            .from_latest(true)
+            .maybe_from_id(Some(scru128::new()))
+            .limit(Some(100))
+            .build();
+
+        let query_str = original.to_query_string();
+        let restored = ReadOptions::from_query(Some(&query_str))
+            .expect("Failed to parse generated query string");
+
+        assert_eq!(
+            original.from_latest, restored.from_latest,
+            "from_latest should roundtrip"
+        );
+        assert_eq!(
+            original.from_id, restored.from_id,
+            "from_id should roundtrip"
+        );
+        assert_eq!(original.limit, restored.limit, "limit should roundtrip");
+    }
+
+    /// Tests that both from-id and last-id can appear in same query (new one wins)
+    #[test]
+    fn test_both_id_parameters() {
+        let id1 = scru128::new();
+        let id2 = scru128::new();
+        let query = format!("from-id={}&last-id={}", id1, id2);
+        let opts = ReadOptions::from_query(Some(&query)).expect("Failed to parse query");
+        assert_eq!(
+            opts.from_id,
+            Some(id1),
+            "from-id should take precedence over last-id"
+        );
+    }
+
+    /// Tests context-id parameter (should work unchanged)
+    #[test]
+    fn test_context_id_parameter() {
+        let ctx = scru128::new();
+        let query = format!("context-id={}", ctx);
+        let opts = ReadOptions::from_query(Some(&query)).expect("Failed to parse query");
+        assert_eq!(
+            opts.context_id,
+            Some(ctx),
+            "context-id should be parsed correctly"
+        );
+    }
+
+    /// Tests topic parameter (should work unchanged)
+    #[test]
+    fn test_topic_parameter() {
+        let query = "topic=my:topic:here";
+        let opts = ReadOptions::from_query(Some(query)).expect("Failed to parse query");
+        assert_eq!(
+            opts.topic,
+            Some("my:topic:here".to_string()),
+            "topic should be parsed"
+        );
+    }
+
+    /// Tests combined parameters with both old and new naming
+    #[test]
+    fn test_combined_old_and_new_parameters() {
+        let ctx = scru128::new();
+        let id = scru128::new();
+        let query = format!(
+            "tail=true&from-id={}&context-id={}&topic=test&limit=50",
+            id, ctx
+        );
+        let opts = ReadOptions::from_query(Some(&query)).expect("Failed to parse query");
+
+        assert_eq!(opts.from_latest, true, "tail parameter should be respected");
+        assert_eq!(opts.from_id, Some(id), "from-id should be parsed");
+        assert_eq!(opts.context_id, Some(ctx), "context-id should be parsed");
+        assert_eq!(
+            opts.topic,
+            Some("test".to_string()),
+            "topic should be parsed"
+        );
+        assert_eq!(opts.limit, Some(50), "limit should be parsed");
+    }
 }
