@@ -279,8 +279,8 @@ impl Handler {
             )
             .meta(serde_json::json!({
                 "handler_id": self.id.to_string(),
-                "tail": options.tail,
-                "last_id": options.last_id.map(|id| id.to_string()),
+                "from_latest": options.from_latest,
+                "from_id": options.from_id.map(|id| id.to_string()),
             }))
             .build(),
         );
@@ -325,8 +325,8 @@ impl Handler {
     }
 
     async fn configure_read_options(&self) -> ReadOptions {
-        // Determine last_id and tail flag based on ResumeFrom
-        let (last_id, is_tail) = match &self.config.resume_from {
+        // Determine from_id and from_latest flag based on ResumeFrom
+        let (from_id, from_latest) = match &self.config.resume_from {
             ResumeFrom::Head => (None, false),
             ResumeFrom::Tail => (None, true),
             ResumeFrom::After(id) => (Some(*id), false),
@@ -341,8 +341,8 @@ impl Handler {
 
         ReadOptions::builder()
             .follow(follow_option)
-            .tail(is_tail)
-            .maybe_last_id(last_id)
+            .from_latest(from_latest)
+            .maybe_from_id(from_id)
             .context_id(self.context_id)
             .build()
     }

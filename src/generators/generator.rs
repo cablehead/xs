@@ -236,7 +236,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
 
     let control_rx_options = ReadOptions::builder()
         .follow(FollowOption::On)
-        .last_id(start_id)
+        .from_id(start_id)
         .context_id(loop_ctx.context_id)
         .build();
 
@@ -275,7 +275,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         let input_pipeline = if task.duplex {
             let options = ReadOptions::builder()
                 .follow(FollowOption::On)
-                .last_id(start_id)
+                .from_id(start_id)
                 .context_id(loop_ctx.context_id)
                 .build();
             let send_rx = store.read(options).await;
