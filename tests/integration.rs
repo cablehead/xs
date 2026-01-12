@@ -9,8 +9,6 @@ use tokio::process::Child;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use assert_cmd::cargo::cargo_bin;
-
 use xs::store::Frame;
 
 #[tokio::test]
@@ -31,13 +29,15 @@ async fn test_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Verify xs.start in default context
-    let output = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
+        .read()
+        .unwrap();
     let start_frame: Frame = serde_json::from_str(&output).unwrap();
     assert_eq!(start_frame.topic, "xs.start");
 
     // Try append to xs.start's id as the context (should fail)
     let result = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
         "note",
@@ -49,9 +49,14 @@ async fn test_integration() {
     assert!(result.is_err());
 
     // Register new context
-    let context_output = cmd!(cargo_bin("xs"), "append", store_path, "xs.context")
-        .read()
-        .unwrap();
+    let context_output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "xs.context"
+    )
+    .read()
+    .unwrap();
     let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
     let context_id = context_frame.id.to_string();
 
@@ -74,10 +79,15 @@ async fn test_integration() {
     assert_frame_received!(&mut new_rx, None);
 
     // Write to default context
-    cmd!(cargo_bin("xs"), "append", store_path, "note")
-        .stdin_bytes(b"default note")
-        .run()
-        .unwrap();
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "note"
+    )
+    .stdin_bytes(b"default note")
+    .run()
+    .unwrap();
 
     // Verify received in default only
     assert_frame_received!(&mut default_rx, Some("note"));
@@ -85,7 +95,7 @@ async fn test_integration() {
 
     // Write to new context
     cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
         "note",
@@ -101,7 +111,9 @@ async fn test_integration() {
     assert_frame_received!(&mut new_rx, Some("note"));
 
     // Verify separate .cat results
-    let default_notes = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
+    let default_notes = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
+        .read()
+        .unwrap();
     let frames: Vec<Frame> = default_notes
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
@@ -110,9 +122,15 @@ async fn test_integration() {
         .iter()
         .all(|f| f.context_id.to_string() == "0000000000000000000000000"));
 
-    let context_notes = cmd!(cargo_bin("xs"), "cat", store_path, "-c", &context_id)
-        .read()
-        .unwrap();
+    let context_notes = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "cat",
+        store_path,
+        "-c",
+        &context_id
+    )
+    .read()
+    .unwrap();
     let frames: Vec<Frame> = context_notes
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
@@ -122,9 +140,14 @@ async fn test_integration() {
         .all(|f| f.context_id.to_string() == context_id));
 
     // xs cat --all
-    let all_notes = cmd!(cargo_bin("xs"), "cat", store_path, "--all")
-        .read()
-        .unwrap();
+    let all_notes = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "cat",
+        store_path,
+        "--all"
+    )
+    .read()
+    .unwrap();
     let mut frames = all_notes
         .lines()
         .map(|l| serde_json::from_str::<Frame>(l).unwrap());
@@ -147,7 +170,7 @@ async fn test_integration() {
 
     // assert unicode support
     let unicode_output = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
         "unicode",
@@ -162,7 +185,7 @@ async fn test_integration() {
 
     // Verify it can be retrieved correctly
     let retrieved = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "get",
         store_path,
         &unicode_frame.id.to_string()
@@ -199,15 +222,25 @@ async fn test_cat_sse_format() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Append test data
-    cmd!(cargo_bin("xs"), "append", store_path, "test")
-        .stdin_bytes(b"hello")
-        .run()
-        .unwrap();
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "test"
+    )
+    .stdin_bytes(b"hello")
+    .run()
+    .unwrap();
 
     // Test SSE format
-    let output = cmd!(cargo_bin("xs"), "cat", store_path, "--sse")
-        .read()
-        .unwrap();
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "cat",
+        store_path,
+        "--sse"
+    )
+    .read()
+    .unwrap();
 
     // Verify SSE format (not NDJSON)
     assert!(output.contains("id: "), "Expected SSE id field");
@@ -235,20 +268,32 @@ async fn test_eval_integration() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Test simple string expression
-    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "\"hello world\"")
-        .read()
-        .unwrap();
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        "\"hello world\""
+    )
+    .read()
+    .unwrap();
     assert_eq!(output.trim(), "hello world");
 
     // Test simple math expression
-    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "2 + 3")
-        .read()
-        .unwrap();
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        "2 + 3"
+    )
+    .read()
+    .unwrap();
     assert_eq!(output.trim(), "5");
 
     // Test JSON output for structured data
     let output = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -261,7 +306,7 @@ async fn test_eval_integration() {
     assert_eq!(parsed["value"], 42);
 
     // Test script from stdin
-    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-")
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "eval", store_path, "-")
         .stdin_bytes(b"\"from stdin\"")
         .read()
         .unwrap();
@@ -269,7 +314,7 @@ async fn test_eval_integration() {
 
     // Test store helper commands - append a note and read it back
     cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -279,7 +324,7 @@ async fn test_eval_integration() {
     .unwrap();
 
     let output = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -290,18 +335,31 @@ async fn test_eval_integration() {
     assert_eq!(output.trim(), "test note");
 
     // Test error handling with invalid script (external command failure)
-    let result = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "hello world").run();
+    let result = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        "hello world"
+    )
+    .run();
     assert!(
         result.is_err(),
         "Expected command to fail with invalid script"
     );
 
     // Test that we get a meaningful error message (not a hard-coded one)
-    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "hello world")
-        .stderr_capture()
-        .unchecked()
-        .run()
-        .unwrap();
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        "hello world"
+    )
+    .stderr_capture()
+    .unchecked()
+    .run()
+    .unwrap();
 
     assert!(!output.status.success());
     let stderr_msg = String::from_utf8_lossy(&output.stderr);
@@ -313,7 +371,7 @@ async fn test_eval_integration() {
 
     // Test error handling with syntax error
     let result = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -352,7 +410,7 @@ async fn test_eval_streaming_behavior() {
 
     // Use tokio::process directly to capture streaming behavior
     let start = std::time::Instant::now();
-    let mut child = tokio::process::Command::new(cargo_bin("xs"))
+    let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("eval")
         .arg(store_path)
         .arg("-c")
@@ -416,10 +474,16 @@ async fn test_eval_bytestream_behavior() {
         bin_path_str, bin_path_str
     );
 
-    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", &script)
-        .stdout_capture()
-        .run()
-        .unwrap();
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        &script
+    )
+    .stdout_capture()
+    .run()
+    .unwrap();
 
     // Should have exactly 10 bytes
     assert_eq!(output.stdout.len(), 10);
@@ -451,14 +515,19 @@ async fn test_eval_cat_streaming() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Append initial test data
-    cmd!(cargo_bin("xs"), "append", store_path, "stream.test")
-        .stdin_bytes(b"initial")
-        .run()
-        .unwrap();
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "stream.test"
+    )
+    .stdin_bytes(b"initial")
+    .run()
+    .unwrap();
 
     // Test 1: .cat without --follow (snapshot mode)
     let output = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -475,7 +544,7 @@ async fn test_eval_cat_streaming() {
     assert_eq!(frames[0]["topic"], "stream.test");
 
     // Test 2: .cat --follow streams new frames
-    let mut follow_child = tokio::process::Command::new(cargo_bin("xs"))
+    let mut follow_child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("eval")
         .arg(store_path)
         .arg("-c")
@@ -511,10 +580,15 @@ async fn test_eval_cat_streaming() {
     );
 
     // Append new frame while following
-    cmd!(cargo_bin("xs"), "append", store_path, "stream.test")
-        .stdin_bytes(b"streamed")
-        .run()
-        .unwrap();
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "stream.test"
+    )
+    .stdin_bytes(b"streamed")
+    .run()
+    .unwrap();
 
     // Should receive new frame via streaming
     line.clear();
@@ -531,7 +605,7 @@ async fn test_eval_cat_streaming() {
 
     // Test 4: .cat --limit respects limit
     let output = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -555,7 +629,7 @@ async fn test_eval_cat_streaming() {
 
     // Test 5: .cat --detail includes context_id and ttl
     let output = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -576,7 +650,7 @@ async fn test_eval_cat_streaming() {
 
     // Test 6: Without --detail, context_id and ttl are filtered
     let output = cmd!(
-        cargo_bin("xs"),
+        assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
@@ -617,13 +691,18 @@ async fn test_eval_head_streaming() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Append initial test data
-    cmd!(cargo_bin("xs"), "append", store_path, "head.test")
-        .stdin_bytes(b"initial")
-        .run()
-        .unwrap();
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "head.test"
+    )
+    .stdin_bytes(b"initial")
+    .run()
+    .unwrap();
 
     // .head --follow should emit current head first, then stream new frames
-    let mut follow_child = tokio::process::Command::new(cargo_bin("xs"))
+    let mut follow_child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("eval")
         .arg(store_path)
         .arg("-c")
@@ -649,10 +728,15 @@ async fn test_eval_head_streaming() {
     );
 
     // Append new frame while following
-    cmd!(cargo_bin("xs"), "append", store_path, "head.test")
-        .stdin_bytes(b"updated")
-        .run()
-        .unwrap();
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "head.test"
+    )
+    .stdin_bytes(b"updated")
+    .run()
+    .unwrap();
 
     // Should receive new frame via streaming
     line.clear();
@@ -690,7 +774,7 @@ async fn test_iroh_networking() {
     let mut ticket_ready = false;
     let start_time = std::time::Instant::now();
     while !ticket_ready && start_time.elapsed() < Duration::from_secs(5) {
-        if let Ok(output) = cmd!(cargo_bin("xs"), "cat", store_path).read() {
+        if let Ok(output) = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path).read() {
             if let Ok(frame) = serde_json::from_str::<Frame>(&output) {
                 if frame.topic == "xs.start" {
                     if let Some(meta) = &frame.meta {
@@ -714,7 +798,9 @@ async fn test_iroh_networking() {
     }
 
     // Extract iroh ticket from xs.start frame
-    let output = cmd!(cargo_bin("xs"), "cat", store_path).read().unwrap();
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
+        .read()
+        .unwrap();
     let start_frame: Frame = serde_json::from_str(&output).unwrap();
     assert_eq!(start_frame.topic, "xs.start");
 
@@ -736,9 +822,14 @@ async fn test_iroh_networking() {
     let result = tokio::time::timeout(
         Duration::from_secs(10), // Reasonable timeout for iroh connection
         tokio::task::spawn_blocking(move || {
-            cmd!(cargo_bin("xs"), "append", expose_url, "test-topic")
-                .stdin_bytes(b"hello via iroh")
-                .run()
+            cmd!(
+                assert_cmd::cargo::cargo_bin!("xs"),
+                "append",
+                expose_url,
+                "test-topic"
+            )
+            .stdin_bytes(b"hello via iroh")
+            .run()
         }),
     )
     .await;
@@ -790,9 +881,15 @@ async fn test_eval_ls_outputs_plain_json() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", "ls Cargo.toml")
-        .read()
-        .unwrap();
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        "ls Cargo.toml"
+    )
+    .read()
+    .unwrap();
 
     let line = output.lines().next().expect("expected ls output");
     let record: serde_json::Value = serde_json::from_str(line).unwrap();
@@ -808,7 +905,7 @@ async fn test_eval_ls_outputs_plain_json() {
 }
 
 async fn spawn_xs_server_with_iroh(store_path: &std::path::Path) -> Child {
-    let mut child = tokio::process::Command::new(cargo_bin("xs"))
+    let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("serve")
         .arg(store_path)
         .arg("--expose")
@@ -841,7 +938,7 @@ async fn spawn_xs_server_with_iroh(store_path: &std::path::Path) -> Child {
 }
 
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
-    let mut child = tokio::process::Command::new(cargo_bin("xs"))
+    let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("serve")
         .arg(store_path)
         .stdout(std::process::Stdio::piped()) // Capture stdout
@@ -878,7 +975,7 @@ async fn spawn_follower(
     let (tx, rx) = mpsc::channel(10);
 
     tokio::spawn(async move {
-        let mut cmd = tokio::process::Command::new(cargo_bin("xs"));
+        let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"));
         cmd.arg("cat").arg(&store_path).arg("-f");
 
         if let Some(ctx) = context {
@@ -1000,9 +1097,15 @@ async fn test_sqlite_commands_available() {
         db_path_str, db_path_str
     );
 
-    let output = cmd!(cargo_bin("xs"), "eval", store_path, "-c", &script)
-        .read()
-        .unwrap();
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        &script
+    )
+    .read()
+    .unwrap();
 
     assert!(output.contains("foo"), "Expected 'foo' in output: {output}");
     assert!(output.contains("42"), "Expected '42' in output: {output}");
