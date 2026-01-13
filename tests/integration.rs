@@ -1089,20 +1089,34 @@ async fn test_sqlite_commands_available() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let db_path = temp_dir.path().join("test.db");
-    let db_path_str = db_path.to_str().unwrap();
+    // Use forward slashes for cross-platform nushell compatibility
+    let db_path_str = db_path.display().to_string().replace('\\', "/");
 
-    // Create a sqlite database using into sqlite, then query it
-    let script = format!(
-        r#"[[name value]; [foo 42]] | into sqlite "{}"; open "{}" | query db "SELECT * FROM main""#,
-        db_path_str, db_path_str
+    // Create a sqlite database using into sqlite
+    let create_script = format!(
+        r#"[[name value]; [foo 42]] | into sqlite "{}""#,
+        db_path_str
     );
+
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        &create_script
+    )
+    .run()
+    .unwrap();
+
+    // Query it in a separate command (avoids Windows file locking issues)
+    let query_script = format!(r#"open "{}" | query db "SELECT * FROM main""#, db_path_str);
 
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
         store_path,
         "-c",
-        &script
+        &query_script
     )
     .read()
     .unwrap();
