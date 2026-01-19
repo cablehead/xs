@@ -347,7 +347,7 @@ fn calculate_next_backoff(current_backoff: Duration) -> Duration {
 pub async fn log_stream(store: Store) {
     let options = ReadOptions::builder()
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
     while let Some(frame) = recver.recv().await {

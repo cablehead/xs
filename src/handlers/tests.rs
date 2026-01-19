@@ -295,7 +295,7 @@ async fn test_essentials() {
     assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler.id.to_string());
-    assert_eq!(meta["tail"], false);
+    assert_eq!(meta["new"], false);
     // The last_id should the frame pointed to the pointer frame
     assert_eq!(meta["last_id"], pew1.id.to_string());
 
@@ -326,7 +326,7 @@ async fn test_essentials() {
     assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
-    assert_eq!(meta["tail"], false);
+    assert_eq!(meta["new"], false);
     // The last_id should now be pew2
     assert_eq!(meta["last_id"], pew2.id.to_string());
 

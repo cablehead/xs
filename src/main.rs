@@ -74,8 +74,8 @@ struct CommandCat {
     pulse: Option<u64>,
 
     /// Skip existing events, only show new ones
-    #[clap(long, short = 't')]
-    tail: bool,
+    #[clap(long, short = 'n')]
+    new: bool,
 
     /// Last event ID to start from
     #[clap(long, short = 'l')]
@@ -353,7 +353,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     };
     // Build options in one chain
     let options = ReadOptions::builder()
-        .tail(args.tail)
+        .new(args.new)
         .follow(if let Some(pulse) = args.pulse {
             FollowOption::WithHeartbeat(Duration::from_millis(pulse))
         } else if args.follow {

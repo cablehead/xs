@@ -34,7 +34,7 @@ impl Command for CatStreamCommand {
                 "interval in ms for synthetic xs.pulse events",
                 Some('p'),
             )
-            .switch("tail", "start at end of stream", Some('t'))
+            .switch("new", "skip existing, only show new", Some('n'))
             .switch("detail", "include all frame fields", Some('d'))
             .switch("all", "read across all contexts", Some('a'))
             .named(
@@ -66,7 +66,7 @@ impl Command for CatStreamCommand {
     ) -> Result<PipelineData, ShellError> {
         let follow = call.has_flag(engine_state, stack, "follow")?;
         let pulse: Option<i64> = call.get_flag(engine_state, stack, "pulse")?;
-        let tail = call.has_flag(engine_state, stack, "tail")?;
+        let new = call.has_flag(engine_state, stack, "new")?;
         let detail = call.has_flag(engine_state, stack, "detail")?;
         let all = call.has_flag(engine_state, stack, "all")?;
         let limit: Option<i64> = call.get_flag(engine_state, stack, "limit")?;
@@ -99,7 +99,7 @@ impl Command for CatStreamCommand {
             } else {
                 FollowOption::Off
             })
-            .tail(tail)
+            .new(new)
             .maybe_last_id(last_id)
             .maybe_limit(limit.map(|l| l as usize))
             .maybe_context_id(if all { None } else { Some(self.context_id) })

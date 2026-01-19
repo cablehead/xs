@@ -63,7 +63,7 @@ export def xs-context [selected?: string span?] {
 def _cat [options: record] {
   let params = [
     (if ($options | get follow? | default false) { "--follow" })
-    (if ($options | get tail? | default false) { "--tail" })
+    (if ($options | get new? | default false) { "--new" })
     (if ($options | get all? | default false) { "--all" })
 
     (if $options.last_id? != null { ["--last-id" $options.last_id] })
@@ -80,7 +80,7 @@ def _cat [options: record] {
 export def .cat [
   --follow (-f) # long poll for new events
   --pulse (-p): int # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
-  --tail (-t) # begin long after the end of the stream
+  --new (-n) # skip existing, only show new
   --detail (-d) # include all frame fields in the output
   --last-id (-l): string
   --limit: int
@@ -91,7 +91,7 @@ export def .cat [
   _cat {
     follow: $follow
     pulse: $pulse
-    tail: $tail
+    new: $new
     last_id: $last_id
     limit: $limit
     context: (if not $all { (xs-context $context (metadata $context).span) })

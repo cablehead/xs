@@ -92,7 +92,7 @@ pub struct ReadOptions {
     pub follow: FollowOption,
     #[serde(default, deserialize_with = "deserialize_bool")]
     #[builder(default)]
-    pub tail: bool,
+    pub new: bool,
     #[serde(rename = "last-id")]
     pub last_id: Option<Scru128Id>,
     pub limit: Option<usize>,
@@ -125,9 +125,9 @@ impl ReadOptions {
             params.push(("context-id", context_id.to_string()));
         }
 
-        // Add tail if true
-        if self.tail {
-            params.push(("tail", "true".to_string()));
+        // Add new if true
+        if self.new {
+            params.push(("new", "true".to_string()));
         }
 
         // Add last-id if present
@@ -264,7 +264,7 @@ impl Store {
         };
 
         // Only create done channel if we're doing historical processing
-        let done_rx = if !options.tail {
+        let done_rx = if !options.new {
             let (done_tx, done_rx) = tokio::sync::oneshot::channel();
             let tx_clone = tx.clone();
             let store = self.clone();

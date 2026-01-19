@@ -42,7 +42,7 @@ async fn test_serve_basic() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -89,7 +89,7 @@ async fn test_serve_duplex() {
 
     let options = ReadOptions::builder()
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -142,7 +142,7 @@ async fn test_serve_compact() {
 
     let options = ReadOptions::builder()
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -420,7 +420,7 @@ async fn test_respawn_after_terminate() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -481,7 +481,7 @@ async fn test_serve_restart_until_terminated() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -538,7 +538,7 @@ async fn test_duplex_terminate_stops() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -593,7 +593,7 @@ async fn test_parse_error_eviction() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -653,7 +653,7 @@ async fn test_refresh_on_new_spawn() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -706,7 +706,7 @@ async fn test_terminate_one_of_two_generators() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -767,7 +767,7 @@ async fn test_bytestream_ping() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 
@@ -924,7 +924,7 @@ async fn test_external_command_error_message() {
     let options = ReadOptions::builder()
         .context_id(ctx.id)
         .follow(FollowOption::On)
-        .tail(true)
+        .new(true)
         .build();
     let mut recver = store.read(options).await;
 

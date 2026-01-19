@@ -600,7 +600,7 @@ async fn test_eval_cat_streaming() {
     let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
     assert_eq!(streamed_frame["topic"], "stream.test");
 
-    // Test 3: .cat --tail starts at end (skip for now - can block)
+    // Test 3: .cat --new starts at end (skip for now - can block)
     follow_child.kill().await.unwrap();
 
     // Test 4: .cat --limit respects limit

@@ -36,18 +36,13 @@ struct HandlerConfig {
     return_options: Option<ReturnOptions>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ResumeFrom {
     Head,
+    #[default]
     Tail,
     After(Scru128Id),
-}
-
-impl Default for ResumeFrom {
-    fn default() -> Self {
-        Self::Tail
-    }
 }
 
 /// Options that can be deserialized directly from a script.
@@ -279,7 +274,7 @@ impl Handler {
             )
             .meta(serde_json::json!({
                 "handler_id": self.id.to_string(),
-                "tail": options.tail,
+                "new": options.new,
                 "last_id": options.last_id.map(|id| id.to_string()),
             }))
             .build(),
@@ -341,7 +336,7 @@ impl Handler {
 
         ReadOptions::builder()
             .follow(follow_option)
-            .tail(is_tail)
+            .new(is_tail)
             .maybe_last_id(last_id)
             .context_id(self.context_id)
             .build()
