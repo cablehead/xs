@@ -31,10 +31,10 @@ impl Command for CatCommand {
                 None,
             )
             .named(
-                "last-id",
+                "after",
                 SyntaxShape::String,
-                "start from a specific frame ID",
-                None,
+                "start after a specific frame ID (exclusive)",
+                Some('a'),
             )
             .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
             .category(Category::Experimental)
@@ -53,8 +53,8 @@ impl Command for CatCommand {
     ) -> Result<PipelineData, ShellError> {
         let limit: Option<usize> = call.get_flag(engine_state, stack, "limit")?;
 
-        let last_id: Option<String> = call.get_flag(engine_state, stack, "last-id")?;
-        let last_id: Option<scru128::Scru128Id> = last_id
+        let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
+        let after: Option<scru128::Scru128Id> = after
             .as_deref()
             .map(|s| s.parse().expect("Failed to parse Scru128Id"));
 
@@ -62,7 +62,7 @@ impl Command for CatCommand {
 
         let frames = self
             .store
-            .read_sync(last_id.as_ref(), None, Some(self.context_id))
+            .read_sync(after.as_ref(), None, Some(self.context_id))
             .filter(|frame| match &topic {
                 Some(t) => frame.topic == *t,
                 None => true,

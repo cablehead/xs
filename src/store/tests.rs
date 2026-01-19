@@ -120,19 +120,19 @@ mod tests_read_options {
                 reencoded: None,
             },
             TestCase {
-                input: Some("last-id=03bidzvknotgjpvuew3k23g45"),
+                input: Some("after=03bidzvknotgjpvuew3k23g45"),
                 expected: ReadOptions::builder()
-                    .last_id("03bidzvknotgjpvuew3k23g45".parse().unwrap())
+                    .after("03bidzvknotgjpvuew3k23g45".parse().unwrap())
                     .build(),
                 reencoded: None,
             },
             TestCase {
-                input: Some("follow&last-id=03bidzvknotgjpvuew3k23g45"),
+                input: Some("follow&after=03bidzvknotgjpvuew3k23g45"),
                 expected: ReadOptions::builder()
                     .follow(FollowOption::On)
-                    .last_id("03bidzvknotgjpvuew3k23g45".parse().unwrap())
+                    .after("03bidzvknotgjpvuew3k23g45".parse().unwrap())
                     .build(),
-                reencoded: Some("follow=true&last-id=03bidzvknotgjpvuew3k23g45"),
+                reencoded: Some("follow=true&after=03bidzvknotgjpvuew3k23g45"),
             },
             TestCase {
                 input: Some("context-id=03d8tlkt4iw1gqqp703hlyfzl"),
@@ -176,7 +176,7 @@ mod tests_read_options {
             );
         }
 
-        assert!(ReadOptions::from_query(Some("last-id=123")).is_err());
+        assert!(ReadOptions::from_query(Some("after=123")).is_err());
     }
 }
 
@@ -273,7 +273,7 @@ mod tests_store {
         );
 
         let recver = store
-            .read(ReadOptions::builder().last_id(f1.id).build())
+            .read(ReadOptions::builder().after(f1.id).build())
             .await;
         assert_eq!(
             tokio_stream::wrappers::ReceiverStream::new(recver)

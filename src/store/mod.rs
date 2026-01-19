@@ -93,8 +93,8 @@ pub struct ReadOptions {
     #[serde(default, deserialize_with = "deserialize_bool")]
     #[builder(default)]
     pub new: bool,
-    #[serde(rename = "last-id")]
-    pub last_id: Option<Scru128Id>,
+    #[serde(rename = "after")]
+    pub after: Option<Scru128Id>,
     pub limit: Option<usize>,
     #[serde(rename = "context-id")]
     pub context_id: Option<Scru128Id>,
@@ -130,9 +130,9 @@ impl ReadOptions {
             params.push(("new", "true".to_string()));
         }
 
-        // Add last-id if present
-        if let Some(last_id) = self.last_id {
-            params.push(("last-id", last_id.to_string()));
+        // Add after if present
+        if let Some(after) = self.after {
+            params.push(("after", after.to_string()));
         }
 
         // Add limit if present
@@ -278,9 +278,9 @@ impl Store {
                 let mut count = 0;
 
                 let iter: Box<dyn Iterator<Item = Frame>> = if let Some(ref topic) = options.topic {
-                    store.iter_frames_by_topic(options.context_id, topic, options.last_id.as_ref())
+                    store.iter_frames_by_topic(options.context_id, topic, options.after.as_ref())
                 } else {
-                    store.iter_frames(options.context_id, options.last_id.as_ref())
+                    store.iter_frames(options.context_id, options.after.as_ref())
                 };
 
                 for frame in iter {
@@ -403,11 +403,11 @@ impl Store {
     #[tracing::instrument(skip(self))]
     pub fn read_sync(
         &self,
-        last_id: Option<&Scru128Id>,
+        after: Option<&Scru128Id>,
         limit: Option<usize>,
         context_id: Option<Scru128Id>,
     ) -> impl Iterator<Item = Frame> + '_ {
-        self.iter_frames(context_id, last_id)
+        self.iter_frames(context_id, after)
             .filter(move |frame| {
                 if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                     if is_expired(&frame.id, ttl) {

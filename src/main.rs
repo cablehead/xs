@@ -77,9 +77,9 @@ struct CommandCat {
     #[clap(long, short = 'n')]
     new: bool,
 
-    /// Last event ID to start from
-    #[clap(long, short = 'l')]
-    last_id: Option<String>,
+    /// Start after a specific frame ID (exclusive)
+    #[clap(long, short = 'a')]
+    after: Option<String>,
 
     /// Limit the number of events
     #[clap(long)]
@@ -94,7 +94,7 @@ struct CommandCat {
     context: Option<String>,
 
     /// Retrieve all frames, across contexts
-    #[clap(long, short = 'a')]
+    #[clap(long)]
     all: bool,
 
     /// Filter by topic
@@ -343,10 +343,10 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .as_deref()
         .and_then(|context| scru128::Scru128Id::from_str(context).ok())
         .or_else(|| (!args.all).then_some(ZERO_CONTEXT));
-    let last_id = if let Some(last_id) = &args.last_id {
-        match scru128::Scru128Id::from_str(last_id) {
+    let after = if let Some(after) = &args.after {
+        match scru128::Scru128Id::from_str(after) {
             Ok(id) => Some(id),
-            Err(_) => return Err(format!("Invalid last-id: {last_id}").into()),
+            Err(_) => return Err(format!("Invalid after: {after}").into()),
         }
     } else {
         None
@@ -361,7 +361,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         } else {
             FollowOption::Off
         })
-        .maybe_last_id(last_id)
+        .maybe_after(after)
         .maybe_limit(args.limit.map(|l| l as usize))
         .maybe_context_id(context_id)
         .maybe_topic(args.topic.clone())

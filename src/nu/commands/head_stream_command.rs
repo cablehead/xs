@@ -84,7 +84,7 @@ impl Command for HeadStreamCommand {
         // Follow mode: stream head updates
         let options = ReadOptions::builder()
             .follow(FollowOption::On)
-            .maybe_last_id(current_head.as_ref().map(|f| f.id))
+            .maybe_after(current_head.as_ref().map(|f| f.id))
             .maybe_context_id(Some(context_id))
             .build();
 

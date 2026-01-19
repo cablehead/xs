@@ -511,7 +511,7 @@ async fn handle_head_get(
             ReadOptions::builder()
                 .follow(FollowOption::On)
                 .new(true)
-                .maybe_last_id(current_head.as_ref().map(|f| f.id))
+                .maybe_after(current_head.as_ref().map(|f| f.id))
                 .build(),
         )
         .await;

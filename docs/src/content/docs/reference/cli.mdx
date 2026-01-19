@@ -67,11 +67,11 @@ xs cat <addr> [options]
 | `--follow`, `-f`                | Follow the stream for new events                |
 | `--pulse <ms>`, `-p <ms>`       | Send synthetic `xs.pulse` events at interval    |
 | `--new`, `-n`                   | Skip existing, only show new events             |
-| `--last-id <id>`, `-l <id>`     | Start after the given frame ID                  |
+| `--after <id>`, `-a <id>`       | Start after the given frame ID (exclusive)      |
 | `--limit <n>`                   | Maximum number of events to return              |
 | `--sse`                         | Use Server-Sent Events format                   |
 | `--context <id>`, `-c <id>`     | Context ID (defaults to system context)         |
-| `--all`, `-a`                   | Retrieve frames across all contexts             |
+| `--all`                         | Retrieve frames across all contexts             |
 | `--topic <topic>`, `-T <topic>` | Filter frames by topic                          |
 
 Examples:

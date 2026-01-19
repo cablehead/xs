@@ -36,7 +36,7 @@ impl Command for CatStreamCommand {
             )
             .switch("new", "skip existing, only show new", Some('n'))
             .switch("detail", "include all frame fields", Some('d'))
-            .switch("all", "read across all contexts", Some('a'))
+            .switch("all", "read across all contexts", None)
             .named(
                 "limit",
                 SyntaxShape::Int,
@@ -44,10 +44,10 @@ impl Command for CatStreamCommand {
                 None,
             )
             .named(
-                "last-id",
+                "after",
                 SyntaxShape::String,
-                "start from a specific frame ID",
-                None,
+                "start after a specific frame ID (exclusive)",
+                Some('a'),
             )
             .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
             .category(Category::Experimental)
@@ -70,15 +70,15 @@ impl Command for CatStreamCommand {
         let detail = call.has_flag(engine_state, stack, "detail")?;
         let all = call.has_flag(engine_state, stack, "all")?;
         let limit: Option<i64> = call.get_flag(engine_state, stack, "limit")?;
-        let last_id: Option<String> = call.get_flag(engine_state, stack, "last-id")?;
+        let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
         let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
 
-        // Parse last_id
-        let last_id: Option<scru128::Scru128Id> = last_id
+        // Parse after
+        let after: Option<scru128::Scru128Id> = after
             .as_deref()
             .map(|s| {
                 s.parse().map_err(|e| ShellError::GenericError {
-                    error: "Invalid last-id".into(),
+                    error: "Invalid after".into(),
                     msg: format!("Failed to parse Scru128Id: {e}"),
                     span: Some(call.head),
                     help: None,
@@ -100,7 +100,7 @@ impl Command for CatStreamCommand {
                 FollowOption::Off
             })
             .new(new)
-            .maybe_last_id(last_id)
+            .maybe_after(after)
             .maybe_limit(limit.map(|l| l as usize))
             .maybe_context_id(if all { None } else { Some(self.context_id) })
             .maybe_topic(topic.clone())
