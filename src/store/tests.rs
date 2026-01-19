@@ -453,7 +453,7 @@ mod tests_ttl {
             TTL::Time(Duration::from_secs(3600)).to_query(),
             "ttl=time:3600000"
         );
-        assert_eq!(TTL::Head(2).to_query(), "ttl=head:2");
+        assert_eq!(TTL::Last(2).to_query(), "ttl=last:2");
     }
 
     #[test]
@@ -464,11 +464,11 @@ mod tests_ttl {
             parse_ttl("time:3600000"),
             Ok(TTL::Time(Duration::from_secs(3600)))
         );
-        assert_eq!(parse_ttl("head:3"), Ok(TTL::Head(3)));
+        assert_eq!(parse_ttl("last:3"), Ok(TTL::Last(3)));
 
         // Invalid cases
         assert!(parse_ttl("time:abc").is_err());
-        assert!(parse_ttl("head:0").is_err());
+        assert!(parse_ttl("last:0").is_err());
         assert!(parse_ttl("unknown").is_err());
     }
 
@@ -494,7 +494,7 @@ mod tests_ttl {
             TTL::Forever,
             TTL::Ephemeral,
             TTL::Time(Duration::from_secs(3600)),
-            TTL::Head(2),
+            TTL::Last(2),
         ];
 
         for ttl in ttls {
@@ -511,7 +511,7 @@ mod tests_ttl {
             (TTL::Forever, r#""forever""#),
             (TTL::Ephemeral, r#""ephemeral""#),
             (TTL::Time(Duration::from_secs(3600)), r#""time:3600000""#),
-            (TTL::Head(2), r#""head:2""#),
+            (TTL::Last(2), r#""last:2""#),
         ];
 
         for (ttl, expect) in ttls {
@@ -614,25 +614,25 @@ mod tests_context {
             .unwrap();
         let context_id = context_frame.id;
 
-        // Add frames with head:1 TTL in different contexts
+        // Add frames with last:1 TTL in different contexts
         let _frame1 = store
-            .append(Frame::builder("test", context_id).ttl(TTL::Head(1)).build())
+            .append(Frame::builder("test", context_id).ttl(TTL::Last(1)).build())
             .unwrap();
         let frame2 = store
-            .append(Frame::builder("test", context_id).ttl(TTL::Head(1)).build())
+            .append(Frame::builder("test", context_id).ttl(TTL::Last(1)).build())
             .unwrap();
 
         let _frame3 = store
             .append(
                 Frame::builder("test", ZERO_CONTEXT)
-                    .ttl(TTL::Head(1))
+                    .ttl(TTL::Last(1))
                     .build(),
             )
             .unwrap();
         let frame4 = store
             .append(
                 Frame::builder("test", ZERO_CONTEXT)
-                    .ttl(TTL::Head(1))
+                    .ttl(TTL::Last(1))
                     .build(),
             )
             .unwrap();
@@ -640,7 +640,7 @@ mod tests_context {
         // Wait for GC
         store.wait_for_gc().await;
 
-        // Verify each context keeps its own head:1
+        // Verify each context keeps its own last:1
         assert_eq!(store.head("test", context_id), Some(frame2.clone()));
         assert_eq!(store.head("test", ZERO_CONTEXT), Some(frame4.clone()));
     }
@@ -1135,15 +1135,15 @@ mod tests_ttl_expire {
     }
 
     #[tokio::test]
-    async fn test_head_based_ttl_retention() {
+    async fn test_last_based_ttl_retention() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep());
 
-        // Add 4 frames to the same topic with Head(2) TTL
+        // Add 4 frames to the same topic with Last(2) TTL
         let _frame1 = store
             .append(
                 Frame::builder("test", ZERO_CONTEXT)
-                    .ttl(TTL::Head(2))
+                    .ttl(TTL::Last(2))
                     .meta(serde_json::json!({"order": 1}))
                     .build(),
             )
@@ -1152,7 +1152,7 @@ mod tests_ttl_expire {
         let _frame2 = store
             .append(
                 Frame::builder("test", ZERO_CONTEXT)
-                    .ttl(TTL::Head(2))
+                    .ttl(TTL::Last(2))
                     .meta(serde_json::json!({"order": 2}))
                     .build(),
             )
@@ -1161,7 +1161,7 @@ mod tests_ttl_expire {
         let frame3 = store
             .append(
                 Frame::builder("test", ZERO_CONTEXT)
-                    .ttl(TTL::Head(2))
+                    .ttl(TTL::Last(2))
                     .meta(serde_json::json!({"order": 3}))
                     .build(),
             )
@@ -1170,7 +1170,7 @@ mod tests_ttl_expire {
         let frame4 = store
             .append(
                 Frame::builder("test", ZERO_CONTEXT)
-                    .ttl(TTL::Head(2))
+                    .ttl(TTL::Last(2))
                     .meta(serde_json::json!({"order": 4}))
                     .build(),
             )
@@ -1180,7 +1180,7 @@ mod tests_ttl_expire {
         let other_frame = store
             .append(
                 Frame::builder("other", ZERO_CONTEXT)
-                    .ttl(TTL::Head(2))
+                    .ttl(TTL::Last(2))
                     .meta(serde_json::json!({"order": 1}))
                     .build(),
             )

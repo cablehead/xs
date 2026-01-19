@@ -70,7 +70,7 @@ The `return_options` record allows you to customize the output frames produced b
 - `"forever"` - Frames never expire (default)
 - `"ephemeral"` - Frames are removed immediately after processing
 - `"time:<ms>"` - Frames expire after specified milliseconds
-- `"head:<n>"` - Keep only the N most recent frames for each topic
+- `"last:<n>"` - Keep only the N most recent frames for each topic
 
 Example with custom return options:
 
@@ -79,7 +79,7 @@ r#'{
   run: {|| ^tail -F access.log | lines },
   return_options: {
     suffix: ".line",
-    ttl: "head:100"  # Keep only last 100 log lines
+    ttl: "last:100"  # Keep only last 100 log lines
   }
 }'# | .append logs.spawn
 ```

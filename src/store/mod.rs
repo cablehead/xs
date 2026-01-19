@@ -166,7 +166,7 @@ pub enum FollowOption {
 #[derive(Debug)]
 enum GCTask {
     Remove(Scru128Id),
-    CheckHeadTTL {
+    CheckLastTTL {
         context_id: Scru128Id,
         topic: String,
         keep: u32,
@@ -552,9 +552,9 @@ impl Store {
         if frame.ttl != Some(TTL::Ephemeral) {
             self.insert_frame(&frame)?;
 
-            // If this is a Head TTL, schedule a gc task
-            if let Some(TTL::Head(n)) = frame.ttl {
-                let _ = self.gc_tx.send(GCTask::CheckHeadTTL {
+            // If this is a Last TTL, schedule a gc task
+            if let Some(TTL::Last(n)) = frame.ttl {
+                let _ = self.gc_tx.send(GCTask::CheckLastTTL {
                     context_id: frame.context_id,
                     topic: frame.topic.clone(),
                     keep: n,
@@ -655,7 +655,7 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
                     let _ = store.remove(&id);
                 }
 
-                GCTask::CheckHeadTTL {
+                GCTask::CheckLastTTL {
                     context_id,
                     topic,
                     keep,

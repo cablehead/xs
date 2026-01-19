@@ -31,17 +31,17 @@ pub struct Handler {
 
 #[derive(Clone, Debug)]
 struct HandlerConfig {
-    resume_from: ResumeFrom,
+    start: Start,
     pulse: Option<u64>,
     return_options: Option<ReturnOptions>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum ResumeFrom {
-    Head,
+enum Start {
+    First,
     #[default]
-    Tail,
+    New,
     After(Scru128Id),
 }
 
@@ -49,8 +49,8 @@ enum ResumeFrom {
 #[derive(Deserialize, Debug, Default)]
 #[serde(default)] // Use default values when fields are missing
 struct HandlerScriptOptions {
-    /// Handler can specify where to resume from: "head", "tail", or a specific ID
-    resume_from: Option<String>,
+    /// Handler can specify where to start: "first", "new", or a specific ID
+    start: Option<String>,
     /// Optional heartbeat interval in milliseconds
     pulse: Option<u64>,
     /// Optional customizations for return frames
@@ -320,11 +320,11 @@ impl Handler {
     }
 
     async fn configure_read_options(&self) -> ReadOptions {
-        // Determine after and new flag based on ResumeFrom
-        let (after, is_tail) = match &self.config.resume_from {
-            ResumeFrom::Head => (None, false),
-            ResumeFrom::Tail => (None, true),
-            ResumeFrom::After(id) => (Some(*id), false),
+        // Determine after and new flag based on Start
+        let (after, is_new) = match &self.config.start {
+            Start::First => (None, false),
+            Start::New => (None, true),
+            Start::After(id) => (Some(*id), false),
         };
 
         // Configure follow option based on pulse setting
@@ -336,7 +336,7 @@ impl Handler {
 
         ReadOptions::builder()
             .follow(follow_option)
-            .new(is_tail)
+            .new(is_new)
             .maybe_after(after)
             .context_id(self.context_id)
             .build()
@@ -421,19 +421,20 @@ fn extract_handler_config(script_config: &NuScriptConfig) -> Result<HandlerConfi
     // Deserialize the handler script options using the new deserialize_options method
     let script_options: HandlerScriptOptions = script_config.deserialize_options()?;
 
-    // Process resume_from into the proper enum
-    let resume_from = match script_options.resume_from.as_deref() {
-        Some("head") => ResumeFrom::Head,
-        Some("tail") => ResumeFrom::Tail,
-        Some(id_str) => ResumeFrom::After(Scru128Id::from_str(id_str).map_err(|_| -> Error {
-            format!("Invalid scru128 ID for resume_from: {id_str}").into()
-        })?),
-        None => ResumeFrom::default(), // Default if not specified in script
-    };
+    // Process start into the proper enum
+    let start =
+        match script_options.start.as_deref() {
+            Some("first") => Start::First,
+            Some("new") => Start::New,
+            Some(id_str) => Start::After(Scru128Id::from_str(id_str).map_err(|_| -> Error {
+                format!("Invalid scru128 ID for start: {id_str}").into()
+            })?),
+            None => Start::default(), // Default if not specified in script
+        };
 
     // Build and return the HandlerConfig
     Ok(HandlerConfig {
-        resume_from,
+        start,
         pulse: script_options.pulse,
         return_options: script_options.return_options,
     })

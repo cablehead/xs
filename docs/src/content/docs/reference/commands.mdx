@@ -37,7 +37,7 @@ r#'{
   # Optional: Control output frame behavior
   return_options: {
     suffix: ".output" # Output topic suffix (default: ".response")
-    ttl: "head:1" # Keep only most recent frame
+    ttl: "last:1" # Keep only most recent frame
   }
 }'# | .append repeat.define
 ```

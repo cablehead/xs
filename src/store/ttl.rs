@@ -10,7 +10,7 @@ pub enum TTL {
     Forever, // Event is kept indefinitely.
     Ephemeral,      // Event is not stored; only active subscribers can see it.
     Time(Duration), // Event is kept for a custom duration
-    Head(u32),      // Retains only the last n events for a topic (n >= 1).
+    Last(u32),      // Retains only the last n events for a topic (n >= 1).
 }
 
 impl TTL {
@@ -20,7 +20,7 @@ impl TTL {
             TTL::Forever => "ttl=forever".to_string(),
             TTL::Ephemeral => "ttl=ephemeral".to_string(),
             TTL::Time(duration) => format!("ttl=time:{millis}", millis = duration.as_millis()),
-            TTL::Head(n) => format!("ttl=head:{n}"),
+            TTL::Last(n) => format!("ttl=last:{n}"),
         }
     }
 
@@ -53,7 +53,7 @@ impl Serialize for TTL {
             TTL::Time(duration) => {
                 serializer.serialize_str(&format!("time:{millis}", millis = duration.as_millis()))
             }
-            TTL::Head(n) => serializer.serialize_str(&format!("head:{n}")),
+            TTL::Last(n) => serializer.serialize_str(&format!("last:{n}")),
         }
     }
 }
@@ -80,15 +80,15 @@ pub fn parse_ttl(s: &str) -> Result<TTL, String> {
                 .map_err(|_| "Invalid duration for 'time' TTL".to_string())?;
             Ok(TTL::Time(Duration::from_millis(duration)))
         }
-        _ if s.starts_with("head:") => {
+        _ if s.starts_with("last:") => {
             let n_str = &s[5..];
             let n = n_str
                 .parse::<u32>()
-                .map_err(|_| "Invalid 'n' value for 'head' TTL".to_string())?;
+                .map_err(|_| "Invalid 'n' value for 'last' TTL".to_string())?;
             if n < 1 {
-                Err("'n' must be >= 1 for 'head' TTL".to_string())
+                Err("'n' must be >= 1 for 'last' TTL".to_string())
             } else {
-                Ok(TTL::Head(n))
+                Ok(TTL::Last(n))
             }
         }
         _ => Err("Invalid TTL format".to_string()),

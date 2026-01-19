@@ -277,7 +277,7 @@ async fn test_essentials() {
                         "processed"
                       }
 
-                      resume_from: (.last "action.out" | get meta.frame_id)
+                      start: (.last "action.out" | get meta.frame_id)
                     }"#,
                 )
                 .await
@@ -379,7 +379,7 @@ async fn test_unregister_on_error() {
                             $x.foo.bar  # Will error at runtime - null access
                           }
 
-                          resume_from: "head"
+                          start: "first"
                          }"#,
                         )
                         .await
@@ -419,7 +419,7 @@ async fn test_return_options() {
                     r#"{
                       return_options: {
                         suffix: ".warble"
-                        ttl: "head:1"
+                        ttl: "last:1"
                       }
 
                       run: {|frame|
@@ -446,12 +446,12 @@ async fn test_return_options() {
     // Check response has custom suffix and right meta
     let response1 = recver.recv().await.unwrap();
     assert_eq!(response1.topic, "echo.warble");
-    assert_eq!(response1.ttl, Some(TTL::Head(1)));
+    assert_eq!(response1.ttl, Some(TTL::Last(1)));
     let meta = response1.meta.unwrap();
     assert_eq!(meta["handler_id"], frame_handler.id.to_string());
     assert_eq!(meta["frame_id"], frame1.id.to_string());
 
-    // Send second ping - should only see newest response due to Head(1)
+    // Send second ping - should only see newest response due to Last(1)
     let frame2 = store
         .append(Frame::builder("ping", ZERO_CONTEXT).build())
         .unwrap();

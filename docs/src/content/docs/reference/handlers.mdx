@@ -45,9 +45,9 @@ r###'{
     }
   }
 
-  # Optional: Where to resume processing from
-  # "tail" (default), "head", or scru128 ID
-  resume_from: "tail"
+  # Optional: Where to start processing from
+  # "new" (default), "first", or scru128 ID
+  start: "new"
 
   # Optional: Module definitions
   modules: {
@@ -60,7 +60,7 @@ r###'{
   # Optional: Control output frame behavior
   return_options: {
     suffix: ".response" # Output topic suffix
-    ttl: "head:1" # Keep only most recent frame
+    ttl: "last:1" # Keep only most recent frame
   }
 }'### | .append echo.register
 ```
@@ -83,7 +83,7 @@ with metadata:
 | Field            | Description                                                                |
 | ---------------- | -------------------------------------------------------------------------- |
 | `run`            | Required handler closure that processes each frame                         |
-| `resume_from`    | "tail" (default), "head", or scru128 ID to control where processing starts |
+| `start`          | "new" (default), "first", or scru128 ID to control where processing starts |
 | `pulse`          | Interval in milliseconds to send synthetic xs.pulse events                 |
 | `return_options` | Controls output frames: see Return Options                                 |
 | `modules`        | Map of module name to the string content of the module                     |
@@ -97,7 +97,7 @@ The `return_options` field controls how return values are handled:
   - `"forever"`: Never expire
   - `"ephemeral"`: Not stored; only active subscribers receive it
   - `"time:<milliseconds>"`: Expire after duration
-  - `"head:<n>"`: Keep only N most recent frames
+  - `"last:<n>"`: Keep only N most recent frames
 
 #### Modules
 

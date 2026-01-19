@@ -54,7 +54,7 @@ pub fn frame_to_value(frame: &Frame, span: Span) -> Value {
             crate::store::TTL::Forever => "forever".to_string(),
             crate::store::TTL::Ephemeral => "ephemeral".to_string(),
             crate::store::TTL::Time(duration) => format!("{}s", duration.as_secs()),
-            crate::store::TTL::Head(n) => format!("head:{n}"),
+            crate::store::TTL::Last(n) => format!("last:{n}"),
         };
         record.push("ttl", Value::string(ttl_str, span));
     }
