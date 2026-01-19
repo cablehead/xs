@@ -87,8 +87,8 @@ listens on a Unix domain socket at <code dir="auto">./store/sock</code>.</p>
 <p>Query Parameters:</p>
 <ul>
 <li><code dir="auto">follow</code> - Long poll for new frames. Can be <code dir="auto">true</code> or a heartbeat interval in milliseconds</li>
-<li><code dir="auto">tail</code> - Begin reading from end of stream</li>
-<li><code dir="auto">last-id</code> - Start reading from specific frame ID</li>
+<li><code dir="auto">new</code> - Skip existing, only show new frames</li>
+<li><code dir="auto">after</code> - Start after a specific frame ID (exclusive)</li>
 <li><code dir="auto">limit</code> - Maximum number of frames to return</li>
 <li><code dir="auto">context-id</code> - Filter frames by context ID</li>
 <li><code dir="auto">topic</code> - Filter frames by topic</li>
