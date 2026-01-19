@@ -20,7 +20,7 @@ xs <COMMAND> [OPTIONS]
 - `cas` – Retrieve content from Content-Addressable Storage
 - `cas-post` – Store content in Content-Addressable Storage
 - `remove` – Remove an item from the stream
-- `head` – Get the head frame for a topic
+- `last` – Get the most recent frame for a topic
 - `get` – Get a frame by ID
 - `import` – Import a frame directly into the store
 - `exec` – Execute a Nushell script with store helper commands available
@@ -155,12 +155,12 @@ xs remove <addr> <id>
 | `<addr>` | Address to connect to    |
 | `<id>`   | ID of the item to remove |
 
-### `head`
+### `last`
 
 Get the most recent frame for a topic.
 
 ```sh
-xs head <addr> <topic> [--follow]
+xs last <addr> <topic> [--follow]
 ```
 
 | Option                      | Description                             |
@@ -215,7 +215,7 @@ xs eval <addr> [file] [-c <commands>]
 | `[file]`     | Script file to evaluate, or "-" to read from stdin             |
 | `-c <commands>` | Evaluate script from command line                           |
 
-The eval command runs a Nushell script with access to store helper commands like `.cat`, `.append`, `.head`, `.get`, `.cas`, and `.remove`.
+The eval command runs a Nushell script with access to store helper commands like `.cat`, `.append`, `.last`, `.get`, `.cas`, and `.remove`.
 
 **Output format auto-detection:**
 - `ByteStream` → raw bytes
@@ -246,7 +246,7 @@ xs eval ./store script.nu
 
 # Using store helpers
 xs eval ./store -c '"my note" | .append note'
-xs eval ./store -c '.head note'
+xs eval ./store -c '.last note'
 xs eval ./store -c '.cat --topic note'
 ```
 

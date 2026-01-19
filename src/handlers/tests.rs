@@ -164,7 +164,7 @@ async fn test_register_parse_error() {
                             r#"
                         {
                           run: {|frame|
-                            .head index.html | .cas
+                            .last index.html | .cas
                           }
                         }
                         "#,
@@ -277,7 +277,7 @@ async fn test_essentials() {
                         "processed"
                       }
 
-                      resume_from: (.head "action.out" | get meta.frame_id)
+                      resume_from: (.last "action.out" | get meta.frame_id)
                     }"#,
                 )
                 .await
@@ -711,7 +711,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
                         .cas_insert(
                             r#"{
                             modules: {
-                                mymod: (.head mymod.nu | .cas $in.hash)
+                                mymod: (.last mymod.nu | .cas $in.hash)
                             }
 
                             run: {|frame|
@@ -779,10 +779,10 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
             Frame::builder("test.register", ZERO_CONTEXT)
                 .hash(store.cas_insert_sync(
                     r#"
-                    $env.abc = .head abc.init | .cas $in.hash | from json
+                    $env.abc = .last abc.init | .cas $in.hash | from json
 
                     def --env inc-abc [] {
-                        $env.abc = $env.abc + (.head abc.delta | .cas $in.hash | from json)
+                        $env.abc = $env.abc + (.last abc.delta | .cas $in.hash | from json)
                         $env.abc
                     }
 

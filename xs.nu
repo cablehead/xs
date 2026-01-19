@@ -119,7 +119,7 @@ export def .get [id: string] {
   xs get (xs-addr) $id | from json
 }
 
-export def .head [
+export def .last [
   topic: string
   --follow (-f)
   --context (-c): string
@@ -129,9 +129,9 @@ export def .head [
   ] | compact | flatten
 
   if $follow {
-    xs head (xs-addr) $topic ...($params) --follow | lines | each {|x| $x | from json }
+    xs last (xs-addr) $topic ...($params) --follow | lines | each {|x| $x | from json }
   } else {
-    xs head (xs-addr) $topic ...($params) | from json
+    xs last (xs-addr) $topic ...($params) | from json
   }
 }
 

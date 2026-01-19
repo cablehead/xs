@@ -184,13 +184,13 @@ Create [handlers](../../reference/handlers/) that automatically react to MCP res
 Let's examine the most recent MCP response from our math operation:
 
 ```nushell
-.head mcp.recv | .cas $in.hash | from json
+.last mcp.recv | .cas $in.hash | from json
 ```
 
 This shows you the full JSONRPC response structure. Now let's drill down to extract just the text content:
 
 ```nushell
-.head mcp.recv | .cas $in.hash | from json | get result.content.0.text
+.last mcp.recv | .cas $in.hash | from json | get result.content.0.text
 ```
 
 You should see "The sum of 100 and 200 is 300." - this is the actual text our handler will analyze.

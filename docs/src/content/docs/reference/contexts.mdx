@@ -95,10 +95,10 @@ You can explicitly specify a context with any command using the `-c` parameter:
 ───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
 ```
 
-The `head` command is also context-aware:
+The `last` command is also context-aware:
 
 ```nushell withOutput
-> .head notes -c feature-branch | .cas
+> .last notes -c feature-branch | .cas
 new feature idea
 ```
 

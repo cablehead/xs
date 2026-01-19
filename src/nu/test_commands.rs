@@ -145,10 +145,10 @@ mod tests {
     }
 
     #[test]
-    fn test_head_command() -> Result<(), Error> {
+    fn test_last_command() -> Result<(), Error> {
         let (store, mut engine, ctx) = setup_test_env();
         engine
-            .add_commands(vec![Box::new(commands::head_command::HeadCommand::new(
+            .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
                 store.clone(),
                 ctx.id,
             ))])
@@ -170,10 +170,10 @@ mod tests {
             )
             .unwrap();
 
-        let head_frame = nu_eval(&engine, PipelineData::empty(), ".head topic");
+        let last_frame = nu_eval(&engine, PipelineData::empty(), ".last topic");
 
         assert_eq!(
-            head_frame.get_data_by_key("id").unwrap().as_str().unwrap(),
+            last_frame.get_data_by_key("id").unwrap().as_str().unwrap(),
             frame2.id.to_string()
         );
         Ok(())

@@ -328,7 +328,7 @@ async fn test_eval_integration() {
         "eval",
         store_path,
         "-c",
-        ".head note | get hash | .cas $in"
+        ".last note | get hash | .cas $in"
     )
     .read()
     .unwrap();
@@ -701,12 +701,12 @@ async fn test_eval_head_streaming() {
     .run()
     .unwrap();
 
-    // .head --follow should emit current head first, then stream new frames
+    // .last --follow should emit current last first, then stream new frames
     let mut follow_child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("eval")
         .arg(store_path)
         .arg("-c")
-        .arg(".head head.test --follow")
+        .arg(".last head.test --follow")
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
@@ -718,13 +718,13 @@ async fn test_eval_head_streaming() {
     let mut line = String::new();
     let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
         .await
-        .expect("Timeout waiting for current head")
-        .expect("Failed to read current head");
-    assert!(result > 0, "Should receive current head frame");
-    let head_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+        .expect("Timeout waiting for current last frame")
+        .expect("Failed to read current last frame");
+    assert!(result > 0, "Should receive current last frame");
+    let last_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
     assert_eq!(
-        head_frame["topic"], "head.test",
-        "First frame from .head --follow should be the current head"
+        last_frame["topic"], "head.test",
+        "First frame from .last --follow should be the current last"
     );
 
     // Append new frame while following

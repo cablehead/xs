@@ -72,7 +72,7 @@ impl Handler {
                 store.clone(),
                 context_id,
             )),
-            Box::new(commands::head_command::HeadCommand::new(
+            Box::new(commands::last_command::LastCommand::new(
                 store.clone(),
                 context_id,
             )),

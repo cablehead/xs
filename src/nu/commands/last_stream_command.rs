@@ -8,27 +8,35 @@ use std::time::Duration;
 use crate::store::{FollowOption, ReadOptions, Store};
 
 #[derive(Clone)]
-pub struct HeadStreamCommand {
+pub struct LastStreamCommand {
     store: Store,
     context_id: scru128::Scru128Id,
 }
 
-impl HeadStreamCommand {
+impl LastStreamCommand {
     pub fn new(store: Store, context_id: scru128::Scru128Id) -> Self {
         Self { store, context_id }
     }
 }
 
-impl Command for HeadStreamCommand {
+impl Command for LastStreamCommand {
     fn name(&self) -> &str {
-        ".head"
+        ".last"
     }
 
     fn signature(&self) -> Signature {
-        Signature::build(".head")
+        Signature::build(".last")
             .input_output_types(vec![(Type::Nothing, Type::Any)])
-            .required("topic", SyntaxShape::String, "topic to get head frame from")
-            .switch("follow", "long poll for new head frames", Some('f'))
+            .required(
+                "topic",
+                SyntaxShape::String,
+                "topic to get most recent frame from",
+            )
+            .switch(
+                "follow",
+                "long poll for updates to most recent frame",
+                Some('f'),
+            )
             .named(
                 "context",
                 SyntaxShape::String,

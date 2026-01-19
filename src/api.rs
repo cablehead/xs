@@ -43,7 +43,7 @@ enum Routes {
         ttl: Option<TTL>,
         context_id: Scru128Id,
     },
-    HeadGet {
+    LastGet {
         topic: String,
         follow: bool,
         context_id: Scru128Id,
@@ -111,8 +111,8 @@ fn match_route(
             }
         }
 
-        (&Method::GET, p) if p.starts_with("/head/") => {
-            let topic = p.strip_prefix("/head/").unwrap().to_string();
+        (&Method::GET, p) if p.starts_with("/last/") => {
+            let topic = p.strip_prefix("/last/").unwrap().to_string();
             let follow = params.contains_key("follow");
             let context_id = match params.get("context") {
                 None => crate::store::ZERO_CONTEXT,
@@ -121,7 +121,7 @@ fn match_route(
                     Err(e) => return Routes::BadRequest(format!("Invalid context ID: {e}")),
                 },
             };
-            Routes::HeadGet {
+            Routes::LastGet {
                 topic,
                 follow,
                 context_id,
@@ -226,11 +226,11 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::HeadGet {
+        Routes::LastGet {
             topic,
             follow,
             context_id,
-        } => handle_head_get(&store, &topic, follow, context_id).await,
+        } => handle_last_get(&store, &topic, follow, context_id).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -494,7 +494,7 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_head_get(
+async fn handle_last_get(
     store: &Store,
     topic: &str,
     follow: bool,
@@ -611,7 +611,7 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                 store.clone(),
                 context_id,
             )),
-            Box::new(nu::commands::head_stream_command::HeadStreamCommand::new(
+            Box::new(nu::commands::last_stream_command::LastStreamCommand::new(
                 store.clone(),
                 context_id,
             )),
@@ -757,17 +757,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_match_route_head_follow() {
+    fn test_match_route_last_follow() {
         let headers = hyper::HeaderMap::new();
 
         assert!(matches!(
-            match_route(&Method::GET, "/head/test", &headers, None),
-            Routes::HeadGet { topic, follow: false, context_id: _ } if topic == "test"
+            match_route(&Method::GET, "/last/test", &headers, None),
+            Routes::LastGet { topic, follow: false, context_id: _ } if topic == "test"
         ));
 
         assert!(matches!(
-            match_route(&Method::GET, "/head/test", &headers, Some("follow=true")),
-            Routes::HeadGet { topic, follow: true, context_id: _ } if topic == "test"
+            match_route(&Method::GET, "/last/test", &headers, Some("follow=true")),
+            Routes::LastGet { topic, follow: true, context_id: _ } if topic == "test"
         ));
     }
 
@@ -801,7 +801,7 @@ mod tests {
                     ),
                 ),
                 Box::new(
-                    crate::nu::commands::head_stream_command::HeadStreamCommand::new(
+                    crate::nu::commands::last_stream_command::LastStreamCommand::new(
                         store.clone(),
                         context_id,
                     ),

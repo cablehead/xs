@@ -51,17 +51,17 @@ Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 .cat -f --topic note  # Follow new notes
 ```
 
-### `.head`
+### `.last`
 
-Get the most recent frame for a topic. Wraps [`xs head`](../cli/#head).
+Get the most recent frame for a topic. Wraps [`xs last`](../cli/#last).
 
 ```nushell
-.head <topic> [--follow] [--context <id>]
+.last <topic> [--follow] [--context <id>]
 ```
 
 ```nushell
-.head note
-let latest_note = .head note
+.last note
+let latest_note = .last note
 ```
 
 ### `.remove`
@@ -73,7 +73,7 @@ Remove a frame by ID. Wraps [`xs remove`](../cli/#remove).
 ```
 
 ```nushell
-let note_id = (.head note).id
+let note_id = (.last note).id
 .remove $note_id
 ```
 
@@ -86,7 +86,7 @@ Retrieve a frame by ID. Wraps [`xs get`](../cli/#get).
 ```
 
 ```nushell
-let note_id = (.head note).id
+let note_id = (.last note).id
 .get $note_id
 ```
 
@@ -182,7 +182,7 @@ Retrieve content from Content-Addressable Storage by hash. Wraps [`xs cas`](../c
 ```
 
 ```nushell
-let note = .head note
+let note = .last note
 .cas $note.hash  # Get the note content
 ```
 
@@ -270,7 +270,7 @@ The function:
 ```nushell
 .tmp-spawn {
   "test note" | .append note
-  assert (.head note).hash != null
+  assert (.last note).hash != null
   print "Test passed!"
 }
 

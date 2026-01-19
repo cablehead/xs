@@ -6,26 +6,30 @@ use crate::nu::util;
 use crate::store::Store;
 
 #[derive(Clone)]
-pub struct HeadCommand {
+pub struct LastCommand {
     store: Store,
     context_id: scru128::Scru128Id,
 }
 
-impl HeadCommand {
+impl LastCommand {
     pub fn new(store: Store, context_id: scru128::Scru128Id) -> Self {
         Self { store, context_id }
     }
 }
 
-impl Command for HeadCommand {
+impl Command for LastCommand {
     fn name(&self) -> &str {
-        ".head"
+        ".last"
     }
 
     fn signature(&self) -> Signature {
-        Signature::build(".head")
+        Signature::build(".last")
             .input_output_types(vec![(Type::Nothing, Type::Any)])
-            .required("topic", SyntaxShape::String, "topic to get head frame from")
+            .required(
+                "topic",
+                SyntaxShape::String,
+                "topic to get most recent frame from",
+            )
             .named(
                 "context",
                 SyntaxShape::String,

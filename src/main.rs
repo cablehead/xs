@@ -31,8 +31,8 @@ enum Command {
     CasPost(CommandCasPost),
     /// Remove an item from the stream
     Remove(CommandRemove),
-    /// Get the head frame for a topic
-    Head(CommandHead),
+    /// Get the most recent frame for a topic
+    Last(CommandLast),
     /// Get a frame by ID
     Get(CommandGet),
     /// Import a frame directly into the store
@@ -155,16 +155,16 @@ struct CommandRemove {
 }
 
 #[derive(Parser, Debug)]
-struct CommandHead {
+struct CommandLast {
     /// Address to connect to [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(value_parser)]
     addr: String,
 
-    /// Topic to get the head frame for
+    /// Topic to get the most recent frame for
     #[clap(value_parser)]
     topic: String,
 
-    /// Follow the head frame for updates
+    /// Follow for updates to the most recent frame
     #[clap(long, short = 'f')]
     follow: bool,
 
@@ -206,7 +206,7 @@ fn extract_addr_from_command(command: &Command) -> Option<String> {
         Command::Cas(cmd) => Some(cmd.addr.clone()),
         Command::CasPost(cmd) => Some(cmd.addr.clone()),
         Command::Remove(cmd) => Some(cmd.addr.clone()),
-        Command::Head(cmd) => Some(cmd.addr.clone()),
+        Command::Last(cmd) => Some(cmd.addr.clone()),
         Command::Get(cmd) => Some(cmd.addr.clone()),
         Command::Import(cmd) => Some(cmd.addr.clone()),
         Command::Version(cmd) => Some(cmd.addr.clone()),
@@ -260,7 +260,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::Cas(args) => cas(args).await,
         Command::CasPost(args) => cas_post(args).await,
         Command::Remove(args) => remove(args).await,
-        Command::Head(args) => head(args).await,
+        Command::Last(args) => last(args).await,
         Command::Get(args) => get(args).await,
         Command::Import(args) => import(args).await,
         Command::Version(args) => version(args).await,
@@ -515,8 +515,8 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
     Ok(())
 }
 
-async fn head(args: CommandHead) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    xs::client::head(
+async fn last(args: CommandLast) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    xs::client::last(
         &args.addr,
         &args.topic,
         args.follow,

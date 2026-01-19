@@ -186,10 +186,10 @@ Let's submit another note:
 ───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
 ```
 
-We can get the most recent note on the stream using the `.head` command:
+We can get the most recent note on the stream using the `.last` command:
 
 ```nushell withOutput
-> .head notes
+> .last notes
 ───────┬─────────────────────────────────────────────────────
  topic │ notes
  id    │ 03d4qbrxizqgav09m7hicksb0
@@ -200,7 +200,7 @@ We can get the most recent note on the stream using the `.head` command:
 ```
 
 ```nushell withOutput
-> .head notes | .cas
+> .last notes | .cas
 submit TPS report
 ```
 
@@ -216,15 +216,15 @@ submit TPS report
 {"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":"sha256-pwB4w9N1v99Uu/96KsKKaIgDMm18QDMOZJsEwCxBtsA=","meta":null,"ttl":"forever"}
 ```
 
-We can get the most recent note on the stream using the `head` command:
+We can get the most recent note on the stream using the `last` command:
 
 ```bash withOutput
-> xs head ./store notes
+> xs last ./store notes
 {"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":"sha256-pwB4w9N1v99Uu/96KsKKaIgDMm18QDMOZJsEwCxBtsA=","meta":null,"ttl":"forever"}
 ```
 
 ```bash withOutput
-> xs head ./store notes | jq -r .hash | xargs xs cas ./store
+> xs last ./store notes | jq -r .hash | xargs xs cas ./store
 submit TPS report
 ```
 

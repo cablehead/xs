@@ -212,7 +212,7 @@ pub async fn remove(addr: &str, id: &str) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-pub async fn head(
+pub async fn last(
     addr: &str,
     topic: &str,
     follow: bool,
@@ -239,7 +239,7 @@ pub async fn head(
     let res = request::request(
         addr,
         Method::GET,
-        &format!("head/{topic}"),
+        &format!("last/{topic}"),
         query.as_deref(),
         empty(),
         None,

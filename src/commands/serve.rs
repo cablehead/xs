@@ -116,7 +116,7 @@ async fn register_command(
             store.clone(),
             frame.context_id,
         )),
-        Box::new(commands::head_command::HeadCommand::new(
+        Box::new(commands::last_command::LastCommand::new(
             store.clone(),
             frame.context_id,
         )),

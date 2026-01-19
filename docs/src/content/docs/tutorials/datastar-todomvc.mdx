@@ -431,7 +431,7 @@ Visit http://localhost:3001 and then in your terminal try appending some more ev
 
 ```bash
 .append todos --meta {action: "add", text: "Learn datastar"}
-let todo = .head todos
+let todo = .last todos
 .append todos --meta {action: "toggle", id: $todo.id}
 ```
 

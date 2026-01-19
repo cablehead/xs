@@ -36,10 +36,10 @@ The address you specify is the connection address:
 - TCP: `:3021` or `192.168.1.100:8080`
 
 ### For Iroh
-To get the iroh connection ticket, use the `.head` command:
+To get the iroh connection ticket, use the `.last` command:
 
 ```sh
-.head xs.start
+.last xs.start
 ```
 
 The ticket will be in the `expose` field of the metadata:
@@ -77,7 +77,7 @@ Use the full iroh ticket from the server:
 ```sh
 xs cat iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d
 "hello p2p QUIC" | xs append iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d chat
-xs eval iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d -c '.head status'
+xs eval iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d -c '.last status'
 ```
 
 ## Environment Configuration
@@ -100,7 +100,7 @@ With `XS_ADDR` set, xs.nu convenience functions will automatically use the remot
 ```sh
 .cat                    # connects to $env.XS_ADDR
 "message" | .append logs  # appends to remote store
-.head status            # gets head from remote store
+.last status            # gets last from remote store
 ```
 
 See the [xs.nu reference](../xs-nu/) for all available convenience functions.
@@ -123,8 +123,8 @@ $env.XS_ADDR = ":3021"
 # Server: Start with iroh
 xs serve ./store --expose iroh://
 
-# Server: Get ticket  
-.head xs.start
+# Server: Get ticket
+.last xs.start
 
 # Client: Connect with ticket
 xs cat iroh://nodeac4lrf7r5hyqeuj...crjpx6ajinb2hi4d --follow

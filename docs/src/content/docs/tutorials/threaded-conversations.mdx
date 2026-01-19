@@ -42,7 +42,7 @@ Now append a user message to the `chat.turn` topic:
 Grab the ID of that turn so later messages can reference it:
 
 ```nushell
-let first = (.head chat.turn).id
+let first = (.last chat.turn).id
 ```
 
 Respond with an assistant reply that continues the first turn:
@@ -50,10 +50,10 @@ Respond with an assistant reply that continues the first turn:
 ```nushell
 
 "The capital is Paris." | .append chat.turn --meta {role: assistant continues: $first}
-let second = (.head chat.turn).id
+let second = (.last chat.turn).id
 
 "Tell me a famous landmark there." | .append chat.turn --meta {role: user continues: $second}
-let third = (.head chat.turn).id
+let third = (.last chat.turn).id
 
 "The Eiffel Tower is one of the most famous." | .append chat.turn --meta {role: assistant continues: $third}
 ```
@@ -70,7 +70,7 @@ def thread [id] {
   thread ($f.meta?.continues?) | append $f
 }
 
-thread (.head chat.turn).id | each {.cas}
+thread (.last chat.turn).id | each {.cas}
 ```
 
 This prints:
@@ -90,16 +90,16 @@ Continuing from `$third` creates a detail thread about the landmark:
 
 ```nushell
 "What is its height?" | .append chat.turn --meta {role: user continues: $third}
-"The Eiffel Tower is about 300 meters tall." | .append chat.turn --meta {role: assistant continues: (.head chat.turn).id}
+"The Eiffel Tower is about 300 meters tall." | .append chat.turn --meta {role: assistant continues: (.last chat.turn).id}
 ```
 
 You can also fork from an earlier turn. Continuing again from `$second` starts a different thread:
 
 ```nushell
 "What about Germany?" | .append chat.turn --meta {role: user continues: $second}
-let g1 = (.head chat.turn).id
+let g1 = (.last chat.turn).id
 "Germany's capital is Berlin." | .append chat.turn --meta {role: assistant continues: $g1}
-"How big is Berlin?" | .append chat.turn --meta {role: user continues: (.head chat.turn).id}
+"How big is Berlin?" | .append chat.turn --meta {role: user continues: (.last chat.turn).id}
 ```
 
 You will now see multiple branches starting from the earlier messages.

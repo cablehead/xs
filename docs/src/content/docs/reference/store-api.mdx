@@ -82,12 +82,12 @@ curl --unix-socket ./store/sock -X DELETE \
 
 Response: 204 on success
 
-### `GET /head/{topic}`
+### `GET /last/{topic}`
 
 Get most recent frame for topic
 
 ```sh
-curl --unix-socket ./store/sock http://localhost/head/topic
+curl --unix-socket ./store/sock http://localhost/last/topic
 ```
 
 Query Parameters:
