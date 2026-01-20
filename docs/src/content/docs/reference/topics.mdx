@@ -1,0 +1,123 @@
+---
+title: Topics
+description: "Topic naming, hierarchy, wildcards, and system suffixes"
+sidebar:
+  order: 4
+---
+
+Topics organize frames in the event stream. The `.` character creates hierarchy, enabling wildcard queries.
+
+## Naming Rules
+
+| Rule | Detail |
+| ---- | ------ |
+| Allowed characters | `a-z A-Z 0-9 _ - .` |
+| Must start with | `a-z A-Z 0-9 _` |
+| Cannot end with | `.` |
+| Cannot contain | `..` |
+| Max length | 255 bytes |
+
+Valid: `chat`, `user.alice`, `orders.2024.pending`, `my_topic-v2`
+
+Invalid: `.hidden`, `-dash`, `trailing.`, `foo..bar`, `has space`
+
+## Hierarchy
+
+The `.` separator creates a topic hierarchy:
+
+```
+user.alice.messages
+user.alice.status
+user.bob.messages
+```
+
+This structure enables prefix queries.
+
+## Wildcard Queries
+
+Use `.*` suffix to query all direct and nested children of a prefix:
+
+```sh
+# All frames under user.alice (messages, status, etc.)
+xs cat ./store --topic "user.alice.*"
+
+# All user frames
+xs cat ./store --topic "user.*"
+```
+
+The wildcard `user.*` matches `user.alice`, `user.alice.messages`, and `user.bob`—but not `user` itself.
+
+Use `*` alone to match all topics (equivalent to omitting `--topic`).
+
+Topic queries return frames in chronological order (by frame ID), not grouped by topic. Both historical reads and live follows maintain this ordering.
+
+## Component Suffixes
+
+cross.stream uses topic suffixes to coordinate component lifecycle.
+
+### Generators
+
+| Suffix | Description | Emitted By |
+| ------ | ----------- | ---------- |
+| `.spawn` | Create or update a generator | User |
+| `.terminate` | Stop a generator | User |
+| `.send` | Input to duplex generators | User |
+| `.running` | Generator has started | System |
+| `.stopped` | Generator pipeline stopped | System |
+| `.shutdown` | Generator loop fully exited | System |
+| `.parse.error` | Script parsing failed | System |
+| `.recv` | Output from generator | System |
+
+### Handlers
+
+| Suffix | Description | Emitted By |
+| ------ | ----------- | ---------- |
+| `.register` | Register a handler | User |
+| `.unregister` | Unregister a handler | User |
+| `.active` | Handler is now active | System |
+| `.unregistered` | Handler has been removed | System |
+| `.out` | Output from handler | System |
+
+### Commands
+
+| Suffix | Description | Emitted By |
+| ------ | ----------- | ---------- |
+| `.define` | Define a command | User |
+| `.call` | Invoke a command | User |
+| `.ready` | Command ready for calls | System |
+| `.error` | Command execution failed | System |
+| `.response` | Command execution result | System |
+
+## System Topics
+
+| Topic | Description |
+| ----- | ----------- |
+| `xs.start` | System initialization complete |
+| `xs.threshold` | Stream processing threshold marker |
+| `xs.pulse` | Synthetic pulse events (configurable interval) |
+
+## Customizable Suffixes
+
+Output suffixes can be changed via `return_options.suffix`:
+
+- `.recv` (Generators)
+- `.out` (Handlers)
+- `.response` (Commands)
+
+```nushell
+{
+  run: {|| "Hello, World!" },
+  return_options: {
+    suffix: ".message"  # Changes .recv to .message
+  }
+}
+```
+
+## Event Metadata
+
+Lifecycle and output events include:
+
+- `source_id` / `handler_id` / `command_id`: Component instance ID
+- `frame_id`: Triggering frame ID (handlers/commands)
+- `error`: Error details (on error events)
+- `reason`: Stop reason (on stopped events)

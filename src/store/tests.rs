@@ -235,10 +235,10 @@ mod tests_store {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep());
 
-        let f1 = store.append(Frame::builder("/stream").build()).unwrap();
-        let f2 = store.append(Frame::builder("/stream").build()).unwrap();
+        let f1 = store.append(Frame::builder("stream").build()).unwrap();
+        let f2 = store.append(Frame::builder("stream").build()).unwrap();
 
-        assert_eq!(store.last("/stream"), Some(f2.clone()));
+        assert_eq!(store.last("stream"), Some(f2.clone()));
 
         let recver = store.read(ReadOptions::default()).await;
         assert_eq!(
@@ -478,29 +478,152 @@ mod tests_topic {
     use super::*;
     use tempfile::TempDir;
 
+    #[test]
+    fn test_topic_validation() {
+        // Valid topics
+        assert!(validate_topic("foo").is_ok());
+        assert!(validate_topic("foo.bar").is_ok());
+        assert!(validate_topic("foo.bar.baz").is_ok());
+        assert!(validate_topic("user-123").is_ok());
+        assert!(validate_topic("user_123").is_ok());
+        assert!(validate_topic("_private").is_ok());
+        assert!(validate_topic("123").is_ok());
+        assert!(validate_topic("a").is_ok());
+
+        // Invalid: empty
+        assert!(validate_topic("").is_err());
+
+        // Invalid: ends with dot
+        assert!(validate_topic("foo.").is_err());
+        assert!(validate_topic("foo.bar.").is_err());
+
+        // Invalid: starts with dot or hyphen
+        assert!(validate_topic(".foo").is_err());
+        assert!(validate_topic("-foo").is_err());
+
+        // Invalid: contains invalid characters
+        assert!(validate_topic("foo*bar").is_err());
+        assert!(validate_topic("foo bar").is_err());
+        assert!(validate_topic("foo\0bar").is_err());
+
+        // Invalid: consecutive dots
+        assert!(validate_topic("foo..bar").is_err());
+        assert!(validate_topic("user..double").is_err());
+
+        // Invalid: too long
+        let long_topic = "a".repeat(256);
+        assert!(validate_topic(&long_topic).is_err());
+        let max_topic = "a".repeat(255);
+        assert!(validate_topic(&max_topic).is_ok());
+    }
+
     #[tokio::test]
-    async fn test_reject_null_byte_in_topic() {
+    async fn test_reject_trailing_dot_in_topic() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf());
 
-        // Try to create a frame with a topic containing a null byte
-        let frame = Frame {
-            id: scru128::new(),
-            topic: "test\0topic".to_owned(),
-            hash: None,
-            meta: None,
-            ttl: None,
-        };
-
-        // Creating the index key should fail
-        let result = idx_topic_key_from_frame(&frame);
+        let result = store.append(Frame::builder("user.").build());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("null byte"));
+        assert!(result.unwrap_err().to_string().contains("end with '.'"));
+    }
 
-        // Trying to append the frame should also fail
-        let result = store.append(frame);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("null byte"));
+    #[tokio::test]
+    async fn test_wildcard_query_historical() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Create frames with hierarchical topics
+        let user = store.append(Frame::builder("user").build()).unwrap();
+        let user_profile = store
+            .append(Frame::builder("user.profile").build())
+            .unwrap();
+        let user_settings = store
+            .append(Frame::builder("user.settings").build())
+            .unwrap();
+        let order = store.append(Frame::builder("order").build()).unwrap();
+
+        // Wildcard "user.*" should match user.profile and user.settings, not "user"
+        let options = ReadOptions::builder().topic("user.*".to_string()).build();
+        let rx = store.read(options).await;
+        let frames: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        assert_eq!(frames, vec![user_profile, user_settings]);
+
+        // Exact "user" should only match "user"
+        let options = ReadOptions::builder().topic("user".to_string()).build();
+        let rx = store.read(options).await;
+        let frames: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        assert_eq!(frames, vec![user]);
+
+        // "*" should match all
+        let options = ReadOptions::builder().topic("*".to_string()).build();
+        let rx = store.read(options).await;
+        let frames: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        assert_eq!(frames.len(), 4);
+        assert_eq!(frames[3], order);
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_query_multilevel() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        let user_a_msg = store
+            .append(Frame::builder("user.a.messages").build())
+            .unwrap();
+        let user_a_notes = store
+            .append(Frame::builder("user.a.notes").build())
+            .unwrap();
+        let user_b_msg = store
+            .append(Frame::builder("user.b.messages").build())
+            .unwrap();
+
+        // "user.*" matches all three (they all start with "user.")
+        let options = ReadOptions::builder().topic("user.*".to_string()).build();
+        let rx = store.read(options).await;
+        let frames: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        assert_eq!(
+            frames,
+            vec![user_a_msg.clone(), user_a_notes.clone(), user_b_msg]
+        );
+
+        // "user.a.*" matches only user.a.* topics
+        let options = ReadOptions::builder().topic("user.a.*".to_string()).build();
+        let rx = store.read(options).await;
+        let frames: Vec<_> =
+            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        assert_eq!(frames, vec![user_a_msg, user_a_notes]);
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_query_live() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        let options = ReadOptions::builder()
+            .topic("user.*".to_string())
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        // Wait for threshold
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+
+        // Append frames after subscribing
+        let user_profile = store
+            .append(Frame::builder("user.profile").build())
+            .unwrap();
+        let _order = store.append(Frame::builder("order").build()).unwrap();
+        let user_settings = store
+            .append(Frame::builder("user.settings").build())
+            .unwrap();
+
+        // Should receive user.profile and user.settings, not order
+        assert_eq!(rx.recv().await, Some(user_profile));
+        assert_eq!(rx.recv().await, Some(user_settings));
     }
 
     #[test]

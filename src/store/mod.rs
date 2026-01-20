@@ -256,10 +256,14 @@ impl Store {
                 let mut last_id = None;
                 let mut count = 0;
 
-                let iter: Box<dyn Iterator<Item = Frame>> = if let Some(ref topic) = options.topic {
-                    store.iter_frames_by_topic(topic, options.after.as_ref())
-                } else {
-                    store.iter_frames(options.after.as_ref())
+                let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
+                    None | Some("*") => store.iter_frames(options.after.as_ref()),
+                    Some(topic) if topic.ends_with(".*") => {
+                        // Wildcard: "user.*" -> prefix "user."
+                        let prefix = &topic[..topic.len() - 1]; // strip "*", keep "."
+                        store.iter_frames_by_topic_prefix(prefix, options.after.as_ref())
+                    }
+                    Some(topic) => store.iter_frames_by_topic(topic, options.after.as_ref()),
                 };
 
                 for frame in iter {
@@ -322,9 +326,19 @@ impl Store {
 
                     let mut broadcast_rx = broadcast_rx;
                     while let Ok(frame) = broadcast_rx.recv().await {
-                        if let Some(ref topic) = options.topic {
-                            if frame.topic != *topic {
-                                continue;
+                        // Filter by topic (exact match or wildcard)
+                        match options.topic.as_deref() {
+                            None | Some("*") => {}
+                            Some(topic) if topic.ends_with(".*") => {
+                                let prefix = &topic[..topic.len() - 1]; // "user.*" -> "user."
+                                if !frame.topic.starts_with(prefix) {
+                                    continue;
+                                }
+                            }
+                            Some(topic) => {
+                                if frame.topic != topic {
+                                    continue;
+                                }
                             }
                         }
 
@@ -414,12 +428,19 @@ impl Store {
             return Ok(());
         };
 
-        // Get the index topic key
-        let topic_key = idx_topic_key_from_frame(&frame)?;
+        // Build topic key directly (no validation - frame already exists)
+        let mut topic_key = idx_topic_key_prefix(&frame.topic);
+        topic_key.extend(frame.id.as_bytes());
+
+        // Get prefix index keys for hierarchical queries
+        let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
 
         let mut batch = self.db.batch();
         batch.remove(&self.stream, id.as_bytes());
         batch.remove(&self.idx_topic, topic_key);
+        for prefix_key in &prefix_keys {
+            batch.remove(&self.idx_topic, prefix_key);
+        }
         batch.commit()?;
         self.db.persist(PersistMode::SyncAll)?;
         Ok(())
@@ -471,12 +492,18 @@ impl Store {
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
 
-        // Get the index topic key
+        // Get the index topic key (also validates topic)
         let topic_key = idx_topic_key_from_frame(frame)?;
+
+        // Get prefix index keys for hierarchical queries
+        let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
 
         let mut batch = self.db.batch();
         batch.insert(&self.stream, frame.id.as_bytes(), encoded);
         batch.insert(&self.idx_topic, topic_key, b"");
+        for prefix_key in &prefix_keys {
+            batch.insert(&self.idx_topic, prefix_key, b"");
+        }
         batch.commit()?;
         self.db.persist(PersistMode::SyncAll)?;
         Ok(())
@@ -539,6 +566,34 @@ impl Store {
             self.get(&frame_id)
         }))
     }
+
+    /// Iterate frames matching a topic prefix (for wildcard queries like "user.*").
+    /// The prefix should include the trailing dot (e.g., "user." for "user.*").
+    fn iter_frames_by_topic_prefix<'a>(
+        &'a self,
+        prefix: &'a str,
+        last_id: Option<&'a Scru128Id>,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        // Build index prefix: "user.\0" for scanning all "user.*" entries
+        let mut index_prefix = Vec::with_capacity(prefix.len() + 1);
+        index_prefix.extend(prefix.as_bytes());
+        index_prefix.push(NULL_DELIMITER);
+
+        Box::new(
+            self.idx_topic
+                .prefix(index_prefix)
+                .filter_map(move |guard| {
+                    let key = guard.key().ok()?;
+                    let frame_id = idx_topic_frame_id_from_key(&key);
+                    if let Some(last) = last_id {
+                        if frame_id <= *last {
+                            return None;
+                        }
+                    }
+                    self.get(&frame_id)
+                }),
+        )
+    }
 }
 
 fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
@@ -589,6 +644,81 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
 }
 
 const NULL_DELIMITER: u8 = 0;
+const MAX_TOPIC_LENGTH: usize = 255;
+
+/// Validates a topic name according to ADR 0001.
+/// - Allowed characters: a-z A-Z 0-9 _ - .
+/// - Must start with: a-z A-Z 0-9 _
+/// - Cannot be empty, cannot end with '.', max 255 bytes
+pub fn validate_topic(topic: &str) -> Result<(), crate::error::Error> {
+    if topic.is_empty() {
+        return Err("Topic cannot be empty".to_string().into());
+    }
+    if topic.len() > MAX_TOPIC_LENGTH {
+        return Err(format!("Topic exceeds max length of {MAX_TOPIC_LENGTH} bytes").into());
+    }
+    if topic.ends_with('.') {
+        return Err("Topic cannot end with '.'".to_string().into());
+    }
+    if topic.contains("..") {
+        return Err("Topic cannot contain consecutive dots".to_string().into());
+    }
+
+    let bytes = topic.as_bytes();
+    let first = bytes[0];
+    if !first.is_ascii_alphanumeric() && first != b'_' {
+        return Err("Topic must start with a-z, A-Z, 0-9, or _"
+            .to_string()
+            .into());
+    }
+
+    for &b in bytes {
+        if !b.is_ascii_alphanumeric() && b != b'_' && b != b'-' && b != b'.' {
+            return Err(format!(
+                "Topic contains invalid character: '{}'. Allowed: a-z A-Z 0-9 _ - .",
+                b as char
+            )
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
+/// Validates a topic query (for --topic flag).
+/// Allows wildcards: "*" (match all) or "prefix.*" (match children).
+pub fn validate_topic_query(topic: &str) -> Result<(), crate::error::Error> {
+    if topic == "*" {
+        return Ok(());
+    }
+    if let Some(prefix) = topic.strip_suffix(".*") {
+        // Validate the prefix part (e.g., "user" in "user.*")
+        // Prefix can be empty edge case: ".*" is not valid
+        if prefix.is_empty() {
+            return Err("Wildcard '.*' requires a prefix".to_string().into());
+        }
+        validate_topic(prefix)
+    } else {
+        validate_topic(topic)
+    }
+}
+
+/// Generate prefix index keys for hierarchical topic queries.
+/// For topic "user.id1.messages", returns keys for prefixes "user." and "user.id1."
+fn idx_topic_prefix_keys(topic: &str, frame_id: &scru128::Scru128Id) -> Vec<Vec<u8>> {
+    let mut keys = Vec::new();
+    let mut pos = 0;
+    while let Some(dot_pos) = topic[pos..].find('.') {
+        let prefix = &topic[..pos + dot_pos + 1]; // include the dot
+        let mut key = Vec::with_capacity(prefix.len() + 1 + 16);
+        key.extend(prefix.as_bytes());
+        key.push(NULL_DELIMITER);
+        key.extend(frame_id.as_bytes());
+        keys.push(key);
+        pos += dot_pos + 1;
+    }
+    keys
+}
 
 fn idx_topic_key_prefix(topic: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(topic.len() + 1); // topic bytes + delimiter
@@ -598,14 +728,7 @@ fn idx_topic_key_prefix(topic: &str) -> Vec<u8> {
 }
 
 pub(crate) fn idx_topic_key_from_frame(frame: &Frame) -> Result<Vec<u8>, crate::error::Error> {
-    // Check if the topic contains a null byte when encoded as UTF-8
-    if frame.topic.as_bytes().contains(&NULL_DELIMITER) {
-        return Err(
-            "Topic cannot contain null byte (0x00) as it's used as a delimiter"
-                .to_string()
-                .into(),
-        );
-    }
+    validate_topic(&frame.topic)?;
     let mut v = idx_topic_key_prefix(&frame.topic);
     v.extend(frame.id.as_bytes());
     Ok(v)

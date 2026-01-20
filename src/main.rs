@@ -8,7 +8,19 @@ use dirs::config_dir;
 use tokio::io::AsyncWriteExt;
 
 use xs::nu;
-use xs::store::{parse_ttl, FollowOption, ReadOptions, Store};
+use xs::store::{
+    parse_ttl, validate_topic, validate_topic_query, FollowOption, ReadOptions, Store,
+};
+
+fn parse_topic(s: &str) -> Result<String, String> {
+    validate_topic(s).map_err(|e| e.to_string())?;
+    Ok(s.to_string())
+}
+
+fn parse_topic_query(s: &str) -> Result<String, String> {
+    validate_topic_query(s).map_err(|e| e.to_string())?;
+    Ok(s.to_string())
+}
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -89,8 +101,8 @@ struct CommandCat {
     #[clap(long)]
     sse: bool,
 
-    /// Filter by topic
-    #[clap(long = "topic", short = 'T')]
+    /// Filter by topic (supports wildcards like user.*)
+    #[clap(long = "topic", short = 'T', value_parser = parse_topic_query)]
     topic: Option<String>,
 }
 
@@ -101,7 +113,7 @@ struct CommandAppend {
     addr: String,
 
     /// Topic to append to
-    #[clap(value_parser)]
+    #[clap(value_parser = parse_topic)]
     topic: String,
 
     /// JSON metadata to include with the append
@@ -149,7 +161,7 @@ struct CommandLast {
     addr: String,
 
     /// Topic to get the most recent frame for
-    #[clap(value_parser)]
+    #[clap(value_parser = parse_topic)]
     topic: String,
 
     /// Follow for updates to the most recent frame

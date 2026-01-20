@@ -11,7 +11,7 @@ import { chromium } from "playwright";
   await page.emulateMedia({ colorScheme: "dark" });
 
   // Navigate to the page
-  await page.goto("http://localhost:4321/xs/reference/topic-suffixes/");
+  await page.goto("http://localhost:4321/xs/reference/topics/");
 
   // Wait for the page to load completely
   await page.waitForLoadState("networkidle");

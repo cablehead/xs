@@ -4,7 +4,9 @@ sidebar:
   order: 1
 ---
 
-The `xs` CLI provides a collection of subcommands for interacting with a cross.stream store.
+import { Link } from '../../../utils/links';
+
+The `xs` CLI provides a collection of subcommands for interacting with a cross.stream store. See <Link to="/reference/topics/">Topics</Link> for naming rules and wildcards.
 
 ## Usage
 
@@ -70,7 +72,7 @@ xs cat <addr> [options]
 | `--after <id>`, `-a <id>`       | Start after the given frame ID (exclusive)      |
 | `--limit <n>`                   | Maximum number of events to return              |
 | `--sse`                         | Use Server-Sent Events format                   |
-| `--topic <topic>`, `-T <topic>` | Filter frames by topic                          |
+| `--topic <topic>`, `-T <topic>` | Filter by topic (supports `user.*` wildcards)   |
 
 Examples:
 

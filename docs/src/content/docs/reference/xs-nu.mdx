@@ -5,7 +5,9 @@ sidebar:
   order: 1.1
 ---
 
-The `xs.nu` module provides Nushell-friendly wrappers around the core `xs` CLI commands, enabling seamless pipeline integration and environment-aware operations.
+import { Link } from '../../../utils/links';
+
+The `xs.nu` module provides Nushell-friendly wrappers around the core `xs` CLI commands, enabling seamless pipeline integration and environment-aware operations. See <Link to="/reference/topics/">Topics</Link> for naming rules and wildcards.
 
 All functions automatically use the `$env.XS_ADDR` environment variable when connecting to stores, supporting local paths, TCP addresses, and [iroh](https://www.iroh.computer) peer-to-peer QUIC connections. See [Exposing Streams](../exposing-streams/) reference for connection setup and remote access configuration.
 
