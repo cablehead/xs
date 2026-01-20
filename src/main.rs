@@ -8,7 +8,7 @@ use dirs::config_dir;
 use tokio::io::AsyncWriteExt;
 
 use xs::nu;
-use xs::store::{parse_ttl, FollowOption, ReadOptions, Store, ZERO_CONTEXT};
+use xs::store::{parse_ttl, FollowOption, ReadOptions, Store};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -89,14 +89,6 @@ struct CommandCat {
     #[clap(long)]
     sse: bool,
 
-    /// Context ID (defaults to system context)
-    #[clap(long, short = 'c')]
-    context: Option<String>,
-
-    /// Retrieve all frames, across contexts
-    #[clap(long)]
-    all: bool,
-
     /// Filter by topic
     #[clap(long = "topic", short = 'T')]
     topic: Option<String>,
@@ -119,10 +111,6 @@ struct CommandAppend {
     /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<milliseconds>, head:<n>
     #[clap(long)]
     ttl: Option<String>,
-
-    /// Context ID (defaults to system context)
-    #[clap(long, short = 'c')]
-    context: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -167,10 +155,6 @@ struct CommandLast {
     /// Follow for updates to the most recent frame
     #[clap(long, short = 'f')]
     follow: bool,
-
-    /// Context ID (defaults to system context)
-    #[clap(long, short = 'c')]
-    context: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -337,12 +321,6 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Parse IDs first for early error detection
-    let context_id = args
-        .context
-        .as_deref()
-        .and_then(|context| scru128::Scru128Id::from_str(context).ok())
-        .or_else(|| (!args.all).then_some(ZERO_CONTEXT));
     let after = if let Some(after) = &args.after {
         match scru128::Scru128Id::from_str(after) {
             Ok(id) => Some(id),
@@ -351,7 +329,6 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     } else {
         None
     };
-    // Build options in one chain
     let options = ReadOptions::builder()
         .new(args.new)
         .follow(if let Some(pulse) = args.pulse {
@@ -363,7 +340,6 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         })
         .maybe_after(after)
         .maybe_limit(args.limit.map(|l| l as usize))
-        .maybe_context_id(context_id)
         .maybe_topic(args.topic.clone())
         .build();
     let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
@@ -476,15 +452,7 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
         Box::new(tokio::io::empty())
     };
 
-    let response = xs::client::append(
-        &args.addr,
-        &args.topic,
-        input,
-        meta.as_ref(),
-        ttl,
-        args.context.as_deref(),
-    )
-    .await?;
+    let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref(), ttl).await?;
 
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
@@ -516,13 +484,7 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn last(args: CommandLast) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    xs::client::last(
-        &args.addr,
-        &args.topic,
-        args.follow,
-        args.context.as_deref(),
-    )
-    .await
+    xs::client::last(&args.addr, &args.topic, args.follow).await
 }
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

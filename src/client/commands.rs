@@ -2,7 +2,6 @@ use futures::StreamExt;
 
 use base64::Engine;
 use ssri::Integrity;
-use url::form_urlencoded;
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, StreamBody};
 use hyper::body::Bytes;
@@ -67,31 +66,11 @@ pub async fn append<R>(
     data: R,
     meta: Option<&serde_json::Value>,
     ttl: Option<TTL>,
-    context: Option<&str>,
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    let mut params = Vec::new();
-    if let Some(t) = ttl {
-        let ttl_query = t.to_query();
-        if let Some((k, v)) = ttl_query.split_once('=') {
-            params.push((k.to_string(), v.to_string()));
-        }
-    }
-    if let Some(c) = context {
-        params.push(("context".to_string(), c.to_string()));
-    }
-
-    let query = if !params.is_empty() {
-        Some(
-            form_urlencoded::Serializer::new(String::new())
-                .extend_pairs(params)
-                .finish(),
-        )
-    } else {
-        None
-    };
+    let query = ttl.map(|t| t.to_query());
 
     let reader_stream = ReaderStream::new(data);
     let mapped_stream = reader_stream.map(|result| {
@@ -216,31 +195,14 @@ pub async fn last(
     addr: &str,
     topic: &str,
     follow: bool,
-    context: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut params = Vec::new();
-    if follow {
-        params.push(("follow", "true".to_string()));
-    }
-    if let Some(c) = context {
-        params.push(("context", c.to_string()));
-    }
-
-    let query = if !params.is_empty() {
-        Some(
-            form_urlencoded::Serializer::new(String::new())
-                .extend_pairs(params)
-                .finish(),
-        )
-    } else {
-        None
-    };
+    let query = if follow { Some("follow=true") } else { None };
 
     let res = request::request(
         addr,
         Method::GET,
         &format!("last/{topic}"),
-        query.as_deref(),
+        query,
         empty(),
         None,
     )

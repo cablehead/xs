@@ -22,7 +22,6 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 #[derive(Clone)]
 pub struct Handler {
     pub id: Scru128Id,
-    pub context_id: Scru128Id,
     pub topic: String,
     config: HandlerConfig,
     engine_worker: Arc<EngineWorker>,
@@ -60,7 +59,6 @@ struct HandlerScriptOptions {
 impl Handler {
     pub async fn new(
         id: Scru128Id,
-        context_id: Scru128Id,
         topic: String,
         mut engine: nu::Engine,
         expression: String,
@@ -68,14 +66,8 @@ impl Handler {
     ) -> Result<Self, Error> {
         let output = Arc::new(Mutex::new(Vec::new()));
         engine.add_commands(vec![
-            Box::new(commands::cat_command::CatCommand::new(
-                store.clone(),
-                context_id,
-            )),
-            Box::new(commands::last_command::LastCommand::new(
-                store.clone(),
-                context_id,
-            )),
+            Box::new(commands::cat_command::CatCommand::new(store.clone())),
+            Box::new(commands::last_command::LastCommand::new(store.clone())),
             Box::new(commands::append_command_buffered::AppendCommand::new(
                 store.clone(),
                 output.clone(),
@@ -104,7 +96,6 @@ impl Handler {
 
         Ok(Self {
             id,
-            context_id,
             topic,
             config: handler_config,
             engine_worker,
@@ -150,10 +141,11 @@ impl Handler {
                 }
             };
             Some(
-                Frame::builder(
-                    format!("{topic}{suffix}", topic = self.topic, suffix = suffix),
-                    self.context_id,
-                )
+                Frame::builder(format!(
+                    "{topic}{suffix}",
+                    topic = self.topic,
+                    suffix = suffix
+                ))
                 .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
                 .maybe_hash(Some(hash))
                 .build(),
@@ -187,8 +179,6 @@ impl Handler {
                 serde_json::Value::String(frame.id.to_string()),
             );
 
-            // scope the handler's output to the handler's context
-            output_frame.context_id = self.context_id;
             let _ = store.append(output_frame);
         }
 
@@ -211,15 +201,12 @@ impl Handler {
                 || frame.topic == format!("{topic}.unregister", topic = &self.topic)
             {
                 let _ = store.append(
-                    Frame::builder(
-                        format!("{topic}.unregistered", topic = &self.topic),
-                        self.context_id,
-                    )
-                    .meta(serde_json::json!({
-                        "handler_id": self.id.to_string(),
-                        "frame_id": frame.id.to_string(),
-                    }))
-                    .build(),
+                    Frame::builder(format!("{topic}.unregistered", topic = &self.topic))
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .build(),
                 );
                 break;
             }
@@ -238,16 +225,13 @@ impl Handler {
 
             if let Err(err) = self.process_frame(&frame, store).await {
                 let _ = store.append(
-                    Frame::builder(
-                        format!("{topic}.unregistered", topic = self.topic),
-                        self.context_id,
-                    )
-                    .meta(serde_json::json!({
-                        "handler_id": self.id.to_string(),
-                        "frame_id": frame.id.to_string(),
-                        "error": err.to_string(),
-                    }))
-                    .build(),
+                    Frame::builder(format!("{topic}.unregistered", topic = self.topic))
+                        .meta(serde_json::json!({
+                            "handler_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                            "error": err.to_string(),
+                        }))
+                        .build(),
                 );
                 break;
             }
@@ -268,16 +252,13 @@ impl Handler {
         }
 
         let _ = store.append(
-            Frame::builder(
-                format!("{topic}.active", topic = &self.topic),
-                self.context_id,
-            )
-            .meta(serde_json::json!({
-                "handler_id": self.id.to_string(),
-                "new": options.new,
-                "after": options.after.map(|id| id.to_string()),
-            }))
-            .build(),
+            Frame::builder(format!("{topic}.active", topic = &self.topic))
+                .meta(serde_json::json!({
+                    "handler_id": self.id.to_string(),
+                    "new": options.new,
+                    "after": options.after.map(|id| id.to_string()),
+                }))
+                .build(),
         );
 
         Ok(())
@@ -308,7 +289,6 @@ impl Handler {
 
         let handler = Handler::new(
             frame.id,
-            frame.context_id,
             topic.to_string(),
             engine,
             expression,
@@ -338,7 +318,6 @@ impl Handler {
             .follow(follow_option)
             .new(is_new)
             .maybe_after(after)
-            .context_id(self.context_id)
             .build()
     }
 }

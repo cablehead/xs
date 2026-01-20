@@ -10,12 +10,11 @@ use crate::store::{FollowOption, ReadOptions, Store};
 #[derive(Clone)]
 pub struct LastStreamCommand {
     store: Store,
-    context_id: scru128::Scru128Id,
 }
 
 impl LastStreamCommand {
-    pub fn new(store: Store, context_id: scru128::Scru128Id) -> Self {
-        Self { store, context_id }
+    pub fn new(store: Store) -> Self {
+        Self { store }
     }
 }
 
@@ -37,12 +36,6 @@ impl Command for LastStreamCommand {
                 "long poll for updates to most recent frame",
                 Some('f'),
             )
-            .named(
-                "context",
-                SyntaxShape::String,
-                "context ID (defaults to current context)",
-                Some('c'),
-            )
             .category(Category::Experimental)
     }
 
@@ -59,23 +52,9 @@ impl Command for LastStreamCommand {
     ) -> Result<PipelineData, ShellError> {
         let topic: String = call.req(engine_state, stack, 0)?;
         let follow = call.has_flag(engine_state, stack, "follow")?;
-        let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
-
-        let context_id = if let Some(ctx) = context_str {
-            ctx.parse::<scru128::Scru128Id>()
-                .map_err(|e| ShellError::GenericError {
-                    error: "Invalid context ID".into(),
-                    msg: e.to_string(),
-                    span: Some(call.head),
-                    help: None,
-                    inner: vec![],
-                })?
-        } else {
-            self.context_id
-        };
 
         let span = call.head;
-        let current_head = self.store.head(&topic, context_id);
+        let current_head = self.store.head(&topic);
 
         if !follow {
             // Non-follow mode: just return current head or empty
@@ -93,7 +72,6 @@ impl Command for LastStreamCommand {
         let options = ReadOptions::builder()
             .follow(FollowOption::On)
             .maybe_after(current_head.as_ref().map(|f| f.id))
-            .maybe_context_id(Some(context_id))
             .build();
 
         let store = self.store.clone();

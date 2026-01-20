@@ -7,16 +7,13 @@ mod tests {
 
     use crate::error::Error;
     use crate::nu::{commands, util, Engine};
-    use crate::store::{Frame, Store, ZERO_CONTEXT};
+    use crate::store::{Frame, Store};
 
-    fn setup_test_env() -> (Store, Engine, Frame) {
+    fn setup_test_env() -> (Store, Engine) {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep());
         let engine = Engine::new().unwrap();
-        let ctx = store
-            .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
-            .unwrap();
-        (store, engine, ctx)
+        (store, engine)
     }
 
     // Helper to run Nu eval in its own thread
@@ -40,7 +37,7 @@ mod tests {
     }
 
     fn setup_scru128_test_env() -> Engine {
-        let (_store, mut engine, _ctx) = setup_test_env();
+        let (_store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::scru128_command::Scru128Command::new(),
@@ -51,12 +48,11 @@ mod tests {
 
     #[test]
     fn test_append_command() {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(
                     store.clone(),
-                    ctx.id,
                     json!({"base": "meta"}),
                 ),
             )])
@@ -69,7 +65,6 @@ mod tests {
             r#""test content" | .append topic"#,
         );
         let frame = value_to_frame(frame);
-        assert_eq!(frame.context_id, ctx.id);
         assert_eq!(frame.topic, "topic");
         assert_eq!(frame.meta.unwrap(), json!({"base": "meta"}));
         let content = store.cas_read_sync(&frame.hash.unwrap()).unwrap();
@@ -82,7 +77,6 @@ mod tests {
             r#"{data: 123} | .append arecord"#,
         );
         let frame = value_to_frame(frame);
-        assert_eq!(frame.context_id, ctx.id);
         assert_eq!(frame.topic, "arecord");
         assert_eq!(frame.meta.unwrap(), json!({"base": "meta"}));
         let content = store.cas_read_sync(&frame.hash.unwrap()).unwrap();
@@ -100,7 +94,6 @@ mod tests {
             r#".append custom-meta --meta {foo: "bar"}"#,
         );
         let frame = value_to_frame(frame);
-        assert_eq!(frame.context_id, ctx.id);
         assert_eq!(frame.topic, "custom-meta");
         assert_eq!(frame.meta.unwrap(), json!({"base": "meta", "foo": "bar"}));
         assert!(frame.hash.is_none());
@@ -108,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_cas_command_string() {
-        let (store, mut engine, _ctx) = setup_test_env();
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
                 store.clone(),
@@ -125,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_cas_command_binary() {
-        let (store, mut engine, _ctx) = setup_test_env();
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cas_command::CasCommand::new(
                 store.clone(),
@@ -146,17 +139,16 @@ mod tests {
 
     #[test]
     fn test_last_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
                 store.clone(),
-                ctx.id,
             ))])
             .unwrap();
 
         let _frame1 = store
             .append(
-                Frame::builder("topic", ctx.id)
+                Frame::builder("topic")
                     .hash(store.cas_insert_sync("content1")?)
                     .build(),
             )
@@ -164,7 +156,7 @@ mod tests {
 
         let frame2 = store
             .append(
-                Frame::builder("topic", ctx.id)
+                Frame::builder("topic")
                     .hash(store.cas_insert_sync("content2")?)
                     .build(),
             )
@@ -181,17 +173,16 @@ mod tests {
 
     #[test]
     fn test_cat_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
                 store.clone(),
-                ctx.id,
             ))])
             .unwrap();
 
         let _frame1 = store
             .append(
-                Frame::builder("topic1", ctx.id)
+                Frame::builder("topic1")
                     .hash(store.cas_insert_sync("content1")?)
                     .build(),
             )
@@ -199,7 +190,7 @@ mod tests {
 
         let _frame2 = store
             .append(
-                Frame::builder("topic2", ctx.id)
+                Frame::builder("topic2")
                     .hash(store.cas_insert_sync("content2")?)
                     .build(),
             )
@@ -233,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_remove_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(
                 commands::remove_command::RemoveCommand::new(store.clone()),
@@ -242,7 +233,7 @@ mod tests {
 
         let frame = store
             .append(
-                Frame::builder("topic", ctx.id)
+                Frame::builder("topic")
                     .hash(store.cas_insert_sync("test")?)
                     .build(),
             )
@@ -260,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_get_command() -> Result<(), Error> {
-        let (store, mut engine, ctx) = setup_test_env();
+        let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::get_command::GetCommand::new(
                 store.clone(),
@@ -269,7 +260,7 @@ mod tests {
 
         let frame = store
             .append(
-                Frame::builder("topic", ctx.id)
+                Frame::builder("topic")
                     .hash(store.cas_insert_sync("test")?)
                     .build(),
             )

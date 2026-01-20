@@ -17,7 +17,7 @@ async fn start_handler(
         }
         Err(err) => {
             let _ = store.append(
-                Frame::builder(format!("{topic}.unregistered"), frame.context_id)
+                Frame::builder(format!("{topic}.unregistered"))
                     .meta(serde_json::json!({
                         "handler_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -45,7 +45,7 @@ pub async fn serve(
     let options = ReadOptions::builder().follow(FollowOption::On).build();
 
     let mut recver = store.read(options).await;
-    let mut topic_states: HashMap<(String, scru128::Scru128Id), TopicState> = HashMap::new();
+    let mut topic_states: HashMap<String, TopicState> = HashMap::new();
 
     // Process historical frames until threshold
     while let Some(frame) = recver.recv().await {
@@ -59,7 +59,7 @@ pub async fn serve(
                 "register" => {
                     // Store new registration
                     topic_states.insert(
-                        (topic.to_string(), frame.context_id),
+                        topic.to_string(),
                         TopicState {
                             register_frame: frame.clone(),
                             handler_id: frame.id.to_string(),
@@ -70,7 +70,7 @@ pub async fn serve(
                     // Only remove if handler_id matches
                     if let Some(meta) = &frame.meta {
                         if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {
-                            let key = (topic.to_string(), frame.context_id);
+                            let key = topic.to_string();
                             if let Some(state) = topic_states.get(&key) {
                                 if state.handler_id == handler_id {
                                     topic_states.remove(&key);

@@ -11,8 +11,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use scru128::Scru128Id;
 
@@ -20,15 +19,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
 
-// Context with all bits set to zero for system operations
-pub const ZERO_CONTEXT: Scru128Id = Scru128Id::from_bytes([0; 16]);
-
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 pub struct Frame {
     #[builder(start_fn, into)]
     pub topic: String,
-    #[builder(start_fn)]
-    pub context_id: Scru128Id,
     #[builder(default)]
     pub id: Scru128Id,
     pub hash: Option<ssri::Integrity>,
@@ -42,10 +36,6 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Frame")
             .field("id", &format!("{id}", id = self.id))
-            .field(
-                "context_id",
-                &format!("{context_id}", context_id = self.context_id),
-            )
             .field("topic", &self.topic)
             .field("hash", &self.hash.as_ref().map(|x| format!("{x}")))
             .field("meta", &self.meta)
@@ -96,8 +86,6 @@ pub struct ReadOptions {
     #[serde(rename = "after")]
     pub after: Option<Scru128Id>,
     pub limit: Option<usize>,
-    #[serde(rename = "context-id")]
-    pub context_id: Option<Scru128Id>,
     pub topic: Option<String>,
 }
 
@@ -119,10 +107,6 @@ impl ReadOptions {
             FollowOption::WithHeartbeat(duration) => {
                 params.push(("follow", duration.as_millis().to_string()));
             }
-        }
-
-        if let Some(context_id) = self.context_id {
-            params.push(("context-id", context_id.to_string()));
         }
 
         // Add new if true
@@ -166,11 +150,7 @@ pub enum FollowOption {
 #[derive(Debug)]
 enum GCTask {
     Remove(Scru128Id),
-    CheckLastTTL {
-        context_id: Scru128Id,
-        topic: String,
-        keep: u32,
-    },
+    CheckLastTTL { topic: String, keep: u32 },
     Drain(tokio::sync::oneshot::Sender<()>),
 }
 
@@ -180,8 +160,6 @@ pub struct Store {
     keyspace: Keyspace,
     frame_partition: PartitionHandle,
     idx_topic: PartitionHandle,
-    idx_context: PartitionHandle,
-    contexts: Arc<RwLock<HashSet<Scru128Id>>>,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     append_lock: Arc<Mutex<()>>,
@@ -204,34 +182,18 @@ impl Store {
             .open_partition("idx_topic", PartitionCreateOptions::default())
             .unwrap();
 
-        let idx_context = keyspace
-            .open_partition("idx_context", PartitionCreateOptions::default())
-            .unwrap();
-
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
-
-        let mut contexts = HashSet::new();
-        contexts.insert(ZERO_CONTEXT); // System context is always valid
 
         let store = Store {
             path: path.clone(),
             keyspace: keyspace.clone(),
             frame_partition: frame_partition.clone(),
             idx_topic: idx_topic.clone(),
-            idx_context: idx_context.clone(),
-            contexts: Arc::new(RwLock::new(contexts)),
             broadcast_tx,
             gc_tx,
             append_lock: Arc::new(Mutex::new(())),
         };
-
-        // Load context registrations
-        for frame in store.read_sync(None, None, Some(ZERO_CONTEXT)) {
-            if frame.topic == "xs.context" {
-                store.contexts.write().unwrap().insert(frame.id);
-            }
-        }
 
         // Spawn gc worker thread
         spawn_gc_worker(gc_rx, store.clone());
@@ -278,9 +240,9 @@ impl Store {
                 let mut count = 0;
 
                 let iter: Box<dyn Iterator<Item = Frame>> = if let Some(ref topic) = options.topic {
-                    store.iter_frames_by_topic(options.context_id, topic, options.after.as_ref())
+                    store.iter_frames_by_topic(topic, options.after.as_ref())
                 } else {
-                    store.iter_frames(options.context_id, options.after.as_ref())
+                    store.iter_frames(options.after.as_ref())
                 };
 
                 for frame in iter {
@@ -307,11 +269,10 @@ impl Store {
 
                 // Send threshold message if following and no limit
                 if should_follow_clone && options.limit.is_none() {
-                    let threshold =
-                        Frame::builder("xs.threshold", options.context_id.unwrap_or(ZERO_CONTEXT))
-                            .id(scru128::new())
-                            .ttl(TTL::Ephemeral)
-                            .build();
+                    let threshold = Frame::builder("xs.threshold")
+                        .id(scru128::new())
+                        .ttl(TTL::Ephemeral)
+                        .build();
                     if tx_clone.blocking_send(threshold).is_err() {
                         return;
                     }
@@ -344,13 +305,6 @@ impl Store {
 
                     let mut broadcast_rx = broadcast_rx;
                     while let Ok(frame) = broadcast_rx.recv().await {
-                        // Skip frames that do not match the context_id
-                        if let Some(context_id) = options.context_id {
-                            if frame.context_id != context_id {
-                                continue;
-                            }
-                        }
-
                         if let Some(ref topic) = options.topic {
                             if frame.topic != *topic {
                                 continue;
@@ -384,11 +338,10 @@ impl Store {
                 tokio::spawn(async move {
                     loop {
                         tokio::time::sleep(duration).await;
-                        let frame =
-                            Frame::builder("xs.pulse", options.context_id.unwrap_or(ZERO_CONTEXT))
-                                .id(scru128::new())
-                                .ttl(TTL::Ephemeral)
-                                .build();
+                        let frame = Frame::builder("xs.pulse")
+                            .id(scru128::new())
+                            .ttl(TTL::Ephemeral)
+                            .build();
                         if heartbeat_tx.send(frame).await.is_err() {
                             break;
                         }
@@ -405,9 +358,8 @@ impl Store {
         &self,
         after: Option<&Scru128Id>,
         limit: Option<usize>,
-        context_id: Option<Scru128Id>,
     ) -> impl Iterator<Item = Frame> + '_ {
-        self.iter_frames(context_id, after)
+        self.iter_frames(after)
             .filter(move |frame| {
                 if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                     if is_expired(&frame.id, ttl) {
@@ -428,9 +380,9 @@ impl Store {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn head(&self, topic: &str, context_id: Scru128Id) -> Option<Frame> {
+    pub fn head(&self, topic: &str) -> Option<Frame> {
         self.idx_topic
-            .prefix(idx_topic_key_prefix(context_id, topic))
+            .prefix(idx_topic_key_prefix(topic))
             .rev()
             .find_map(|kv| self.get(&idx_topic_frame_id_from_key(&kv.unwrap().0)))
     }
@@ -448,13 +400,6 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.remove(&self.frame_partition, id.as_bytes());
         batch.remove(&self.idx_topic, topic_key);
-        batch.remove(&self.idx_context, idx_context_key_from_frame(&frame));
-
-        // If this is a context frame, remove it from the contexts set
-        if frame.topic == "xs.context" {
-            self.contexts.write().unwrap().remove(&frame.id);
-        }
-
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)?;
         Ok(())
@@ -512,7 +457,6 @@ impl Store {
         let mut batch = self.keyspace.batch();
         batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
         batch.insert(&self.idx_topic, topic_key, b"");
-        batch.insert(&self.idx_context, idx_context_key_from_frame(frame), b"");
         batch.commit()?;
         self.keyspace.persist(fjall::PersistMode::SyncAll)?;
         Ok(())
@@ -526,25 +470,6 @@ impl Store {
 
         frame.id = scru128::new();
 
-        // Special handling for xs.context registration
-        if frame.topic == "xs.context" {
-            if frame.context_id != ZERO_CONTEXT {
-                return Err("xs.context frames must be in zero context".into());
-            }
-            frame.ttl = Some(TTL::Forever);
-            self.contexts.write().unwrap().insert(frame.id);
-        } else {
-            // Validate context exists
-            let contexts = self.contexts.read().unwrap();
-            if !contexts.contains(&frame.context_id) {
-                return Err(format!(
-                    "Invalid context: {context_id}",
-                    context_id = frame.context_id
-                )
-                .into());
-            }
-        }
-
         // Check for null byte in topic (in case we're not storing the frame)
         idx_topic_key_from_frame(&frame)?;
 
@@ -555,7 +480,6 @@ impl Store {
             // If this is a Last TTL, schedule a gc task
             if let Some(TTL::Last(n)) = frame.ttl {
                 let _ = self.gc_tx.send(GCTask::CheckLastTTL {
-                    context_id: frame.context_id,
                     topic: frame.topic.clone(),
                     keep: n,
                 });
@@ -566,84 +490,35 @@ impl Store {
         Ok(frame)
     }
 
-    fn iter_frames(
-        &self,
-        context_id: Option<Scru128Id>,
-        last_id: Option<&Scru128Id>,
-    ) -> Box<dyn Iterator<Item = Frame> + '_> {
-        match context_id {
-            Some(ctx_id) => {
-                let start_key = if let Some(last_id) = last_id {
-                    // explicitly combine context_id + last_id
-                    let mut v = Vec::with_capacity(32);
-                    v.extend(ctx_id.as_bytes());
-                    v.extend(last_id.as_bytes());
-                    Bound::Excluded(v)
-                } else {
-                    Bound::Included(ctx_id.as_bytes().to_vec())
-                };
+    fn iter_frames(&self, last_id: Option<&Scru128Id>) -> Box<dyn Iterator<Item = Frame> + '_> {
+        let range = match last_id {
+            Some(id) => (Bound::Excluded(id.as_bytes().to_vec()), Bound::Unbounded),
+            None => (Bound::Unbounded, Bound::Unbounded),
+        };
 
-                let end_key = Bound::Excluded(idx_context_key_range_end(ctx_id));
-
-                Box::new(
-                    self.idx_context
-                        .range((start_key, end_key))
-                        .filter_map(move |r| {
-                            let (key, _) = r.ok()?;
-                            let frame_id_bytes = &key[16..];
-                            let frame_id = Scru128Id::from_bytes(frame_id_bytes.try_into().ok()?);
-                            self.get(&frame_id)
-                        }),
-                )
-            }
-            None => {
-                let range = match last_id {
-                    Some(id) => (Bound::Excluded(id.as_bytes().to_vec()), Bound::Unbounded),
-                    None => (Bound::Unbounded, Bound::Unbounded),
-                };
-
-                Box::new(
-                    self.frame_partition
-                        .range(range)
-                        .map(|r| deserialize_frame(r.unwrap())),
-                )
-            }
-        }
+        Box::new(
+            self.frame_partition
+                .range(range)
+                .map(|r| deserialize_frame(r.unwrap())),
+        )
     }
 
     fn iter_frames_by_topic<'a>(
         &'a self,
-        context_id: Option<Scru128Id>,
         topic: &'a str,
         last_id: Option<&'a Scru128Id>,
     ) -> Box<dyn Iterator<Item = Frame> + 'a> {
-        if let Some(ctx_id) = context_id {
-            let prefix = idx_topic_key_prefix(ctx_id, topic);
-            Box::new(self.idx_topic.prefix(prefix).filter_map(move |r| {
-                let (key, _) = r.ok()?;
-                let frame_id = idx_topic_frame_id_from_key(&key);
-                if let Some(last) = last_id {
-                    if frame_id <= *last {
-                        return None;
-                    }
+        let prefix = idx_topic_key_prefix(topic);
+        Box::new(self.idx_topic.prefix(prefix).filter_map(move |r| {
+            let (key, _) = r.ok()?;
+            let frame_id = idx_topic_frame_id_from_key(&key);
+            if let Some(last) = last_id {
+                if frame_id <= *last {
+                    return None;
                 }
-                self.get(&frame_id)
-            }))
-        } else {
-            let range = match last_id {
-                Some(id) => (Bound::Excluded(id.as_bytes().to_vec()), Bound::Unbounded),
-                None => (Bound::Unbounded, Bound::Unbounded),
-            };
-
-            Box::new(self.frame_partition.range(range).filter_map(move |r| {
-                let frame = deserialize_frame(r.unwrap());
-                if frame.topic == topic {
-                    Some(frame)
-                } else {
-                    None
-                }
-            }))
-        }
+            }
+            self.get(&frame_id)
+        }))
     }
 }
 
@@ -655,12 +530,8 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
                     let _ = store.remove(&id);
                 }
 
-                GCTask::CheckLastTTL {
-                    context_id,
-                    topic,
-                    keep,
-                } => {
-                    let prefix = idx_topic_key_prefix(context_id, &topic);
+                GCTask::CheckLastTTL { topic, keep } => {
+                    let prefix = idx_topic_key_prefix(&topic);
                     let frames_to_remove: Vec<_> = store
                         .idx_topic
                         .prefix(&prefix)
@@ -697,9 +568,8 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
 
 const NULL_DELIMITER: u8 = 0;
 
-fn idx_topic_key_prefix(context_id: Scru128Id, topic: &str) -> Vec<u8> {
-    let mut v = Vec::with_capacity(16 + topic.len() + 1); // context_id (16) + topic bytes + delimiter
-    v.extend(context_id.as_bytes()); // binary context_id (16 bytes)
+fn idx_topic_key_prefix(topic: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(topic.len() + 1); // topic bytes + delimiter
     v.extend(topic.as_bytes()); // topic string as UTF-8 bytes
     v.push(NULL_DELIMITER); // Delimiter for variable-sized keys
     v
@@ -714,7 +584,7 @@ pub(crate) fn idx_topic_key_from_frame(frame: &Frame) -> Result<Vec<u8>, crate::
                 .into(),
         );
     }
-    let mut v = idx_topic_key_prefix(frame.context_id, &frame.topic);
+    let mut v = idx_topic_key_prefix(&frame.topic);
     v.extend(frame.id.as_bytes());
     Ok(v)
 }
@@ -722,24 +592,6 @@ pub(crate) fn idx_topic_key_from_frame(frame: &Frame) -> Result<Vec<u8>, crate::
 fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
     let frame_id_bytes = &key[key.len() - 16..];
     Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap())
-}
-
-// Creates a key for the context index: <context_id><frame_id>
-fn idx_context_key_from_frame(frame: &Frame) -> Vec<u8> {
-    let mut v = Vec::with_capacity(frame.context_id.as_bytes().len() + frame.id.as_bytes().len());
-    v.extend(frame.context_id.as_bytes());
-    v.extend(frame.id.as_bytes());
-    v
-}
-
-// Returns the key prefix for the next context after the given one
-fn idx_context_key_range_end(context_id: Scru128Id) -> Vec<u8> {
-    let mut i = context_id.to_u128();
-
-    // NOTE: Reaching u128::MAX is probably not gonna happen...
-    i = i.saturating_add(1);
-
-    Scru128Id::from(i).as_bytes().to_vec()
 }
 
 fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(

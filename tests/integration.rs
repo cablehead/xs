@@ -28,145 +28,48 @@ async fn test_integration() {
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Verify xs.start in default context
+    // Verify xs.start frame
     let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
         .read()
         .unwrap();
     let start_frame: Frame = serde_json::from_str(&output).unwrap();
     assert_eq!(start_frame.topic, "xs.start");
 
-    // Try append to xs.start's id as the context (should fail)
-    let result = cmd!(
-        assert_cmd::cargo::cargo_bin!("xs"),
-        "append",
-        store_path,
-        "note",
-        "-c",
-        start_frame.id.to_string()
-    )
-    .stdin_bytes(b"test")
-    .run();
-    assert!(result.is_err());
-
-    // Register new context
-    let context_output = cmd!(
-        assert_cmd::cargo::cargo_bin!("xs"),
-        "append",
-        store_path,
-        "xs.context"
-    )
-    .read()
-    .unwrap();
-    let context_frame: Frame = serde_json::from_str(&context_output).unwrap();
-    let context_id = context_frame.id.to_string();
+    // Start follower
+    let mut rx = spawn_follower(store_path.to_path_buf()).await;
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Start followers
-    let mut default_rx = spawn_follower(store_path.to_path_buf(), None).await;
-    let mut new_rx = spawn_follower(store_path.to_path_buf(), Some(context_id.clone())).await;
+    // Verify stream so far
+    assert_frame_received!(&mut rx, Some("xs.start"));
+    assert_frame_received!(&mut rx, Some("xs.threshold"));
+    assert_frame_received!(&mut rx, None);
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Verify default stream so far
-    assert_frame_received!(&mut default_rx, Some("xs.start"));
-    assert_frame_received!(&mut default_rx, Some("xs.context"));
-    assert_frame_received!(&mut default_rx, Some("xs.threshold"));
-    assert_frame_received!(&mut default_rx, None);
-
-    // nothing in our custom partition yet
-    assert_frame_received!(&mut new_rx, Some("xs.threshold"));
-    assert_frame_received!(&mut new_rx, None);
-
-    // Write to default context
+    // Append a note
     cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
         "note"
     )
-    .stdin_bytes(b"default note")
+    .stdin_bytes(b"test note")
     .run()
     .unwrap();
 
-    // Verify received in default only
-    assert_frame_received!(&mut default_rx, Some("note"));
-    assert_frame_received!(&mut new_rx, None);
+    // Verify frame received
+    assert_frame_received!(&mut rx, Some("note"));
 
-    // Write to new context
-    cmd!(
-        assert_cmd::cargo::cargo_bin!("xs"),
-        "append",
-        store_path,
-        "note",
-        "-c",
-        &context_id
-    )
-    .stdin_bytes(b"context note")
-    .run()
-    .unwrap();
-
-    // Verify received in new context only
-    assert_frame_received!(&mut default_rx, None);
-    assert_frame_received!(&mut new_rx, Some("note"));
-
-    // Verify separate .cat results
-    let default_notes = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
+    // Verify .cat results
+    let notes = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
         .read()
         .unwrap();
-    let frames: Vec<Frame> = default_notes
+    let frames: Vec<Frame> = notes
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert!(frames
-        .iter()
-        .all(|f| f.context_id.to_string() == "0000000000000000000000000"));
-
-    let context_notes = cmd!(
-        assert_cmd::cargo::cargo_bin!("xs"),
-        "cat",
-        store_path,
-        "-c",
-        &context_id
-    )
-    .read()
-    .unwrap();
-    let frames: Vec<Frame> = context_notes
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect();
-    assert!(frames
-        .iter()
-        .all(|f| f.context_id.to_string() == context_id));
-
-    // xs cat --all
-    let all_notes = cmd!(
-        assert_cmd::cargo::cargo_bin!("xs"),
-        "cat",
-        store_path,
-        "--all"
-    )
-    .read()
-    .unwrap();
-    let mut frames = all_notes
-        .lines()
-        .map(|l| serde_json::from_str::<Frame>(l).unwrap());
-
-    let frame = frames.next().unwrap();
-    assert_eq!(frame.topic, "xs.start");
-    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
-
-    let frame = frames.next().unwrap();
-    assert_eq!(frame.topic, "xs.context");
-    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
-
-    let frame = frames.next().unwrap();
-    assert_eq!(frame.topic, "note");
-    assert_eq!(frame.context_id.to_string(), "0000000000000000000000000");
-
-    let frame = frames.next().unwrap();
-    assert_eq!(frame.topic, "note");
-    assert_eq!(frame.context_id.to_string(), context_id);
+    assert_eq!(frames.len(), 2); // xs.start + note
+    assert_eq!(frames[0].topic, "xs.start");
+    assert_eq!(frames[1].topic, "note");
 
     // assert unicode support
     let unicode_output = cmd!(
@@ -627,7 +530,7 @@ async fn test_eval_cat_streaming() {
         .collect();
     assert_eq!(frames.len(), 1, "Should respect --limit flag");
 
-    // Test 5: .cat --detail includes context_id and ttl
+    // Test 5: .cat --detail includes ttl
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
@@ -640,15 +543,11 @@ async fn test_eval_cat_streaming() {
 
     let frame: serde_json::Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
     assert!(
-        frame.get("context_id").is_some(),
-        "Should include context_id with --detail"
-    );
-    assert!(
         frame.get("ttl").is_some(),
         "Should include ttl with --detail"
     );
 
-    // Test 6: Without --detail, context_id and ttl are filtered
+    // Test 6: Without --detail, ttl is filtered
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
@@ -660,10 +559,6 @@ async fn test_eval_cat_streaming() {
     .unwrap();
 
     let frame: serde_json::Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
-    assert!(
-        frame.get("context_id").is_none(),
-        "Should not include context_id without --detail"
-    );
     assert!(
         frame.get("ttl").is_none(),
         "Should not include ttl without --detail"
@@ -968,21 +863,14 @@ async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
     child
 }
 
-async fn spawn_follower(
-    store_path: std::path::PathBuf, // Take owned PathBuf
-    context: Option<String>,
-) -> mpsc::Receiver<Frame> {
+async fn spawn_follower(store_path: std::path::PathBuf) -> mpsc::Receiver<Frame> {
     let (tx, rx) = mpsc::channel(10);
 
     tokio::spawn(async move {
-        let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"));
-        cmd.arg("cat").arg(&store_path).arg("-f");
-
-        if let Some(ctx) = context {
-            cmd.arg("-c").arg(ctx);
-        }
-
-        let mut child = cmd
+        let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
+            .arg("cat")
+            .arg(&store_path)
+            .arg("-f")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()

@@ -26,27 +26,21 @@ impl Command for AppendCommand {
 
     fn signature(&self) -> Signature {
         Signature::build(".append")
-           .input_output_types(vec![(Type::Any, Type::Any)])
-           .required("topic", SyntaxShape::String, "this clip's topic")
-           .named(
-               "meta",
-               SyntaxShape::Record(vec![]),
-               "arbitrary metadata",
-               None,
-           )
-           .named(
-               "ttl",
-               SyntaxShape::String,
-               r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'"#,
-               None,
-           )
-           .named(
-               "context",
-               SyntaxShape::String,
-               "context ID (defaults to system context)",
-               None,
-           )
-           .category(Category::Experimental)
+            .input_output_types(vec![(Type::Any, Type::Any)])
+            .required("topic", SyntaxShape::String, "this clip's topic")
+            .named(
+                "meta",
+                SyntaxShape::Record(vec![]),
+                "arbitrary metadata",
+                None,
+            )
+            .named(
+                "ttl",
+                SyntaxShape::String,
+                r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'last:<n>'"#,
+                None,
+            )
+            .category(Category::Experimental)
     }
 
     fn description(&self) -> &str {
@@ -67,15 +61,18 @@ impl Command for AppendCommand {
         let ttl_str: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
 
         let ttl = ttl_str
-           .map(|s| TTL::from_query(Some(&format!("ttl={s}"))))
-           .transpose()
-           .map_err(|e| ShellError::GenericError {
-               error: "Invalid TTL format".into(),
-               msg: e.to_string(),
-               span: Some(span),
-               help: Some("TTL must be one of: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'".into()),
-               inner: vec![],
-           })?;
+            .map(|s| TTL::from_query(Some(&format!("ttl={s}"))))
+            .transpose()
+            .map_err(|e| ShellError::GenericError {
+                error: "Invalid TTL format".into(),
+                msg: e.to_string(),
+                span: Some(span),
+                help: Some(
+                    "TTL must be one of: 'forever', 'ephemeral', 'time:<milliseconds>', or 'last:<n>'"
+                        .into(),
+                ),
+                inner: vec![],
+            })?;
 
         let input_value = input.into_value(span)?;
 
@@ -86,21 +83,7 @@ impl Command for AppendCommand {
         )
         .map_err(|boxed| *boxed)?;
 
-        let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
-        let context_id = if let Some(ctx) = context_str {
-            ctx.parse::<scru128::Scru128Id>()
-                .map_err(|e| ShellError::GenericError {
-                    error: "Invalid context ID".into(),
-                    msg: e.to_string(),
-                    span: Some(call.head),
-                    help: None,
-                    inner: vec![],
-                })?
-        } else {
-            crate::store::ZERO_CONTEXT
-        };
-
-        let frame = Frame::builder(topic, context_id)
+        let frame = Frame::builder(topic)
             .maybe_meta(meta.map(|v| value_to_json(&v)))
             .maybe_hash(hash)
             .maybe_ttl(ttl)

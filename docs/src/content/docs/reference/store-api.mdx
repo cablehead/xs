@@ -29,7 +29,6 @@ Query Parameters:
 - `new` - Skip existing, only show new frames
 - `after` - Start after a specific frame ID (exclusive)
 - `limit` - Maximum number of frames to return
-- `context-id` - Filter frames by context ID
 - `topic` - Filter frames by topic
 
 Response: newline-delimited JSON frames or SSE stream, based on Accept header.
@@ -53,7 +52,6 @@ Query Parameters:
   - `ephemeral` - Not stored; only active subscribers receive it
   - `time:<ms>` - Expire after duration
   - `head:<n>` - Keep only N most recent frames
-- `context` - Context ID for the frame
 
 Headers:
 
@@ -93,7 +91,6 @@ curl --unix-socket ./store/sock http://localhost/last/topic
 Query Parameters:
 
 - `follow` - Long poll for new frames on this topic
-- `context` - Context ID to filter by
 
 Response: Most recent frame for topic or 404 if not found
 

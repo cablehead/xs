@@ -30,7 +30,7 @@ use xs.nu *
 Append content to a topic. Wraps [`xs append`](../cli/#append).
 
 ```nushell
-.append <topic> [--meta <record>] [--ttl <ttl>] [--context <id>]
+.append <topic> [--meta <record>] [--ttl <ttl>]
 ```
 
 ```nushell
@@ -43,7 +43,7 @@ Append content to a topic. Wraps [`xs append`](../cli/#append).
 Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 
 ```nushell
-.cat [--follow] [--new] [--topic <topic>] [--context <id>] [--all]
+.cat [--follow] [--new] [--topic <topic>]
 ```
 
 ```nushell
@@ -56,7 +56,7 @@ Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 Get the most recent frame for a topic. Wraps [`xs last`](../cli/#last).
 
 ```nushell
-.last <topic> [--follow] [--context <id>]
+.last <topic> [--follow]
 ```
 
 ```nushell
@@ -186,32 +186,6 @@ let note = .last note
 .cas $note.hash  # Get the note content
 ```
 
-## Context Management
-
-### `.ctx`
-
-Get the current context ID.
-
-```nushell
-.ctx
-```
-
-### `.ctx-select`
-
-Interactively select a context from available contexts.
-
-```nushell
-.ctx-select
-```
-
-### `.ctx-list`
-
-List all available contexts.
-
-```nushell
-.ctx-list
-```
-
 ## Utilities
 
 ### `.cas-post`
@@ -262,7 +236,7 @@ The function:
 
 - Creates a temporary directory with an xs store
 - Starts `xs serve` in the background
-- Sets `$env.XS_ADDR` and `$env.XS_CONTEXT`
+- Sets `$env.XS_ADDR`
 - Runs your closure in this isolated environment
 - Optionally starts an interactive Nushell session (with `--interactive`)
 - Automatically cleans up the background process and temporary directory
@@ -288,7 +262,7 @@ This is particularly useful for integration tests where you need a clean, isolat
 The `xs.nu` functions provide several advantages over direct CLI usage:
 
 - **Pipeline Integration**: All functions work naturally in Nushell pipelines
-- **Environment Awareness**: Automatic detection of `$env.XS_ADDR` and `$env.XS_CONTEXT`
+- **Environment Awareness**: Automatic detection of `$env.XS_ADDR`
 - **Type Safety**: Return structured Nushell records instead of raw JSON strings
 - **Native Data Types**: SCRU128 timestamps use native Nushell `datetime` types
 - **Error Handling**: Proper Nushell error propagation
@@ -296,7 +270,6 @@ The `xs.nu` functions provide several advantages over direct CLI usage:
 
 ## Environment Variables
 
-Many functions automatically use these environment variables when available:
+Many functions automatically use this environment variable when available:
 
 - `$env.XS_ADDR`: Address to connect to (path or host:port)
-- `$env.XS_CONTEXT`: Context ID for operations

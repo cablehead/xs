@@ -30,9 +30,6 @@ The generator will:
   one frame per line, while `ByteStream` pipelines send binary chunks.
 - Automatically restarts if it exits until a terminate frame is seen
 
-All frames produced by the generator use the same context as the `.spawn` frame
-so multiple contexts can run generators with the same topic independently.
-
 ## Lifecycle Events
 
 Generators emit lifecycle events to track their state. For a complete overview of all topic suffixes, see <Link to="/reference/topic-suffixes/">Topic Suffixes</Link>.
@@ -41,7 +38,7 @@ Generators emit lifecycle events to track their state. For a complete overview o
 | --------------------- | --------------------------------------- |
 | `<topic>.running`     | Generator has started processing        |
 | `<topic>.recv`        | Output value from the generator         |
-| `<topic>.stopped` | Generator pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate` and `update`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the generator loop for this topic/context will shut down. `update` indicates the generator reloaded due to a new `.spawn` frame. |
+| `<topic>.stopped` | Generator pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate` and `update`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the generator loop will shut down. `update` indicates the generator reloaded due to a new `.spawn` frame. |
 | `<topic>.parse.error` | Script failed to parse |
 | `<topic>.shutdown` | Generator loop has fully exited; ServeLoop evicts it |
 
@@ -126,7 +123,7 @@ To stop a running generator, append a frame with the topic `<topic>.terminate`.
 The generator will stop and emit a `<topic>.stopped` frame with `meta.reason` set to
 `terminate`.
 
-Appending a new `<topic>.spawn` frame while a generator of the same topic and
-context is running reloads it with the new script. If the reload fails to parse,
+Appending a new `<topic>.spawn` frame while a generator of the same topic
+is running reloads it with the new script. If the reload fails to parse,
 you'll see a `<topic>.parse.error` frame, and the previous generator continues
 running.

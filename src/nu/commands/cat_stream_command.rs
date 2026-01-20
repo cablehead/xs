@@ -10,12 +10,11 @@ use crate::store::{FollowOption, ReadOptions, Store};
 #[derive(Clone)]
 pub struct CatStreamCommand {
     store: Store,
-    context_id: scru128::Scru128Id,
 }
 
 impl CatStreamCommand {
-    pub fn new(store: Store, context_id: scru128::Scru128Id) -> Self {
-        Self { store, context_id }
+    pub fn new(store: Store) -> Self {
+        Self { store }
     }
 }
 
@@ -36,7 +35,6 @@ impl Command for CatStreamCommand {
             )
             .switch("new", "skip existing, only show new", Some('n'))
             .switch("detail", "include all frame fields", Some('d'))
-            .switch("all", "read across all contexts", None)
             .named(
                 "limit",
                 SyntaxShape::Int,
@@ -68,7 +66,6 @@ impl Command for CatStreamCommand {
         let pulse: Option<i64> = call.get_flag(engine_state, stack, "pulse")?;
         let new = call.has_flag(engine_state, stack, "new")?;
         let detail = call.has_flag(engine_state, stack, "detail")?;
-        let all = call.has_flag(engine_state, stack, "all")?;
         let limit: Option<i64> = call.get_flag(engine_state, stack, "limit")?;
         let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
         let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
@@ -87,10 +84,7 @@ impl Command for CatStreamCommand {
             })
             .transpose()?;
 
-        // For non-follow mode, always use async path for consistency
-        // The store.read() will handle topic filtering correctly
-
-        // Build ReadOptions for async path (follow mode or no topic filter)
+        // Build ReadOptions
         let options = ReadOptions::builder()
             .follow(if let Some(pulse_ms) = pulse {
                 FollowOption::WithHeartbeat(Duration::from_millis(pulse_ms as u64))
@@ -102,7 +96,6 @@ impl Command for CatStreamCommand {
             .new(new)
             .maybe_after(after)
             .maybe_limit(limit.map(|l| l as usize))
-            .maybe_context_id(if all { None } else { Some(self.context_id) })
             .maybe_topic(topic.clone())
             .build();
 
@@ -128,7 +121,6 @@ impl Command for CatStreamCommand {
                         value = match value {
                             Value::Record { val, .. } => {
                                 let mut filtered = val.into_owned();
-                                filtered.remove("context_id");
                                 filtered.remove("ttl");
                                 Value::record(filtered, span)
                             }

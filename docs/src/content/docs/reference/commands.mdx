@@ -111,13 +111,6 @@ r#'{
 
 This allows you to modularize your commands and reuse code across different commands.
 
-## Contexts
-
-Command definitions and calls are scoped by context. Defining the same command
-name in two different contexts creates two independent commands. Calls are
-processed only when a matching definition exists in the same context;
-otherwise the call is ignored.
-
 ## Built-in Store Commands
 
 When the `run` closure executes it can use several helper commands provided by
@@ -125,14 +118,11 @@ cross.stream:
 
 - `.append` – append a new frame. Metadata you provide is merged with
   `command_id` and `frame_id`.
-- `.cat` – read frames from the command’s context.
-- `.last` – fetch the most recent frame for a topic in this context.
+- `.cat` – read frames from the store.
+- `.last` – fetch the most recent frame for a topic.
 - `.cas` – read content from CAS by hash.
 - `.get` – retrieve a frame by ID.
 - `.remove` – delete a frame from the stream.
-
-`cat` and `last` default to the command's context, while `append` accepts an
-explicit context flag if you need to write elsewhere.
 
 ## Key Differences
 

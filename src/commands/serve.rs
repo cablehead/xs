@@ -21,13 +21,13 @@ async fn handle_define(
     name: &str,
     base_engine: &nu::Engine,
     store: &Store,
-    commands: &mut HashMap<(String, Scru128Id), Command>,
+    commands: &mut HashMap<String, Command>,
 ) {
     match register_command(frame, base_engine, store).await {
         Ok(command) => {
-            commands.insert((name.to_string(), frame.context_id), command);
+            commands.insert(name.to_string(), command);
             let _ = store.append(
-                Frame::builder(format!("{name}.ready"), frame.context_id)
+                Frame::builder(format!("{name}.ready"))
                     .meta(serde_json::json!({
                         "command_id": frame.id.to_string(),
                     }))
@@ -36,7 +36,7 @@ async fn handle_define(
         }
         Err(err) => {
             let _ = store.append(
-                Frame::builder(format!("{name}.error"), frame.context_id)
+                Frame::builder(format!("{name}.error"))
                     .meta(serde_json::json!({
                         "command_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -74,8 +74,7 @@ pub async fn serve(
             handle_define(&frame, name, &base_engine, &store, &mut commands).await;
         } else if let Some(name) = frame.topic.strip_suffix(".call") {
             let name = name.to_owned();
-            let command_key = (name.clone(), frame.context_id);
-            if let Some(command) = commands.get(&command_key) {
+            if let Some(command) = commands.get(&name) {
                 let store = store.clone();
                 let frame = frame.clone();
                 let command = command.clone();
@@ -83,7 +82,7 @@ pub async fn serve(
                     if let Err(e) = execute_command(command, &frame, &store).await {
                         tracing::error!("Failed to execute command '{}': {:?}", name, e);
                         let _ = store.append(
-                            Frame::builder(format!("{name}.error"), frame.context_id)
+                            Frame::builder(format!("{name}.error"))
                                 .meta(serde_json::json!({
                                     "error": e.to_string(),
                                 }))
@@ -110,16 +109,10 @@ async fn register_command(
 
     let mut engine = base_engine.clone();
 
-    // Add additional commands, scoped to this command's context
+    // Add additional commands
     engine.add_commands(vec![
-        Box::new(commands::cat_command::CatCommand::new(
-            store.clone(),
-            frame.context_id,
-        )),
-        Box::new(commands::last_command::LastCommand::new(
-            store.clone(),
-            frame.context_id,
-        )),
+        Box::new(commands::cat_command::CatCommand::new(store.clone())),
+        Box::new(commands::last_command::LastCommand::new(store.clone())),
     ])?;
 
     // Parse the command configuration
@@ -164,11 +157,7 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
         let mut engine = command.engine;
 
         engine.add_commands(vec![Box::new(
-            commands::append_command::AppendCommand::new(
-                store.clone(),
-                frame.context_id,
-                base_meta,
-            ),
+            commands::append_command::AppendCommand::new(store.clone(), base_meta),
         )])?;
 
         // Parse the command configuration to get the up-to-date closure with modules loaded
@@ -196,14 +185,11 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
                 };
 
                 let _ = store.append(
-                    Frame::builder(
-                        format!(
-                            "{topic}{suffix}",
-                            topic = frame.topic.strip_suffix(".call").unwrap(),
-                            suffix = resp_suffix
-                        ),
-                        frame.context_id,
-                    )
+                    Frame::builder(format!(
+                        "{topic}{suffix}",
+                        topic = frame.topic.strip_suffix(".call").unwrap(),
+                        suffix = resp_suffix
+                    ))
                     .maybe_ttl(ttl.clone())
                     .hash(hash)
                     .meta(serde_json::json!({
@@ -218,13 +204,10 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
                 // Emit error event instead of propagating
                 let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
                 let _ = store.append(
-                    Frame::builder(
-                        format!(
-                            "{topic}.error",
-                            topic = frame.topic.strip_suffix(".call").unwrap()
-                        ),
-                        frame.context_id,
-                    )
+                    Frame::builder(format!(
+                        "{topic}.error",
+                        topic = frame.topic.strip_suffix(".call").unwrap()
+                    ))
                     .meta(serde_json::json!({
                         "command_id": command.id.to_string(),
                         "frame_id": frame.id.to_string(),

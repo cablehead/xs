@@ -70,8 +70,6 @@ xs cat <addr> [options]
 | `--after <id>`, `-a <id>`       | Start after the given frame ID (exclusive)      |
 | `--limit <n>`                   | Maximum number of events to return              |
 | `--sse`                         | Use Server-Sent Events format                   |
-| `--context <id>`, `-c <id>`     | Context ID (defaults to system context)         |
-| `--all`                         | Retrieve frames across all contexts             |
 | `--topic <topic>`, `-T <topic>` | Filter frames by topic                          |
 
 Examples:
@@ -97,13 +95,12 @@ Append an event to a topic.
 xs append <addr> <topic> [options]
 ```
 
-| Option                      | Description                                                   |
-| --------------------------- | ------------------------------------------------------------- |
-| `<addr>`                    | Address to connect to                                         |
-| `<topic>`                   | Topic to append to                                            |
-| `--meta <json>`             | JSON metadata to include                                      |
-| `--ttl <ttl>`               | Time-to-live: `forever`, `ephemeral`, `time:<ms>`, `head:<n>` |
-| `--context <id>`, `-c <id>` | Context ID (defaults to system context)                       |
+| Option          | Description                                                   |
+| --------------- | ------------------------------------------------------------- |
+| `<addr>`        | Address to connect to                                         |
+| `<topic>`       | Topic to append to                                            |
+| `--meta <json>` | JSON metadata to include                                      |
+| `--ttl <ttl>`   | Time-to-live: `forever`, `ephemeral`, `time:<ms>`, `head:<n>` |
 
 Example:
 
@@ -163,12 +160,11 @@ Get the most recent frame for a topic.
 xs last <addr> <topic> [--follow]
 ```
 
-| Option                      | Description                             |
-| --------------------------- | --------------------------------------- |
-| `<addr>`                    | Address to connect to                   |
-| `<topic>`                   | Topic to inspect                        |
-| `--follow`, `-f`            | Follow for updates                      |
-| `--context <id>`, `-c <id>` | Context ID (defaults to system context) |
+| Option           | Description             |
+| ---------------- | ----------------------- |
+| `<addr>`         | Address to connect to   |
+| `<topic>`        | Topic to inspect        |
+| `--follow`, `-f` | Follow for updates      |
 
 ### `get`
 

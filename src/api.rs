@@ -41,12 +41,10 @@ enum Routes {
     StreamAppend {
         topic: String,
         ttl: Option<TTL>,
-        context_id: Scru128Id,
     },
     LastGet {
         topic: String,
         follow: bool,
-        context_id: Scru128Id,
     },
     StreamItemGet(Scru128Id),
     StreamItemRemove(Scru128Id),
@@ -114,18 +112,7 @@ fn match_route(
         (&Method::GET, p) if p.starts_with("/last/") => {
             let topic = p.strip_prefix("/last/").unwrap().to_string();
             let follow = params.contains_key("follow");
-            let context_id = match params.get("context") {
-                None => crate::store::ZERO_CONTEXT,
-                Some(ctx) => match ctx.parse() {
-                    Ok(id) => id,
-                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {e}")),
-                },
-            };
-            Routes::LastGet {
-                topic,
-                follow,
-                context_id,
-            }
+            Routes::LastGet { topic, follow }
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
@@ -161,19 +148,11 @@ fn match_route(
 
         (&Method::POST, path) if path.starts_with("/append/") => {
             let topic = path.strip_prefix("/append/").unwrap().to_string();
-            let context_id = match params.get("context") {
-                None => crate::store::ZERO_CONTEXT,
-                Some(ctx) => match ctx.parse() {
-                    Ok(id) => id,
-                    Err(e) => return Routes::BadRequest(format!("Invalid context ID: {e}")),
-                },
-            };
 
             match TTL::from_query(query) {
                 Ok(ttl) => Routes::StreamAppend {
                     topic,
                     ttl: Some(ttl),
-                    context_id,
                 },
                 Err(e) => Routes::BadRequest(e.to_string()),
             }
@@ -201,11 +180,9 @@ async fn handle(
             options,
         } => handle_stream_cat(&mut store, options, accept_type).await,
 
-        Routes::StreamAppend {
-            topic,
-            ttl,
-            context_id,
-        } => handle_stream_append(&mut store, req, topic, ttl, context_id).await,
+        Routes::StreamAppend { topic, ttl } => {
+            handle_stream_append(&mut store, req, topic, ttl).await
+        }
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
@@ -226,11 +203,7 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::LastGet {
-            topic,
-            follow,
-            context_id,
-        } => handle_last_get(&store, &topic, follow, context_id).await,
+        Routes::LastGet { topic, follow } => handle_last_get(&store, &topic, follow).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -287,7 +260,6 @@ async fn handle_stream_append(
     req: Request<hyper::body::Incoming>,
     topic: String,
     ttl: Option<TTL>,
-    context_id: Scru128Id,
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
@@ -338,7 +310,7 @@ async fn handle_stream_append(
     };
 
     let frame = store.append(
-        Frame::builder(topic, context_id)
+        Frame::builder(topic)
             .maybe_hash(hash)
             .maybe_meta(meta)
             .maybe_ttl(ttl)
@@ -409,11 +381,7 @@ pub async fn serve(
         listeners.push(expose_listener);
     }
 
-    if let Err(e) = store.append(
-        Frame::builder("xs.start", store::ZERO_CONTEXT)
-            .maybe_meta(expose_meta)
-            .build(),
-    ) {
+    if let Err(e) = store.append(Frame::builder("xs.start").maybe_meta(expose_meta).build()) {
         tracing::error!("Failed to append xs.start frame: {}", e);
     }
 
@@ -494,13 +462,8 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_last_get(
-    store: &Store,
-    topic: &str,
-    follow: bool,
-    context_id: Scru128Id,
-) -> HTTPResult {
-    let current_head = store.head(topic, context_id);
+async fn handle_last_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
+    let current_head = store.head(topic);
 
     if !follow {
         return response_frame_or_404(current_head);
@@ -597,31 +560,25 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     let mut engine =
         nu::Engine::new().map_err(|e| format!("Failed to create nushell engine: {e}"))?;
 
-    // Use system context for exec commands
-    let context_id = crate::store::ZERO_CONTEXT;
-
     // Add core commands
     nu::add_core_commands(&mut engine, store)
         .map_err(|e| format!("Failed to add core commands to engine: {e}"))?;
 
-    // Add context-specific commands
+    // Add streaming commands
     engine
         .add_commands(vec![
             Box::new(nu::commands::cat_stream_command::CatStreamCommand::new(
                 store.clone(),
-                context_id,
             )),
             Box::new(nu::commands::last_stream_command::LastStreamCommand::new(
                 store.clone(),
-                context_id,
             )),
             Box::new(nu::commands::append_command::AppendCommand::new(
                 store.clone(),
-                context_id,
                 serde_json::Value::Null,
             )),
         ])
-        .map_err(|e| format!("Failed to add context commands to engine: {e}"))?;
+        .map_err(|e| format!("Failed to add streaming commands to engine: {e}"))?;
 
     // Execute the script
     let result = engine
@@ -762,12 +719,12 @@ mod tests {
 
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, None),
-            Routes::LastGet { topic, follow: false, context_id: _ } if topic == "test"
+            Routes::LastGet { topic, follow: false } if topic == "test"
         ));
 
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, Some("follow=true")),
-            Routes::LastGet { topic, follow: true, context_id: _ } if topic == "test"
+            Routes::LastGet { topic, follow: true } if topic == "test"
         ));
     }
 
@@ -785,30 +742,20 @@ mod tests {
         // Create nushell engine with store helper commands
         let mut engine = Engine::new().unwrap();
 
-        // Use system context for exec commands
-        let context_id = crate::store::ZERO_CONTEXT;
-
         // Add core commands
         crate::nu::add_core_commands(&mut engine, &store).unwrap();
 
-        // Add context-specific commands
+        // Add streaming commands
         engine
             .add_commands(vec![
                 Box::new(
-                    crate::nu::commands::cat_stream_command::CatStreamCommand::new(
-                        store.clone(),
-                        context_id,
-                    ),
+                    crate::nu::commands::cat_stream_command::CatStreamCommand::new(store.clone()),
                 ),
                 Box::new(
-                    crate::nu::commands::last_stream_command::LastStreamCommand::new(
-                        store.clone(),
-                        context_id,
-                    ),
+                    crate::nu::commands::last_stream_command::LastStreamCommand::new(store.clone()),
                 ),
                 Box::new(crate::nu::commands::append_command::AppendCommand::new(
                     store.clone(),
-                    context_id,
                     serde_json::Value::Null,
                 )),
             ])

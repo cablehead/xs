@@ -10,17 +10,12 @@ use crate::store::{Frame, Store, TTL};
 #[derive(Clone)]
 pub struct AppendCommand {
     store: Store,
-    context_id: scru128::Scru128Id,
     base_meta: JsonValue,
 }
 
 impl AppendCommand {
-    pub fn new(store: Store, context_id: scru128::Scru128Id, base_meta: JsonValue) -> Self {
-        Self {
-            store,
-            context_id,
-            base_meta,
-        }
+    pub fn new(store: Store, base_meta: JsonValue) -> Self {
+        Self { store, base_meta }
     }
 }
 
@@ -42,13 +37,7 @@ impl Command for AppendCommand {
             .named(
                 "ttl",
                 SyntaxShape::String,
-                r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'head:<n>'"#,
-                None,
-            )
-            .named(
-                "context",
-                SyntaxShape::String,
-                "context ID (defaults to system context)",
+                r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'last:<n>'"#,
                 None,
             )
             .category(Category::Experimental)
@@ -103,21 +92,9 @@ impl Command for AppendCommand {
         };
 
         let hash = util::write_pipeline_to_cas(input, &store, span).map_err(|boxed| *boxed)?;
-        let context_str: Option<String> = call.get_flag(engine_state, stack, "context")?;
-        let context_id = context_str
-            .map(|ctx| ctx.parse::<scru128::Scru128Id>())
-            .transpose()
-            .map_err(|e| ShellError::GenericError {
-                error: "Invalid context ID".into(),
-                msg: e.to_string(),
-                span: Some(call.head),
-                help: None,
-                inner: vec![],
-            })?
-            .unwrap_or(self.context_id);
 
         let frame = store.append(
-            Frame::builder(topic, context_id)
+            Frame::builder(topic)
                 .maybe_hash(hash)
                 .meta(final_meta)
                 .maybe_ttl(ttl)

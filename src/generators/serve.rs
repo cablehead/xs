@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use scru128::Scru128Id;
 use serde_json::json;
 use tokio::task::JoinHandle;
 
@@ -11,7 +10,7 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 async fn try_start_task(
     topic: &str,
     frame: &Frame,
-    active: &mut HashMap<(String, Scru128Id), JoinHandle<()>>,
+    active: &mut HashMap<String, JoinHandle<()>>,
     engine: &nu::Engine,
     store: &Store,
 ) {
@@ -24,7 +23,7 @@ async fn try_start_task(
         });
 
         if let Err(e) = store.append(
-            Frame::builder(format!("{topic}.parse.error"), frame.context_id)
+            Frame::builder(format!("{topic}.parse.error"))
                 .meta(meta)
                 .build(),
         ) {
@@ -36,16 +35,16 @@ async fn try_start_task(
 async fn handle_spawn_event(
     topic: &str,
     frame: Frame,
-    active: &mut HashMap<(String, Scru128Id), JoinHandle<()>>,
+    active: &mut HashMap<String, JoinHandle<()>>,
     engine: nu::Engine,
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let key = (topic.to_string(), frame.context_id);
+    let key = topic.to_string();
     if let Some(handle) = active.get(&key) {
         if handle.is_finished() {
             active.remove(&key);
         } else {
-            // A generator for this topic/context is already running. Ignore the
+            // A generator for this topic is already running. Ignore the
             // new spawn frame; the running generator will handle it as a hot
             // reload.
             return Ok(());
@@ -64,8 +63,8 @@ pub async fn serve(
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
 
-    let mut active: HashMap<(String, Scru128Id), JoinHandle<()>> = HashMap::new();
-    let mut compacted: HashMap<(String, Scru128Id), Frame> = HashMap::new();
+    let mut active: HashMap<String, JoinHandle<()>> = HashMap::new();
+    let mut compacted: HashMap<String, Frame> = HashMap::new();
 
     while let Some(frame) = recver.recv().await {
         if frame.topic == "xs.threshold" {
@@ -77,14 +76,14 @@ pub async fn serve(
                 .strip_suffix(".parse.error")
                 .or_else(|| frame.topic.strip_suffix(".spawn"))
             {
-                compacted.insert((prefix.to_string(), frame.context_id), frame);
+                compacted.insert(prefix.to_string(), frame);
             }
         } else if let Some(prefix) = frame.topic.strip_suffix(".terminate") {
-            compacted.remove(&(prefix.to_string(), frame.context_id));
+            compacted.remove(prefix);
         }
     }
 
-    for ((topic, _), frame) in &compacted {
+    for (topic, frame) in &compacted {
         if frame.topic.ends_with(".spawn") {
             try_start_task(topic, frame, &mut active, &engine, &store).await;
         }
@@ -102,7 +101,7 @@ pub async fn serve(
         }
 
         if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
-            active.remove(&(prefix.to_string(), frame.context_id));
+            active.remove(prefix);
             continue;
         }
     }

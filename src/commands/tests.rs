@@ -4,21 +4,18 @@ use serde_json::json;
 
 use crate::error::Error;
 use crate::nu;
-use crate::store::{FollowOption, Frame, ReadOptions, Store, ZERO_CONTEXT};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[tokio::test]
 async fn test_command_with_pipeline() -> Result<(), Error> {
-    let (_dir, store, ctx) = setup_test_environment().await;
-    let options = ReadOptions::builder()
-        .context_id(ctx.id)
-        .follow(FollowOption::On)
-        .build();
+    let (_dir, store) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command
     let frame_command = store.append(
-        Frame::builder("echo.define", ctx.id)
+        Frame::builder("echo.define")
             .hash(
                 store
                     .cas_insert(
@@ -39,7 +36,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 
     // Call the command
     let frame_call = store.append(
-        Frame::builder("echo.call", ctx.id)
+        Frame::builder("echo.call")
             .hash(store.cas_insert(r#"foo"#).await?)
             .meta(json!({"args": {"n": 3}}))
             .build(),
@@ -65,18 +62,15 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_error_handling() -> Result<(), Error> {
-    let (_dir, store, ctx) = setup_test_environment().await;
-    let options = ReadOptions::builder()
-        .context_id(ctx.id)
-        .follow(FollowOption::On)
-        .build();
+    let (_dir, store) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define command that will error with invalid access
     let frame_command = store
         .append(
-            Frame::builder("will_error.define", ctx.id)
+            Frame::builder("will_error.define")
                 .hash(
                     store
                         .cas_insert(
@@ -97,7 +91,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     // Call the command
     let frame_call = store
         .append(
-            Frame::builder("will_error.call", ctx.id)
+            Frame::builder("will_error.call")
                 .hash(store.cas_insert(r#""input""#).await?)
                 .meta(json!({"args": {}}))
                 .build(),
@@ -119,17 +113,14 @@ async fn test_command_error_handling() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_single_value() -> Result<(), Error> {
-    let (_dir, store, ctx) = setup_test_environment().await;
-    let options = ReadOptions::builder()
-        .context_id(ctx.id)
-        .follow(FollowOption::On)
-        .build();
+    let (_dir, store) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command
     let frame_command = store.append(
-        Frame::builder("single.define", ctx.id)
+        Frame::builder("single.define")
             .hash(
                 store
                     .cas_insert(
@@ -145,7 +136,7 @@ async fn test_command_single_value() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "single.ready");
 
     // Call the command
-    let frame_call = store.append(Frame::builder("single.call", ctx.id).build())?;
+    let frame_call = store.append(Frame::builder("single.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "single.call");
 
     // Expect single response event
@@ -167,17 +158,14 @@ async fn test_command_single_value() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_empty_output() -> Result<(), Error> {
-    let (_dir, store, ctx) = setup_test_environment().await;
-    let options = ReadOptions::builder()
-        .context_id(ctx.id)
-        .follow(FollowOption::On)
-        .build();
+    let (_dir, store) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command
     let frame_command = store.append(
-        Frame::builder("empty.define", ctx.id)
+        Frame::builder("empty.define")
             .hash(
                 store
                     .cas_insert(
@@ -193,7 +181,7 @@ async fn test_command_empty_output() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "empty.ready");
 
     // Call the command
-    let frame_call = store.append(Frame::builder("empty.call", ctx.id).build())?;
+    let frame_call = store.append(Frame::builder("empty.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "empty.call");
 
     // Expect single response event with empty array
@@ -211,17 +199,14 @@ async fn test_command_empty_output() -> Result<(), Error> {
 
 #[tokio::test]
 async fn test_command_tee_and_append() -> Result<(), Error> {
-    let (_dir, store, ctx) = setup_test_environment().await;
-    let options = ReadOptions::builder()
-        .context_id(ctx.id)
-        .follow(FollowOption::On)
-        .build();
+    let (_dir, store) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the command that outputs a simple pipeline of 1, 2, 3
     let frame_command = store.append(
-        Frame::builder("numbers.define", ctx.id)
+        Frame::builder("numbers.define")
             .hash(
                 store
                     .cas_insert(
@@ -239,7 +224,7 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.ready");
 
     // Call the command
-    let frame_call = store.append(Frame::builder("numbers.call", ctx.id).build())?;
+    let frame_call = store.append(Frame::builder("numbers.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.call");
 
     let expected_meta = json!({"command_id": frame_command.id, "frame_id": frame_call.id});
@@ -278,13 +263,10 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
     }
 }
 
-async fn setup_test_environment() -> (TempDir, Store, Frame) {
+async fn setup_test_environment() -> (TempDir, Store) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
     let engine = nu::Engine::new().unwrap();
-    let ctx = store
-        .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
-        .unwrap();
 
     {
         let store = store.clone();
@@ -295,187 +277,5 @@ async fn setup_test_environment() -> (TempDir, Store, Frame) {
         }));
     }
 
-    (temp_dir, store, ctx)
-}
-
-#[tokio::test]
-async fn test_command_definition_context_isolation() -> Result<(), Error> {
-    let (_dir, store, engine) = setup_test_environment_raw().await; // Using a raw setup
-
-    // --- Setup ---
-    // Create two distinct contexts
-    let ctx_a_frame = store
-        .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
-        .unwrap();
-    let ctx_b_frame = store
-        .append(Frame::builder("xs.context", ZERO_CONTEXT).build())
-        .unwrap();
-
-    let ctx_a = ctx_a_frame.id;
-    let ctx_b = ctx_b_frame.id;
-    println!("Context A: {}", ctx_a);
-    println!("Context B: {}", ctx_b);
-
-    // Spawn command serve in the background
-    {
-        let store = store.clone();
-        let engine = engine.clone();
-        drop(tokio::spawn(async move {
-            if let Err(e) = crate::commands::serve::serve(store, engine).await {
-                eprintln!("Command serve task failed: {}", e);
-            }
-        }));
-    }
-
-    // Subscribe to events (global listener to see all frames)
-    let options_all_ctx = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver_all = store.read(options_all_ctx).await;
-
-    // Consume initial context frames and threshold
-    assert_eq!(recver_all.recv().await.unwrap().id, ctx_a_frame.id);
-    assert_eq!(recver_all.recv().await.unwrap().id, ctx_b_frame.id);
-    assert_eq!(recver_all.recv().await.unwrap().topic, "xs.threshold");
-
-    // --- Define Command A in Context A ---
-    let cmd_a_script = r#"{ run: {|frame| "output_from_cmd_a" } }"#;
-    let cmd_a_script_hash = store.cas_insert(cmd_a_script).await?;
-    println!("Defining Cmd A in Ctx A ({})", ctx_a);
-    let define_a_frame = store
-        .append(
-            Frame::builder("testcmd.define", ctx_a) // Define in ctx_a
-                .hash(cmd_a_script_hash)
-                .build(),
-        )
-        .unwrap();
-
-    // Expect define event for A
-    let frame_define_a = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd A define frame");
-    println!("Received Cmd A Define: {:?}", frame_define_a);
-    assert_eq!(frame_define_a.id, define_a_frame.id);
-    assert_eq!(frame_define_a.topic, "testcmd.define");
-    assert_eq!(frame_define_a.context_id, ctx_a);
-
-    // Expect ready event for A
-    let frame_ready_a = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd A ready frame");
-    assert_eq!(frame_ready_a.topic, "testcmd.ready");
-    assert_eq!(frame_ready_a.context_id, ctx_a);
-    println!("Cmd A defined.");
-
-    // --- Define Command B in Context B ---
-    let cmd_b_script = r#"{ run: {|frame| "output_from_cmd_b" } }"#;
-    let cmd_b_script_hash = store.cas_insert(cmd_b_script).await?;
-    println!("Defining Cmd B in Ctx B ({})", ctx_b);
-    let define_b_frame = store
-        .append(
-            Frame::builder("testcmd.define", ctx_b) // Define SAME NAME cmd in ctx_b
-                .hash(cmd_b_script_hash)
-                .build(),
-        )
-        .unwrap();
-
-    // Expect define event for B
-    let frame_define_b = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd B define frame");
-    println!("Received Cmd B Define: {:?}", frame_define_b);
-    assert_eq!(frame_define_b.id, define_b_frame.id);
-    assert_eq!(frame_define_b.topic, "testcmd.define");
-    assert_eq!(frame_define_b.context_id, ctx_b);
-
-    // Expect ready event for B
-    let frame_ready_b = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd B ready frame");
-    assert_eq!(frame_ready_b.topic, "testcmd.ready");
-    assert_eq!(frame_ready_b.context_id, ctx_b);
-    println!("Cmd B defined.");
-
-    // --- Call Command in Context A ---
-    println!("Calling testcmd in Ctx A ({})", ctx_a);
-    let call_a_frame = store
-        .append(Frame::builder("testcmd.call", ctx_a).build()) // Call in ctx_a
-        .unwrap();
-
-    // Expect call event for A
-    let frame_call_a = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd A call frame");
-    assert_eq!(frame_call_a.id, call_a_frame.id);
-    assert_eq!(frame_call_a.topic, "testcmd.call");
-    assert_eq!(frame_call_a.context_id, ctx_a);
-
-    // Expect response from A's command
-    let frame_resp_a = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd A response frame");
-    println!("Received from Cmd A call: {:?}", frame_resp_a);
-    assert_eq!(frame_resp_a.topic, "testcmd.response");
-    assert_eq!(frame_resp_a.context_id, ctx_a);
-    assert_eq!(
-        frame_resp_a.meta.as_ref().unwrap()["command_id"],
-        define_a_frame.id.to_string()
-    );
-    let content_a = store.cas_read(&frame_resp_a.hash.unwrap()).await?;
-    let value_a: String = serde_json::from_slice(&content_a)?;
-    assert_eq!(value_a, "output_from_cmd_a".to_string());
-
-    // --- Call Command in Context B ---
-    println!("Calling testcmd in Ctx B ({})", ctx_b);
-    let call_b_frame = store
-        .append(Frame::builder("testcmd.call", ctx_b).build()) // Call in ctx_b
-        .unwrap();
-
-    // Expect call event for B
-    let frame_call_b = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd B call frame");
-    assert_eq!(frame_call_b.id, call_b_frame.id);
-    assert_eq!(frame_call_b.topic, "testcmd.call");
-    assert_eq!(frame_call_b.context_id, ctx_b);
-
-    // Expect response from B's command
-    let frame_resp_b = recver_all
-        .recv()
-        .await
-        .expect("Failed to receive cmd B response frame");
-    println!("Received from Cmd B call: {:?}", frame_resp_b);
-    assert_eq!(frame_resp_b.topic, "testcmd.response");
-    assert_eq!(
-        frame_resp_b.context_id, ctx_b,
-        "Cmd B response event has wrong context!"
-    );
-    assert_eq!(
-        frame_resp_b.meta.as_ref().unwrap()["command_id"],
-        define_b_frame.id.to_string()
-    );
-    let content_b = store.cas_read(&frame_resp_b.hash.unwrap()).await?;
-    let value_b: String = serde_json::from_slice(&content_b)?;
-    assert_eq!(value_b, "output_from_cmd_b".to_string());
-    println!("Cmd B call completed.");
-
-    // Ensure no further unexpected messages
-    println!("Checking for unexpected extra frames...");
-    assert_no_more_frames(&mut recver_all).await;
-    println!("Test completed successfully.");
-
-    Ok(())
-}
-
-// Helper function to setup store and engine without spawning serve
-async fn setup_test_environment_raw() -> (TempDir, Store, nu::Engine) {
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.path().to_path_buf());
-    let engine = nu::Engine::new().unwrap();
-    (temp_dir, store, engine)
+    (temp_dir, store)
 }

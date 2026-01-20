@@ -22,7 +22,6 @@ pub struct GeneratorScriptOptions {
 #[derive(Clone)]
 pub struct GeneratorLoop {
     pub topic: String,
-    pub context_id: Scru128Id,
 }
 
 #[derive(Clone)]
@@ -75,22 +74,20 @@ pub(crate) fn emit_event(
     match &kind {
         GeneratorEventKind::Running => {
             store.append(
-                Frame::builder(
-                    format!("{topic}.running", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(json!({ "source_id": source_id.to_string() }))
-                .build(),
+                Frame::builder(format!("{topic}.running", topic = loop_ctx.topic))
+                    .meta(json!({ "source_id": source_id.to_string() }))
+                    .build(),
             )?;
         }
 
         GeneratorEventKind::Recv { suffix, data } => {
             let hash = store.cas_insert_bytes_sync(data)?;
             store.append(
-                Frame::builder(
-                    format!("{topic}.{suffix}", topic = loop_ctx.topic, suffix = suffix),
-                    loop_ctx.context_id,
-                )
+                Frame::builder(format!(
+                    "{topic}.{suffix}",
+                    topic = loop_ctx.topic,
+                    suffix = suffix
+                ))
                 .hash(hash)
                 .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
                 .meta(json!({ "source_id": source_id.to_string() }))
@@ -110,37 +107,28 @@ pub(crate) fn emit_event(
                 meta["message"] = json!(message);
             }
             store.append(
-                Frame::builder(
-                    format!("{topic}.stopped", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(meta)
-                .build(),
+                Frame::builder(format!("{topic}.stopped", topic = loop_ctx.topic))
+                    .meta(meta)
+                    .build(),
             )?;
         }
 
         GeneratorEventKind::ParseError { message } => {
             store.append(
-                Frame::builder(
-                    format!("{topic}.parse.error", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(json!({
-                    "source_id": source_id.to_string(),
-                    "reason": message,
-                }))
-                .build(),
+                Frame::builder(format!("{topic}.parse.error", topic = loop_ctx.topic))
+                    .meta(json!({
+                        "source_id": source_id.to_string(),
+                        "reason": message,
+                    }))
+                    .build(),
             )?;
         }
 
         GeneratorEventKind::Shutdown => {
             store.append(
-                Frame::builder(
-                    format!("{topic}.shutdown", topic = loop_ctx.topic),
-                    loop_ctx.context_id,
-                )
-                .meta(json!({ "source_id": source_id.to_string() }))
-                .build(),
+                Frame::builder(format!("{topic}.shutdown", topic = loop_ctx.topic))
+                    .meta(json!({ "source_id": source_id.to_string() }))
+                    .build(),
             )?;
         }
     }
@@ -182,7 +170,6 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
             .strip_suffix(".spawn")
             .unwrap_or(&spawn_frame.topic)
             .to_string(),
-        context_id: spawn_frame.context_id,
     };
 
     let nu_config = match nu::parse_config(&mut engine, &script) {
@@ -227,17 +214,13 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         GeneratorEventKind::Running,
     );
     let start_frame = store
-        .head(
-            &format!("{topic}.running", topic = loop_ctx.topic),
-            loop_ctx.context_id,
-        )
+        .head(&format!("{topic}.running", topic = loop_ctx.topic))
         .expect("running frame");
     let mut start_id = start_frame.id;
 
     let control_rx_options = ReadOptions::builder()
         .follow(FollowOption::On)
         .after(start_id)
-        .context_id(loop_ctx.context_id)
         .build();
 
     let mut control_rx = store.read(control_rx_options).await;
@@ -276,7 +259,6 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             let options = ReadOptions::builder()
                 .follow(FollowOption::On)
                 .after(start_id)
-                .context_id(loop_ctx.context_id)
                 .build();
             let send_rx = store.read(options).await;
             build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx).await
@@ -403,10 +385,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             }
         }
 
-        if let Some(f) = store.head(
-            &format!("{topic}.running", topic = loop_ctx.topic),
-            loop_ctx.context_id,
-        ) {
+        if let Some(f) = store.head(&format!("{topic}.running", topic = loop_ctx.topic)) {
             start_id = f.id;
         }
     }

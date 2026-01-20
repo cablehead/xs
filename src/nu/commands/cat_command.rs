@@ -7,12 +7,11 @@ use crate::store::Store;
 #[derive(Clone)]
 pub struct CatCommand {
     store: Store,
-    context_id: scru128::Scru128Id,
 }
 
 impl CatCommand {
-    pub fn new(store: Store, context_id: scru128::Scru128Id) -> Self {
-        Self { store, context_id }
+    pub fn new(store: Store) -> Self {
+        Self { store }
     }
 }
 
@@ -62,7 +61,7 @@ impl Command for CatCommand {
 
         let frames = self
             .store
-            .read_sync(after.as_ref(), None, Some(self.context_id))
+            .read_sync(after.as_ref(), None)
             .filter(|frame| match &topic {
                 Some(t) => frame.topic == *t,
                 None => true,
