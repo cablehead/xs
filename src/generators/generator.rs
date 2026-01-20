@@ -214,7 +214,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         GeneratorEventKind::Running,
     );
     let start_frame = store
-        .head(&format!("{topic}.running", topic = loop_ctx.topic))
+        .last(&format!("{topic}.running", topic = loop_ctx.topic))
         .expect("running frame");
     let mut start_id = start_frame.id;
 
@@ -385,7 +385,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
             }
         }
 
-        if let Some(f) = store.head(&format!("{topic}.running", topic = loop_ctx.topic)) {
+        if let Some(f) = store.last(&format!("{topic}.running", topic = loop_ctx.topic)) {
             start_id = f.id;
         }
     }

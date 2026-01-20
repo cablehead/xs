@@ -78,8 +78,8 @@ mod tests_read_options {
         };
         let frame2 = store.append(frame2).unwrap();
 
-        assert_eq!(Some(frame1), store.head("hello"));
-        assert_eq!(Some(frame2), store.head("hallo"));
+        assert_eq!(Some(frame1), store.last("hello"));
+        assert_eq!(Some(frame2), store.last("hallo"));
     }
 
     #[test]
@@ -238,7 +238,7 @@ mod tests_store {
         let f1 = store.append(Frame::builder("/stream").build()).unwrap();
         let f2 = store.append(Frame::builder("/stream").build()).unwrap();
 
-        assert_eq!(store.head("/stream"), Some(f2.clone()));
+        assert_eq!(store.last("/stream"), Some(f2.clone()));
 
         let recver = store.read(ReadOptions::default()).await;
         assert_eq!(

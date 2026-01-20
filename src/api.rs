@@ -463,7 +463,7 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
 }
 
 async fn handle_last_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
-    let current_head = store.head(topic);
+    let current_head = store.last(topic);
 
     if !follow {
         return response_frame_or_404(current_head);

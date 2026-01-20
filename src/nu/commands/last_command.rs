@@ -46,7 +46,7 @@ impl Command for LastCommand {
         let topic: String = call.req(engine_state, stack, 0)?;
         let span = call.head;
 
-        if let Some(frame) = self.store.head(&topic) {
+        if let Some(frame) = self.store.last(&topic) {
             Ok(PipelineData::Value(
                 util::frame_to_value(&frame, span),
                 None,

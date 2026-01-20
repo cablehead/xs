@@ -626,7 +626,7 @@ fn test_emit_event_helper() {
     )
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Recv { .. }));
-    let frame = store.head("helper.data").unwrap();
+    let frame = store.last("helper.data").unwrap();
     let bytes = store.cas_read_sync(&frame.hash.unwrap());
     assert_eq!(bytes.unwrap(), b"hi".to_vec());
 
@@ -648,7 +648,7 @@ fn test_emit_event_helper() {
         GeneratorEventKind::Shutdown,
     )
     .unwrap();
-    assert!(store.head("helper.shutdown").is_some());
+    assert!(store.last("helper.shutdown").is_some());
 }
 
 #[tokio::test]

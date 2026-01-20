@@ -397,7 +397,7 @@ impl Store {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn head(&self, topic: &str) -> Option<Frame> {
+    pub fn last(&self, topic: &str) -> Option<Frame> {
         self.idx_topic
             .prefix(idx_topic_key_prefix(topic))
             .rev()

@@ -54,7 +54,7 @@ impl Command for LastStreamCommand {
         let follow = call.has_flag(engine_state, stack, "follow")?;
 
         let span = call.head;
-        let current_head = self.store.head(&topic);
+        let current_head = self.store.last(&topic);
 
         if !follow {
             // Non-follow mode: just return current head or empty
