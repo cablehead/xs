@@ -58,7 +58,7 @@ impl Engine {
 
         if !working_set.parse_errors.is_empty() {
             let first_error = &working_set.parse_errors[0];
-            let formatted = nu_protocol::format_cli_error(&working_set, first_error, None);
+            let formatted = nu_protocol::format_cli_error(None, &working_set, first_error, None);
             return Err(formatted);
         }
 
@@ -67,7 +67,7 @@ impl Engine {
             .merge_delta(working_set.render())
             .map_err(|e| {
                 let working_set = StateWorkingSet::new(&self.state);
-                nu_protocol::format_cli_error(&working_set, &e, None)
+                nu_protocol::format_cli_error(None, &working_set, &e, None)
             })?;
 
         let mut stack = Stack::new();
@@ -78,7 +78,7 @@ impl Engine {
             .map(|exec_data| exec_data.body)
             .map_err(|e| {
                 let working_set = StateWorkingSet::new(&engine_state);
-                nu_protocol::format_cli_error(&working_set, &e, None)
+                nu_protocol::format_cli_error(None, &working_set, &e, None)
             })
     }
 

@@ -85,6 +85,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
                 inner: vec![],
             };
             return Err(Error::from(nu_protocol::format_cli_error(
+                None,
                 &temp_working_set,
                 &shell_error,
                 None,
@@ -101,7 +102,12 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
         )
         .map_err(|err| {
             let working_set = nu_protocol::engine::StateWorkingSet::new(&temp_engine_state);
-            Error::from(nu_protocol::format_cli_error(&working_set, &err, None))
+            Error::from(nu_protocol::format_cli_error(
+                None,
+                &working_set,
+                &err,
+                None,
+            ))
         })?;
         let val = eval_result.body.into_value(Span::unknown())?;
 
@@ -160,6 +166,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
             inner: vec![],
         };
         return Err(Error::from(nu_protocol::format_cli_error(
+            None,
             &working_set,
             &shell_error,
             None,
@@ -176,6 +183,7 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
             inner: vec![],
         };
         return Err(Error::from(nu_protocol::format_cli_error(
+            None,
             &working_set,
             &shell_error,
             None,
@@ -193,7 +201,12 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     )
     .map_err(|err| {
         let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state); // Use main engine for error formatting
-        Error::from(nu_protocol::format_cli_error(&working_set, &err, None))
+        Error::from(nu_protocol::format_cli_error(
+            None,
+            &working_set,
+            &err,
+            None,
+        ))
     })?;
 
     let final_config_value = final_eval_result.body.into_value(Span::unknown())?;

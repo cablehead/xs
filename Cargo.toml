@@ -51,12 +51,12 @@ chrono = "0.4.38"
 bon = "2.3"
 tempfile = "3.23"
 
-nu-cli = "0.109.1"
-nu-command = { version = "0.109.1", features = ["sqlite"] }
-nu-protocol = "0.109.1"
-nu-cmd-lang = "0.109.1"
-nu-engine = "0.109.1"
-nu-parser = "0.109.1"
+nu-cli = "0.110.0"
+nu-command = { version = "0.110.0", features = ["sqlite"] }
+nu-protocol = "0.110.0"
+nu-cmd-lang = "0.110.0"
+nu-engine = "0.110.0"
+nu-parser = "0.110.0"
 
 http = "1.1.0"
 http-body-util = "0.1"
@@ -82,7 +82,7 @@ data-encoding = "2.6"
 nix = { version = "0.29", default-features = false, features = ["poll", "fs"] }
 
 [target.'cfg(windows)'.dependencies]
-win_uds = "=0.2.0"
+win_uds = "=0.2.1"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"

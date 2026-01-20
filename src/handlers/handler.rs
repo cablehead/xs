@@ -353,7 +353,7 @@ impl EngineWorker {
                 let output = pipeline
                     .map_err(|e| {
                         let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-                        Error::from(nu_protocol::format_cli_error(&working_set, &*e, None))
+                        Error::from(nu_protocol::format_cli_error(None, &working_set, &*e, None))
                     })
                     .and_then(|pd| {
                         pd.into_value(nu_protocol::Span::unknown())

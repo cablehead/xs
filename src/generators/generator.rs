@@ -534,7 +534,7 @@ fn spawn_thread(
             }
             Err(e) => {
                 let working_set = nu_protocol::engine::StateWorkingSet::new(&task.engine.state);
-                Err(nu_protocol::format_cli_error(&working_set, &*e, None))
+                Err(nu_protocol::format_cli_error(None, &working_set, &*e, None))
             }
         };
 

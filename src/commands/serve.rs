@@ -211,7 +211,7 @@ async fn execute_command(command: Command, frame: &Frame, store: &Store) -> Resu
                     .meta(serde_json::json!({
                         "command_id": command.id.to_string(),
                         "frame_id": frame.id.to_string(),
-                        "error": nu_protocol::format_cli_error(&working_set, &*err, None)
+                        "error": nu_protocol::format_cli_error(None, &working_set, &*err, None)
                     }))
                     .build(),
                 );
