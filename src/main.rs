@@ -101,6 +101,10 @@ struct CommandCat {
     #[clap(long)]
     limit: Option<u64>,
 
+    /// Return the last N events (most recent)
+    #[clap(long)]
+    last: Option<u64>,
+
     /// Use Server-Sent Events format
     #[clap(long)]
     sse: bool,
@@ -365,6 +369,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .maybe_after(after)
         .maybe_from(from)
         .maybe_limit(args.limit.map(|l| l as usize))
+        .maybe_last(args.last.map(|l| l as usize))
         .maybe_topic(args.topic.clone())
         .build();
     let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;

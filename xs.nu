@@ -30,6 +30,7 @@ def _cat [options: record] {
     (if $options.after? != null { ["--after" $options.after] })
 
     (if $options.limit? != null { ["--limit" $options.limit] })
+    (if $options.last? != null { ["--last" $options.last] })
     (if $options.pulse? != null { ["--pulse" $options.pulse] })
     (if $options.topic? != null { ["--topic" $options.topic] })
   ] | compact | flatten
@@ -44,6 +45,7 @@ export def .cat [
   --detail (-d) # include all frame fields in the output
   --after: string # start after a specific frame ID (exclusive)
   --limit: int
+  --last: int # return the last N events (most recent)
   --topic (-T): string # filter by topic
 ] {
   _cat {
@@ -52,6 +54,7 @@ export def .cat [
     new: $new
     after: $after
     limit: $limit
+    last: $last
     topic: $topic
   } | conditional-pipe (not $detail) { each { reject ttl } }
 }

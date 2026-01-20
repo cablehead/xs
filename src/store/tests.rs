@@ -282,6 +282,57 @@ mod tests_store {
     }
 
     #[tokio::test]
+    async fn test_read_last_nofollow() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Add 5 items
+        let _frame1 = store.append(Frame::builder("test").build()).unwrap();
+        let _frame2 = store.append(Frame::builder("test").build()).unwrap();
+        let _frame3 = store.append(Frame::builder("test").build()).unwrap();
+        let frame4 = store.append(Frame::builder("test").build()).unwrap();
+        let frame5 = store.append(Frame::builder("test").build()).unwrap();
+
+        // Read with last 2
+        let options = ReadOptions::builder().last(2).build();
+        let mut rx = store.read(options).await;
+
+        // Assert we get the last 2 items in chronological order
+        assert_eq!(Some(frame4), rx.recv().await);
+        assert_eq!(Some(frame5), rx.recv().await);
+
+        // Assert the channel is closed
+        assert_eq!(None, rx.recv().await);
+    }
+
+    #[tokio::test]
+    async fn test_read_last_with_topic() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Add items to different topics
+        let _a1 = store.append(Frame::builder("topic.a").build()).unwrap();
+        let _b1 = store.append(Frame::builder("topic.b").build()).unwrap();
+        let a2 = store.append(Frame::builder("topic.a").build()).unwrap();
+        let _b2 = store.append(Frame::builder("topic.b").build()).unwrap();
+        let a3 = store.append(Frame::builder("topic.a").build()).unwrap();
+
+        // Read last 2 from topic.a
+        let options = ReadOptions::builder()
+            .last(2)
+            .topic("topic.a".to_string())
+            .build();
+        let mut rx = store.read(options).await;
+
+        // Assert we get the last 2 topic.a items in chronological order
+        assert_eq!(Some(a2), rx.recv().await);
+        assert_eq!(Some(a3), rx.recv().await);
+
+        // Assert the channel is closed
+        assert_eq!(None, rx.recv().await);
+    }
+
+    #[tokio::test]
     async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf());

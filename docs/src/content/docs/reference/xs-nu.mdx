@@ -45,12 +45,13 @@ Append content to a topic. Wraps [`xs append`](../cli/#append).
 Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 
 ```nushell
-.cat [--follow] [--new] [--topic <topic>]
+.cat [--follow] [--new] [--last <n>] [--topic <topic>]
 ```
 
 ```nushell
 .cat --topic note
 .cat -f --topic note  # Follow new notes
+.cat --last 10        # Show last 10 events
 ```
 
 ### `.last`

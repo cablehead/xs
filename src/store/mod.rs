@@ -92,6 +92,8 @@ pub struct ReadOptions {
     /// Start from this ID (inclusive)
     pub from: Option<Scru128Id>,
     pub limit: Option<usize>,
+    /// Return the last N frames (most recent)
+    pub last: Option<usize>,
     pub topic: Option<String>,
 }
 
@@ -133,6 +135,11 @@ impl ReadOptions {
         // Add limit if present
         if let Some(limit) = self.limit {
             params.push(("limit", limit.to_string()));
+        }
+
+        // Add last if present
+        if let Some(last) = self.last {
+            params.push(("last", last.to_string()));
         }
 
         if let Some(topic) = &self.topic {
@@ -264,47 +271,84 @@ impl Store {
                 let mut last_id = None;
                 let mut count = 0;
 
-                // Determine start bound: from (inclusive) takes precedence over after (exclusive)
-                let start_bound = options
-                    .from
-                    .as_ref()
-                    .map(|id| (id, true))
-                    .or_else(|| options.after.as_ref().map(|id| (id, false)));
+                // Handle --last N: get the N most recent frames
+                if let Some(last_n) = options.last {
+                    let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
+                        None | Some("*") => store.iter_frames_rev(),
+                        Some(topic) if topic.ends_with(".*") => {
+                            let prefix = &topic[..topic.len() - 1];
+                            store.iter_frames_by_topic_prefix_rev(prefix)
+                        }
+                        Some(topic) => store.iter_frames_by_topic_rev(topic),
+                    };
 
-                let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
-                    None | Some("*") => store.iter_frames(start_bound),
-                    Some(topic) if topic.ends_with(".*") => {
-                        // Wildcard: "user.*" -> prefix "user."
-                        let prefix = &topic[..topic.len() - 1]; // strip "*", keep "."
-                        store.iter_frames_by_topic_prefix(prefix, start_bound)
-                    }
-                    Some(topic) => store.iter_frames_by_topic(topic, start_bound),
-                };
-
-                for frame in iter {
-                    if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                        if is_expired(&frame.id, ttl) {
-                            let _ = gc_tx.send(GCTask::Remove(frame.id));
-                            continue;
+                    // Collect last N frames (in reverse order), skipping expired
+                    let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
+                    for frame in iter {
+                        if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
+                            if is_expired(&frame.id, ttl) {
+                                let _ = gc_tx.send(GCTask::Remove(frame.id));
+                                continue;
+                            }
+                        }
+                        frames.push(frame);
+                        if frames.len() >= last_n {
+                            break;
                         }
                     }
 
-                    last_id = Some(frame.id);
-
-                    if let Some(limit) = options.limit {
-                        if count >= limit {
-                            return; // Exit early if limit reached
+                    // Reverse to chronological order and send
+                    for frame in frames.into_iter().rev() {
+                        last_id = Some(frame.id);
+                        count += 1;
+                        if tx_clone.blocking_send(frame).is_err() {
+                            return;
                         }
                     }
+                } else {
+                    // Normal forward iteration
+                    // Determine start bound: from (inclusive) takes precedence over after (exclusive)
+                    let start_bound = options
+                        .from
+                        .as_ref()
+                        .map(|id| (id, true))
+                        .or_else(|| options.after.as_ref().map(|id| (id, false)));
 
-                    if tx_clone.blocking_send(frame).is_err() {
-                        return;
+                    let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
+                        None | Some("*") => store.iter_frames(start_bound),
+                        Some(topic) if topic.ends_with(".*") => {
+                            // Wildcard: "user.*" -> prefix "user."
+                            let prefix = &topic[..topic.len() - 1]; // strip "*", keep "."
+                            store.iter_frames_by_topic_prefix(prefix, start_bound)
+                        }
+                        Some(topic) => store.iter_frames_by_topic(topic, start_bound),
+                    };
+
+                    for frame in iter {
+                        if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
+                            if is_expired(&frame.id, ttl) {
+                                let _ = gc_tx.send(GCTask::Remove(frame.id));
+                                continue;
+                            }
+                        }
+
+                        last_id = Some(frame.id);
+
+                        if let Some(limit) = options.limit {
+                            if count >= limit {
+                                return; // Exit early if limit reached
+                            }
+                        }
+
+                        if tx_clone.blocking_send(frame).is_err() {
+                            return;
+                        }
+                        count += 1;
                     }
-                    count += 1;
                 }
 
-                // Send threshold message if following and no limit
-                if should_follow_clone && options.limit.is_none() {
+                // Send threshold message if following and no limit (--last counts as having a limit for this purpose)
+                if should_follow_clone && options.limit.is_none() && options.last.is_none() {
                     let threshold = Frame::builder("xs.threshold")
                         .id(scru128::new())
                         .ttl(TTL::Ephemeral)
@@ -568,6 +612,53 @@ impl Store {
             let (key, value) = guard.into_inner().ok()?;
             Some(deserialize_frame((key, value)))
         }))
+    }
+
+    /// Iterate frames in reverse order (most recent first).
+    fn iter_frames_rev(&self) -> Box<dyn Iterator<Item = Frame> + '_> {
+        Box::new(self.stream.iter().rev().filter_map(|guard| {
+            let (key, value) = guard.into_inner().ok()?;
+            Some(deserialize_frame((key, value)))
+        }))
+    }
+
+    /// Iterate frames by topic in reverse order (most recent first).
+    fn iter_frames_by_topic_rev<'a>(
+        &'a self,
+        topic: &'a str,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        let prefix = idx_topic_key_prefix(topic);
+        Box::new(
+            self.idx_topic
+                .prefix(prefix)
+                .rev()
+                .filter_map(move |guard| {
+                    let key = guard.key().ok()?;
+                    let frame_id = idx_topic_frame_id_from_key(&key);
+                    self.get(&frame_id)
+                }),
+        )
+    }
+
+    /// Iterate frames by topic prefix in reverse order (most recent first).
+    fn iter_frames_by_topic_prefix_rev<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        let mut index_prefix = Vec::with_capacity(prefix.len() + 1);
+        index_prefix.extend(prefix.as_bytes());
+        index_prefix.push(NULL_DELIMITER);
+
+        Box::new(
+            self.idx_topic
+                .prefix(index_prefix)
+                .rev()
+                .filter_map(move |guard| {
+                    let key = guard.key().ok()?;
+                    let frame_id = idx_topic_frame_id_from_key(&key);
+                    self.get(&frame_id)
+                }),
+        )
     }
 
     fn iter_frames_by_topic<'a>(
