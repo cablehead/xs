@@ -77,6 +77,10 @@ export def .cas [hash?: any] {
   xs cas (xs-addr) $hash
 }
 
+export def .cas-post [] {
+  $in | xs cas-post (xs-addr)
+}
+
 export def .get [id: string] {
   xs get (xs-addr) $id | from json
 }
