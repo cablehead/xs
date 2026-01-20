@@ -28,7 +28,7 @@ mod win_uds_compat {
     impl WinUnixStream {
         pub async fn connect<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
             use tokio_util::compat::FuturesAsyncReadCompatExt;
-            let stream = AsyncStream::connect(path).await?;
+            let stream: AsyncStream = AsyncStream::connect(path).await?;
             Ok(Self(stream.compat()))
         }
     }
@@ -78,7 +78,7 @@ mod win_uds_compat {
 
         pub async fn accept(&self) -> io::Result<(WinUnixStream, ())> {
             use tokio_util::compat::FuturesAsyncReadCompatExt;
-            let (stream, _addr) = self.inner.accept().await?;
+            let (stream, _addr): (AsyncStream, _) = self.inner.accept().await?;
             Ok((WinUnixStream(stream.compat()), ()))
         }
 

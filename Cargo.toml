@@ -2,7 +2,7 @@
 name = "cross-stream"
 edition = "2021"
 version = "0.8.0"
-rust-version = "1.88.0"
+rust-version = "1.91.0"
 description = "An event stream store for personal, local-first use, specializing in event sourcing."
 license = "MIT"
 repository = "https://github.com/cablehead/xs"
