@@ -43,7 +43,11 @@ mod tests_read_options {
         };
         let frame2 = store.append(frame2).unwrap();
 
-        let keys = store.idx_topic.keys().flatten().collect::<Vec<_>>();
+        let keys = store
+            .idx_topic
+            .iter()
+            .filter_map(|guard| guard.key().ok())
+            .collect::<Vec<_>>();
 
         assert_eq!(
             &[

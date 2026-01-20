@@ -17,7 +17,10 @@ use scru128::Scru128Id;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle};
+use fjall::{
+    config::{BlockSizePolicy, FilterPolicy, FilterPolicyEntry, HashRatioPolicy},
+    Database, Keyspace, KeyspaceCreateOptions, PersistMode,
+};
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 pub struct Frame {
@@ -157,9 +160,9 @@ enum GCTask {
 #[derive(Clone)]
 pub struct Store {
     pub path: PathBuf,
-    keyspace: Keyspace,
-    frame_partition: PartitionHandle,
-    idx_topic: PartitionHandle,
+    db: Database,
+    stream: Keyspace,
+    idx_topic: Keyspace,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     append_lock: Arc<Mutex<()>>,
@@ -167,29 +170,43 @@ pub struct Store {
 
 impl Store {
     pub fn new(path: PathBuf) -> Store {
-        let config = Config::new(path.join("fjall"));
-        let keyspace = config
-            .flush_workers(1)
-            .compaction_workers(1)
+        let db = Database::builder(path.join("fjall"))
+            .cache_size(32 * 1024 * 1024) // 32 MiB
+            .worker_threads(1)
             .open()
             .unwrap();
 
-        let frame_partition = keyspace
-            .open_partition("stream", PartitionCreateOptions::default())
-            .unwrap();
+        // Options for stream keyspace: point reads by frame ID
+        let stream_opts = || {
+            KeyspaceCreateOptions::default()
+                .max_memtable_size(8 * 1024 * 1024) // 8 MiB
+                .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
+                .data_block_hash_ratio_policy(HashRatioPolicy::all(8.0))
+                .expect_point_read_hits(true)
+                .filter_policy(FilterPolicy::new([FilterPolicyEntry::None]))
+        };
 
-        let idx_topic = keyspace
-            .open_partition("idx_topic", PartitionCreateOptions::default())
-            .unwrap();
+        // Options for idx_topic keyspace: prefix scans only
+        let idx_opts = || {
+            KeyspaceCreateOptions::default()
+                .max_memtable_size(8 * 1024 * 1024) // 8 MiB
+                .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
+                .data_block_hash_ratio_policy(HashRatioPolicy::all(0.0)) // no point reads
+                .expect_point_read_hits(true)
+                .filter_policy(FilterPolicy::new([FilterPolicyEntry::None]))
+        };
+
+        let stream = db.keyspace("stream", stream_opts).unwrap();
+        let idx_topic = db.keyspace("idx_topic", idx_opts).unwrap();
 
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
 
         let store = Store {
             path: path.clone(),
-            keyspace: keyspace.clone(),
-            frame_partition: frame_partition.clone(),
-            idx_topic: idx_topic.clone(),
+            db,
+            stream,
+            idx_topic,
             broadcast_tx,
             gc_tx,
             append_lock: Arc::new(Mutex::new(())),
@@ -373,7 +390,7 @@ impl Store {
     }
 
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
-        self.frame_partition
+        self.stream
             .get(id.to_bytes())
             .unwrap()
             .map(|value| deserialize_frame((id.as_bytes(), value)))
@@ -384,7 +401,10 @@ impl Store {
         self.idx_topic
             .prefix(idx_topic_key_prefix(topic))
             .rev()
-            .find_map(|kv| self.get(&idx_topic_frame_id_from_key(&kv.unwrap().0)))
+            .find_map(|guard| {
+                let key = guard.key().ok()?;
+                self.get(&idx_topic_frame_id_from_key(&key))
+            })
     }
 
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
@@ -397,11 +417,11 @@ impl Store {
         // Get the index topic key
         let topic_key = idx_topic_key_from_frame(&frame)?;
 
-        let mut batch = self.keyspace.batch();
-        batch.remove(&self.frame_partition, id.as_bytes());
+        let mut batch = self.db.batch();
+        batch.remove(&self.stream, id.as_bytes());
         batch.remove(&self.idx_topic, topic_key);
         batch.commit()?;
-        self.keyspace.persist(fjall::PersistMode::SyncAll)?;
+        self.db.persist(PersistMode::SyncAll)?;
         Ok(())
     }
 
@@ -454,11 +474,11 @@ impl Store {
         // Get the index topic key
         let topic_key = idx_topic_key_from_frame(frame)?;
 
-        let mut batch = self.keyspace.batch();
-        batch.insert(&self.frame_partition, frame.id.as_bytes(), encoded);
+        let mut batch = self.db.batch();
+        batch.insert(&self.stream, frame.id.as_bytes(), encoded);
         batch.insert(&self.idx_topic, topic_key, b"");
         batch.commit()?;
-        self.keyspace.persist(fjall::PersistMode::SyncAll)?;
+        self.db.persist(PersistMode::SyncAll)?;
         Ok(())
     }
 
@@ -496,11 +516,10 @@ impl Store {
             None => (Bound::Unbounded, Bound::Unbounded),
         };
 
-        Box::new(
-            self.frame_partition
-                .range(range)
-                .map(|r| deserialize_frame(r.unwrap())),
-        )
+        Box::new(self.stream.range(range).filter_map(|guard| {
+            let (key, value) = guard.into_inner().ok()?;
+            Some(deserialize_frame((key, value)))
+        }))
     }
 
     fn iter_frames_by_topic<'a>(
@@ -509,8 +528,8 @@ impl Store {
         last_id: Option<&'a Scru128Id>,
     ) -> Box<dyn Iterator<Item = Frame> + 'a> {
         let prefix = idx_topic_key_prefix(topic);
-        Box::new(self.idx_topic.prefix(prefix).filter_map(move |r| {
-            let (key, _) = r.ok()?;
+        Box::new(self.idx_topic.prefix(prefix).filter_map(move |guard| {
+            let key = guard.key().ok()?;
             let frame_id = idx_topic_frame_id_from_key(&key);
             if let Some(last) = last_id {
                 if frame_id <= *last {
@@ -537,8 +556,11 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
                         .prefix(&prefix)
                         .rev() // Scan from newest to oldest
                         .skip(keep as usize)
-                        .map(|r| {
-                            Scru128Id::from_bytes(idx_topic_frame_id_from_key(&r.unwrap().0).into())
+                        .filter_map(|guard| {
+                            let key = guard.key().ok()?;
+                            Some(Scru128Id::from_bytes(
+                                idx_topic_frame_id_from_key(&key).into(),
+                            ))
                         })
                         .collect();
 
