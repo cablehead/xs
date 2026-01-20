@@ -86,8 +86,11 @@ pub struct ReadOptions {
     #[serde(default, deserialize_with = "deserialize_bool")]
     #[builder(default)]
     pub new: bool,
+    /// Start after this ID (exclusive)
     #[serde(rename = "after")]
     pub after: Option<Scru128Id>,
+    /// Start from this ID (inclusive)
+    pub from: Option<Scru128Id>,
     pub limit: Option<usize>,
     pub topic: Option<String>,
 }
@@ -120,6 +123,11 @@ impl ReadOptions {
         // Add after if present
         if let Some(after) = self.after {
             params.push(("after", after.to_string()));
+        }
+
+        // Add from if present
+        if let Some(from) = self.from {
+            params.push(("from", from.to_string()));
         }
 
         // Add limit if present
@@ -256,14 +264,21 @@ impl Store {
                 let mut last_id = None;
                 let mut count = 0;
 
+                // Determine start bound: from (inclusive) takes precedence over after (exclusive)
+                let start_bound = options
+                    .from
+                    .as_ref()
+                    .map(|id| (id, true))
+                    .or_else(|| options.after.as_ref().map(|id| (id, false)));
+
                 let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
-                    None | Some("*") => store.iter_frames(options.after.as_ref()),
+                    None | Some("*") => store.iter_frames(start_bound),
                     Some(topic) if topic.ends_with(".*") => {
                         // Wildcard: "user.*" -> prefix "user."
                         let prefix = &topic[..topic.len() - 1]; // strip "*", keep "."
-                        store.iter_frames_by_topic_prefix(prefix, options.after.as_ref())
+                        store.iter_frames_by_topic_prefix(prefix, start_bound)
                     }
-                    Some(topic) => store.iter_frames_by_topic(topic, options.after.as_ref()),
+                    Some(topic) => store.iter_frames_by_topic(topic, start_bound),
                 };
 
                 for frame in iter {
@@ -390,7 +405,7 @@ impl Store {
         after: Option<&Scru128Id>,
         limit: Option<usize>,
     ) -> impl Iterator<Item = Frame> + '_ {
-        self.iter_frames(after)
+        self.iter_frames(after.map(|id| (id, false)))
             .filter(move |frame| {
                 if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
                     if is_expired(&frame.id, ttl) {
@@ -537,9 +552,15 @@ impl Store {
         Ok(frame)
     }
 
-    fn iter_frames(&self, last_id: Option<&Scru128Id>) -> Box<dyn Iterator<Item = Frame> + '_> {
-        let range = match last_id {
-            Some(id) => (Bound::Excluded(id.as_bytes().to_vec()), Bound::Unbounded),
+    /// Iterate frames starting from a bound.
+    /// `start` is `(id, inclusive)` where inclusive=true means >= and inclusive=false means >.
+    fn iter_frames(
+        &self,
+        start: Option<(&Scru128Id, bool)>,
+    ) -> Box<dyn Iterator<Item = Frame> + '_> {
+        let range = match start {
+            Some((id, true)) => (Bound::Included(id.as_bytes().to_vec()), Bound::Unbounded),
+            Some((id, false)) => (Bound::Excluded(id.as_bytes().to_vec()), Bound::Unbounded),
             None => (Bound::Unbounded, Bound::Unbounded),
         };
 
@@ -552,14 +573,18 @@ impl Store {
     fn iter_frames_by_topic<'a>(
         &'a self,
         topic: &'a str,
-        last_id: Option<&'a Scru128Id>,
+        start: Option<(&'a Scru128Id, bool)>,
     ) -> Box<dyn Iterator<Item = Frame> + 'a> {
         let prefix = idx_topic_key_prefix(topic);
         Box::new(self.idx_topic.prefix(prefix).filter_map(move |guard| {
             let key = guard.key().ok()?;
             let frame_id = idx_topic_frame_id_from_key(&key);
-            if let Some(last) = last_id {
-                if frame_id <= *last {
+            if let Some((bound_id, inclusive)) = start {
+                if inclusive {
+                    if frame_id < *bound_id {
+                        return None;
+                    }
+                } else if frame_id <= *bound_id {
                     return None;
                 }
             }
@@ -572,7 +597,7 @@ impl Store {
     fn iter_frames_by_topic_prefix<'a>(
         &'a self,
         prefix: &'a str,
-        last_id: Option<&'a Scru128Id>,
+        start: Option<(&'a Scru128Id, bool)>,
     ) -> Box<dyn Iterator<Item = Frame> + 'a> {
         // Build index prefix: "user.\0" for scanning all "user.*" entries
         let mut index_prefix = Vec::with_capacity(prefix.len() + 1);
@@ -585,8 +610,12 @@ impl Store {
                 .filter_map(move |guard| {
                     let key = guard.key().ok()?;
                     let frame_id = idx_topic_frame_id_from_key(&key);
-                    if let Some(last) = last_id {
-                        if frame_id <= *last {
+                    if let Some((bound_id, inclusive)) = start {
+                        if inclusive {
+                            if frame_id < *bound_id {
+                                return None;
+                            }
+                        } else if frame_id <= *bound_id {
                             return None;
                         }
                     }

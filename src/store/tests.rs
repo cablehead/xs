@@ -627,7 +627,7 @@ mod tests_topic {
     }
 
     #[test]
-    fn test_iter_frames_with_last_id() {
+    fn test_iter_frames_with_start_bound() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep());
 
@@ -635,12 +635,16 @@ mod tests_topic {
         let frame2 = store.append(Frame::builder("test").build()).unwrap();
         let frame3 = store.append(Frame::builder("test").build()).unwrap();
 
-        // Test iter_frames with last_id
-        let frames: Vec<_> = store.iter_frames(Some(&frame2.id)).collect();
+        // Test iter_frames with exclusive bound (after)
+        let frames: Vec<_> = store.iter_frames(Some((&frame2.id, false))).collect();
+        assert_eq!(frames, vec![frame3.clone()], "exclusive bound failed");
+
+        // Test iter_frames with inclusive bound (from)
+        let frames: Vec<_> = store.iter_frames(Some((&frame2.id, true))).collect();
         assert_eq!(
             frames,
-            vec![frame3.clone()],
-            "iter_frames with last_id failed"
+            vec![frame2.clone(), frame3.clone()],
+            "inclusive bound failed"
         );
     }
 

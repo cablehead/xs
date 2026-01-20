@@ -93,6 +93,10 @@ struct CommandCat {
     #[clap(long, short = 'a')]
     after: Option<String>,
 
+    /// Start from a specific frame ID (inclusive)
+    #[clap(long)]
+    from: Option<String>,
+
     /// Limit the number of events
     #[clap(long)]
     limit: Option<u64>,
@@ -341,6 +345,14 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     } else {
         None
     };
+    let from = if let Some(from) = &args.from {
+        match scru128::Scru128Id::from_str(from) {
+            Ok(id) => Some(id),
+            Err(_) => return Err(format!("Invalid from: {from}").into()),
+        }
+    } else {
+        None
+    };
     let options = ReadOptions::builder()
         .new(args.new)
         .follow(if let Some(pulse) = args.pulse {
@@ -351,6 +363,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
             FollowOption::Off
         })
         .maybe_after(after)
+        .maybe_from(from)
         .maybe_limit(args.limit.map(|l| l as usize))
         .maybe_topic(args.topic.clone())
         .build();
