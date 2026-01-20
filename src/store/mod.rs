@@ -18,7 +18,7 @@ use scru128::Scru128Id;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{
-    config::{BlockSizePolicy, FilterPolicy, FilterPolicyEntry, HashRatioPolicy},
+    config::{BlockSizePolicy, HashRatioPolicy},
     Database, Keyspace, KeyspaceCreateOptions, PersistMode,
 };
 
@@ -198,7 +198,6 @@ impl Store {
                 .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
                 .data_block_hash_ratio_policy(HashRatioPolicy::all(8.0))
                 .expect_point_read_hits(true)
-                .filter_policy(FilterPolicy::new([FilterPolicyEntry::None]))
         };
 
         // Options for idx_topic keyspace: prefix scans only
@@ -208,7 +207,6 @@ impl Store {
                 .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
                 .data_block_hash_ratio_policy(HashRatioPolicy::all(0.0)) // no point reads
                 .expect_point_read_hits(true)
-                .filter_policy(FilterPolicy::new([FilterPolicyEntry::None]))
         };
 
         let stream = db.keyspace("stream", stream_opts).unwrap();
