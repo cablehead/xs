@@ -91,6 +91,7 @@ listens on a Unix domain socket at <code dir="auto">./store/sock</code>.</p>
 <li><code dir="auto">after</code> - Start after a specific frame ID (exclusive)</li>
 <li><code dir="auto">from</code> - Start from a specific frame ID (inclusive)</li>
 <li><code dir="auto">limit</code> - Maximum number of frames to return</li>
+<li><code dir="auto">last</code> - Return the last N frames (most recent)</li>
 <li><code dir="auto">topic</code> - Filter frames by topic</li>
 </ul>
 <p>Response: newline-delimited JSON frames or SSE stream, based on Accept header.
