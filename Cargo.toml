@@ -95,27 +95,27 @@ lto = true
 codegen-units = 1
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-{ target-family }.tar.gz"
-bin-dir = "cross-stream-{ version }/{ bin }{ binary-ext }"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-{ target-family }.tar.gz"
+bin-dir = "cross-stream-v{ version }/{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
 
 [package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-linux-amd64.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-linux-amd64.tar.gz"
 
 [package.metadata.binstall.overrides.x86_64-unknown-linux-musl]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-linux-amd64.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-linux-amd64.tar.gz"
 
 [package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-linux-arm64.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-linux-arm64.tar.gz"
 
 [package.metadata.binstall.overrides.aarch64-unknown-linux-musl]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-linux-arm64.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-linux-arm64.tar.gz"
 
 [package.metadata.binstall.overrides.aarch64-apple-darwin]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-macos.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-macos.tar.gz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-windows-amd64.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-windows-amd64.tar.gz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-gnu]
-pkg-url = "{ repo }/releases/download/{ version }/cross-stream-{ version }-windows-amd64.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-windows-amd64.tar.gz"
