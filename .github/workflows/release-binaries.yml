@@ -2,7 +2,8 @@ name: Release Binaries
 
 on:
   push:
-    tags: [ "v*" ]       # e.g. v1.4.0
+    branches: [ "**" ]   # test builds on all branches
+    tags: [ "v*" ]       # releases on tags
   workflow_dispatch:
 
 permissions:
@@ -21,21 +22,40 @@ jobs:
         include:
           - target: macos-arm64
             dagger_fn: macos-build
-            artifact: cross-stream-${{ github.ref_name }}-macos.tar.gz
+            artifact_suffix: macos.tar.gz
 
           - target: linux-arm64
             dagger_fn: linux-arm-64-build
-            artifact: cross-stream-${{ github.ref_name }}-linux-arm64.tar.gz
+            artifact_suffix: linux-arm64.tar.gz
 
           - target: linux-amd64
             dagger_fn: linux-amd-64-build
-            artifact: cross-stream-${{ github.ref_name }}-linux-amd64.tar.gz
+            artifact_suffix: linux-amd64.tar.gz
+
+          - target: windows-amd64
+            dagger_fn: windows-build
+            artifact_suffix: windows-amd64.tar.gz
 
     steps:
       # 1) Check out source
       - uses: actions/checkout@v4
 
-      # 2) Cache Dagger BuildKit cache (restore and save)
+      # 2) Sanitize ref name (replace / with -)
+      - name: Set version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_SAFE="${VERSION//\//-}"
+          echo "version=$VERSION_SAFE" >> "$GITHUB_OUTPUT"
+          echo "artifact=cross-stream-${VERSION_SAFE}-${{ matrix.artifact_suffix }}" >> "$GITHUB_OUTPUT"
+
+      # 3) Free up disk space (Windows cross-compile needs ~20GB)
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      # 4) Cache Dagger BuildKit cache (restore and save)
       - name: Cache Dagger
         uses: actions/cache@v4
         with:
@@ -44,29 +64,29 @@ jobs:
           restore-keys: |
             dagger-${{ runner.os }}-${{ matrix.target }}-
 
-      # 3) Boot the Dagger engine
+      # 5) Boot the Dagger engine
       - name: Setup Dagger
         uses: dagger/dagger-for-github@8.0.0
         with:
           version: "0.18.14"
 
-      # 4) Defensive: pre-pull the engine image
+      # 6) Defensive: pre-pull the engine image
       - name: Pre-pull Dagger Engine
         run: docker pull registry.dagger.io/engine:v0.18.14
 
-      # 5) Run one Dagger build function and export artifact
+      # 7) Run one Dagger build function and export artifact
       - name: Build with Dagger
         uses: dagger/dagger-for-github@8.0.0
         with:
           version: "0.18.14"
-          call: ${{ matrix.dagger_fn }} --src upload --src . --version ${{ github.ref_name }} export --path ./artifacts/${{ matrix.artifact }}
+          call: ${{ matrix.dagger_fn }} --src upload --src . --version ${{ steps.version.outputs.version }} export --path ./artifacts/${{ steps.version.outputs.artifact }}
 
-      # 6) Upload artifact for fan-in job
+      # 8) Upload artifact for fan-in job
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ./artifacts/${{ matrix.artifact }}
+          name: ${{ steps.version.outputs.artifact }}
+          path: ./artifacts/${{ steps.version.outputs.artifact }}
 
   #-----------------------------------------------------------
   # 2. Fan-in job - gather artifacts and create release

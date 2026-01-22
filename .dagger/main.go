@@ -147,3 +147,44 @@ func (m *Xs) LinuxAmd64Build(ctx context.Context, src *dagger.Directory, version
 
 	return container.File("/tmp/cross-stream-" + version + "-linux-amd64.tar.gz")
 }
+
+func (m *Xs) WindowsEnv(
+	ctx context.Context,
+	src *dagger.Directory) *dagger.Container {
+	return m.withCaches(
+		dag.Container().
+			From("joseluisq/rust-linux-darwin-builder:latest").
+			WithExec([]string{"apt", "update"}).
+			WithExec([]string{"apt", "install", "-y", "nasm", "gcc-mingw-w64-i686", "mingw-w64", "mingw-w64-tools"}).
+			WithExec([]string{"rustup", "target", "add", "x86_64-pc-windows-gnu"}).
+			WithEnvVariable("CARGO_BUILD_TARGET", "x86_64-pc-windows-gnu").
+			WithEnvVariable("CC_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc").
+			WithEnvVariable("CXX_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-g++").
+			WithEnvVariable("AR_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc-ar").
+			WithEnvVariable("DLLTOOL_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-dlltool").
+			WithEnvVariable("CFLAGS_x86_64_pc_windows_gnu", "-m64").
+			WithEnvVariable("ASM_NASM_x86_64_pc_windows_gnu", "/usr/bin/nasm").
+			WithEnvVariable("AWS_LC_SYS_PREBUILT_NASM", "0").
+			WithMountedDirectory("/app", src).
+			WithWorkdir("/app"),
+		"windows-amd64",
+	)
+}
+
+func (m *Xs) WindowsBuild(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
+	container := m.WindowsEnv(ctx, src).
+		WithExec([]string{"rustup", "update", "stable"}).
+		WithExec([]string{"rustup", "default", "stable"}).
+		WithExec([]string{"rustup", "target", "add", "x86_64-pc-windows-gnu"}).
+		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-pc-windows-gnu"})
+
+	// Create tarball structure using provided version
+	container = container.WithExec([]string{"sh", "-c", `
+		mkdir -p /tmp/cross-stream-` + version + `
+		cp target/x86_64-pc-windows-gnu/release/xs.exe /tmp/cross-stream-` + version + `/
+		cd /tmp
+		tar -czf cross-stream-` + version + `-windows-amd64.tar.gz cross-stream-` + version + `
+	`})
+
+	return container.File("/tmp/cross-stream-" + version + "-windows-amd64.tar.gz")
+}
