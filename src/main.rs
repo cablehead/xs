@@ -168,8 +168,8 @@ struct CommandLast {
     #[clap(value_parser)]
     addr: String,
 
-    /// Topic to get the most recent frame for
-    #[clap(value_parser = parse_topic)]
+    /// Topic to get the most recent frame for (supports wildcards like user.*)
+    #[clap(value_parser = parse_topic_query)]
     topic: String,
 
     /// Follow for updates to the most recent frame

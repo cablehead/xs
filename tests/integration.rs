@@ -649,6 +649,67 @@ async fn test_eval_head_streaming() {
 }
 
 #[tokio::test]
+async fn test_last_wildcard_topic() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Append frames to multiple topics under W.*
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "W.foo"
+    )
+    .stdin_bytes(b"first")
+    .run()
+    .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "W.bar"
+    )
+    .stdin_bytes(b"second")
+    .run()
+    .unwrap();
+
+    // .last W.* should return the most recent frame matching the wildcard
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        ".last W.*"
+    )
+    .read()
+    .unwrap();
+
+    let frame: serde_json::Value = serde_json::from_str(output.trim()).unwrap();
+    assert_eq!(
+        frame["topic"], "W.bar",
+        ".last W.* should return the most recent matching frame"
+    );
+
+    // Clean up
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_iroh_networking() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
