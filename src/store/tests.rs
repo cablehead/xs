@@ -945,3 +945,80 @@ mod tests_append_race {
         );
     }
 }
+
+#[test]
+fn test_read_sync_with_options_last() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf());
+
+    // Add 5 items
+    let _frame1 = store.append(Frame::builder("test").build()).unwrap();
+    let _frame2 = store.append(Frame::builder("test").build()).unwrap();
+    let _frame3 = store.append(Frame::builder("test").build()).unwrap();
+    let frame4 = store.append(Frame::builder("test").build()).unwrap();
+    let frame5 = store.append(Frame::builder("test").build()).unwrap();
+
+    // Read with last 2
+    let options = ReadOptions::builder().last(2).build();
+    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+
+    // Assert we get the last 2 items in chronological order
+    assert_eq!(vec![frame4, frame5], frames);
+}
+
+#[test]
+fn test_read_sync_with_options_from() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf());
+
+    let _frame1 = store.append(Frame::builder("test").build()).unwrap();
+    let frame2 = store.append(Frame::builder("test").build()).unwrap();
+    let frame3 = store.append(Frame::builder("test").build()).unwrap();
+
+    // --from is inclusive
+    let options = ReadOptions::builder().from(frame2.id).build();
+    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
+
+    // --after is exclusive (for comparison)
+    let options = ReadOptions::builder().after(frame2.id).build();
+    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    assert_eq!(vec![frame3], frames);
+}
+
+#[test]
+fn test_read_sync_with_options_last_with_topic() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf());
+
+    let _a1 = store.append(Frame::builder("topic.a").build()).unwrap();
+    let _b1 = store.append(Frame::builder("topic.b").build()).unwrap();
+    let a2 = store.append(Frame::builder("topic.a").build()).unwrap();
+    let _b2 = store.append(Frame::builder("topic.b").build()).unwrap();
+    let a3 = store.append(Frame::builder("topic.a").build()).unwrap();
+
+    let options = ReadOptions::builder()
+        .last(2)
+        .topic("topic.a".to_string())
+        .build();
+    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    assert_eq!(vec![a2, a3], frames);
+}
+
+#[test]
+fn test_read_sync_with_options_limit_with_topic() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf());
+
+    let a1 = store.append(Frame::builder("topic.a").build()).unwrap();
+    let _b1 = store.append(Frame::builder("topic.b").build()).unwrap();
+    let a2 = store.append(Frame::builder("topic.a").build()).unwrap();
+    let _a3 = store.append(Frame::builder("topic.a").build()).unwrap();
+
+    let options = ReadOptions::builder()
+        .limit(2)
+        .topic("topic.a".to_string())
+        .build();
+    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    assert_eq!(vec![a1, a2], frames);
+}

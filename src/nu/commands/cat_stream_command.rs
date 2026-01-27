@@ -47,6 +47,18 @@ impl Command for CatStreamCommand {
                 "start after a specific frame ID (exclusive)",
                 Some('a'),
             )
+            .named(
+                "from",
+                SyntaxShape::String,
+                "start from a specific frame ID (inclusive)",
+                None,
+            )
+            .named(
+                "last",
+                SyntaxShape::Int,
+                "return the N most recent frames",
+                None,
+            )
             .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
             .category(Category::Experimental)
     }
@@ -67,22 +79,26 @@ impl Command for CatStreamCommand {
         let new = call.has_flag(engine_state, stack, "new")?;
         let detail = call.has_flag(engine_state, stack, "detail")?;
         let limit: Option<i64> = call.get_flag(engine_state, stack, "limit")?;
+        let last: Option<i64> = call.get_flag(engine_state, stack, "last")?;
         let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
+        let from: Option<String> = call.get_flag(engine_state, stack, "from")?;
         let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
 
-        // Parse after
-        let after: Option<scru128::Scru128Id> = after
-            .as_deref()
-            .map(|s| {
-                s.parse().map_err(|e| ShellError::GenericError {
-                    error: "Invalid after".into(),
-                    msg: format!("Failed to parse Scru128Id: {e}"),
-                    span: Some(call.head),
-                    help: None,
-                    inner: vec![],
-                })
+        // Helper to parse Scru128Id
+        let parse_id = |s: &str, name: &str| -> Result<scru128::Scru128Id, ShellError> {
+            s.parse().map_err(|e| ShellError::GenericError {
+                error: format!("Invalid {name}"),
+                msg: format!("Failed to parse Scru128Id: {e}"),
+                span: Some(call.head),
+                help: None,
+                inner: vec![],
             })
-            .transpose()?;
+        };
+
+        let after: Option<scru128::Scru128Id> =
+            after.as_deref().map(|s| parse_id(s, "after")).transpose()?;
+        let from: Option<scru128::Scru128Id> =
+            from.as_deref().map(|s| parse_id(s, "from")).transpose()?;
 
         // Build ReadOptions
         let options = ReadOptions::builder()
@@ -95,7 +111,9 @@ impl Command for CatStreamCommand {
             })
             .new(new)
             .maybe_after(after)
+            .maybe_from(from)
             .maybe_limit(limit.map(|l| l as usize))
+            .maybe_last(last.map(|l| l as usize))
             .maybe_topic(topic.clone())
             .build();
 

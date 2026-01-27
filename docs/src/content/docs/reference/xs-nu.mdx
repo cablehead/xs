@@ -45,13 +45,18 @@ Append content to a topic. Wraps [`xs append`](../cli/#append).
 Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 
 ```nushell
-.cat [--follow] [--new] [--after <id>] [--from <id>] [--last <n>] [--topic <topic>]
+.cat [--follow (-f)] [--pulse (-p) <ms>] [--new (-n)] [--detail (-d)]
+     [--limit <n>] [--last <n>] [--after (-a) <id>] [--from <id>]
+     [--topic (-T) <topic>]
 ```
 
 ```nushell
 .cat --topic note
-.cat -f --topic note  # Follow new notes
-.cat --last 10        # Show last 10 events
+.cat -f --topic note    # Follow new notes
+.cat --last 10          # Show last 10 events
+.cat --limit 5          # Show first 5 events
+.cat -f -p 1000         # Follow with 1s pulse heartbeat
+.cat --detail           # Include all frame fields (e.g., ttl)
 ```
 
 ### `.last`

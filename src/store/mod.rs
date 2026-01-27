@@ -460,6 +460,71 @@ impl Store {
             .take(limit.unwrap_or(usize::MAX))
     }
 
+    /// Read frames synchronously with full ReadOptions support.
+    pub fn read_sync_with_options(&self, options: ReadOptions) -> impl Iterator<Item = Frame> + '_ {
+        let gc_tx = self.gc_tx.clone();
+
+        // Filter out expired frames
+        let filter_expired = move |frame: Frame, gc_tx: &UnboundedSender<GCTask>| {
+            if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
+                if is_expired(&frame.id, ttl) {
+                    let _ = gc_tx.send(GCTask::Remove(frame.id));
+                    return None;
+                }
+            }
+            Some(frame)
+        };
+
+        let frames: Vec<Frame> = if let Some(last_n) = options.last {
+            // Handle --last N: get the N most recent frames
+            let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
+                None | Some("*") => self.iter_frames_rev(),
+                Some(topic) if topic.ends_with(".*") => {
+                    let prefix = &topic[..topic.len() - 1];
+                    self.iter_frames_by_topic_prefix_rev(prefix)
+                }
+                Some(topic) => self.iter_frames_by_topic_rev(topic),
+            };
+
+            // Collect last N frames (in reverse order), skipping expired
+            let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
+            for frame in iter {
+                if let Some(frame) = filter_expired(frame, &gc_tx) {
+                    frames.push(frame);
+                    if frames.len() >= last_n {
+                        break;
+                    }
+                }
+            }
+
+            // Reverse to chronological order
+            frames.reverse();
+            frames
+        } else {
+            // Normal forward iteration
+            let start_bound = options
+                .from
+                .as_ref()
+                .map(|id| (id, true))
+                .or_else(|| options.after.as_ref().map(|id| (id, false)));
+
+            let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
+                None | Some("*") => self.iter_frames(start_bound),
+                Some(topic) if topic.ends_with(".*") => {
+                    let prefix = &topic[..topic.len() - 1];
+                    self.iter_frames_by_topic_prefix(prefix, start_bound)
+                }
+                Some(topic) => self.iter_frames_by_topic(topic, start_bound),
+            };
+
+            iter.filter_map(|frame| filter_expired(frame, &gc_tx))
+                .take(options.limit.unwrap_or(usize::MAX))
+                .collect()
+        };
+
+        frames.into_iter()
+    }
+
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
         self.stream
             .get(id.to_bytes())
