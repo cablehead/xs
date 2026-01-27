@@ -345,8 +345,8 @@ impl Store {
                     }
                 }
 
-                // Send threshold message if following and no limit (--last counts as having a limit for this purpose)
-                if should_follow_clone && options.limit.is_none() && options.last.is_none() {
+                // Send threshold message if following
+                if should_follow_clone {
                     let threshold = Frame::builder("xs.threshold")
                         .id(scru128::new())
                         .ttl(TTL::Ephemeral)

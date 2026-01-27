@@ -333,6 +333,40 @@ mod tests_store {
     }
 
     #[tokio::test]
+    async fn test_read_follow_last_emits_threshold() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        let frame1 = store.append(Frame::builder("test").build()).unwrap();
+
+        let options = ReadOptions::builder()
+            .last(2)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        assert_eq!(Some(frame1), rx.recv().await);
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+    }
+
+    #[tokio::test]
+    async fn test_read_follow_limit_emits_threshold() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        let frame1 = store.append(Frame::builder("test").build()).unwrap();
+
+        let options = ReadOptions::builder()
+            .limit(2)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options).await;
+
+        assert_eq!(Some(frame1), rx.recv().await);
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+    }
+
+    #[tokio::test]
     async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf());
@@ -347,8 +381,9 @@ mod tests_store {
             .build();
         let mut rx = store.read(options).await;
 
-        // Assert we get one item
+        // Assert we get one item then threshold
         assert_eq!(Some(frame1), rx.recv().await);
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
 
         // Assert nothing is immediately available
         assert!(timeout(Duration::from_millis(100), rx.recv())
@@ -359,7 +394,7 @@ mod tests_store {
         let frame2 = store.append(Frame::builder("test").build()).unwrap();
         let _frame3 = store.append(Frame::builder("test").build()).unwrap();
 
-        // Assert we get one more item
+        // Assert we get one more item (limit was 2, we got frame1 + frame2)
         assert_eq!(Some(frame2), rx.recv().await);
 
         // Assert the rx is closed
