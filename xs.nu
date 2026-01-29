@@ -157,12 +157,24 @@ export def .import [path: string] {
 }
 
 # Evaluate a Nushell script with store helper commands available
-export def .eval [script?: string] {
-  let input_script = if $script != null { $script } else { $in }
-  if $input_script == null {
-    error make {msg: "No script provided as argument or via pipeline"}
+export def .eval [
+  file?: string             # Script file to evaluate, or "-" for stdin
+  --commands (-c): string   # Evaluate script from command line
+] {
+  if $commands != null {
+    xs eval (xs-addr) -c $commands
+  } else if $file != null {
+    xs eval (xs-addr) $file
+  } else {
+    let input_script = $in
+    if $input_script == null {
+      error make {
+        msg: "No script provided"
+        help: "Provide a file (.eval script.nu), use -c (.eval -c '<script>'), or pipe input ('<script>' | .eval)"
+      }
+    }
+    xs eval (xs-addr) -c $input_script
   }
-  xs eval (xs-addr) -c $input_script
 }
 
 # Generate a new SCRU128 ID

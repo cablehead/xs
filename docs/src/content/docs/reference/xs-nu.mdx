@@ -103,10 +103,17 @@ let note_id = (.last note).id
 Evaluate a Nushell script with store helper commands available. Wraps [`xs eval`](../cli/#eval).
 
 ```nushell
-.eval [<script>]
+.eval [file] [--commands (-c) <string>]
 ```
 
 ```nushell
+# Inline script with -c
+.eval -c '.cat --topic note | length'
+
+# Script file
+.eval script.nu
+
+# Pipeline input
 ".cat --topic note | length" | .eval
 ```
 
