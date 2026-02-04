@@ -92,7 +92,7 @@ impl Command for CatCommand {
             .maybe_topic(topic)
             .build();
 
-        let frames: Vec<_> = self.store.read_sync_with_options(options).collect();
+        let frames: Vec<_> = self.store.read_sync(options).collect();
 
         use nu_protocol::Value;
 

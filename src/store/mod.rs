@@ -441,27 +441,8 @@ impl Store {
         rx
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn read_sync(
-        &self,
-        after: Option<&Scru128Id>,
-        limit: Option<usize>,
-    ) -> impl Iterator<Item = Frame> + '_ {
-        self.iter_frames(after.map(|id| (id, false)))
-            .filter(move |frame| {
-                if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                    if is_expired(&frame.id, ttl) {
-                        let _ = self.gc_tx.send(GCTask::Remove(frame.id));
-                        return false;
-                    }
-                }
-                true
-            })
-            .take(limit.unwrap_or(usize::MAX))
-    }
-
     /// Read frames synchronously with full ReadOptions support.
-    pub fn read_sync_with_options(&self, options: ReadOptions) -> impl Iterator<Item = Frame> + '_ {
+    pub fn read_sync(&self, options: ReadOptions) -> impl Iterator<Item = Frame> + '_ {
         let gc_tx = self.gc_tx.clone();
 
         // Filter out expired frames

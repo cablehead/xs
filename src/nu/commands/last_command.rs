@@ -60,7 +60,7 @@ impl Command for LastCommand {
 
         let frames: Vec<Value> = self
             .store
-            .read_sync_with_options(options)
+            .read_sync(options)
             .map(|frame| util::frame_to_value(&frame, span))
             .collect();
 

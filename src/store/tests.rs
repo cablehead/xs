@@ -445,15 +445,18 @@ mod tests_store {
         let frame3 = store.append(Frame::builder("test").build()).unwrap();
 
         // Test reading all frames
-        let frames: Vec<Frame> = store.read_sync(None, None).collect();
+        let options = ReadOptions::builder().build();
+        let frames: Vec<Frame> = store.read_sync(options).collect();
         assert_eq!(vec![frame1.clone(), frame2.clone(), frame3.clone()], frames);
 
-        // Test with last_id (passing Scru128Id directly)
-        let frames: Vec<Frame> = store.read_sync(Some(&frame1.id), None).collect();
+        // Test with after (passing Scru128Id directly)
+        let options = ReadOptions::builder().after(frame1.id).build();
+        let frames: Vec<Frame> = store.read_sync(options).collect();
         assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
 
         // Test with limit
-        let frames: Vec<Frame> = store.read_sync(None, Some(2)).collect();
+        let options = ReadOptions::builder().limit(2).build();
+        let frames: Vec<Frame> = store.read_sync(options).collect();
         assert_eq!(vec![frame1, frame2], frames);
     }
 }
@@ -878,7 +881,8 @@ mod tests_ttl_expire {
 
         // Read all frames and assert exact expected set
         store.wait_for_gc().await;
-        let frames: Vec<_> = store.read_sync(None, None).collect();
+        let options = ReadOptions::builder().build();
+        let frames: Vec<_> = store.read_sync(options).collect();
 
         assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
@@ -982,7 +986,7 @@ mod tests_append_race {
 }
 
 #[test]
-fn test_read_sync_with_options_last() {
+fn test_read_sync_last() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -995,14 +999,14 @@ fn test_read_sync_with_options_last() {
 
     // Read with last 2
     let options = ReadOptions::builder().last(2).build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
 
     // Assert we get the last 2 items in chronological order
     assert_eq!(vec![frame4, frame5], frames);
 }
 
 #[test]
-fn test_read_sync_with_options_from() {
+fn test_read_sync_from() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -1012,17 +1016,17 @@ fn test_read_sync_with_options_from() {
 
     // --from is inclusive
     let options = ReadOptions::builder().from(frame2.id).build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
 
     // --after is exclusive (for comparison)
     let options = ReadOptions::builder().after(frame2.id).build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![frame3], frames);
 }
 
 #[test]
-fn test_read_sync_with_options_last_with_topic() {
+fn test_read_sync_last_with_topic() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -1036,12 +1040,12 @@ fn test_read_sync_with_options_last_with_topic() {
         .last(2)
         .topic("topic.a".to_string())
         .build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![a2, a3], frames);
 }
 
 #[test]
-fn test_read_sync_with_options_limit_with_topic() {
+fn test_read_sync_limit_with_topic() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -1054,6 +1058,6 @@ fn test_read_sync_with_options_limit_with_topic() {
         .limit(2)
         .topic("topic.a".to_string())
         .build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![a1, a2], frames);
 }

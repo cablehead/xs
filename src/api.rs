@@ -494,7 +494,7 @@ async fn handle_last_get(
             .maybe_topic(topic.map(|t| t.to_string()))
             .build();
 
-        let frames: Vec<Frame> = store.read_sync_with_options(options).collect();
+        let frames: Vec<Frame> = store.read_sync(options).collect();
 
         if frames.is_empty() {
             return response_404();
