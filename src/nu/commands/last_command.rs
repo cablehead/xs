@@ -1,9 +1,9 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
-use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type};
+use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 use crate::nu::util;
-use crate::store::Store;
+use crate::store::{ReadOptions, Store};
 
 #[derive(Clone)]
 pub struct LastCommand {
@@ -24,16 +24,22 @@ impl Command for LastCommand {
     fn signature(&self) -> Signature {
         Signature::build(".last")
             .input_output_types(vec![(Type::Nothing, Type::Any)])
-            .required(
+            .optional(
                 "topic",
                 SyntaxShape::String,
-                "topic to get most recent frame from",
+                "topic to get most recent frame from (default: all topics)",
+            )
+            .named(
+                "last",
+                SyntaxShape::Int,
+                "number of frames to return",
+                Some('n'),
             )
             .category(Category::Experimental)
     }
 
     fn description(&self) -> &str {
-        "get the most recent frame for a topic"
+        "get the most recent frame(s) for a topic"
     }
 
     fn run(
@@ -43,16 +49,30 @@ impl Command for LastCommand {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let topic: String = call.req(engine_state, stack, 0)?;
+        let topic: Option<String> = call.opt(engine_state, stack, 0)?;
+        let n: usize = call
+            .get_flag::<i64>(engine_state, stack, "last")?
+            .map(|v| v as usize)
+            .unwrap_or(1);
         let span = call.head;
 
-        if let Some(frame) = self.store.last(&topic) {
+        let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
+
+        let frames: Vec<Value> = self
+            .store
+            .read_sync_with_options(options)
+            .map(|frame| util::frame_to_value(&frame, span))
+            .collect();
+
+        if frames.is_empty() {
+            Ok(PipelineData::Empty)
+        } else if frames.len() == 1 {
             Ok(PipelineData::Value(
-                util::frame_to_value(&frame, span),
+                frames.into_iter().next().unwrap(),
                 None,
             ))
         } else {
-            Ok(PipelineData::Empty)
+            Ok(PipelineData::Value(Value::list(frames, span), None))
         }
     }
 }
