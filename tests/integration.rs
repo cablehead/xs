@@ -723,6 +723,110 @@ async fn test_last_wildcard_topic() {
 }
 
 #[tokio::test]
+async fn test_xs_last_cli() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Append frames to different topics
+    for (topic, content) in [
+        ("alpha", "a1"),
+        ("alpha", "a2"),
+        ("alpha", "a3"),
+        ("beta", "b1"),
+        ("beta", "b2"),
+    ] {
+        cmd!(
+            assert_cmd::cargo::cargo_bin!("xs"),
+            "append",
+            &sock_path,
+            topic
+        )
+        .stdin_bytes(content.as_bytes())
+        .run()
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // Test 1: xs last <addr> <topic> - single frame from specific topic
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "last",
+        &sock_path,
+        "alpha"
+    )
+    .read()
+    .unwrap();
+    let frame: serde_json::Value = serde_json::from_str(output.trim()).unwrap();
+    assert_eq!(frame["topic"], "alpha");
+
+    // Test 2: xs last <addr> - no topic, returns last frame across all topics
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "last", &sock_path)
+        .read()
+        .unwrap();
+    let frame: serde_json::Value = serde_json::from_str(output.trim()).unwrap();
+    assert_eq!(
+        frame["topic"], "beta",
+        "last frame overall should be beta.b2"
+    );
+
+    // Test 3: xs last <addr> <topic> -n 2 - multiple frames from topic
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "last",
+        &sock_path,
+        "alpha",
+        "-n",
+        "2"
+    )
+    .read()
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert_eq!(lines.len(), 2, "should return 2 frames");
+    let frame1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    let frame2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(frame1["topic"], "alpha");
+    assert_eq!(frame2["topic"], "alpha");
+
+    // Test 4: xs last <addr> -n 3 - multiple frames across all topics
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "last",
+        &sock_path,
+        "-n",
+        "3"
+    )
+    .read()
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert_eq!(lines.len(), 3, "should return 3 frames");
+
+    // Test 5: xs last <addr> <wildcard> - wildcard topic
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "last", &sock_path, "*")
+        .read()
+        .unwrap();
+    let frame: serde_json::Value = serde_json::from_str(output.trim()).unwrap();
+    assert_eq!(
+        frame["topic"], "beta",
+        "wildcard should return last frame overall"
+    );
+
+    // Clean up
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_iroh_networking() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();

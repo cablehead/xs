@@ -193,20 +193,29 @@ pub async fn remove(addr: &str, id: &str) -> Result<(), Box<dyn std::error::Erro
 
 pub async fn last(
     addr: &str,
-    topic: &str,
+    topic: Option<&str>,
+    last: usize,
     follow: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let query = if follow { Some("follow=true") } else { None };
+    let mut query_parts = Vec::new();
+    if last != 1 {
+        query_parts.push(format!("last={last}"));
+    }
+    if follow {
+        query_parts.push("follow=true".to_string());
+    }
+    let query = if query_parts.is_empty() {
+        None
+    } else {
+        Some(query_parts.join("&"))
+    };
 
-    let res = request::request(
-        addr,
-        Method::GET,
-        &format!("last/{topic}"),
-        query,
-        empty(),
-        None,
-    )
-    .await?;
+    let path = match topic {
+        Some(t) => format!("last/{t}"),
+        None => "last".to_string(),
+    };
+
+    let res = request::request(addr, Method::GET, &path, query.as_deref(), empty(), None).await?;
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
