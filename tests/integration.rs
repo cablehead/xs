@@ -428,7 +428,7 @@ async fn test_eval_cat_streaming() {
     .run()
     .unwrap();
 
-    // Test 1: .cat without --follow (snapshot mode)
+    // .cat without --follow (snapshot mode)
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
@@ -446,7 +446,7 @@ async fn test_eval_cat_streaming() {
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0]["topic"], "stream.test");
 
-    // Test 2: .cat --follow streams new frames
+    // .cat --follow streams new frames
     let mut follow_child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("eval")
         .arg(store_path)
@@ -503,10 +503,10 @@ async fn test_eval_cat_streaming() {
     let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
     assert_eq!(streamed_frame["topic"], "stream.test");
 
-    // Test 3: .cat --new starts at end (skip for now - can block)
+    // .cat --new starts at end (skip for now - can block)
     follow_child.kill().await.unwrap();
 
-    // Test 4: .cat --limit respects limit
+    // .cat --limit respects limit
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
@@ -530,7 +530,7 @@ async fn test_eval_cat_streaming() {
         .collect();
     assert_eq!(frames.len(), 1, "Should respect --limit flag");
 
-    // Test 5: .cat --detail includes ttl
+    // .cat --detail includes ttl
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
@@ -547,7 +547,7 @@ async fn test_eval_cat_streaming() {
         "Should include ttl with --detail"
     );
 
-    // Test 6: Without --detail, ttl is filtered
+    // Without --detail, ttl is filtered
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "eval",
@@ -569,7 +569,7 @@ async fn test_eval_cat_streaming() {
 }
 
 #[tokio::test]
-async fn test_eval_head_streaming() {
+async fn test_eval_last_follow() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -590,7 +590,7 @@ async fn test_eval_head_streaming() {
         assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
-        "head.test"
+        "last.test"
     )
     .stdin_bytes(b"initial")
     .run()
@@ -601,7 +601,7 @@ async fn test_eval_head_streaming() {
         .arg("eval")
         .arg(store_path)
         .arg("-c")
-        .arg(".last head.test --follow")
+        .arg(".last last.test --follow")
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
@@ -609,7 +609,7 @@ async fn test_eval_head_streaming() {
     let stdout = follow_child.stdout.take().unwrap();
     let mut reader = tokio::io::BufReader::new(stdout);
 
-    // Should receive current head immediately
+    // Should receive current last immediately
     let mut line = String::new();
     let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
         .await
@@ -618,8 +618,21 @@ async fn test_eval_head_streaming() {
     assert!(result > 0, "Should receive current last frame");
     let last_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
     assert_eq!(
-        last_frame["topic"], "head.test",
+        last_frame["topic"], "last.test",
         "First frame from .last --follow should be the current last"
+    );
+
+    // Should receive xs.threshold marker after historical frames
+    line.clear();
+    let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+        .await
+        .expect("Timeout waiting for xs.threshold")
+        .expect("Failed to read xs.threshold");
+    assert!(result > 0, "Should receive xs.threshold");
+    let threshold_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    assert_eq!(
+        threshold_frame["topic"], "xs.threshold",
+        "Should receive xs.threshold marker after historical frames"
     );
 
     // Append new frame while following
@@ -627,7 +640,7 @@ async fn test_eval_head_streaming() {
         assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
-        "head.test"
+        "last.test"
     )
     .stdin_bytes(b"updated")
     .run()
@@ -641,7 +654,7 @@ async fn test_eval_head_streaming() {
         .expect("Failed to read streamed frame");
     assert!(result > 0, "Should receive streamed frame");
     let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
-    assert_eq!(streamed_frame["topic"], "head.test");
+    assert_eq!(streamed_frame["topic"], "last.test");
 
     // Clean up
     follow_child.kill().await.unwrap();
@@ -703,6 +716,149 @@ async fn test_last_wildcard_topic() {
     assert_eq!(
         frame["topic"], "W.bar",
         ".last W.* should return the most recent matching frame"
+    );
+
+    // Clean up
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_xs_last_cli() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+
+    let mut child = spawn_xs_supervisor(store_path).await;
+
+    let sock_path = store_path.join("sock");
+    let start = std::time::Instant::now();
+    while !sock_path.exists() {
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Timeout waiting for sock file");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Append frames to different topics
+    for (topic, content) in [
+        ("alpha", "a1"),
+        ("alpha", "a2"),
+        ("alpha", "a3"),
+        ("beta", "b1"),
+        ("beta", "b2"),
+    ] {
+        cmd!(
+            assert_cmd::cargo::cargo_bin!("xs"),
+            "append",
+            &sock_path,
+            topic
+        )
+        .stdin_bytes(content.as_bytes())
+        .run()
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // xs last <addr> <topic> - single frame from specific topic
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "last",
+        &sock_path,
+        "alpha"
+    )
+    .read()
+    .unwrap();
+    let frame: serde_json::Value = serde_json::from_str(output.trim()).unwrap();
+    assert_eq!(frame["topic"], "alpha");
+
+    // xs last <addr> - no topic, returns last frame across all topics
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "last", &sock_path)
+        .read()
+        .unwrap();
+    let frame: serde_json::Value = serde_json::from_str(output.trim()).unwrap();
+    assert_eq!(
+        frame["topic"], "beta",
+        "last frame overall should be beta.b2"
+    );
+
+    // xs last <addr> <topic> -n 2 - multiple frames from topic
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "last",
+        &sock_path,
+        "alpha",
+        "-n",
+        "2"
+    )
+    .read()
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert_eq!(lines.len(), 2, "should return 2 frames");
+    let frame1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    let frame2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(frame1["topic"], "alpha");
+    assert_eq!(frame2["topic"], "alpha");
+
+    // xs last <addr> -n 3 - multiple frames across all topics
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "last",
+        &sock_path,
+        "-n",
+        "3"
+    )
+    .read()
+    .unwrap();
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert_eq!(lines.len(), 3, "should return 3 frames");
+
+    // xs last <addr> <wildcard> - wildcard topic
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "last", &sock_path, "*")
+        .read()
+        .unwrap();
+    let frame: serde_json::Value = serde_json::from_str(output.trim()).unwrap();
+    assert_eq!(
+        frame["topic"], "beta",
+        "wildcard should return last frame overall"
+    );
+
+    // xs last -n 3 requesting multiple but only 1 exists should return NDJSON, not JSON object
+    // Format should be based on request (-n > 1), not result count
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        &sock_path,
+        "single"
+    )
+    .stdin_bytes(b"only one")
+    .run()
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Use stdout_capture().run() instead of read() because read() strips trailing newlines
+    let result = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "last",
+        &sock_path,
+        "single",
+        "-n",
+        "3"
+    )
+    .stdout_capture()
+    .run()
+    .unwrap();
+    let output = String::from_utf8(result.stdout).unwrap();
+    // Should be NDJSON format (1 line with newline), not a bare JSON object
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert_eq!(lines.len(), 1, "should return 1 frame");
+    // The line should be valid JSON
+    let _: serde_json::Value =
+        serde_json::from_str(lines[0]).expect("line should be valid JSON in NDJSON format");
+    // Verify it's NDJSON by checking the raw output ends with newline
+    assert!(
+        output.ends_with('\n'),
+        "NDJSON output should end with newline, got: {:?}",
+        output
     );
 
     // Clean up

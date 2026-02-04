@@ -170,7 +170,11 @@ struct CommandLast {
 
     /// Topic to get the most recent frame for (supports wildcards like user.*)
     #[clap(value_parser = parse_topic_query)]
-    topic: String,
+    topic: Option<String>,
+
+    /// Number of frames to return
+    #[clap(long, short = 'n', default_value = "1")]
+    last: usize,
 
     /// Follow for updates to the most recent frame
     #[clap(long, short = 'f')]
@@ -514,7 +518,7 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn last(args: CommandLast) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    xs::client::last(&args.addr, &args.topic, args.follow).await
+    xs::client::last(&args.addr, args.topic.as_deref(), args.last, args.follow).await
 }
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

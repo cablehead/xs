@@ -58,30 +58,6 @@ mod tests_read_options {
         );
     }
 
-    #[tokio::test]
-    async fn test_topic_index() {
-        let folder = tempfile::tempdir().unwrap();
-
-        let store = Store::new(folder.path().to_path_buf());
-
-        let frame1 = Frame {
-            id: scru128::new(),
-            topic: "hello".to_owned(),
-            ..Default::default()
-        };
-        let frame1 = store.append(frame1).unwrap();
-
-        let frame2 = Frame {
-            id: scru128::new(),
-            topic: "hallo".to_owned(),
-            ..Default::default()
-        };
-        let frame2 = store.append(frame2).unwrap();
-
-        assert_eq!(Some(frame1), store.last("hello"));
-        assert_eq!(Some(frame2), store.last("hallo"));
-    }
-
     #[test]
     fn test_read_options_from_query() {
         let test_cases = [
@@ -177,7 +153,6 @@ mod tests_store {
     use tempfile::TempDir;
 
     use tokio::time::timeout;
-    use tokio_stream::StreamExt;
 
     #[tokio::test]
     async fn test_get() {
@@ -231,35 +206,6 @@ mod tests_store {
     }
 
     #[tokio::test]
-    async fn test_stream_basics() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
-
-        let f1 = store.append(Frame::builder("stream").build()).unwrap();
-        let f2 = store.append(Frame::builder("stream").build()).unwrap();
-
-        assert_eq!(store.last("stream"), Some(f2.clone()));
-
-        let recver = store.read(ReadOptions::default()).await;
-        assert_eq!(
-            tokio_stream::wrappers::ReceiverStream::new(recver)
-                .collect::<Vec<Frame>>()
-                .await,
-            vec![f1.clone(), f2.clone()]
-        );
-
-        let recver = store
-            .read(ReadOptions::builder().after(f1.id).build())
-            .await;
-        assert_eq!(
-            tokio_stream::wrappers::ReceiverStream::new(recver)
-                .collect::<Vec<Frame>>()
-                .await,
-            vec![f2]
-        );
-    }
-
-    #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf());
@@ -267,17 +213,24 @@ mod tests_store {
         // Add 3 items
         let frame1 = store.append(Frame::builder("test").build()).unwrap();
         let frame2 = store.append(Frame::builder("test").build()).unwrap();
-        let _ = store.append(Frame::builder("test").build()).unwrap();
+        let frame3 = store.append(Frame::builder("test").build()).unwrap();
 
         // Read with limit 2
         let options = ReadOptions::builder().limit(2).build();
         let mut rx = store.read(options).await;
 
         // Assert we get the first 2 items
-        assert_eq!(Some(frame1), rx.recv().await);
-        assert_eq!(Some(frame2), rx.recv().await);
+        assert_eq!(Some(frame1.clone()), rx.recv().await);
+        assert_eq!(Some(frame2.clone()), rx.recv().await);
 
         // Assert the channel is closed
+        assert_eq!(None, rx.recv().await);
+
+        // Read with after
+        let options = ReadOptions::builder().after(frame1.id).build();
+        let mut rx = store.read(options).await;
+        assert_eq!(Some(frame2), rx.recv().await);
+        assert_eq!(Some(frame3), rx.recv().await);
         assert_eq!(None, rx.recv().await);
     }
 
@@ -445,15 +398,18 @@ mod tests_store {
         let frame3 = store.append(Frame::builder("test").build()).unwrap();
 
         // Test reading all frames
-        let frames: Vec<Frame> = store.read_sync(None, None).collect();
+        let options = ReadOptions::builder().build();
+        let frames: Vec<Frame> = store.read_sync(options).collect();
         assert_eq!(vec![frame1.clone(), frame2.clone(), frame3.clone()], frames);
 
-        // Test with last_id (passing Scru128Id directly)
-        let frames: Vec<Frame> = store.read_sync(Some(&frame1.id), None).collect();
+        // Test with after (passing Scru128Id directly)
+        let options = ReadOptions::builder().after(frame1.id).build();
+        let frames: Vec<Frame> = store.read_sync(options).collect();
         assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
 
         // Test with limit
-        let frames: Vec<Frame> = store.read_sync(None, Some(2)).collect();
+        let options = ReadOptions::builder().limit(2).build();
+        let frames: Vec<Frame> = store.read_sync(options).collect();
         assert_eq!(vec![frame1, frame2], frames);
     }
 }
@@ -878,7 +834,8 @@ mod tests_ttl_expire {
 
         // Read all frames and assert exact expected set
         store.wait_for_gc().await;
-        let frames: Vec<_> = store.read_sync(None, None).collect();
+        let options = ReadOptions::builder().build();
+        let frames: Vec<_> = store.read_sync(options).collect();
 
         assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
@@ -982,7 +939,7 @@ mod tests_append_race {
 }
 
 #[test]
-fn test_read_sync_with_options_last() {
+fn test_read_sync_last() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -995,14 +952,14 @@ fn test_read_sync_with_options_last() {
 
     // Read with last 2
     let options = ReadOptions::builder().last(2).build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
 
     // Assert we get the last 2 items in chronological order
     assert_eq!(vec![frame4, frame5], frames);
 }
 
 #[test]
-fn test_read_sync_with_options_from() {
+fn test_read_sync_from() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -1012,17 +969,17 @@ fn test_read_sync_with_options_from() {
 
     // --from is inclusive
     let options = ReadOptions::builder().from(frame2.id).build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![frame2.clone(), frame3.clone()], frames);
 
     // --after is exclusive (for comparison)
     let options = ReadOptions::builder().after(frame2.id).build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![frame3], frames);
 }
 
 #[test]
-fn test_read_sync_with_options_last_with_topic() {
+fn test_read_sync_last_with_topic() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -1036,12 +993,12 @@ fn test_read_sync_with_options_last_with_topic() {
         .last(2)
         .topic("topic.a".to_string())
         .build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![a2, a3], frames);
 }
 
 #[test]
-fn test_read_sync_with_options_limit_with_topic() {
+fn test_read_sync_limit_with_topic() {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf());
 
@@ -1054,6 +1011,6 @@ fn test_read_sync_with_options_limit_with_topic() {
         .limit(2)
         .topic("topic.a".to_string())
         .build();
-    let frames: Vec<_> = store.read_sync_with_options(options).collect();
+    let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![a1, a2], frames);
 }

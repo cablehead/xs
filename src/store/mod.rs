@@ -441,27 +441,8 @@ impl Store {
         rx
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn read_sync(
-        &self,
-        after: Option<&Scru128Id>,
-        limit: Option<usize>,
-    ) -> impl Iterator<Item = Frame> + '_ {
-        self.iter_frames(after.map(|id| (id, false)))
-            .filter(move |frame| {
-                if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                    if is_expired(&frame.id, ttl) {
-                        let _ = self.gc_tx.send(GCTask::Remove(frame.id));
-                        return false;
-                    }
-                }
-                true
-            })
-            .take(limit.unwrap_or(usize::MAX))
-    }
-
     /// Read frames synchronously with full ReadOptions support.
-    pub fn read_sync_with_options(&self, options: ReadOptions) -> impl Iterator<Item = Frame> + '_ {
+    pub fn read_sync(&self, options: ReadOptions) -> impl Iterator<Item = Frame> + '_ {
         let gc_tx = self.gc_tx.clone();
 
         // Filter out expired frames
@@ -530,31 +511,6 @@ impl Store {
             .get(id.to_bytes())
             .unwrap()
             .map(|value| deserialize_frame((id.as_bytes(), value)))
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn last(&self, topic: &str) -> Option<Frame> {
-        if topic == "*" {
-            // All topics: scan all frames and find the one with the highest ID
-            self.idx_topic.iter().rev().find_map(|guard| {
-                let key = guard.key().ok()?;
-                self.get(&idx_topic_frame_id_from_key(&key))
-            })
-        } else if let Some(prefix) = topic.strip_suffix(".*") {
-            // Wildcard: find last frame matching prefix
-            let prefix_with_dot = format!("{}.", prefix);
-            self.iter_frames_by_topic_prefix(&prefix_with_dot, None)
-                .max_by_key(|f| f.id)
-        } else {
-            // Exact topic match
-            self.idx_topic
-                .prefix(idx_topic_key_prefix(topic))
-                .rev()
-                .find_map(|guard| {
-                    let key = guard.key().ok()?;
-                    self.get(&idx_topic_frame_id_from_key(&key))
-                })
-        }
     }
 
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]

@@ -61,15 +61,23 @@ Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 
 ### `.last`
 
-Get the most recent frame for a topic. Wraps [`xs last`](../cli/#last).
+Get the most recent frame(s) for a topic. Wraps [`xs last`](../cli/#last).
 
 ```nushell
-.last <topic> [--follow]
+.last [topic] [-n count] [--follow]
 ```
 
+- `topic` - Topic to query (optional, defaults to all topics). Supports wildcards like `user.*`.
+- `-n` - Number of frames to return (default: 1)
+- `--follow` / `-f` - Stream updates as they arrive
+
 ```nushell
-.last note
-let latest_note = .last note
+.last note              # last frame for topic "note"
+.last                   # last frame across all topics
+.last note -n 5         # last 5 frames for topic "note"
+.last -n 10             # last 10 frames across all topics
+.last "user.*"          # last frame matching wildcard
+.last note --follow     # stream updates for topic "note"
 ```
 
 ### `.remove`

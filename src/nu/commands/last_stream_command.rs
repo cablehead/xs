@@ -1,10 +1,11 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{
-    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type,
+    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type, Value,
 };
 use std::time::Duration;
 
+use crate::nu::util;
 use crate::store::{FollowOption, ReadOptions, Store};
 
 #[derive(Clone)]
@@ -26,10 +27,16 @@ impl Command for LastStreamCommand {
     fn signature(&self) -> Signature {
         Signature::build(".last")
             .input_output_types(vec![(Type::Nothing, Type::Any)])
-            .required(
+            .optional(
                 "topic",
                 SyntaxShape::String,
-                "topic to get most recent frame from",
+                "topic to get most recent frame from (default: all topics)",
+            )
+            .named(
+                "last",
+                SyntaxShape::Int,
+                "number of frames to return",
+                Some('n'),
             )
             .switch(
                 "follow",
@@ -40,7 +47,7 @@ impl Command for LastStreamCommand {
     }
 
     fn description(&self) -> &str {
-        "get the most recent frame for a topic"
+        "get the most recent frame(s) for a topic"
     }
 
     fn run(
@@ -50,42 +57,48 @@ impl Command for LastStreamCommand {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let topic: String = call.req(engine_state, stack, 0)?;
+        let topic: Option<String> = call.opt(engine_state, stack, 0)?;
+        let n: usize = call
+            .get_flag::<i64>(engine_state, stack, "last")?
+            .map(|v| v as usize)
+            .unwrap_or(1);
         let follow = call.has_flag(engine_state, stack, "follow")?;
-
         let span = call.head;
-        let current_head = self.store.last(&topic);
 
         if !follow {
-            // Non-follow mode: just return current head or empty
-            return if let Some(frame) = current_head {
+            // Non-follow mode: use sync path
+            let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
+
+            let frames: Vec<Value> = self
+                .store
+                .read_sync(options)
+                .map(|frame| util::frame_to_value(&frame, span))
+                .collect();
+
+            return if frames.is_empty() {
+                Ok(PipelineData::Empty)
+            } else if frames.len() == 1 {
                 Ok(PipelineData::Value(
-                    crate::nu::util::frame_to_value(&frame, span),
+                    frames.into_iter().next().unwrap(),
                     None,
                 ))
             } else {
-                Ok(PipelineData::Empty)
+                Ok(PipelineData::Value(Value::list(frames, span), None))
             };
         }
 
-        // Follow mode: stream head updates
+        // Follow mode: use async path with streaming
         let options = ReadOptions::builder()
+            .last(n)
+            .maybe_topic(topic)
             .follow(FollowOption::On)
-            .maybe_after(current_head.as_ref().map(|f| f.id))
             .build();
 
         let store = self.store.clone();
         let signals = engine_state.signals().clone();
-        let topic_filter = topic.clone();
 
         // Create channel for async -> sync bridge
         let (tx, rx) = std::sync::mpsc::channel();
-
-        // If there's a current head, send it first
-        if let Some(frame) = current_head {
-            let value = crate::nu::util::frame_to_value(&frame, span);
-            let _ = tx.send(value);
-        }
 
         // Spawn thread to handle async store.read()
         std::thread::spawn(move || {
@@ -94,12 +107,7 @@ impl Command for LastStreamCommand {
                 let mut receiver = store.read(options).await;
 
                 while let Some(frame) = receiver.recv().await {
-                    // Filter for matching topic
-                    if frame.topic != topic_filter {
-                        continue;
-                    }
-
-                    let value = crate::nu::util::frame_to_value(&frame, span);
+                    let value = util::frame_to_value(&frame, span);
 
                     if tx.send(value).is_err() {
                         break;

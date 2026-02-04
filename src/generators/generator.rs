@@ -53,6 +53,7 @@ pub enum GeneratorEventKind {
 #[derive(Debug, Clone)]
 pub struct GeneratorEvent {
     pub kind: GeneratorEventKind,
+    pub frame: Frame,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -71,14 +72,12 @@ pub(crate) fn emit_event(
     return_opts: Option<&ReturnOptions>,
     kind: GeneratorEventKind,
 ) -> Result<GeneratorEvent, Box<dyn std::error::Error + Send + Sync>> {
-    match &kind {
-        GeneratorEventKind::Running => {
-            store.append(
-                Frame::builder(format!("{topic}.running", topic = loop_ctx.topic))
-                    .meta(json!({ "source_id": source_id.to_string() }))
-                    .build(),
-            )?;
-        }
+    let frame = match &kind {
+        GeneratorEventKind::Running => store.append(
+            Frame::builder(format!("{topic}.running", topic = loop_ctx.topic))
+                .meta(json!({ "source_id": source_id.to_string() }))
+                .build(),
+        )?,
 
         GeneratorEventKind::Recv { suffix, data } => {
             let hash = store.cas_insert_bytes_sync(data)?;
@@ -92,7 +91,7 @@ pub(crate) fn emit_event(
                 .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
                 .meta(json!({ "source_id": source_id.to_string() }))
                 .build(),
-            )?;
+            )?
         }
 
         GeneratorEventKind::Stopped(reason) => {
@@ -110,30 +109,26 @@ pub(crate) fn emit_event(
                 Frame::builder(format!("{topic}.stopped", topic = loop_ctx.topic))
                     .meta(meta)
                     .build(),
-            )?;
+            )?
         }
 
-        GeneratorEventKind::ParseError { message } => {
-            store.append(
-                Frame::builder(format!("{topic}.parse.error", topic = loop_ctx.topic))
-                    .meta(json!({
-                        "source_id": source_id.to_string(),
-                        "reason": message,
-                    }))
-                    .build(),
-            )?;
-        }
+        GeneratorEventKind::ParseError { message } => store.append(
+            Frame::builder(format!("{topic}.parse.error", topic = loop_ctx.topic))
+                .meta(json!({
+                    "source_id": source_id.to_string(),
+                    "reason": message,
+                }))
+                .build(),
+        )?,
 
-        GeneratorEventKind::Shutdown => {
-            store.append(
-                Frame::builder(format!("{topic}.shutdown", topic = loop_ctx.topic))
-                    .meta(json!({ "source_id": source_id.to_string() }))
-                    .build(),
-            )?;
-        }
-    }
+        GeneratorEventKind::Shutdown => store.append(
+            Frame::builder(format!("{topic}.shutdown", topic = loop_ctx.topic))
+                .meta(json!({ "source_id": source_id.to_string() }))
+                .build(),
+        )?,
+    };
 
-    Ok(GeneratorEvent { kind })
+    Ok(GeneratorEvent { kind, frame })
 }
 
 fn stop_reason_str(r: &StopReason) -> &'static str {
@@ -206,17 +201,15 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
 
 async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristine: nu::Engine) {
     // Create the first start frame and set up a persistent control subscription
-    let _ = emit_event(
+    let start_event = emit_event(
         &store,
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
         GeneratorEventKind::Running,
-    );
-    let start_frame = store
-        .last(&format!("{topic}.running", topic = loop_ctx.topic))
-        .expect("running frame");
-    let mut start_id = start_frame.id;
+    )
+    .expect("failed to emit running event");
+    let mut start_id = start_event.frame.id;
 
     let control_rx_options = ReadOptions::builder()
         .follow(FollowOption::On)
@@ -355,23 +348,27 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
         match outcome {
             LoopOutcome::Continue => {
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                let _ = emit_event(
+                if let Ok(event) = emit_event(
                     &store,
                     &loop_ctx,
                     task.id,
                     task.return_options.as_ref(),
                     GeneratorEventKind::Running,
-                );
+                ) {
+                    start_id = event.frame.id;
+                }
             }
             LoopOutcome::Update(new_task, _) => {
                 task = *new_task;
-                let _ = emit_event(
+                if let Ok(event) = emit_event(
                     &store,
                     &loop_ctx,
                     task.id,
                     task.return_options.as_ref(),
                     GeneratorEventKind::Running,
-                );
+                ) {
+                    start_id = event.frame.id;
+                }
             }
             LoopOutcome::Terminate | LoopOutcome::Error(_) => {
                 let _ = emit_event(
@@ -383,10 +380,6 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                 );
                 break;
             }
-        }
-
-        if let Some(f) = store.last(&format!("{topic}.running", topic = loop_ctx.topic)) {
-            start_id = f.id;
         }
     }
 }

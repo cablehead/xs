@@ -172,6 +172,156 @@ mod tests {
     }
 
     #[test]
+    fn test_last_command_no_topic() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        let _frame1 = store
+            .append(
+                Frame::builder("topic_a")
+                    .hash(store.cas_insert_sync("content1")?)
+                    .build(),
+            )
+            .unwrap();
+
+        let frame2 = store
+            .append(
+                Frame::builder("topic_b")
+                    .hash(store.cas_insert_sync("content2")?)
+                    .build(),
+            )
+            .unwrap();
+
+        // .last with no topic returns last frame across all topics
+        let last_frame = nu_eval(&engine, PipelineData::empty(), ".last");
+
+        assert_eq!(
+            last_frame.get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame2.id.to_string()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_last_command_n_flag() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        let frame1 = store
+            .append(
+                Frame::builder("topic")
+                    .hash(store.cas_insert_sync("content1")?)
+                    .build(),
+            )
+            .unwrap();
+
+        let frame2 = store
+            .append(
+                Frame::builder("topic")
+                    .hash(store.cas_insert_sync("content2")?)
+                    .build(),
+            )
+            .unwrap();
+
+        let frame3 = store
+            .append(
+                Frame::builder("topic")
+                    .hash(store.cas_insert_sync("content3")?)
+                    .build(),
+            )
+            .unwrap();
+
+        // .last -n 2 returns last 2 frames in chronological order
+        let result = nu_eval(&engine, PipelineData::empty(), ".last -n 2");
+        let frames = result.as_list().unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(
+            frames[0].get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame2.id.to_string()
+        );
+        assert_eq!(
+            frames[1].get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame3.id.to_string()
+        );
+
+        // .last -n 1 returns single value (not list)
+        let result = nu_eval(&engine, PipelineData::empty(), ".last -n 1");
+        assert_eq!(
+            result.get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame3.id.to_string()
+        );
+
+        // .last -n 10 with only 3 frames returns all 3
+        let result = nu_eval(&engine, PipelineData::empty(), ".last -n 10");
+        let frames = result.as_list().unwrap();
+        assert_eq!(frames.len(), 3);
+        assert_eq!(
+            frames[0].get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame1.id.to_string()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_last_command_topic_with_n_flag() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        // Add frames to different topics
+        let _other = store
+            .append(
+                Frame::builder("other")
+                    .hash(store.cas_insert_sync("other")?)
+                    .build(),
+            )
+            .unwrap();
+
+        let frame1 = store
+            .append(
+                Frame::builder("target")
+                    .hash(store.cas_insert_sync("content1")?)
+                    .build(),
+            )
+            .unwrap();
+
+        let frame2 = store
+            .append(
+                Frame::builder("target")
+                    .hash(store.cas_insert_sync("content2")?)
+                    .build(),
+            )
+            .unwrap();
+
+        // .last target -n 2 returns last 2 frames for "target" topic only
+        let result = nu_eval(&engine, PipelineData::empty(), ".last target -n 2");
+        let frames = result.as_list().unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(
+            frames[0].get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame1.id.to_string()
+        );
+        assert_eq!(
+            frames[1].get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame2.id.to_string()
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn test_cat_command() -> Result<(), Error> {
         let (store, mut engine) = setup_test_env();
         engine

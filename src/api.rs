@@ -43,7 +43,8 @@ enum Routes {
         ttl: Option<TTL>,
     },
     LastGet {
-        topic: String,
+        topic: Option<String>,
+        last: usize,
         follow: bool,
     },
     StreamItemGet(Scru128Id),
@@ -109,10 +110,25 @@ fn match_route(
             }
         }
 
+        (&Method::GET, "/last") => {
+            let follow = params.contains_key("follow");
+            let last = params.get("last").and_then(|v| v.parse().ok()).unwrap_or(1);
+            Routes::LastGet {
+                topic: None,
+                last,
+                follow,
+            }
+        }
+
         (&Method::GET, p) if p.starts_with("/last/") => {
             let topic = p.strip_prefix("/last/").unwrap().to_string();
             let follow = params.contains_key("follow");
-            Routes::LastGet { topic, follow }
+            let last = params.get("last").and_then(|v| v.parse().ok()).unwrap_or(1);
+            Routes::LastGet {
+                topic: Some(topic),
+                last,
+                follow,
+            }
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
@@ -203,7 +219,11 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::LastGet { topic, follow } => handle_last_get(&store, &topic, follow).await,
+        Routes::LastGet {
+            topic,
+            last,
+            follow,
+        } => handle_last_get(&store, topic.as_deref(), last, follow).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -462,45 +482,65 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_last_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
-    let current_head = store.last(topic);
-
+async fn handle_last_get(
+    store: &Store,
+    topic: Option<&str>,
+    last: usize,
+    follow: bool,
+) -> HTTPResult {
     if !follow {
-        return response_frame_or_404(current_head);
+        let options = ReadOptions::builder()
+            .last(last)
+            .maybe_topic(topic.map(|t| t.to_string()))
+            .build();
+
+        let frames: Vec<Frame> = store.read_sync(options).collect();
+
+        if frames.is_empty() {
+            return response_404();
+        }
+
+        // Format based on request, not result count:
+        // - last == 1 (default): JSON object
+        // - last > 1: NDJSON (even if fewer frames returned)
+        if last == 1 {
+            return response_frame_or_404(Some(frames.into_iter().next().unwrap()));
+        }
+
+        let mut body = Vec::new();
+        for frame in frames {
+            serde_json::to_writer(&mut body, &frame).unwrap();
+            body.push(b'\n');
+        }
+
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/x-ndjson")
+            .body(full(body))?);
     }
 
+    // Follow mode: use ReadOptions::last to get historical + live frames
+    // This emits xs.threshold after historical frames
     let rx = store
         .read(
             ReadOptions::builder()
+                .last(last)
+                .maybe_topic(topic.map(|t| t.to_string()))
                 .follow(FollowOption::On)
-                .new(true)
-                .maybe_after(current_head.as_ref().map(|f| f.id))
                 .build(),
         )
         .await;
 
-    let topic = topic.to_string();
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
-        .filter(move |frame| frame.topic == topic)
-        .map(|frame| {
-            let mut bytes = serde_json::to_vec(&frame).unwrap();
-            bytes.push(b'\n');
-            Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
-        });
-
-    let body = if let Some(frame) = current_head {
-        let mut head_bytes = serde_json::to_vec(&frame).unwrap();
-        head_bytes.push(b'\n');
-        let head_chunk = Ok(hyper::body::Frame::data(Bytes::from(head_bytes)));
-        StreamBody::new(futures::stream::once(async { head_chunk }).chain(stream)).boxed()
-    } else {
-        StreamBody::new(stream).boxed()
-    };
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|frame| {
+        let mut bytes = serde_json::to_vec(&frame).unwrap();
+        bytes.push(b'\n');
+        Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
+    });
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/x-ndjson")
-        .body(body)?)
+        .body(StreamBody::new(stream).boxed())?)
 }
 
 async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPResult {
@@ -714,18 +754,108 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_match_route_last_follow() {
+    fn test_match_route_last() {
         let headers = hyper::HeaderMap::new();
 
+        // /last/topic without follow
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, None),
-            Routes::LastGet { topic, follow: false } if topic == "test"
+            Routes::LastGet { topic: Some(t), last: 1, follow: false } if t == "test"
         ));
 
+        // /last/topic with follow
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, Some("follow=true")),
-            Routes::LastGet { topic, follow: true } if topic == "test"
+            Routes::LastGet { topic: Some(t), last: 1, follow: true } if t == "test"
         ));
+
+        // /last without topic
+        assert!(matches!(
+            match_route(&Method::GET, "/last", &headers, None),
+            Routes::LastGet {
+                topic: None,
+                last: 1,
+                follow: false
+            }
+        ));
+
+        // /last with last=5
+        assert!(matches!(
+            match_route(&Method::GET, "/last", &headers, Some("last=5")),
+            Routes::LastGet {
+                topic: None,
+                last: 5,
+                follow: false
+            }
+        ));
+
+        // /last/topic with last=3 and follow
+        assert!(matches!(
+            match_route(&Method::GET, "/last/test", &headers, Some("last=3&follow=true")),
+            Routes::LastGet { topic: Some(t), last: 3, follow: true } if t == "test"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_handle_last_get_ndjson_format() {
+        use crate::store::Store;
+        use http_body_util::BodyExt;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Add one frame
+        store
+            .append(crate::store::Frame::builder("test").build())
+            .unwrap();
+
+        // Request last=1 (default) - should return JSON object (no trailing newline)
+        let response = handle_last_get(&store, Some("test"), 1, false)
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            !body_str.ends_with('\n'),
+            "Response should be JSON (no trailing newline) when last=1, got: {:?}",
+            body_str
+        );
+
+        // Request last=3 but only 1 frame exists - should still return NDJSON
+        let response = handle_last_get(&store, Some("test"), 3, false)
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            body_str.ends_with('\n'),
+            "Response should be NDJSON (end with newline) when last > 1, got: {:?}",
+            body_str
+        );
+
+        // Verify full chain: match_route -> dispatch -> handle_last_get
+        let headers = hyper::HeaderMap::new();
+        let route = match_route(&Method::GET, "/last/test", &headers, Some("last=3"));
+        if let Routes::LastGet {
+            topic,
+            last,
+            follow,
+        } = route
+        {
+            assert_eq!(last, 3, "Route should parse last=3");
+            let response = handle_last_get(&store, topic.as_deref(), last, follow)
+                .await
+                .unwrap();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let body_str = String::from_utf8(body.to_vec()).unwrap();
+            assert!(
+                body_str.ends_with('\n'),
+                "Full chain should return NDJSON when last=3, got: {:?}",
+                body_str
+            );
+        } else {
+            panic!("Expected Routes::LastGet");
+        }
     }
 
     #[tokio::test]

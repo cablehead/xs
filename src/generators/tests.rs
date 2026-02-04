@@ -626,8 +626,8 @@ fn test_emit_event_helper() {
     )
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Recv { .. }));
-    let frame = store.last("helper.data").unwrap();
-    let bytes = store.cas_read_sync(&frame.hash.unwrap());
+    assert_eq!(ev.frame.topic, "helper.data");
+    let bytes = store.cas_read_sync(&ev.frame.hash.unwrap());
     assert_eq!(bytes.unwrap(), b"hi".to_vec());
 
     let ev = emit_event(
@@ -640,7 +640,7 @@ fn test_emit_event_helper() {
     .unwrap();
     assert!(matches!(ev.kind, GeneratorEventKind::Stopped(_)));
 
-    let _ = emit_event(
+    let ev = emit_event(
         &store,
         &loop_ctx,
         task.id,
@@ -648,7 +648,7 @@ fn test_emit_event_helper() {
         GeneratorEventKind::Shutdown,
     )
     .unwrap();
-    assert!(store.last("helper.shutdown").is_some());
+    assert_eq!(ev.frame.topic, "helper.shutdown");
 }
 
 #[tokio::test]
