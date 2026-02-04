@@ -84,19 +84,22 @@ curl --unix-socket ./store/sock -X DELETE \
 
 Response: 204 on success
 
-### `GET /last/{topic}`
+### `GET /last[/{topic}]`
 
-Get most recent frame for topic
+Get most recent frame(s), optionally filtered by topic.
 
 ```sh
 curl --unix-socket ./store/sock http://localhost/last/topic
+curl --unix-socket ./store/sock http://localhost/last
+curl --unix-socket ./store/sock "http://localhost/last/topic?last=5"
 ```
 
 Query Parameters:
 
-- `follow` - Long poll for new frames on this topic
+- `last` - Number of frames to return (default: 1). Returns NDJSON when > 1.
+- `follow` - Long poll for new frames
 
-Response: Most recent frame for topic or 404 if not found
+Response: Most recent frame(s) as JSON (single) or NDJSON (multiple/follow), or 404 if not found
 
 ### `POST /cas`
 

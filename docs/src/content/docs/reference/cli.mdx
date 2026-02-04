@@ -22,7 +22,7 @@ xs <COMMAND> [OPTIONS]
 - `cas` – Retrieve content from Content-Addressable Storage
 - `cas-post` – Store content in Content-Addressable Storage
 - `remove` – Remove an item from the stream
-- `last` – Get the most recent frame for a topic
+- `last` – Get the most recent frame(s), optionally filtered by topic
 - `get` – Get a frame by ID
 - `import` – Import a frame directly into the store
 - `eval` – Evaluate a Nushell script with store helper commands available
@@ -160,17 +160,27 @@ xs remove <addr> <id>
 
 ### `last`
 
-Get the most recent frame for a topic.
+Get the most recent frame(s), optionally filtered by topic.
 
 ```sh
-xs last <addr> <topic> [--follow]
+xs last <addr> [topic] [-n count] [--follow]
 ```
 
-| Option           | Description             |
-| ---------------- | ----------------------- |
-| `<addr>`         | Address to connect to   |
-| `<topic>`        | Topic to inspect        |
-| `--follow`, `-f` | Follow for updates      |
+| Option           | Description                                      |
+| ---------------- | ------------------------------------------------ |
+| `<addr>`         | Address to connect to                            |
+| `[topic]`        | Topic to query (optional, supports wildcards)    |
+| `-n`, `--last`   | Number of frames to return (default: 1)          |
+| `--follow`, `-f` | Follow for updates                               |
+
+Examples:
+```sh
+xs last ./store note           # last frame for topic "note"
+xs last ./store                # last frame across all topics
+xs last ./store note -n 5      # last 5 frames for topic "note"
+xs last ./store -n 10          # last 10 frames across all topics
+xs last ./store "user.*"       # last frame matching wildcard
+```
 
 ### `get`
 
