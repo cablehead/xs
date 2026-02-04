@@ -500,9 +500,10 @@ async fn handle_last_get(
             return response_404();
         }
 
-        // Single frame: return as JSON object (backward compatible)
-        // Multiple frames: return as NDJSON
-        if frames.len() == 1 {
+        // Format based on request, not result count:
+        // - last == 1 (default): JSON object
+        // - last > 1: NDJSON (even if fewer frames returned)
+        if last == 1 {
             return response_frame_or_404(Some(frames.into_iter().next().unwrap()));
         }
 
@@ -793,6 +794,68 @@ mod tests {
             match_route(&Method::GET, "/last/test", &headers, Some("last=3&follow=true")),
             Routes::LastGet { topic: Some(t), last: 3, follow: true } if t == "test"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_handle_last_get_ndjson_format() {
+        use crate::store::Store;
+        use http_body_util::BodyExt;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf());
+
+        // Add one frame
+        store
+            .append(crate::store::Frame::builder("test").build())
+            .unwrap();
+
+        // Request last=1 (default) - should return JSON object (no trailing newline)
+        let response = handle_last_get(&store, Some("test"), 1, false)
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            !body_str.ends_with('\n'),
+            "Response should be JSON (no trailing newline) when last=1, got: {:?}",
+            body_str
+        );
+
+        // Request last=3 but only 1 frame exists - should still return NDJSON
+        let response = handle_last_get(&store, Some("test"), 3, false)
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            body_str.ends_with('\n'),
+            "Response should be NDJSON (end with newline) when last > 1, got: {:?}",
+            body_str
+        );
+
+        // Verify full chain: match_route -> dispatch -> handle_last_get
+        let headers = hyper::HeaderMap::new();
+        let route = match_route(&Method::GET, "/last/test", &headers, Some("last=3"));
+        if let Routes::LastGet {
+            topic,
+            last,
+            follow,
+        } = route
+        {
+            assert_eq!(last, 3, "Route should parse last=3");
+            let response = handle_last_get(&store, topic.as_deref(), last, follow)
+                .await
+                .unwrap();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let body_str = String::from_utf8(body.to_vec()).unwrap();
+            assert!(
+                body_str.ends_with('\n'),
+                "Full chain should return NDJSON when last=3, got: {:?}",
+                body_str
+            );
+        } else {
+            panic!("Expected Routes::LastGet");
+        }
     }
 
     #[tokio::test]
