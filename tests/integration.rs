@@ -622,6 +622,19 @@ async fn test_eval_last_follow() {
         "First frame from .last --follow should be the current last"
     );
 
+    // Should receive xs.threshold marker after historical frames
+    line.clear();
+    let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+        .await
+        .expect("Timeout waiting for xs.threshold")
+        .expect("Failed to read xs.threshold");
+    assert!(result > 0, "Should receive xs.threshold");
+    let threshold_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    assert_eq!(
+        threshold_frame["topic"], "xs.threshold",
+        "Should receive xs.threshold marker after historical frames"
+    );
+
     // Append new frame while following
     cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),

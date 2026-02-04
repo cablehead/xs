@@ -6,7 +6,7 @@ use nu_protocol::{
 use std::time::Duration;
 
 use crate::nu::util;
-use crate::store::{FollowOption, ReadOptions, Store, TTL};
+use crate::store::{FollowOption, ReadOptions, Store};
 
 #[derive(Clone)]
 pub struct LastStreamCommand {
@@ -107,11 +107,6 @@ impl Command for LastStreamCommand {
                 let mut receiver = store.read(options).await;
 
                 while let Some(frame) = receiver.recv().await {
-                    // Skip ephemeral frames (xs.threshold, xs.pulse)
-                    if frame.ttl == Some(TTL::Ephemeral) {
-                        continue;
-                    }
-
                     let value = util::frame_to_value(&frame, span);
 
                     if tx.send(value).is_err() {
