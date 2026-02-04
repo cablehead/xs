@@ -463,44 +463,33 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
 }
 
 async fn handle_last_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
-    let current_head = store.last(topic);
-
     if !follow {
+        let current_head = store.last(topic);
         return response_frame_or_404(current_head);
     }
 
+    // Follow mode: use ReadOptions::last to get historical + live frames
+    // This emits xs.threshold after historical frames
     let rx = store
         .read(
             ReadOptions::builder()
+                .last(1)
+                .topic(topic.to_string())
                 .follow(FollowOption::On)
-                .new(true)
-                .maybe_after(current_head.as_ref().map(|f| f.id))
                 .build(),
         )
         .await;
 
-    let topic = topic.to_string();
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
-        .filter(move |frame| frame.topic == topic)
-        .map(|frame| {
-            let mut bytes = serde_json::to_vec(&frame).unwrap();
-            bytes.push(b'\n');
-            Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
-        });
-
-    let body = if let Some(frame) = current_head {
-        let mut head_bytes = serde_json::to_vec(&frame).unwrap();
-        head_bytes.push(b'\n');
-        let head_chunk = Ok(hyper::body::Frame::data(Bytes::from(head_bytes)));
-        StreamBody::new(futures::stream::once(async { head_chunk }).chain(stream)).boxed()
-    } else {
-        StreamBody::new(stream).boxed()
-    };
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|frame| {
+        let mut bytes = serde_json::to_vec(&frame).unwrap();
+        bytes.push(b'\n');
+        Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
+    });
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/x-ndjson")
-        .body(body)?)
+        .body(StreamBody::new(stream).boxed())?)
 }
 
 async fn handle_import(store: &mut Store, body: hyper::body::Incoming) -> HTTPResult {
