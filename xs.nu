@@ -86,13 +86,20 @@ export def .get [id: string] {
 }
 
 export def .last [
-  topic: string
+  topic?: string
+  --last (-n): int  # Number of frames to return
   --follow (-f)
 ] {
-  if $follow {
-    xs last (xs-addr) $topic --follow | lines | each {|x| $x | from json }
+  let args = [
+    (if $topic != null { [$topic] })
+    (if $last != null { ["-n" $last] })
+    (if $follow { ["--follow"] })
+  ] | compact | flatten
+
+  if $follow or ($last != null and $last > 1) {
+    xs last (xs-addr) ...$args | lines | each {|x| $x | from json }
   } else {
-    xs last (xs-addr) $topic | from json
+    xs last (xs-addr) ...$args | from json
   }
 }
 
