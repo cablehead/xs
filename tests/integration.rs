@@ -569,7 +569,7 @@ async fn test_eval_cat_streaming() {
 }
 
 #[tokio::test]
-async fn test_eval_head_streaming() {
+async fn test_eval_last_follow() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();
 
@@ -590,7 +590,7 @@ async fn test_eval_head_streaming() {
         assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
-        "head.test"
+        "last.test"
     )
     .stdin_bytes(b"initial")
     .run()
@@ -601,7 +601,7 @@ async fn test_eval_head_streaming() {
         .arg("eval")
         .arg(store_path)
         .arg("-c")
-        .arg(".last head.test --follow")
+        .arg(".last last.test --follow")
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
@@ -609,7 +609,7 @@ async fn test_eval_head_streaming() {
     let stdout = follow_child.stdout.take().unwrap();
     let mut reader = tokio::io::BufReader::new(stdout);
 
-    // Should receive current head immediately
+    // Should receive current last immediately
     let mut line = String::new();
     let result = tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
         .await
@@ -618,7 +618,7 @@ async fn test_eval_head_streaming() {
     assert!(result > 0, "Should receive current last frame");
     let last_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
     assert_eq!(
-        last_frame["topic"], "head.test",
+        last_frame["topic"], "last.test",
         "First frame from .last --follow should be the current last"
     );
 
@@ -627,7 +627,7 @@ async fn test_eval_head_streaming() {
         assert_cmd::cargo::cargo_bin!("xs"),
         "append",
         store_path,
-        "head.test"
+        "last.test"
     )
     .stdin_bytes(b"updated")
     .run()
@@ -641,7 +641,7 @@ async fn test_eval_head_streaming() {
         .expect("Failed to read streamed frame");
     assert!(result > 0, "Should receive streamed frame");
     let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
-    assert_eq!(streamed_frame["topic"], "head.test");
+    assert_eq!(streamed_frame["topic"], "last.test");
 
     // Clean up
     follow_child.kill().await.unwrap();
