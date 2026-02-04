@@ -43,7 +43,8 @@ enum Routes {
         ttl: Option<TTL>,
     },
     LastGet {
-        topic: String,
+        topic: Option<String>,
+        last: usize,
         follow: bool,
     },
     StreamItemGet(Scru128Id),
@@ -109,10 +110,25 @@ fn match_route(
             }
         }
 
+        (&Method::GET, "/last") => {
+            let follow = params.contains_key("follow");
+            let last = params.get("last").and_then(|v| v.parse().ok()).unwrap_or(1);
+            Routes::LastGet {
+                topic: None,
+                last,
+                follow,
+            }
+        }
+
         (&Method::GET, p) if p.starts_with("/last/") => {
             let topic = p.strip_prefix("/last/").unwrap().to_string();
             let follow = params.contains_key("follow");
-            Routes::LastGet { topic, follow }
+            let last = params.get("last").and_then(|v| v.parse().ok()).unwrap_or(1);
+            Routes::LastGet {
+                topic: Some(topic),
+                last,
+                follow,
+            }
         }
 
         (&Method::GET, p) if p.starts_with("/cas/") => {
@@ -203,7 +219,11 @@ async fn handle(
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
-        Routes::LastGet { topic, follow } => handle_last_get(&store, &topic, follow).await,
+        Routes::LastGet {
+            topic,
+            last,
+            follow,
+        } => handle_last_get(&store, topic.as_deref(), last, follow).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -462,10 +482,40 @@ async fn handle_stream_item_remove(store: &mut Store, id: Scru128Id) -> HTTPResu
     }
 }
 
-async fn handle_last_get(store: &Store, topic: &str, follow: bool) -> HTTPResult {
+async fn handle_last_get(
+    store: &Store,
+    topic: Option<&str>,
+    last: usize,
+    follow: bool,
+) -> HTTPResult {
     if !follow {
-        let current_head = store.last(topic);
-        return response_frame_or_404(current_head);
+        let options = ReadOptions::builder()
+            .last(last)
+            .maybe_topic(topic.map(|t| t.to_string()))
+            .build();
+
+        let frames: Vec<Frame> = store.read_sync_with_options(options).collect();
+
+        if frames.is_empty() {
+            return response_404();
+        }
+
+        // Single frame: return as JSON object (backward compatible)
+        // Multiple frames: return as NDJSON
+        if frames.len() == 1 {
+            return response_frame_or_404(Some(frames.into_iter().next().unwrap()));
+        }
+
+        let mut body = Vec::new();
+        for frame in frames {
+            serde_json::to_writer(&mut body, &frame).unwrap();
+            body.push(b'\n');
+        }
+
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/x-ndjson")
+            .body(full(body))?);
     }
 
     // Follow mode: use ReadOptions::last to get historical + live frames
@@ -473,8 +523,8 @@ async fn handle_last_get(store: &Store, topic: &str, follow: bool) -> HTTPResult
     let rx = store
         .read(
             ReadOptions::builder()
-                .last(1)
-                .topic(topic.to_string())
+                .last(last)
+                .maybe_topic(topic.map(|t| t.to_string()))
                 .follow(FollowOption::On)
                 .build(),
         )
@@ -703,17 +753,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_match_route_last_follow() {
+    fn test_match_route_last() {
         let headers = hyper::HeaderMap::new();
 
+        // /last/topic without follow
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, None),
-            Routes::LastGet { topic, follow: false } if topic == "test"
+            Routes::LastGet { topic: Some(t), last: 1, follow: false } if t == "test"
         ));
 
+        // /last/topic with follow
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, Some("follow=true")),
-            Routes::LastGet { topic, follow: true } if topic == "test"
+            Routes::LastGet { topic: Some(t), last: 1, follow: true } if t == "test"
+        ));
+
+        // /last without topic
+        assert!(matches!(
+            match_route(&Method::GET, "/last", &headers, None),
+            Routes::LastGet {
+                topic: None,
+                last: 1,
+                follow: false
+            }
+        ));
+
+        // /last with last=5
+        assert!(matches!(
+            match_route(&Method::GET, "/last", &headers, Some("last=5")),
+            Routes::LastGet {
+                topic: None,
+                last: 5,
+                follow: false
+            }
+        ));
+
+        // /last/topic with last=3 and follow
+        assert!(matches!(
+            match_route(&Method::GET, "/last/test", &headers, Some("last=3&follow=true")),
+            Routes::LastGet { topic: Some(t), last: 3, follow: true } if t == "test"
         ));
     }
 
