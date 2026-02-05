@@ -9,7 +9,7 @@ use tokio::io::AsyncWriteExt;
 
 use xs::nu;
 use xs::store::{
-    parse_ttl, validate_topic, validate_topic_query, FollowOption, ReadOptions, Store,
+    parse_ttl, validate_topic, validate_topic_query, FollowOption, ReadOptions, Store, StoreError,
 };
 
 fn parse_topic(s: &str) -> Result<String, String> {
@@ -304,7 +304,29 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
     tracing::trace!("Starting server with path: {:?}", args.path);
 
-    let store = Store::new(args.path);
+    let store = match Store::new(args.path.clone()) {
+        Ok(store) => store,
+        Err(StoreError::Locked) => {
+            let sock_path = args.path.join("sock");
+            eprintln!("Error: Store is locked by another process\n");
+            eprintln!(
+                "The store at '{}' is already in use, likely by `xs serve`.\n",
+                args.path.display()
+            );
+            eprintln!("To interact with this store, connect to the running instance:\n");
+            eprintln!(
+                "    curl --unix-socket {} http://localhost/\n",
+                sock_path.display()
+            );
+            eprintln!("Or in Nushell with xs.nu:\n");
+            eprintln!(
+                "    with-env {{ XS_ADDR: \"{}\" }} {{ .cat }}",
+                sock_path.display()
+            );
+            std::process::exit(1);
+        }
+        Err(e) => return Err(e.into()),
+    };
     let engine = nu::Engine::new()?;
 
     {

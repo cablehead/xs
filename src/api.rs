@@ -802,7 +802,7 @@ mod tests {
         use http_body_util::BodyExt;
 
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Add one frame
         store
@@ -867,7 +867,7 @@ mod tests {
 
         // Create a temporary store for testing
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Create nushell engine with store helper commands
         let mut engine = Engine::new().unwrap();

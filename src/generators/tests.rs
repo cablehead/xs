@@ -11,7 +11,7 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 fn setup_test_env() -> (Store, nu::Engine) {
     let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.keep());
+    let store = Store::new(temp_dir.keep()).unwrap();
     let engine = nu::Engine::new().unwrap();
     (store, engine)
 }
@@ -585,7 +585,7 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
 #[test]
 fn test_emit_event_helper() {
     let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.keep());
+    let store = Store::new(temp_dir.keep()).unwrap();
     let engine = nu::Engine::new().unwrap();
     let loop_ctx = GeneratorLoop {
         topic: "helper".into(),

@@ -19,8 +19,25 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{
     config::{BlockSizePolicy, HashRatioPolicy},
-    Database, Keyspace, KeyspaceCreateOptions, PersistMode,
+    Database, Error as FjallError, Keyspace, KeyspaceCreateOptions, PersistMode,
 };
+
+#[derive(Debug)]
+pub enum StoreError {
+    Locked,
+    Other(FjallError),
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoreError::Locked => write!(f, "Store is locked by another process"),
+            StoreError::Other(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for StoreError {}
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 pub struct Frame {
@@ -184,12 +201,16 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(path: PathBuf) -> Store {
-        let db = Database::builder(path.join("fjall"))
+    pub fn new(path: PathBuf) -> Result<Store, StoreError> {
+        let db = match Database::builder(path.join("fjall"))
             .cache_size(32 * 1024 * 1024) // 32 MiB
             .worker_threads(1)
             .open()
-            .unwrap();
+        {
+            Ok(db) => db,
+            Err(FjallError::Locked) => return Err(StoreError::Locked),
+            Err(e) => return Err(StoreError::Other(e)),
+        };
 
         // Options for stream keyspace: point reads by frame ID
         let stream_opts = || {
@@ -228,7 +249,7 @@ impl Store {
         // Spawn gc worker thread
         spawn_gc_worker(gc_rx, store.clone());
 
-        store
+        Ok(store)
     }
 
     pub async fn wait_for_gc(&self) {

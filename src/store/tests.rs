@@ -27,7 +27,7 @@ mod tests_read_options {
     async fn test_topic_index_order() {
         let folder = tempfile::tempdir().unwrap();
 
-        let store = Store::new(folder.path().to_path_buf());
+        let store = Store::new(folder.path().to_path_buf()).unwrap();
 
         let frame1 = Frame {
             id: scru128::new(),
@@ -157,7 +157,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_get() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
         let meta = serde_json::json!({"key": "value"});
         let frame = store
             .append(Frame::builder("stream").meta(meta).build())
@@ -169,7 +169,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_follow() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
 
         // Append two initial clips
         let f1 = store.append(Frame::builder("stream").build()).unwrap();
@@ -208,7 +208,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Add 3 items
         let frame1 = store.append(Frame::builder("test").build()).unwrap();
@@ -237,7 +237,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_last_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Add 5 items
         let _frame1 = store.append(Frame::builder("test").build()).unwrap();
@@ -261,7 +261,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_last_with_topic() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Add items to different topics
         let _a1 = store.append(Frame::builder("topic.a").build()).unwrap();
@@ -288,7 +288,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_last_emits_threshold() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         let frame1 = store.append(Frame::builder("test").build()).unwrap();
 
@@ -305,7 +305,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_emits_threshold() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         let frame1 = store.append(Frame::builder("test").build()).unwrap();
 
@@ -322,7 +322,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Add 1 item
         let frame1 = store.append(Frame::builder("test").build()).unwrap();
@@ -357,7 +357,7 @@ mod tests_store {
     #[tokio::test]
     async fn test_read_follow_limit_processing_history() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Create 5 records upfront
         let frame1 = store.append(Frame::builder("test").build()).unwrap();
@@ -390,7 +390,7 @@ mod tests_store {
     #[test]
     fn test_read_sync() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
 
         // Append three frames
         let frame1 = store.append(Frame::builder("test").build()).unwrap();
@@ -562,7 +562,7 @@ mod tests_topic {
     #[tokio::test]
     async fn test_reject_trailing_dot_in_topic() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         let result = store.append(Frame::builder("user.").build());
         assert!(result.is_err());
@@ -572,7 +572,7 @@ mod tests_topic {
     #[tokio::test]
     async fn test_wildcard_query_historical() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         // Create frames with hierarchical topics
         let user = store.append(Frame::builder("user").build()).unwrap();
@@ -610,7 +610,7 @@ mod tests_topic {
     #[tokio::test]
     async fn test_wildcard_query_multilevel() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         let user_a_msg = store
             .append(Frame::builder("user.a.messages").build())
@@ -643,7 +643,7 @@ mod tests_topic {
     #[tokio::test]
     async fn test_wildcard_query_live() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let store = Store::new(temp_dir.path().to_path_buf());
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         let options = ReadOptions::builder()
             .topic("user.*".to_string())
@@ -671,7 +671,7 @@ mod tests_topic {
     #[test]
     fn test_iter_frames_with_start_bound() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
 
         let _frame1 = store.append(Frame::builder("test").build()).unwrap();
         let frame2 = store.append(Frame::builder("test").build()).unwrap();
@@ -693,7 +693,7 @@ mod tests_topic {
     #[tokio::test]
     async fn test_topic_filter_historical() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
 
         let foo1 = store.append(Frame::builder("foo").build()).unwrap();
         let _bar1 = store.append(Frame::builder("bar").build()).unwrap();
@@ -709,7 +709,7 @@ mod tests_topic {
     #[tokio::test]
     async fn test_topic_filter_live() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
 
         let foo1 = store.append(Frame::builder("foo").build()).unwrap();
         let _bar1 = store.append(Frame::builder("bar").build()).unwrap();
@@ -740,7 +740,7 @@ mod tests_ttl_expire {
     #[tokio::test]
     async fn test_time_based_ttl_expiry() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
 
         // Add permanent frame
         let permanent_frame = store.append(Frame::builder("test").build()).unwrap();
@@ -783,7 +783,7 @@ mod tests_ttl_expire {
     #[tokio::test]
     async fn test_last_based_ttl_retention() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep());
+        let store = Store::new(temp_dir.keep()).unwrap();
 
         // Add 4 frames to the same topic with Last(2) TTL
         let _frame1 = store
@@ -853,7 +853,7 @@ mod tests_append_race {
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn test_concurrent_append_broadcast_order() {
         let temp_dir = TempDir::new().unwrap();
-        let store = Arc::new(Store::new(temp_dir.keep()));
+        let store = Arc::new(Store::new(temp_dir.keep()).unwrap());
 
         // Subscribe to broadcasts before spawning tasks
         let mut rx = store
@@ -941,7 +941,7 @@ mod tests_append_race {
 #[test]
 fn test_read_sync_last() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let store = Store::new(temp_dir.path().to_path_buf());
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
     // Add 5 items
     let _frame1 = store.append(Frame::builder("test").build()).unwrap();
@@ -961,7 +961,7 @@ fn test_read_sync_last() {
 #[test]
 fn test_read_sync_from() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let store = Store::new(temp_dir.path().to_path_buf());
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
     let _frame1 = store.append(Frame::builder("test").build()).unwrap();
     let frame2 = store.append(Frame::builder("test").build()).unwrap();
@@ -981,7 +981,7 @@ fn test_read_sync_from() {
 #[test]
 fn test_read_sync_last_with_topic() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let store = Store::new(temp_dir.path().to_path_buf());
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
     let _a1 = store.append(Frame::builder("topic.a").build()).unwrap();
     let _b1 = store.append(Frame::builder("topic.b").build()).unwrap();
@@ -1000,7 +1000,7 @@ fn test_read_sync_last_with_topic() {
 #[test]
 fn test_read_sync_limit_with_topic() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let store = Store::new(temp_dir.path().to_path_buf());
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
     let a1 = store.append(Frame::builder("topic.a").build()).unwrap();
     let _b1 = store.append(Frame::builder("topic.b").build()).unwrap();
