@@ -93,6 +93,7 @@ listens on a Unix domain socket at <code dir="auto">./store/sock</code>.</p>
 <li><code dir="auto">limit</code> - Maximum number of frames to return</li>
 <li><code dir="auto">last</code> - Return the last N frames (most recent)</li>
 <li><code dir="auto">topic</code> - Filter frames by topic</li>
+<li><code dir="auto">with-timestamp</code> - Include RFC3339 timestamp extracted from frame ID</li>
 </ul>
 <p>Response: newline-delimited JSON frames or SSE stream, based on Accept header.
 Use <code dir="auto">"Accept: text/event-stream"</code> for SSE.</p>
@@ -109,6 +110,7 @@ Use <code dir="auto">"Accept: text/event-stream"</code> for SSE.</p>
 <li><code dir="auto">head:&#x3C;n></code> - Keep only N most recent frames</li>
 </ul>
 </li>
+<li><code dir="auto">with-timestamp</code> - Include RFC3339 timestamp extracted from frame ID</li>
 </ul>
 <p>Headers:</p>
 <ul>
@@ -118,6 +120,10 @@ Use <code dir="auto">"Accept: text/event-stream"</code> for SSE.</p>
 <h3 id="get-id"><code dir="auto">GET /{id}</code></h3>
 <p>Get frame by id</p>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">curl</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--unix-socket</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store/sock</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">http://localhost/03BCPN2DNQ529QRQKBQCZ4JV4</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="curl --unix-socket ./store/sock http://localhost/03BCPN2DNQ529QRQKBQCZ4JV4"><div></div></button></div></figure></div>
+<p>Query Parameters:</p>
+<ul>
+<li><code dir="auto">with-timestamp</code> - Include RFC3339 timestamp extracted from frame ID</li>
+</ul>
 <p>Response: Frame JSON or 404 if not found</p>
 <h3 id="delete-id"><code dir="auto">DELETE /{id}</code></h3>
 <p>Remove frame</p>
@@ -130,6 +136,7 @@ Use <code dir="auto">"Accept: text/event-stream"</code> for SSE.</p>
 <ul>
 <li><code dir="auto">last</code> - Number of frames to return (default: 1). Returns NDJSON when > 1.</li>
 <li><code dir="auto">follow</code> - Long poll for new frames</li>
+<li><code dir="auto">with-timestamp</code> - Include RFC3339 timestamp extracted from frame ID</li>
 </ul>
 <p>Response: Most recent frame(s) as JSON (single) or NDJSON (multiple/follow), or 404 if not found</p>
 <h3 id="post-cas"><code dir="auto">POST /cas</code></h3>
