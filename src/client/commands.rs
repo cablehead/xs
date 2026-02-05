@@ -17,12 +17,20 @@ pub async fn cat(
     addr: &str,
     options: ReadOptions,
     sse: bool,
+    with_timestamp: bool,
 ) -> Result<Receiver<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
     // Convert any usize limit to u64
-    let query = if options == ReadOptions::default() {
+    let mut query_parts = Vec::new();
+    if options != ReadOptions::default() {
+        query_parts.push(options.to_query_string());
+    }
+    if with_timestamp {
+        query_parts.push("with-timestamp".to_string());
+    }
+    let query = if query_parts.is_empty() {
         None
     } else {
-        Some(options.to_query_string())
+        Some(query_parts.join("&"))
     };
 
     let headers = if sse {
@@ -66,11 +74,23 @@ pub async fn append<R>(
     data: R,
     meta: Option<&serde_json::Value>,
     ttl: Option<TTL>,
+    with_timestamp: bool,
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    let query = ttl.map(|t| t.to_query());
+    let mut query_parts = Vec::new();
+    if let Some(t) = ttl {
+        query_parts.push(t.to_query());
+    }
+    if with_timestamp {
+        query_parts.push("with-timestamp".to_string());
+    }
+    let query = if query_parts.is_empty() {
+        None
+    } else {
+        Some(query_parts.join("&"))
+    };
 
     let reader_stream = ReaderStream::new(data);
     let mapped_stream = reader_stream.map(|result| {
@@ -180,8 +200,17 @@ where
     Ok(body)
 }
 
-pub async fn get(addr: &str, id: &str) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
-    let res = request::request(addr, Method::GET, id, None, empty(), None).await?;
+pub async fn get(
+    addr: &str,
+    id: &str,
+    with_timestamp: bool,
+) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+    let query = if with_timestamp {
+        Some("with-timestamp")
+    } else {
+        None
+    };
+    let res = request::request(addr, Method::GET, id, query, empty(), None).await?;
     let body = res.collect().await?.to_bytes();
     Ok(body)
 }
@@ -196,6 +225,7 @@ pub async fn last(
     topic: Option<&str>,
     last: usize,
     follow: bool,
+    with_timestamp: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut query_parts = Vec::new();
     if last != 1 {
@@ -203,6 +233,9 @@ pub async fn last(
     }
     if follow {
         query_parts.push("follow=true".to_string());
+    }
+    if with_timestamp {
+        query_parts.push("with-timestamp".to_string());
     }
     let query = if query_parts.is_empty() {
         None

@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::io::Write;
 
+use chrono::{DateTime, Utc};
 use nu_protocol::{PipelineData, Record, ShellError, Span, Value};
 
 use crate::store::Frame;
@@ -34,7 +35,7 @@ pub fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
     }
 }
 
-pub fn frame_to_value(frame: &Frame, span: Span) -> Value {
+pub fn frame_to_value(frame: &Frame, span: Span, with_timestamp: bool) -> Value {
     let mut record = Record::new();
 
     record.push("id", Value::string(frame.id.to_string(), span));
@@ -58,11 +59,18 @@ pub fn frame_to_value(frame: &Frame, span: Span) -> Value {
         record.push("ttl", Value::string(ttl_str, span));
     }
 
+    if with_timestamp {
+        let millis = frame.id.timestamp() as i64;
+        let dt: DateTime<Utc> = DateTime::from_timestamp_millis(millis)
+            .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap());
+        record.push("timestamp", Value::date(dt.fixed_offset(), span));
+    }
+
     Value::record(record, span)
 }
 
-pub fn frame_to_pipeline(frame: &Frame) -> PipelineData {
-    PipelineData::Value(frame_to_value(frame, Span::unknown()), None)
+pub fn frame_to_pipeline(frame: &Frame, with_timestamp: bool) -> PipelineData {
+    PipelineData::Value(frame_to_value(frame, Span::unknown(), with_timestamp), None)
 }
 
 pub fn value_to_json(value: &Value) -> serde_json::Value {

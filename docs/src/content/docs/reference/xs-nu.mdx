@@ -32,12 +32,15 @@ use xs.nu *
 Append content to a topic. Wraps [`xs append`](../cli/#append).
 
 ```nushell
-.append <topic> [--meta <record>] [--ttl <ttl>]
+.append <topic> [--meta <record>] [--ttl <ttl>] [--with-timestamp]
 ```
+
+- `--with-timestamp` - Include timestamp as native Nushell `datetime` type
 
 ```nushell
 "My first note" | .append note
 "Important note" | .append note --meta {priority: "high"}
+"Timestamped note" | .append note --with-timestamp
 ```
 
 ### `.cat`
@@ -46,9 +49,11 @@ Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 
 ```nushell
 .cat [--follow (-f)] [--pulse (-p) <ms>] [--new (-n)] [--detail (-d)]
-     [--limit <n>] [--last <n>] [--after (-a) <id>] [--from <id>]
-     [--topic (-T) <topic>]
+     [--with-timestamp] [--limit <n>] [--last <n>] [--after (-a) <id>]
+     [--from <id>] [--topic (-T) <topic>]
 ```
+
+- `--with-timestamp` - Include timestamp as native Nushell `datetime` type
 
 ```nushell
 .cat --topic note
@@ -57,6 +62,7 @@ Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 .cat --limit 5          # Show first 5 events
 .cat -f -p 1000         # Follow with 1s pulse heartbeat
 .cat --detail           # Include all frame fields (e.g., ttl)
+.cat --with-timestamp   # Include timestamp field
 ```
 
 ### `.last`
@@ -64,12 +70,13 @@ Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 Get the most recent frame(s) for a topic. Wraps [`xs last`](../cli/#last).
 
 ```nushell
-.last [topic] [-n count] [--follow]
+.last [topic] [-n count] [--follow] [--with-timestamp]
 ```
 
 - `topic` - Topic to query (optional, defaults to all topics). Supports wildcards like `user.*`.
 - `-n` - Number of frames to return (default: 1)
 - `--follow` / `-f` - Stream updates as they arrive
+- `--with-timestamp` - Include timestamp as native Nushell `datetime` type
 
 ```nushell
 .last note              # last frame for topic "note"
@@ -78,6 +85,7 @@ Get the most recent frame(s) for a topic. Wraps [`xs last`](../cli/#last).
 .last -n 10             # last 10 frames across all topics
 .last "user.*"          # last frame matching wildcard
 .last note --follow     # stream updates for topic "note"
+.last --with-timestamp  # include timestamp field
 ```
 
 ### `.remove`
@@ -98,12 +106,15 @@ let note_id = (.last note).id
 Retrieve a frame by ID. Wraps [`xs get`](../cli/#get).
 
 ```nushell
-.get <id>
+.get <id> [--with-timestamp]
 ```
+
+- `--with-timestamp` - Include timestamp as native Nushell `datetime` type
 
 ```nushell
 let note_id = (.last note).id
 .get $note_id
+.get $note_id --with-timestamp  # include timestamp field
 ```
 
 ### `.eval`

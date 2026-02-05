@@ -40,6 +40,11 @@ impl Command for AppendCommand {
                 r#"TTL specification: 'forever', 'ephemeral', 'time:<milliseconds>', or 'last:<n>'"#,
                 None,
             )
+            .switch(
+                "with-timestamp",
+                "include timestamp extracted from frame ID",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -55,6 +60,7 @@ impl Command for AppendCommand {
         input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
+        let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
 
         let store = self.store.clone();
 
@@ -102,7 +108,7 @@ impl Command for AppendCommand {
         )?;
 
         Ok(PipelineData::Value(
-            util::frame_to_value(&frame, span),
+            util::frame_to_value(&frame, span, with_timestamp),
             None,
         ))
     }

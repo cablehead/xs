@@ -230,7 +230,7 @@ fn run_command(
     closure: nu_protocol::engine::Closure,
     frame: &Frame,
 ) -> Result<nu_protocol::PipelineData, Box<nu_protocol::ShellError>> {
-    let arg_val = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown());
+    let arg_val = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown(), false);
 
     let mut engine_clone = engine.clone();
     engine_clone.run_closure_in_job(

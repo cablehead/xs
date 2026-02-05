@@ -341,7 +341,8 @@ impl EngineWorker {
             let mut engine = engine;
 
             while let Some(WorkItem { frame, resp_tx }) = work_rx.blocking_recv() {
-                let arg_val = crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown());
+                let arg_val =
+                    crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown(), false);
 
                 let pipeline = engine.run_closure_in_job(
                     &closure,

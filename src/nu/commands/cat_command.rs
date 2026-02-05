@@ -48,6 +48,11 @@ impl Command for CatCommand {
                 None,
             )
             .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
+            .switch(
+                "with-timestamp",
+                "include timestamp extracted from frame ID",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -67,6 +72,7 @@ impl Command for CatCommand {
         let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
         let from: Option<String> = call.get_flag(engine_state, stack, "from")?;
         let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
+        let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
 
         // Helper to parse Scru128Id
         let parse_id = |s: &str, name: &str| -> Result<scru128::Scru128Id, ShellError> {
@@ -99,7 +105,7 @@ impl Command for CatCommand {
         let output = Value::list(
             frames
                 .into_iter()
-                .map(|frame| crate::nu::util::frame_to_value(&frame, call.head))
+                .map(|frame| crate::nu::util::frame_to_value(&frame, call.head, with_timestamp))
                 .collect(),
             call.head,
         );

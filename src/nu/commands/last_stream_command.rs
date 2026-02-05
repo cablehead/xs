@@ -43,6 +43,11 @@ impl Command for LastStreamCommand {
                 "long poll for updates to most recent frame",
                 Some('f'),
             )
+            .switch(
+                "with-timestamp",
+                "include timestamp extracted from frame ID",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -63,6 +68,7 @@ impl Command for LastStreamCommand {
             .map(|v| v as usize)
             .unwrap_or(1);
         let follow = call.has_flag(engine_state, stack, "follow")?;
+        let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let span = call.head;
 
         if !follow {
@@ -72,7 +78,7 @@ impl Command for LastStreamCommand {
             let frames: Vec<Value> = self
                 .store
                 .read_sync(options)
-                .map(|frame| util::frame_to_value(&frame, span))
+                .map(|frame| util::frame_to_value(&frame, span, with_timestamp))
                 .collect();
 
             return if frames.is_empty() {
@@ -107,7 +113,7 @@ impl Command for LastStreamCommand {
                 let mut receiver = store.read(options).await;
 
                 while let Some(frame) = receiver.recv().await {
-                    let value = util::frame_to_value(&frame, span);
+                    let value = util::frame_to_value(&frame, span, with_timestamp);
 
                     if tx.send(value).is_err() {
                         break;

@@ -546,4 +546,44 @@ mod tests {
         assert!(result.is_ok());
         assert!(result.unwrap().is_err());
     }
+
+    #[test]
+    fn test_last_command_with_timestamp() -> Result<(), Error> {
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        let frame = store
+            .append(
+                Frame::builder("topic")
+                    .hash(store.cas_insert_sync("content")?)
+                    .build(),
+            )
+            .unwrap();
+
+        // Without --with-timestamp, no timestamp field
+        let result = nu_eval(&engine, PipelineData::empty(), ".last topic");
+        assert!(result.get_data_by_key("timestamp").is_none());
+
+        // With --with-timestamp, timestamp field is a datetime
+        let result = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            ".last topic --with-timestamp",
+        );
+        let timestamp = result.get_data_by_key("timestamp");
+        assert!(timestamp.is_some());
+        assert!(timestamp.unwrap().as_date().is_ok());
+
+        // Verify frame id still matches
+        assert_eq!(
+            result.get_data_by_key("id").unwrap().as_str().unwrap(),
+            frame.id.to_string()
+        );
+
+        Ok(())
+    }
 }

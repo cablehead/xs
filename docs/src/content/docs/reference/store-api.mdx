@@ -34,6 +34,7 @@ Query Parameters:
 - `limit` - Maximum number of frames to return
 - `last` - Return the last N frames (most recent)
 - `topic` - Filter frames by topic
+- `with-timestamp` - Include RFC3339 timestamp extracted from frame ID
 
 Response: newline-delimited JSON frames or SSE stream, based on Accept header.
 Use `"Accept: text/event-stream"` for SSE.
@@ -56,6 +57,7 @@ Query Parameters:
   - `ephemeral` - Not stored; only active subscribers receive it
   - `time:<ms>` - Expire after duration
   - `head:<n>` - Keep only N most recent frames
+- `with-timestamp` - Include RFC3339 timestamp extracted from frame ID
 
 Headers:
 
@@ -70,6 +72,10 @@ Get frame by id
 ```sh
 curl --unix-socket ./store/sock http://localhost/03BCPN2DNQ529QRQKBQCZ4JV4
 ```
+
+Query Parameters:
+
+- `with-timestamp` - Include RFC3339 timestamp extracted from frame ID
 
 Response: Frame JSON or 404 if not found
 
@@ -98,6 +104,7 @@ Query Parameters:
 
 - `last` - Number of frames to return (default: 1). Returns NDJSON when > 1.
 - `follow` - Long poll for new frames
+- `with-timestamp` - Include RFC3339 timestamp extracted from frame ID
 
 Response: Most recent frame(s) as JSON (single) or NDJSON (multiple/follow), or 404 if not found
 

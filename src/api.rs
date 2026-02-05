@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use scru128::Scru128Id;
 
 use base64::Engine;
@@ -27,6 +28,22 @@ use crate::store::{self, FollowOption, Frame, ReadOptions, Store, TTL};
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
+/// Serialize a frame to JSON, optionally including a timestamp extracted from the scru128 ID
+fn serialize_frame(frame: &Frame, with_timestamp: bool) -> String {
+    if with_timestamp {
+        let mut value = serde_json::to_value(frame).unwrap();
+        if let serde_json::Value::Object(ref mut map) = value {
+            let millis = frame.id.timestamp() as i64;
+            let dt: DateTime<Utc> = DateTime::from_timestamp_millis(millis)
+                .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap());
+            map.insert("timestamp".to_string(), serde_json::json!(dt.to_rfc3339()));
+        }
+        serde_json::to_string(&value).unwrap()
+    } else {
+        serde_json::to_string(frame).unwrap()
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 enum AcceptType {
     Ndjson,
@@ -37,17 +54,23 @@ enum Routes {
     StreamCat {
         accept_type: AcceptType,
         options: ReadOptions,
+        with_timestamp: bool,
     },
     StreamAppend {
         topic: String,
         ttl: Option<TTL>,
+        with_timestamp: bool,
     },
     LastGet {
         topic: Option<String>,
         last: usize,
         follow: bool,
+        with_timestamp: bool,
     },
-    StreamItemGet(Scru128Id),
+    StreamItemGet {
+        id: Scru128Id,
+        with_timestamp: bool,
+    },
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
@@ -100,11 +123,13 @@ fn match_route(
             };
 
             let options = ReadOptions::from_query(query);
+            let with_timestamp = params.contains_key("with-timestamp");
 
             match options {
                 Ok(options) => Routes::StreamCat {
                     accept_type,
                     options,
+                    with_timestamp,
                 },
                 Err(e) => Routes::BadRequest(e.to_string()),
             }
@@ -113,10 +138,12 @@ fn match_route(
         (&Method::GET, "/last") => {
             let follow = params.contains_key("follow");
             let last = params.get("last").and_then(|v| v.parse().ok()).unwrap_or(1);
+            let with_timestamp = params.contains_key("with-timestamp");
             Routes::LastGet {
                 topic: None,
                 last,
                 follow,
+                with_timestamp,
             }
         }
 
@@ -124,10 +151,12 @@ fn match_route(
             let topic = p.strip_prefix("/last/").unwrap().to_string();
             let follow = params.contains_key("follow");
             let last = params.get("last").and_then(|v| v.parse().ok()).unwrap_or(1);
+            let with_timestamp = params.contains_key("with-timestamp");
             Routes::LastGet {
                 topic: Some(topic),
                 last,
                 follow,
+                with_timestamp,
             }
         }
 
@@ -153,7 +182,10 @@ fn match_route(
         (&Method::POST, "/eval") => Routes::Eval,
 
         (&Method::GET, p) => match Scru128Id::from_str(p.trim_start_matches('/')) {
-            Ok(id) => Routes::StreamItemGet(id),
+            Ok(id) => {
+                let with_timestamp = params.contains_key("with-timestamp");
+                Routes::StreamItemGet { id, with_timestamp }
+            }
             Err(e) => Routes::BadRequest(format!("Invalid frame ID: {e}")),
         },
 
@@ -164,11 +196,13 @@ fn match_route(
 
         (&Method::POST, path) if path.starts_with("/append/") => {
             let topic = path.strip_prefix("/append/").unwrap().to_string();
+            let with_timestamp = params.contains_key("with-timestamp");
 
             match TTL::from_query(query) {
                 Ok(ttl) => Routes::StreamAppend {
                     topic,
                     ttl: Some(ttl),
+                    with_timestamp,
                 },
                 Err(e) => Routes::BadRequest(e.to_string()),
             }
@@ -194,11 +228,14 @@ async fn handle(
         Routes::StreamCat {
             accept_type,
             options,
-        } => handle_stream_cat(&mut store, options, accept_type).await,
+            with_timestamp,
+        } => handle_stream_cat(&mut store, options, accept_type, with_timestamp).await,
 
-        Routes::StreamAppend { topic, ttl } => {
-            handle_stream_append(&mut store, req, topic, ttl).await
-        }
+        Routes::StreamAppend {
+            topic,
+            ttl,
+            with_timestamp,
+        } => handle_stream_append(&mut store, req, topic, ttl, with_timestamp).await,
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
@@ -215,7 +252,9 @@ async fn handle(
 
         Routes::CasPost => handle_cas_post(&mut store, req.into_body()).await,
 
-        Routes::StreamItemGet(id) => response_frame_or_404(store.get(&id)),
+        Routes::StreamItemGet { id, with_timestamp } => {
+            response_frame_or_404(store.get(&id), with_timestamp)
+        }
 
         Routes::StreamItemRemove(id) => handle_stream_item_remove(&mut store, id).await,
 
@@ -223,7 +262,8 @@ async fn handle(
             topic,
             last,
             follow,
-        } => handle_last_get(&store, topic.as_deref(), last, follow).await,
+            with_timestamp,
+        } => handle_last_get(&store, topic.as_deref(), last, follow, with_timestamp).await,
 
         Routes::Import => handle_import(&mut store, req.into_body()).await,
 
@@ -240,6 +280,7 @@ async fn handle_stream_cat(
     store: &mut Store,
     options: ReadOptions,
     accept_type: AcceptType,
+    with_timestamp: bool,
 ) -> HTTPResult {
     let rx = store.read(options).await;
     let stream = ReceiverStream::new(rx);
@@ -248,14 +289,14 @@ async fn handle_stream_cat(
     let stream = stream.map(move |frame| {
         let bytes = match accept_type_clone {
             AcceptType::Ndjson => {
-                let mut encoded = serde_json::to_vec(&frame).unwrap();
+                let mut encoded = serialize_frame(&frame, with_timestamp).into_bytes();
                 encoded.push(b'\n');
                 encoded
             }
             AcceptType::EventStream => format!(
                 "id: {id}\ndata: {data}\n\n",
                 id = frame.id,
-                data = serde_json::to_string(&frame).unwrap_or_default()
+                data = serialize_frame(&frame, with_timestamp)
             )
             .into_bytes(),
         };
@@ -280,6 +321,7 @@ async fn handle_stream_append(
     req: Request<hyper::body::Incoming>,
     topic: String,
     ttl: Option<TTL>,
+    with_timestamp: bool,
 ) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
@@ -340,7 +382,7 @@ async fn handle_stream_append(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
-        .body(full(serde_json::to_string(&frame).unwrap()))?)
+        .body(full(serialize_frame(&frame, with_timestamp)))?)
 }
 
 async fn handle_cas_post(store: &mut Store, mut body: hyper::body::Incoming) -> HTTPResult {
@@ -456,12 +498,12 @@ async fn listener_loop(
     }
 }
 
-fn response_frame_or_404(frame: Option<store::Frame>) -> HTTPResult {
+fn response_frame_or_404(frame: Option<store::Frame>, with_timestamp: bool) -> HTTPResult {
     if let Some(frame) = frame {
         Ok(Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "application/json")
-            .body(full(serde_json::to_string(&frame).unwrap()))?)
+            .body(full(serialize_frame(&frame, with_timestamp)))?)
     } else {
         response_404()
     }
@@ -487,6 +529,7 @@ async fn handle_last_get(
     topic: Option<&str>,
     last: usize,
     follow: bool,
+    with_timestamp: bool,
 ) -> HTTPResult {
     if !follow {
         let options = ReadOptions::builder()
@@ -504,12 +547,12 @@ async fn handle_last_get(
         // - last == 1 (default): JSON object
         // - last > 1: NDJSON (even if fewer frames returned)
         if last == 1 {
-            return response_frame_or_404(Some(frames.into_iter().next().unwrap()));
+            return response_frame_or_404(Some(frames.into_iter().next().unwrap()), with_timestamp);
         }
 
         let mut body = Vec::new();
         for frame in frames {
-            serde_json::to_writer(&mut body, &frame).unwrap();
+            body.extend(serialize_frame(&frame, with_timestamp).into_bytes());
             body.push(b'\n');
         }
 
@@ -531,8 +574,8 @@ async fn handle_last_get(
         )
         .await;
 
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|frame| {
-        let mut bytes = serde_json::to_vec(&frame).unwrap();
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(move |frame| {
+        let mut bytes = serialize_frame(&frame, with_timestamp).into_bytes();
         bytes.push(b'\n');
         Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
     });
@@ -760,13 +803,13 @@ mod tests {
         // /last/topic without follow
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, None),
-            Routes::LastGet { topic: Some(t), last: 1, follow: false } if t == "test"
+            Routes::LastGet { topic: Some(t), last: 1, follow: false, .. } if t == "test"
         ));
 
         // /last/topic with follow
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, Some("follow=true")),
-            Routes::LastGet { topic: Some(t), last: 1, follow: true } if t == "test"
+            Routes::LastGet { topic: Some(t), last: 1, follow: true, .. } if t == "test"
         ));
 
         // /last without topic
@@ -775,7 +818,8 @@ mod tests {
             Routes::LastGet {
                 topic: None,
                 last: 1,
-                follow: false
+                follow: false,
+                ..
             }
         ));
 
@@ -785,14 +829,15 @@ mod tests {
             Routes::LastGet {
                 topic: None,
                 last: 5,
-                follow: false
+                follow: false,
+                ..
             }
         ));
 
         // /last/topic with last=3 and follow
         assert!(matches!(
             match_route(&Method::GET, "/last/test", &headers, Some("last=3&follow=true")),
-            Routes::LastGet { topic: Some(t), last: 3, follow: true } if t == "test"
+            Routes::LastGet { topic: Some(t), last: 3, follow: true, .. } if t == "test"
         ));
     }
 
@@ -810,7 +855,7 @@ mod tests {
             .unwrap();
 
         // Request last=1 (default) - should return JSON object (no trailing newline)
-        let response = handle_last_get(&store, Some("test"), 1, false)
+        let response = handle_last_get(&store, Some("test"), 1, false, false)
             .await
             .unwrap();
         let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -822,7 +867,7 @@ mod tests {
         );
 
         // Request last=3 but only 1 frame exists - should still return NDJSON
-        let response = handle_last_get(&store, Some("test"), 3, false)
+        let response = handle_last_get(&store, Some("test"), 3, false, false)
             .await
             .unwrap();
         let body = response.into_body().collect().await.unwrap().to_bytes();
@@ -840,10 +885,11 @@ mod tests {
             topic,
             last,
             follow,
+            with_timestamp,
         } = route
         {
             assert_eq!(last, 3, "Route should parse last=3");
-            let response = handle_last_get(&store, topic.as_deref(), last, follow)
+            let response = handle_last_get(&store, topic.as_deref(), last, follow, with_timestamp)
                 .await
                 .unwrap();
             let body = response.into_body().collect().await.unwrap().to_bytes();

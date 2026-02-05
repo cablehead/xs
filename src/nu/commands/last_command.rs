@@ -35,6 +35,11 @@ impl Command for LastCommand {
                 "number of frames to return",
                 Some('n'),
             )
+            .switch(
+                "with-timestamp",
+                "include timestamp extracted from frame ID",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -54,6 +59,7 @@ impl Command for LastCommand {
             .get_flag::<i64>(engine_state, stack, "last")?
             .map(|v| v as usize)
             .unwrap_or(1);
+        let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let span = call.head;
 
         let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
@@ -61,7 +67,7 @@ impl Command for LastCommand {
         let frames: Vec<Value> = self
             .store
             .read_sync(options)
-            .map(|frame| util::frame_to_value(&frame, span))
+            .map(|frame| util::frame_to_value(&frame, span, with_timestamp))
             .collect();
 
         if frames.is_empty() {

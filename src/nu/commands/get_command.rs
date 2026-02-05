@@ -25,6 +25,11 @@ impl Command for GetCommand {
         Signature::build(".get")
             .input_output_types(vec![(Type::Nothing, Type::Any)])
             .required("id", SyntaxShape::String, "The ID of the frame to retrieve")
+            .switch(
+                "with-timestamp",
+                "include timestamp extracted from frame ID",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -40,6 +45,7 @@ impl Command for GetCommand {
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let id_str: String = call.req(engine_state, stack, 0)?;
+        let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let id = id_str.parse().map_err(|e| ShellError::TypeMismatch {
             err_message: format!("Invalid ID format: {e}"),
             span: call.span(),
@@ -49,7 +55,7 @@ impl Command for GetCommand {
 
         if let Some(frame) = store.get(&id) {
             Ok(PipelineData::Value(
-                util::frame_to_value(&frame, call.head),
+                util::frame_to_value(&frame, call.head, with_timestamp),
                 None,
             ))
         } else {

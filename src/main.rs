@@ -112,6 +112,10 @@ struct CommandCat {
     /// Filter by topic (supports wildcards like user.*)
     #[clap(long = "topic", short = 'T', value_parser = parse_topic_query)]
     topic: Option<String>,
+
+    /// Include timestamp extracted from frame ID
+    #[clap(long)]
+    with_timestamp: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -131,6 +135,10 @@ struct CommandAppend {
     /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<milliseconds>, head:<n>
     #[clap(long)]
     ttl: Option<String>,
+
+    /// Include timestamp extracted from frame ID
+    #[clap(long)]
+    with_timestamp: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -179,6 +187,10 @@ struct CommandLast {
     /// Follow for updates to the most recent frame
     #[clap(long, short = 'f')]
     follow: bool,
+
+    /// Include timestamp extracted from frame ID
+    #[clap(long)]
+    with_timestamp: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -190,6 +202,10 @@ struct CommandGet {
     /// ID of the frame to get
     #[clap(value_parser)]
     id: String,
+
+    /// Include timestamp extracted from frame ID
+    #[clap(long)]
+    with_timestamp: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -398,7 +414,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .maybe_last(args.last.map(|l| l as usize))
         .maybe_topic(args.topic.clone())
         .build();
-    let mut receiver = xs::client::cat(&args.addr, options, args.sse).await?;
+    let mut receiver = xs::client::cat(&args.addr, options, args.sse, args.with_timestamp).await?;
     let mut stdout = tokio::io::stdout();
 
     #[cfg(unix)]
@@ -508,7 +524,15 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
         Box::new(tokio::io::empty())
     };
 
-    let response = xs::client::append(&args.addr, &args.topic, input, meta.as_ref(), ttl).await?;
+    let response = xs::client::append(
+        &args.addr,
+        &args.topic,
+        input,
+        meta.as_ref(),
+        ttl,
+        args.with_timestamp,
+    )
+    .await?;
 
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
@@ -540,11 +564,18 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn last(args: CommandLast) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    xs::client::last(&args.addr, args.topic.as_deref(), args.last, args.follow).await
+    xs::client::last(
+        &args.addr,
+        args.topic.as_deref(),
+        args.last,
+        args.follow,
+        args.with_timestamp,
+    )
+    .await
 }
 
 async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let response = xs::client::get(&args.addr, &args.id).await?;
+    let response = xs::client::get(&args.addr, &args.id, args.with_timestamp).await?;
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
 }

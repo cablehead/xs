@@ -75,6 +75,7 @@ xs cat <addr> [options]
 | `--last <n>`                    | Return the last N events (most recent)          |
 | `--sse`                         | Use Server-Sent Events format                   |
 | `--topic <topic>`, `-T <topic>` | Filter by topic (supports `user.*` wildcards)   |
+| `--with-timestamp`              | Include RFC3339 timestamp extracted from frame ID |
 
 When using `--follow`, an `xs.threshold` frame marks the transition from historical replay to live events. This frame is not emitted with `--new` (since there's no historical replay).
 
@@ -101,12 +102,13 @@ Append an event to a topic.
 xs append <addr> <topic> [options]
 ```
 
-| Option          | Description                                                   |
-| --------------- | ------------------------------------------------------------- |
-| `<addr>`        | Address to connect to                                         |
-| `<topic>`       | Topic to append to                                            |
-| `--meta <json>` | JSON metadata to include                                      |
-| `--ttl <ttl>`   | Time-to-live: `forever`, `ephemeral`, `time:<ms>`, `head:<n>` |
+| Option             | Description                                                   |
+| ------------------ | ------------------------------------------------------------- |
+| `<addr>`           | Address to connect to                                         |
+| `<topic>`          | Topic to append to                                            |
+| `--meta <json>`    | JSON metadata to include                                      |
+| `--ttl <ttl>`      | Time-to-live: `forever`, `ephemeral`, `time:<ms>`, `head:<n>` |
+| `--with-timestamp` | Include RFC3339 timestamp extracted from frame ID             |
 
 Example:
 
@@ -166,12 +168,13 @@ Get the most recent frame(s), optionally filtered by topic.
 xs last <addr> [topic] [-n count] [--follow]
 ```
 
-| Option           | Description                                      |
-| ---------------- | ------------------------------------------------ |
-| `<addr>`         | Address to connect to                            |
-| `[topic]`        | Topic to query (optional, supports wildcards)    |
-| `-n`, `--last`   | Number of frames to return (default: 1)          |
-| `--follow`, `-f` | Follow for updates                               |
+| Option             | Description                                       |
+| ------------------ | ------------------------------------------------- |
+| `<addr>`           | Address to connect to                             |
+| `[topic]`          | Topic to query (optional, supports wildcards)     |
+| `-n`, `--last`     | Number of frames to return (default: 1)           |
+| `--follow`, `-f`   | Follow for updates                                |
+| `--with-timestamp` | Include RFC3339 timestamp extracted from frame ID |
 
 Examples:
 ```sh
@@ -190,10 +193,11 @@ Retrieve a frame by ID.
 xs get <addr> <id>
 ```
 
-| Option   | Description            |
-| -------- | ---------------------- |
-| `<addr>` | Address to connect to  |
-| `<id>`   | ID of the frame to get |
+| Option             | Description                                       |
+| ------------------ | ------------------------------------------------- |
+| `<addr>`           | Address to connect to                             |
+| `<id>`             | ID of the frame to get                            |
+| `--with-timestamp` | Include RFC3339 timestamp extracted from frame ID |
 
 ### `import`
 

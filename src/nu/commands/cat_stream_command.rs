@@ -60,6 +60,11 @@ impl Command for CatStreamCommand {
                 None,
             )
             .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
+            .switch(
+                "with-timestamp",
+                "include timestamp extracted from frame ID",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -78,6 +83,7 @@ impl Command for CatStreamCommand {
         let pulse: Option<i64> = call.get_flag(engine_state, stack, "pulse")?;
         let new = call.has_flag(engine_state, stack, "new")?;
         let detail = call.has_flag(engine_state, stack, "detail")?;
+        let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let limit: Option<i64> = call.get_flag(engine_state, stack, "limit")?;
         let last: Option<i64> = call.get_flag(engine_state, stack, "last")?;
         let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
@@ -132,7 +138,7 @@ impl Command for CatStreamCommand {
 
                 while let Some(frame) = receiver.recv().await {
                     // Convert frame to Nu value
-                    let mut value = crate::nu::util::frame_to_value(&frame, span);
+                    let mut value = crate::nu::util::frame_to_value(&frame, span, with_timestamp);
 
                     // Filter fields if not --detail
                     if !detail {

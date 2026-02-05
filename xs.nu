@@ -23,9 +23,11 @@ export def xs-addr [] {
 }
 
 def _cat [options: record] {
+  let with_ts = ($options | get with_timestamp? | default false)
   let params = [
     (if ($options | get follow? | default false) { "--follow" })
     (if ($options | get new? | default false) { "--new" })
+    (if $with_ts { "--with-timestamp" })
 
     (if $options.after? != null { ["--after" $options.after] })
     (if $options.from? != null { ["--from" $options.from] })
@@ -36,7 +38,9 @@ def _cat [options: record] {
     (if $options.topic? != null { ["--topic" $options.topic] })
   ] | compact | flatten
 
-  xs cat (xs-addr) ...$params | lines | each {|x| $x | from json }
+  xs cat (xs-addr) ...$params | lines | each {|x|
+    $x | from json | if $with_ts { into datetime timestamp } else { }
+  }
 }
 
 export def .cat [
@@ -44,6 +48,7 @@ export def .cat [
   --pulse (-p): int # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
   --new (-n) # skip existing, only show new
   --detail (-d) # include all frame fields in the output
+  --with-timestamp # include RFC3339 timestamp extracted from frame ID
   --after: string # start after a specific frame ID (exclusive)
   --from: string # start from a specific frame ID (inclusive)
   --limit: int
@@ -54,6 +59,7 @@ export def .cat [
     follow: $follow
     pulse: $pulse
     new: $new
+    with_timestamp: $with_timestamp
     after: $after
     from: $from
     limit: $limit
@@ -81,25 +87,34 @@ export def .cas-post [] {
   $in | xs cas-post (xs-addr)
 }
 
-export def .get [id: string] {
-  xs get (xs-addr) $id | from json
+export def .get [
+  id: string
+  --with-timestamp # include RFC3339 timestamp extracted from frame ID
+] {
+  xs get (xs-addr) $id ...(if $with_timestamp { ["--with-timestamp"] } else { [] })
+  | from json
+  | if $with_timestamp { into datetime timestamp } else { }
 }
 
 export def .last [
   topic?: string
   --last (-n): int  # Number of frames to return
   --follow (-f)
+  --with-timestamp # include RFC3339 timestamp extracted from frame ID
 ] {
   let args = [
     (if $topic != null { [$topic] })
     (if $last != null { ["-n" $last] })
     (if $follow { ["--follow"] })
+    (if $with_timestamp { ["--with-timestamp"] })
   ] | compact | flatten
 
   if $follow or ($last != null and $last > 1) {
-    xs last (xs-addr) ...$args | lines | each {|x| $x | from json }
+    xs last (xs-addr) ...$args | lines | each {|x|
+      $x | from json | if $with_timestamp { into datetime timestamp } else { }
+    }
   } else {
-    xs last (xs-addr) ...$args | from json
+    xs last (xs-addr) ...$args | from json | if $with_timestamp { into datetime timestamp } else { }
   }
 }
 
@@ -112,13 +127,15 @@ export def .append [
   #   - "ephemeral": The event is not stored; only active subscribers can see it.
   #   - "time:<milliseconds>": The event is kept for a custom duration in milliseconds.
   #   - "head:<n>": Retains only the last n events for the topic (n must be >= 1).
+  --with-timestamp # include RFC3339 timestamp extracted from frame ID
 ] {
   xs append (xs-addr) $topic ...(
     [
       (if $meta != null { ["--meta" ($meta | to json -r)] })
       (if $ttl != null { ["--ttl" $ttl] })
+      (if $with_timestamp { ["--with-timestamp"] })
     ] | compact | flatten
-  ) | from json
+  ) | from json | if $with_timestamp { into datetime timestamp } else { }
 }
 
 export def .remove [id: string] {
