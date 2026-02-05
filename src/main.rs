@@ -240,27 +240,7 @@ fn extract_addr_from_command(command: &Command) -> Option<String> {
 }
 
 fn format_connection_error(addr: &str) -> String {
-    let default_path = dirs::home_dir()
-        .map(|home| home.join(".local/share/cross.stream/store"))
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "~/.local/share/cross.stream/store".to_string());
-
-    format!(
-        "No running xs store found at: {addr}
-
-To start a store at this location, run:
-  xs serve {addr}
-
-If using xs.nu conveniences (.cat, .append, etc.), the address is determined by:
-  1. $env.XS_ADDR if set
-  2. {default_path} (default)
-
-To use a different address temporarily:
-  with-env {{XS_ADDR: \"./my-store\"}} {{ .cat }}
-
-To set permanently:
-  $env.XS_ADDR = \"./my-store\""
-    )
+    format!("no store at: {addr}\nto start one:\n  xs serve {addr}")
 }
 
 #[tokio::main]
@@ -324,19 +304,15 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
         Ok(store) => store,
         Err(StoreError::Locked) => {
             let sock_path = args.path.join("sock");
-            eprintln!("Error: Store is locked by another process\n");
+            eprintln!("store locked: {} (already running)", args.path.display());
+            eprintln!("connect to it:");
             eprintln!(
-                "The store at '{}' is already in use, likely by `xs serve`.\n",
-                args.path.display()
-            );
-            eprintln!("To interact with this store, connect to the running instance:\n");
-            eprintln!(
-                "    curl --unix-socket {} http://localhost/\n",
+                "  curl --unix-socket {} http://localhost/",
                 sock_path.display()
             );
-            eprintln!("Or in Nushell with xs.nu:\n");
+            eprintln!("or with xs.nu:");
             eprintln!(
-                "    with-env {{ XS_ADDR: \"{}\" }} {{ .cat }}",
+                "  with-env {{XS_ADDR: \"{}\"}} {{ .cat }}",
                 sock_path.display()
             );
             std::process::exit(1);
@@ -618,11 +594,11 @@ async fn eval(args: CommandEval) -> Result<(), Box<dyn std::error::Error + Send 
     // Read script content
     let script = match (&args.file, &args.commands) {
         (Some(_), Some(_)) => {
-            eprintln!("Error: cannot specify both file and --commands");
+            eprintln!("error: cannot specify both file and -c");
             std::process::exit(1);
         }
         (None, None) => {
-            eprintln!("Error: provide a file or use --commands");
+            eprintln!("error: provide a script file or use -c");
             std::process::exit(1);
         }
         (Some(path), None) if path == "-" => {
@@ -630,7 +606,16 @@ async fn eval(args: CommandEval) -> Result<(), Box<dyn std::error::Error + Send 
             stdin().read_to_string(&mut script_content).await?;
             script_content
         }
-        (Some(path), None) => tokio::fs::read_to_string(path).await?,
+        (Some(path), None) => match tokio::fs::read_to_string(path).await {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("file not found: \"{path}\"");
+                eprintln!("to run an inline script, use -c:");
+                eprintln!("  xs eval {} -c \"{}\"", args.addr, path);
+                std::process::exit(1);
+            }
+            Err(e) => return Err(e.into()),
+        },
         (None, Some(cmd)) => cmd.clone(),
     };
 
