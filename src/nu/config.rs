@@ -47,7 +47,7 @@ pub struct ReturnOptions {
 /// Parse a script into a NuScriptConfig struct.
 ///
 /// Parses and evaluates the script, then extracts the `run` closure and the full
-/// configuration value. VFS modules (registered via `nu.*` topics) are already
+/// configuration value. VFS modules (registered via `*.nu` topics) are already
 /// available on the engine state before this function is called.
 pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuScriptConfig, Error> {
     let mut working_set = StateWorkingSet::new(&engine.state);

@@ -1,6 +1,6 @@
 ---
 title: Commands
-description: Stateless, parallelizable operations that can be called on-demand with streaming results
+description: Stateless, parallelizable operations that can be called on-demand
 sidebar:
   order: 4
 ---
@@ -120,7 +120,7 @@ cross.stream:
 | -------------- | ----------------------- | ---------------------- | --------------- |
 | State          | Stateless               | Stateful between calls | Stateless       |
 | Execution      | On-demand               | Event-driven           | Continuous      |
-| Results        | Streamed immediately    | Batched on completion  | Streamed        |
+| Results        | Collected into response | Batched on completion  | Streamed        |
 | Parallelism    | Multiple parallel calls | Sequential processing  | Single instance |
 | Error Handling | Per-invocation          | Unregisters handler    | Auto-restarts   |
 | Modules        | Supported               | Supported              | Supported       |
