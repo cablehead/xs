@@ -659,10 +659,10 @@ async fn test_handler_with_module() -> Result<(), Error> {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Register a VFS module via nu.* topic
+    // Register a VFS module via *.nu topic
     let module_frame = store
         .append(
-            Frame::builder("nu.mymod")
+            Frame::builder("mymod.nu")
                 .hash(
                     store
                         .cas_insert(
@@ -678,7 +678,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "nu.mymod");
+    assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
 
     let module_id = module_frame.id.to_string();
 

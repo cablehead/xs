@@ -53,19 +53,19 @@ Topic queries return frames in chronological order (by frame ID), not grouped by
 
 ## Module Topics
 
-Topics prefixed with `nu.` register Nushell modules into the virtual filesystem (VFS). Any handler, generator, or command script can then `use` these modules by their SCRU128 ID.
+Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any handler, generator, or command script can then `use` these modules by their SCRU128 ID.
 
 ```nushell
 # Register a module
-r#'export def greet [name: string] { $"hello ($name)" }'# | .append nu.mymod
+r#'export def greet [name: string] { $"hello ($name)" }'# | .append mymod.nu
 ```
 
-The topic name maps to a directory path -- dots become slashes:
+The topic name (minus the `.nu` suffix) maps to a directory path -- dots become slashes:
 
 | Topic | VFS Path |
 | ----- | -------- |
-| `nu.mymod` | `xs/<id>/mymod/mod.nu` |
-| `nu.discord.api` | `xs/<id>/discord/api/mod.nu` |
+| `mymod.nu` | `xs/<id>/mymod/mod.nu` |
+| `discord.api.nu` | `xs/<id>/discord/api/mod.nu` |
 
 Scripts reference modules by SCRU128 ID, pinning to an exact version:
 

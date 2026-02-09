@@ -5,9 +5,9 @@ use nu_protocol::engine::{StateWorkingSet, VirtualPath};
 use crate::nu;
 use crate::store::{Frame, Store};
 
-/// Registry that loads nu.* topic frames into the nushell VFS.
+/// Registry that loads *.nu topic frames into the nushell VFS.
 ///
-/// Each frame with topic `nu.X.Y.Z` and SCRU128 id `ID` is registered as:
+/// Each frame with topic `X.Y.Z.nu` and SCRU128 id `ID` is registered as:
 ///   xs/ID/X/Y/Z/mod.nu
 ///
 /// This allows handler/generator/command scripts to write:
@@ -27,7 +27,7 @@ impl ModuleRegistry {
     }
 
     pub fn process_historical(&mut self, frame: &Frame, engine: &mut nu::Engine, store: &Store) {
-        if let Some(name) = frame.topic.strip_prefix("nu.") {
+        if let Some(name) = frame.topic.strip_suffix(".nu") {
             if !name.is_empty() && frame.hash.is_some() {
                 self.modules
                     .entry(name.to_string())
@@ -61,7 +61,7 @@ impl ModuleRegistry {
         store: &Store,
         engine: &mut nu::Engine,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(name) = frame.topic.strip_prefix("nu.") {
+        if let Some(name) = frame.topic.strip_suffix(".nu") {
             if !name.is_empty() && frame.hash.is_some() {
                 self.modules
                     .entry(name.to_string())
@@ -82,14 +82,14 @@ impl ModuleRegistry {
     }
 }
 
-/// Register a single nu.* frame as a virtual module in the engine's VFS.
+/// Register a single *.nu frame as a virtual module in the engine's VFS.
 ///
-/// nu.testmod (frame ID 01JAR5...) becomes:
+/// testmod.nu (frame ID 01JAR5...) becomes:
 ///   xs/01JAR5.../testmod/mod.nu  (virtual file)
 ///   xs/01JAR5.../testmod          (virtual dir containing mod.nu)
 ///   xs/01JAR5...                  (virtual dir containing testmod/)
 ///
-/// nu.discord.api (frame ID 01JAR5...) becomes:
+/// discord.api.nu (frame ID 01JAR5...) becomes:
 ///   xs/01JAR5.../discord/api/mod.nu
 ///   xs/01JAR5.../discord/api      (virtual dir containing mod.nu)
 ///   xs/01JAR5.../discord           (virtual dir containing api/)
@@ -103,8 +103,8 @@ fn register_module_frame(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let name = frame
         .topic
-        .strip_prefix("nu.")
-        .ok_or("frame topic does not start with nu.")?;
+        .strip_suffix(".nu")
+        .ok_or("frame topic does not end with .nu")?;
     let hash = frame.hash.as_ref().ok_or("frame has no hash")?;
 
     let content_bytes = store.cas_read_sync(hash)?;

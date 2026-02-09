@@ -49,7 +49,7 @@ async fn test_process_historical_collects_nu_frames() {
 
     let content = r#"export def hello [] { "hi" }"#;
     let hash = store.cas_insert(content).await.unwrap();
-    let frame = Frame::builder("nu.mymod").hash(hash).build();
+    let frame = Frame::builder("mymod.nu").hash(hash).build();
 
     registry.process_historical(&frame, &mut engine, &store);
 
@@ -77,21 +77,21 @@ async fn test_process_historical_ignores_frames_without_hash() {
     let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
-    let frame = Frame::builder("nu.mymod").build();
+    let frame = Frame::builder("mymod.nu").build();
 
     registry.process_historical(&frame, &mut engine, &store);
     assert!(registry.modules.is_empty());
 }
 
 #[tokio::test]
-async fn test_process_historical_ignores_bare_nu_prefix() {
+async fn test_process_historical_ignores_bare_nu_suffix() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
     let hash = store.cas_insert("content").await.unwrap();
-    // "nu." with nothing after should be ignored
-    let frame = Frame::builder("nu.").hash(hash).build();
+    // ".nu" with nothing before should be ignored
+    let frame = Frame::builder(".nu").hash(hash).build();
 
     registry.process_historical(&frame, &mut engine, &store);
     assert!(registry.modules.is_empty());
@@ -106,8 +106,8 @@ async fn test_process_historical_accumulates_versions() {
     let hash1 = store.cas_insert(r#"export def v1 [] { 1 }"#).await.unwrap();
     let hash2 = store.cas_insert(r#"export def v2 [] { 2 }"#).await.unwrap();
 
-    let frame1 = Frame::builder("nu.mymod").hash(hash1).build();
-    let frame2 = Frame::builder("nu.mymod").hash(hash2).build();
+    let frame1 = Frame::builder("mymod.nu").hash(hash1).build();
+    let frame2 = Frame::builder("mymod.nu").hash(hash2).build();
 
     registry.process_historical(&frame1, &mut engine, &store);
     registry.process_historical(&frame2, &mut engine, &store);
@@ -126,7 +126,7 @@ async fn test_process_historical_dot_separated_name() {
         .cas_insert(r#"export def call [] { "ok" }"#)
         .await
         .unwrap();
-    let frame = Frame::builder("nu.discord.api").hash(hash).build();
+    let frame = Frame::builder("discord.api.nu").hash(hash).build();
 
     registry.process_historical(&frame, &mut engine, &store);
 
@@ -148,13 +148,13 @@ async fn test_module_registered_in_vfs() {
     let module_content = r#"export def greet [name: string] { $"hello ($name)" }"#;
     let module_frame = store
         .append(
-            Frame::builder("nu.testmod")
+            Frame::builder("testmod.nu")
                 .hash(store.cas_insert(module_content).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "nu.testmod");
+    assert_eq!(recver.recv().await.unwrap().topic, "testmod.nu");
 
     let module_id = module_frame.id.to_string();
 
@@ -210,17 +210,17 @@ async fn test_module_dot_path_maps_to_directory() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Register a module with dotted name: nu.mylib.utils
+    // Register a module with dotted name: mylib.utils.nu
     let module_content = r#"export def add [a: int, b: int] { $a + $b }"#;
     let module_frame = store
         .append(
-            Frame::builder("nu.mylib.utils")
+            Frame::builder("mylib.utils.nu")
                 .hash(store.cas_insert(module_content).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "nu.mylib.utils");
+    assert_eq!(recver.recv().await.unwrap().topic, "mylib.utils.nu");
 
     let module_id = module_frame.id.to_string();
 
@@ -277,13 +277,13 @@ async fn test_live_module_registration() {
     let module_content = r#"export def double [x: int] { $x * 2 }"#;
     let module_frame = store
         .append(
-            Frame::builder("nu.mathlib")
+            Frame::builder("mathlib.nu")
                 .hash(store.cas_insert(module_content).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "nu.mathlib");
+    assert_eq!(recver.recv().await.unwrap().topic, "mathlib.nu");
 
     let module_id = module_frame.id.to_string();
 
