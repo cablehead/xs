@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::handlers::Handler;
 use crate::nu;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{Frame, Store};
 
 async fn start_handler(
     frame: &Frame,
@@ -35,30 +35,23 @@ struct TopicState {
     handler_id: String,
 }
 
-pub async fn serve(
-    store: Store,
-    mut engine: nu::Engine,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    nu::add_core_commands(&mut engine, &store)?;
-    engine.add_alias(".rm", ".remove")?;
+#[derive(Default)]
+pub struct HandlerRegistry {
+    topic_states: HashMap<String, TopicState>,
+}
 
-    let options = ReadOptions::builder().follow(FollowOption::On).build();
-
-    let mut recver = store.read(options).await;
-    let mut topic_states: HashMap<String, TopicState> = HashMap::new();
-
-    // Process historical frames until threshold
-    while let Some(frame) = recver.recv().await {
-        if frame.topic == "xs.threshold" {
-            break;
+impl HandlerRegistry {
+    pub fn new() -> Self {
+        Self {
+            topic_states: HashMap::new(),
         }
+    }
 
-        // Extract base topic and suffix
+    pub fn process_historical(&mut self, frame: &Frame) {
         if let Some((topic, suffix)) = frame.topic.rsplit_once('.') {
             match suffix {
                 "register" => {
-                    // Store new registration
-                    topic_states.insert(
+                    self.topic_states.insert(
                         topic.to_string(),
                         TopicState {
                             register_frame: frame.clone(),
@@ -67,13 +60,12 @@ pub async fn serve(
                     );
                 }
                 "unregister" | "inactive" => {
-                    // Only remove if handler_id matches
                     if let Some(meta) = &frame.meta {
                         if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {
                             let key = topic.to_string();
-                            if let Some(state) = topic_states.get(&key) {
+                            if let Some(state) = self.topic_states.get(&key) {
                                 if state.handler_id == handler_id {
-                                    topic_states.remove(&key);
+                                    self.topic_states.remove(&key);
                                 }
                             }
                         }
@@ -84,22 +76,32 @@ pub async fn serve(
         }
     }
 
-    // Process all retained registrations ordered by frame ID
-    let mut ordered_states: Vec<_> = topic_states.values().collect();
-    ordered_states.sort_by_key(|state| state.register_frame.id);
+    pub async fn materialize(
+        &mut self,
+        store: &Store,
+        engine: &nu::Engine,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut ordered_states: Vec<_> = self.topic_states.values().collect();
+        ordered_states.sort_by_key(|state| state.register_frame.id);
 
-    for state in ordered_states {
-        if let Some(topic) = state.register_frame.topic.strip_suffix(".register") {
-            start_handler(&state.register_frame, &store, &engine, topic).await?;
+        for state in ordered_states {
+            if let Some(topic) = state.register_frame.topic.strip_suffix(".register") {
+                start_handler(&state.register_frame, store, engine, topic).await?;
+            }
         }
+
+        Ok(())
     }
 
-    // Continue processing new frames
-    while let Some(frame) = recver.recv().await {
+    pub async fn process_live(
+        &mut self,
+        frame: &Frame,
+        store: &Store,
+        engine: &nu::Engine,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(topic) = frame.topic.strip_suffix(".register") {
-            start_handler(&frame, &store, &engine, topic).await?;
+            start_handler(frame, store, engine, topic).await?;
         }
+        Ok(())
     }
-
-    Ok(())
 }

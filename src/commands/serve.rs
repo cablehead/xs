@@ -6,7 +6,7 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
 use crate::nu::ReturnOptions;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{Frame, Store};
 
 #[derive(Clone)]
 struct Command {
@@ -47,34 +47,44 @@ async fn handle_define(
     }
 }
 
-pub async fn serve(
-    store: Store,
-    mut base_engine: nu::Engine,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Add core commands to base engine
-    nu::add_core_commands(&mut base_engine, &store)?;
+#[derive(Default)]
+pub struct CommandRegistry {
+    commands: HashMap<String, Command>,
+}
 
-    let mut commands = HashMap::new();
-    let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
-
-    // Process frames up to threshold, registering only .define frames
-    while let Some(frame) = recver.recv().await {
-        if frame.topic == "xs.threshold" {
-            break;
-        }
-        if let Some(name) = frame.topic.strip_suffix(".define") {
-            handle_define(&frame, name, &base_engine, &store, &mut commands).await;
+impl CommandRegistry {
+    pub fn new() -> Self {
+        Self {
+            commands: HashMap::new(),
         }
     }
 
-    // Continue processing new frames
-    while let Some(frame) = recver.recv().await {
+    pub async fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine, store: &Store) {
         if let Some(name) = frame.topic.strip_suffix(".define") {
-            handle_define(&frame, name, &base_engine, &store, &mut commands).await;
+            handle_define(frame, name, engine, store, &mut self.commands).await;
+        }
+    }
+
+    pub async fn materialize(
+        &mut self,
+        _store: &Store,
+        _engine: &nu::Engine,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Commands are eagerly materialized during historical replay
+        Ok(())
+    }
+
+    pub async fn process_live(
+        &mut self,
+        frame: &Frame,
+        store: &Store,
+        engine: &nu::Engine,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(name) = frame.topic.strip_suffix(".define") {
+            handle_define(frame, name, engine, store, &mut self.commands).await;
         } else if let Some(name) = frame.topic.strip_suffix(".call") {
             let name = name.to_owned();
-            if let Some(command) = commands.get(&name) {
+            if let Some(command) = self.commands.get(&name) {
                 let store = store.clone();
                 let frame = frame.clone();
                 let command = command.clone();
@@ -92,9 +102,8 @@ pub async fn serve(
                 });
             }
         }
+        Ok(())
     }
-
-    Ok(())
 }
 
 async fn register_command(

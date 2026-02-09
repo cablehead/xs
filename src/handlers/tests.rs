@@ -1,7 +1,7 @@
 use tempfile::TempDir;
 
+use crate::dispatcher;
 use crate::error::Error;
-use crate::handlers::serve;
 use crate::nu;
 use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -829,7 +829,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         }));
     }
 

@@ -271,7 +271,7 @@ async fn setup_test_environment() -> (TempDir, Store) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::commands::serve::serve(store, engine.clone())
+            crate::dispatcher::serve(store, engine.clone())
                 .await
                 .unwrap();
         }));

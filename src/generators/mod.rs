@@ -1,5 +1,5 @@
-mod generator;
-mod serve;
+pub(crate) mod generator;
+pub(crate) mod serve;
 
 pub use generator::{
     spawn as spawn_generator_loop, GeneratorEventKind, GeneratorLoop, GeneratorScriptOptions,
@@ -9,4 +9,4 @@ pub use generator::{
 #[cfg(test)]
 mod tests;
 
-pub use serve::serve;
+pub use serve::GeneratorRegistry;

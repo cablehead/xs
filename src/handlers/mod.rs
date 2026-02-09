@@ -1,7 +1,7 @@
 mod handler;
-mod serve;
+pub(crate) mod serve;
 #[cfg(test)]
 mod tests;
 
 pub use handler::Handler;
-pub use serve::serve;
+pub use serve::HandlerRegistry;
