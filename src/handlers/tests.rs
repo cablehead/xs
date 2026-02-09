@@ -660,7 +660,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Register a VFS module via *.nu topic
-    let module_frame = store
+    store
         .append(
             Frame::builder("mymod.nu")
                 .hash(
@@ -680,18 +680,14 @@ async fn test_handler_with_module() -> Result<(), Error> {
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
 
-    let module_id = module_frame.id.to_string();
-
     // Create handler that uses the VFS module
-    let handler_script = format!(
-        r#"{{
-            run: {{|frame|
-                if $frame.topic != "trigger" {{ return }}
-                use xs/{module_id}/mymod
+    let handler_script = r#"{
+            run: {|frame|
+                if $frame.topic != "trigger" { return }
+                use xs/mymod
                 mymod add_nums 40 2
-            }}
-        }}"#
-    );
+            }
+        }"#;
     let frame_handler = store
         .append(
             Frame::builder("test.register")

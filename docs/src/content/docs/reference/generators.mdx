@@ -90,7 +90,7 @@ Generators can use modules registered via `*.nu` topics. See <Link to="/referenc
 ```nushell
 r#'{
   run: {||
-    use xs/01JAR5EXAMPLE/my-parser
+    use xs/my-parser
     ^tail -F data.log | lines | each {|line| my-parser parse $line }
   }
 }'# | .append log.spawn

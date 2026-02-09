@@ -100,7 +100,7 @@ Handlers can use modules registered via `*.nu` topics. See <Link to="/reference/
 ```nushell
 r###'{
   run: {|frame|
-    use xs/01JAR5EXAMPLE/my-math
+    use xs/my-math
     my-math double 8
   }
 }'### | .append processor.register
