@@ -29,33 +29,34 @@ async fn start_handler(
     }
 }
 
-#[derive(Debug)]
 struct TopicState {
     register_frame: Frame,
     handler_id: String,
+    engine: nu::Engine,
 }
 
 #[derive(Default)]
 pub struct HandlerRegistry {
-    topic_states: HashMap<String, TopicState>,
+    active: HashMap<String, TopicState>,
 }
 
 impl HandlerRegistry {
     pub fn new() -> Self {
         Self {
-            topic_states: HashMap::new(),
+            active: HashMap::new(),
         }
     }
 
-    pub fn process_historical(&mut self, frame: &Frame) {
+    pub fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine) {
         if let Some((topic, suffix)) = frame.topic.rsplit_once('.') {
             match suffix {
                 "register" => {
-                    self.topic_states.insert(
+                    self.active.insert(
                         topic.to_string(),
                         TopicState {
                             register_frame: frame.clone(),
                             handler_id: frame.id.to_string(),
+                            engine: engine.clone(),
                         },
                     );
                 }
@@ -63,9 +64,9 @@ impl HandlerRegistry {
                     if let Some(meta) = &frame.meta {
                         if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {
                             let key = topic.to_string();
-                            if let Some(state) = self.topic_states.get(&key) {
+                            if let Some(state) = self.active.get(&key) {
                                 if state.handler_id == handler_id {
-                                    self.topic_states.remove(&key);
+                                    self.active.remove(&key);
                                 }
                             }
                         }
@@ -79,14 +80,13 @@ impl HandlerRegistry {
     pub async fn materialize(
         &mut self,
         store: &Store,
-        engine: &nu::Engine,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut ordered_states: Vec<_> = self.topic_states.values().collect();
+        let mut ordered_states: Vec<_> = self.active.values().collect();
         ordered_states.sort_by_key(|state| state.register_frame.id);
 
         for state in ordered_states {
             if let Some(topic) = state.register_frame.topic.strip_suffix(".register") {
-                start_handler(&state.register_frame, store, engine, topic).await?;
+                start_handler(&state.register_frame, store, &state.engine, topic).await?;
             }
         }
 

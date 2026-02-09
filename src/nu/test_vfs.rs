@@ -35,79 +35,100 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
 
 // --- Unit tests for ModuleRegistry ---
 
-#[test]
-fn test_process_historical_collects_nu_frames() {
+async fn unit_test_store() -> (Store, tempfile::TempDir) {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+    (store, temp_dir)
+}
+
+#[tokio::test]
+async fn test_process_historical_collects_nu_frames() {
+    let (store, _tmp) = unit_test_store().await;
+    let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
-    let hash: ssri::Integrity = "sha256-deadbeef".parse().unwrap();
+    let content = r#"export def hello [] { "hi" }"#;
+    let hash = store.cas_insert(content).await.unwrap();
     let frame = Frame::builder("nu.mymod").hash(hash).build();
 
-    registry.process_historical(&frame);
+    registry.process_historical(&frame, &mut engine, &store);
 
-    // Registry should have one module entry
     assert_eq!(registry.modules.len(), 1);
     assert!(registry.modules.contains_key("mymod"));
     assert_eq!(registry.modules["mymod"].len(), 1);
 }
 
-#[test]
-fn test_process_historical_ignores_non_nu_frames() {
+#[tokio::test]
+async fn test_process_historical_ignores_non_nu_frames() {
+    let (store, _tmp) = unit_test_store().await;
+    let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
-    let hash: ssri::Integrity = "sha256-deadbeef".parse().unwrap();
+    let hash = store.cas_insert("content").await.unwrap();
     let frame = Frame::builder("other.topic").hash(hash).build();
 
-    registry.process_historical(&frame);
+    registry.process_historical(&frame, &mut engine, &store);
     assert!(registry.modules.is_empty());
 }
 
-#[test]
-fn test_process_historical_ignores_frames_without_hash() {
+#[tokio::test]
+async fn test_process_historical_ignores_frames_without_hash() {
+    let (store, _tmp) = unit_test_store().await;
+    let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
     let frame = Frame::builder("nu.mymod").build();
 
-    registry.process_historical(&frame);
+    registry.process_historical(&frame, &mut engine, &store);
     assert!(registry.modules.is_empty());
 }
 
-#[test]
-fn test_process_historical_ignores_bare_nu_prefix() {
+#[tokio::test]
+async fn test_process_historical_ignores_bare_nu_prefix() {
+    let (store, _tmp) = unit_test_store().await;
+    let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
-    let hash: ssri::Integrity = "sha256-deadbeef".parse().unwrap();
+    let hash = store.cas_insert("content").await.unwrap();
     // "nu." with nothing after should be ignored
     let frame = Frame::builder("nu.").hash(hash).build();
 
-    registry.process_historical(&frame);
+    registry.process_historical(&frame, &mut engine, &store);
     assert!(registry.modules.is_empty());
 }
 
-#[test]
-fn test_process_historical_accumulates_versions() {
+#[tokio::test]
+async fn test_process_historical_accumulates_versions() {
+    let (store, _tmp) = unit_test_store().await;
+    let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
-    let hash1: ssri::Integrity = "sha256-aaa".parse().unwrap();
-    let hash2: ssri::Integrity = "sha256-bbb".parse().unwrap();
+    let hash1 = store.cas_insert(r#"export def v1 [] { 1 }"#).await.unwrap();
+    let hash2 = store.cas_insert(r#"export def v2 [] { 2 }"#).await.unwrap();
 
     let frame1 = Frame::builder("nu.mymod").hash(hash1).build();
     let frame2 = Frame::builder("nu.mymod").hash(hash2).build();
 
-    registry.process_historical(&frame1);
-    registry.process_historical(&frame2);
+    registry.process_historical(&frame1, &mut engine, &store);
+    registry.process_historical(&frame2, &mut engine, &store);
 
     assert_eq!(registry.modules.len(), 1);
     assert_eq!(registry.modules["mymod"].len(), 2);
 }
 
-#[test]
-fn test_process_historical_dot_separated_name() {
+#[tokio::test]
+async fn test_process_historical_dot_separated_name() {
+    let (store, _tmp) = unit_test_store().await;
+    let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
 
-    let hash: ssri::Integrity = "sha256-deadbeef".parse().unwrap();
+    let hash = store
+        .cas_insert(r#"export def call [] { "ok" }"#)
+        .await
+        .unwrap();
     let frame = Frame::builder("nu.discord.api").hash(hash).build();
 
-    registry.process_historical(&frame);
+    registry.process_historical(&frame, &mut engine, &store);
 
     assert_eq!(registry.modules.len(), 1);
     assert!(registry.modules.contains_key("discord.api"));

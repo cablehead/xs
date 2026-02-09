@@ -22,23 +22,26 @@ pub async fn serve(
     let mut recver = store.read(options).await;
 
     // Phase 1: Historical replay
+    // Modules register VFS entries eagerly so the engine accumulates module state.
+    // Handlers and generators snapshot the engine at each .register/.spawn frame,
+    // capturing exactly the modules available at that point in the stream.
     while let Some(frame) = recver.recv().await {
         if frame.topic == "xs.threshold" {
             break;
         }
-        modules.process_historical(&frame);
-        handlers.process_historical(&frame);
-        generators.process_historical(&frame);
-        commands.process_historical(&frame, &engine, &store).await;
+        modules.process_historical(&frame, &mut engine, &store);
+        handlers.process_historical(&frame, &engine);
+        generators.process_historical(&frame, &engine);
+        commands.process_historical(&frame, &engine);
     }
 
-    // Phase 2: Materialize — modules first so VFS is populated before scripts are parsed
+    // Phase 2: Materialize -- handlers and generators use their paired engine snapshots
     modules.materialize(&store, &mut engine).await?;
-    handlers.materialize(&store, &engine).await?;
-    generators.materialize(&store, &engine).await?;
-    commands.materialize(&store, &engine).await?;
+    handlers.materialize(&store).await?;
+    generators.materialize(&store).await?;
+    commands.materialize(&store).await?;
 
-    // Phase 3: Live — modules process before others for same reason
+    // Phase 3: Live -- modules process before others for same reason
     while let Some(frame) = recver.recv().await {
         modules.process_live(&frame, &store, &mut engine).await?;
         handlers.process_live(&frame, &store, &engine).await?;

@@ -59,7 +59,7 @@ async fn handle_spawn_event(
 #[derive(Default)]
 pub struct GeneratorRegistry {
     active: HashMap<String, JoinHandle<()>>,
-    compacted: HashMap<String, Frame>,
+    compacted: HashMap<String, (Frame, nu::Engine)>,
 }
 
 impl GeneratorRegistry {
@@ -70,14 +70,15 @@ impl GeneratorRegistry {
         }
     }
 
-    pub fn process_historical(&mut self, frame: &Frame) {
+    pub fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine) {
         if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".parse.error") {
             if let Some(prefix) = frame
                 .topic
                 .strip_suffix(".parse.error")
                 .or_else(|| frame.topic.strip_suffix(".spawn"))
             {
-                self.compacted.insert(prefix.to_string(), frame.clone());
+                self.compacted
+                    .insert(prefix.to_string(), (frame.clone(), engine.clone()));
             }
         } else if let Some(prefix) = frame.topic.strip_suffix(".terminate") {
             self.compacted.remove(prefix);
@@ -87,9 +88,8 @@ impl GeneratorRegistry {
     pub async fn materialize(
         &mut self,
         store: &Store,
-        engine: &nu::Engine,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        for (topic, frame) in &self.compacted {
+        for (topic, (frame, engine)) in &self.compacted {
             if frame.topic.ends_with(".spawn") {
                 try_start_task(topic, frame, &mut self.active, engine, store).await;
             }

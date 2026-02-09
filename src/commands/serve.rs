@@ -21,11 +21,11 @@ async fn handle_define(
     name: &str,
     base_engine: &nu::Engine,
     store: &Store,
-    commands: &mut HashMap<String, Command>,
+    active: &mut HashMap<String, Command>,
 ) {
     match register_command(frame, base_engine, store).await {
         Ok(command) => {
-            commands.insert(name.to_string(), command);
+            active.insert(name.to_string(), command);
             let _ = store.append(
                 Frame::builder(format!("{name}.ready"))
                     .meta(serde_json::json!({
@@ -49,28 +49,35 @@ async fn handle_define(
 
 #[derive(Default)]
 pub struct CommandRegistry {
-    commands: HashMap<String, Command>,
+    compacted: HashMap<String, (Frame, nu::Engine)>,
+    active: HashMap<String, Command>,
 }
 
 impl CommandRegistry {
     pub fn new() -> Self {
         Self {
-            commands: HashMap::new(),
+            compacted: HashMap::new(),
+            active: HashMap::new(),
         }
     }
 
-    pub async fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine, store: &Store) {
+    pub fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine) {
         if let Some(name) = frame.topic.strip_suffix(".define") {
-            handle_define(frame, name, engine, store, &mut self.commands).await;
+            self.compacted
+                .insert(name.to_string(), (frame.clone(), engine.clone()));
         }
     }
 
     pub async fn materialize(
         &mut self,
-        _store: &Store,
-        _engine: &nu::Engine,
+        store: &Store,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Commands are eagerly materialized during historical replay
+        let mut ordered: Vec<_> = self.compacted.drain().collect();
+        ordered.sort_by_key(|(_, (frame, _))| frame.id);
+
+        for (name, (frame, engine)) in ordered {
+            handle_define(&frame, &name, &engine, store, &mut self.active).await;
+        }
         Ok(())
     }
 
@@ -81,10 +88,10 @@ impl CommandRegistry {
         engine: &nu::Engine,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(name) = frame.topic.strip_suffix(".define") {
-            handle_define(frame, name, engine, store, &mut self.commands).await;
+            handle_define(frame, name, engine, store, &mut self.active).await;
         } else if let Some(name) = frame.topic.strip_suffix(".call") {
             let name = name.to_owned();
-            if let Some(command) = self.commands.get(&name) {
+            if let Some(command) = self.active.get(&name) {
                 let store = store.clone();
                 let frame = frame.clone();
                 let command = command.clone();

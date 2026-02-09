@@ -26,39 +26,32 @@ impl ModuleRegistry {
         Self::default()
     }
 
-    pub fn process_historical(&mut self, frame: &Frame) {
+    pub fn process_historical(&mut self, frame: &Frame, engine: &mut nu::Engine, store: &Store) {
         if let Some(name) = frame.topic.strip_prefix("nu.") {
             if !name.is_empty() && frame.hash.is_some() {
                 self.modules
                     .entry(name.to_string())
                     .or_default()
                     .push(frame.clone());
+
+                if let Err(e) = register_module_frame(frame, store, engine) {
+                    tracing::warn!(
+                        "Failed to load module from frame {} ({}): {}",
+                        frame.id,
+                        frame.topic,
+                        e
+                    );
+                }
             }
         }
     }
 
     pub async fn materialize(
         &mut self,
-        store: &Store,
-        engine: &mut nu::Engine,
+        _store: &Store,
+        _engine: &mut nu::Engine,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let all_frames: Vec<Frame> = self
-            .modules
-            .values()
-            .flat_map(|frames| frames.iter().cloned())
-            .collect();
-
-        for frame in &all_frames {
-            if let Err(e) = register_module_frame(frame, store, engine).await {
-                tracing::warn!(
-                    "Failed to load module from frame {} ({}): {}",
-                    frame.id,
-                    frame.topic,
-                    e
-                );
-            }
-        }
-
+        // Modules are eagerly registered during process_historical
         Ok(())
     }
 
@@ -75,7 +68,7 @@ impl ModuleRegistry {
                     .or_default()
                     .push(frame.clone());
 
-                if let Err(e) = register_module_frame(frame, store, engine).await {
+                if let Err(e) = register_module_frame(frame, store, engine) {
                     tracing::warn!(
                         "Failed to load module from frame {} ({}): {}",
                         frame.id,
@@ -103,7 +96,7 @@ impl ModuleRegistry {
 ///   xs/01JAR5...                   (virtual dir containing discord/)
 ///
 /// Usage: `use xs/01JAR5.../testmod` imports module named "testmod"
-async fn register_module_frame(
+fn register_module_frame(
     frame: &Frame,
     store: &Store,
     engine: &mut nu::Engine,
@@ -114,7 +107,7 @@ async fn register_module_frame(
         .ok_or("frame topic does not start with nu.")?;
     let hash = frame.hash.as_ref().ok_or("frame has no hash")?;
 
-    let content_bytes = store.cas_read(hash).await?;
+    let content_bytes = store.cas_read_sync(hash)?;
     let content = String::from_utf8(content_bytes)?;
 
     let id_str = frame.id.to_string();
