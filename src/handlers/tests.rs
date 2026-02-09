@@ -659,10 +659,10 @@ async fn test_handler_with_module() -> Result<(), Error> {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // First create our module that exports a function
-    let _ = store
+    // Register a VFS module via nu.* topic
+    let module_frame = store
         .append(
-            Frame::builder("mymod.nu")
+            Frame::builder("nu.mymod")
                 .hash(
                     store
                         .cas_insert(
@@ -678,28 +678,24 @@ async fn test_handler_with_module() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
+    assert_eq!(recver.recv().await.unwrap().topic, "nu.mymod");
 
-    // Create handler that uses the module
+    let module_id = module_frame.id.to_string();
+
+    // Create handler that uses the VFS module
+    let handler_script = format!(
+        r#"{{
+            run: {{|frame|
+                if $frame.topic != "trigger" {{ return }}
+                use xs/{module_id}/mymod
+                mymod add_nums 40 2
+            }}
+        }}"#
+    );
     let frame_handler = store
         .append(
             Frame::builder("test.register")
-                .hash(
-                    store
-                        .cas_insert(
-                            r#"{
-                            modules: {
-                                mymod: (.last mymod.nu | .cas $in.hash)
-                            }
-
-                            run: {|frame|
-                                if $frame.topic != "trigger" { return }
-                                mymod add_nums 40 2
-                            }
-                        }"#,
-                        )
-                        .await?,
-                )
+                .hash(store.cas_insert(&handler_script).await?)
                 .build(),
         )
         .unwrap();

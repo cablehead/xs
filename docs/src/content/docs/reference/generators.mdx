@@ -83,9 +83,9 @@ r#'{
 
 This generator will emit frames with the topic `logs.line` and automatically maintain only the 100 most recent log entries.
 
-## VFS Modules
+## Modules
 
-Generators can use modules registered via `nu.*` topics, shared across all components and pinned by SCRU128 ID. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Generators can use modules registered via `nu.*` topics. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r#'{
@@ -95,8 +95,6 @@ r#'{
   }
 }'# | .append log.spawn
 ```
-
-Generators do not support inline `modules` -- use VFS modules instead.
 
 ## Bi-directional Communication
 

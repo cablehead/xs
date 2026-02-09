@@ -49,11 +49,6 @@ r###'{
   # "new" (default), "first", or scru128 ID
   start: "new"
 
-  # Optional: Module definitions
-  modules: {
-    "my-math": "def double [x] { $x * 2 }"
-  }
-
   # Optional: Heartbeat interval in ms
   pulse: 1000
 
@@ -86,7 +81,6 @@ with metadata:
 | `start`          | "new" (default), "first", or scru128 ID to control where processing starts |
 | `pulse`          | Interval in milliseconds to send synthetic xs.pulse events                 |
 | `return_options` | Controls output frames: see Return Options                                 |
-| `modules`        | Map of module name to the string content of the module                     |
 
 #### Return Options
 
@@ -99,24 +93,9 @@ The `return_options` field controls how return values are handled:
   - `"time:<milliseconds>"`: Expire after duration
   - `"last:<n>"`: Keep only N most recent frames
 
-#### Inline Modules
+#### Modules
 
-The `modules` option allows handlers to define custom Nushell modules inline:
-
-```nushell
-r###'{
-  run: {|frame|
-    my-math double 8 # Use module command
-  }
-  modules: {
-    "my-math": "export def double [x] { $x * 2 }"
-  }
-}'### | .append processor.register
-```
-
-#### VFS Modules
-
-Handlers can also use modules registered via `nu.*` topics. These are shared across all components and pinned by SCRU128 ID. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Handlers can use modules registered via `nu.*` topics. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r###'{
