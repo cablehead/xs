@@ -8,14 +8,17 @@ use crate::store::{Frame, Store};
 /// Registry that loads nu.* topic frames into the nushell VFS.
 ///
 /// Each frame with topic `nu.X.Y.Z` and SCRU128 id `ID` is registered as:
-///   xs/X/Y/Z/ID/mod.nu
+///   xs/ID/X/Y/Z/mod.nu
 ///
 /// This allows handler/generator/command scripts to write:
-///   use xs/X/Y/Z/ID
+///   use xs/ID/X/Y/Z
+///
+/// The module name is the last path component (Z), and the SCRU128 id
+/// pins the exact version.
 #[derive(Default)]
 pub struct ModuleRegistry {
     /// Accumulated module frames: topic -> list of frames (one per version)
-    modules: HashMap<String, Vec<Frame>>,
+    pub(crate) modules: HashMap<String, Vec<Frame>>,
 }
 
 impl ModuleRegistry {
@@ -88,9 +91,18 @@ impl ModuleRegistry {
 
 /// Register a single nu.* frame as a virtual module in the engine's VFS.
 ///
-/// nu.discord (frame ID 01JAR5...) becomes:
-///   xs/discord/01JAR5.../mod.nu  (virtual file)
-///   xs/discord/01JAR5...         (virtual dir containing mod.nu)
+/// nu.testmod (frame ID 01JAR5...) becomes:
+///   xs/01JAR5.../testmod/mod.nu  (virtual file)
+///   xs/01JAR5.../testmod          (virtual dir containing mod.nu)
+///   xs/01JAR5...                  (virtual dir containing testmod/)
+///
+/// nu.discord.api (frame ID 01JAR5...) becomes:
+///   xs/01JAR5.../discord/api/mod.nu
+///   xs/01JAR5.../discord/api      (virtual dir containing mod.nu)
+///   xs/01JAR5.../discord           (virtual dir containing api/)
+///   xs/01JAR5...                   (virtual dir containing discord/)
+///
+/// Usage: `use xs/01JAR5.../testmod` imports module named "testmod"
 async fn register_module_frame(
     frame: &Frame,
     store: &Store,
@@ -110,21 +122,38 @@ async fn register_module_frame(
 
     let mut working_set = StateWorkingSet::new(&engine.state);
 
-    // Register xs/<module_path>/<scru128>/mod.nu as a virtual file
-    let virt_file_name = format!("xs/{module_path}/{id_str}/mod.nu");
+    // Register xs/<id>/<module_path>/mod.nu as a virtual file
+    let virt_file_name = format!("xs/{id_str}/{module_path}/mod.nu");
     let file_id = working_set.add_file(virt_file_name.clone(), content.as_bytes());
     let virt_file_id = working_set.add_virtual_path(virt_file_name, VirtualPath::File(file_id));
 
-    // Register xs/<module_path>/<scru128> as a virtual dir containing mod.nu
-    let virt_dir_name = format!("xs/{module_path}/{id_str}");
-    let _ = working_set.add_virtual_path(virt_dir_name, VirtualPath::Dir(vec![virt_file_id]));
+    // Build directory chain from leaf to root:
+    // xs/<id>/<module_path> -> contains mod.nu
+    // xs/<id>/<parent>      -> contains <child>/
+    // ...
+    // xs/<id>               -> contains <first_segment>/
+    let segments: Vec<&str> = module_path.split('/').collect();
+    let mut child_id = virt_file_id;
+
+    for depth in (0..segments.len()).rev() {
+        let dir_path = if depth == 0 {
+            format!("xs/{id_str}/{seg}", seg = segments[0])
+        } else {
+            let prefix = segments[..=depth].join("/");
+            format!("xs/{id_str}/{prefix}")
+        };
+        child_id = working_set.add_virtual_path(dir_path, VirtualPath::Dir(vec![child_id]));
+    }
+
+    // Register xs/<id> as root dir containing the first path segment
+    let _ = working_set.add_virtual_path(format!("xs/{id_str}"), VirtualPath::Dir(vec![child_id]));
 
     engine.state.merge_delta(working_set.render())?;
 
     tracing::debug!(
         "Registered VFS module: xs/{}/{} from frame {}",
-        module_path,
         id_str,
+        module_path,
         frame.id
     );
 

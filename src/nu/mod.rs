@@ -13,3 +13,5 @@ pub use vfs::ModuleRegistry;
 mod test_commands;
 #[cfg(test)]
 mod test_engine;
+#[cfg(test)]
+mod test_vfs;
