@@ -83,6 +83,21 @@ r#'{
 
 This generator will emit frames with the topic `logs.line` and automatically maintain only the 100 most recent log entries.
 
+## VFS Modules
+
+Generators can use modules registered via `nu.*` topics, shared across all components and pinned by SCRU128 ID. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+
+```nushell
+r#'{
+  run: {||
+    use xs/01JAR5EXAMPLE/my-parser
+    ^tail -F data.log | lines | each {|line| my-parser parse $line }
+  }
+}'# | .append log.spawn
+```
+
+Generators do not support inline `modules` -- use VFS modules instead.
+
 ## Bi-directional Communication
 
 When `duplex` is enabled, you can send data into the generator's input pipeline

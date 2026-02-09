@@ -95,7 +95,9 @@ invocation is independent.
 
 ## Modules
 
-Commands can use custom Nushell modules:
+### Inline Modules
+
+Commands can define custom Nushell modules inline:
 
 ```nushell
 r#'{
@@ -109,7 +111,18 @@ r#'{
 }'# | .append calculator.define
 ```
 
-This allows you to modularize your commands and reuse code across different commands.
+### VFS Modules
+
+Commands can also use modules registered via `nu.*` topics. These are shared across all components and pinned by SCRU128 ID. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+
+```nushell
+r#'{
+  run: {|frame|
+    use xs/01JAR5EXAMPLE/my-math
+    my-math double ($frame.meta.args.number)
+  }
+}'# | .append calculator.define
+```
 
 ## Built-in Store Commands
 
@@ -133,4 +146,5 @@ cross.stream:
 | Results        | Streamed immediately    | Batched on completion  | Streamed        |
 | Parallelism    | Multiple parallel calls | Sequential processing  | Single instance |
 | Error Handling | Per-invocation          | Unregisters handler    | Auto-restarts   |
-| Modules        | Supported               | Supported              | Not supported   |
+| Inline Modules | Supported               | Supported              | Not supported   |
+| VFS Modules    | Supported               | Supported              | Supported       |

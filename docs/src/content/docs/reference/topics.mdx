@@ -51,6 +51,35 @@ Use `*` alone to match all topics (equivalent to omitting `--topic`).
 
 Topic queries return frames in chronological order (by frame ID), not grouped by topic. Both historical reads and live follows maintain this ordering.
 
+## Module Topics
+
+Topics prefixed with `nu.` register Nushell modules into the virtual filesystem (VFS). Any handler, generator, or command script can then `use` these modules by their SCRU128 ID.
+
+```nushell
+# Register a module
+r#'export def greet [name: string] { $"hello ($name)" }'# | .append nu.mymod
+```
+
+The topic name maps to a directory path -- dots become slashes:
+
+| Topic | VFS Path |
+| ----- | -------- |
+| `nu.mymod` | `xs/<id>/mymod/mod.nu` |
+| `nu.discord.api` | `xs/<id>/discord/api/mod.nu` |
+
+Scripts reference modules by SCRU128 ID, pinning to an exact version:
+
+```nushell
+r#'{
+  run: {|frame|
+    use xs/01JAR5EXAMPLE/mymod
+    mymod greet "world"
+  }
+}'# | .append greeter.register
+```
+
+Modules appended before startup are available to all scripts. Modules appended at runtime are available to scripts registered after them.
+
 ## Component Suffixes
 
 cross.stream uses topic suffixes to coordinate component lifecycle.

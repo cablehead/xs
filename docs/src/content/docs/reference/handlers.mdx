@@ -99,9 +99,9 @@ The `return_options` field controls how return values are handled:
   - `"time:<milliseconds>"`: Expire after duration
   - `"last:<n>"`: Keep only N most recent frames
 
-#### Modules
+#### Inline Modules
 
-The `modules` option allows handlers to use custom Nushell modules:
+The `modules` option allows handlers to define custom Nushell modules inline:
 
 ```nushell
 r###'{
@@ -110,6 +110,19 @@ r###'{
   }
   modules: {
     "my-math": "export def double [x] { $x * 2 }"
+  }
+}'### | .append processor.register
+```
+
+#### VFS Modules
+
+Handlers can also use modules registered via `nu.*` topics. These are shared across all components and pinned by SCRU128 ID. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+
+```nushell
+r###'{
+  run: {|frame|
+    use xs/01JAR5EXAMPLE/my-math
+    my-math double 8
   }
 }'### | .append processor.register
 ```
