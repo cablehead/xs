@@ -1,5 +1,5 @@
 mod handler;
-pub(crate) mod serve;
+mod serve;
 #[cfg(test)]
 mod tests;
 

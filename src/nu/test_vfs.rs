@@ -61,7 +61,7 @@ async fn unit_test_store() -> (Store, tempfile::TempDir) {
 async fn test_process_historical_registers_vfs_paths() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
-    let mut registry = ModuleRegistry::new();
+    let mut registry = ModuleRegistry;
 
     let content = r#"export def hello [] { "hi" }"#;
     let hash = store.cas_insert(content).await.unwrap();
@@ -77,7 +77,7 @@ async fn test_process_historical_registers_vfs_paths() {
 async fn test_process_historical_ignores_non_nu_frames() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
-    let mut registry = ModuleRegistry::new();
+    let mut registry = ModuleRegistry;
 
     let hash = store.cas_insert("content").await.unwrap();
     let frame = Frame::builder("other.topic").hash(hash).build();
@@ -90,7 +90,7 @@ async fn test_process_historical_ignores_non_nu_frames() {
 async fn test_process_historical_ignores_frames_without_hash() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
-    let mut registry = ModuleRegistry::new();
+    let mut registry = ModuleRegistry;
 
     let frame = Frame::builder("mymod.nu").build();
 
@@ -102,7 +102,7 @@ async fn test_process_historical_ignores_frames_without_hash() {
 async fn test_process_historical_ignores_bare_nu_suffix() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
-    let mut registry = ModuleRegistry::new();
+    let mut registry = ModuleRegistry;
 
     let hash = store.cas_insert("content").await.unwrap();
     // ".nu" with nothing before should be ignored
@@ -116,7 +116,7 @@ async fn test_process_historical_ignores_bare_nu_suffix() {
 async fn test_process_historical_latest_version_shadows() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
-    let mut registry = ModuleRegistry::new();
+    let mut registry = ModuleRegistry;
 
     let hash1 = store.cas_insert(r#"export def v1 [] { 1 }"#).await.unwrap();
     let hash2 = store.cas_insert(r#"export def v2 [] { 2 }"#).await.unwrap();
@@ -138,7 +138,7 @@ async fn test_process_historical_latest_version_shadows() {
 async fn test_process_historical_dot_separated_name() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
-    let mut registry = ModuleRegistry::new();
+    let mut registry = ModuleRegistry;
 
     let hash = store
         .cas_insert(r#"export def call [] { "ok" }"#)

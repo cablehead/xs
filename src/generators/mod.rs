@@ -1,5 +1,5 @@
 pub(crate) mod generator;
-pub(crate) mod serve;
+mod serve;
 
 pub use generator::{
     spawn as spawn_generator_loop, GeneratorEventKind, GeneratorLoop, GeneratorScriptOptions,

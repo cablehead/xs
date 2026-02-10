@@ -17,10 +17,6 @@ use crate::store::{Frame, Store};
 pub struct ModuleRegistry;
 
 impl ModuleRegistry {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn process_historical(&mut self, frame: &Frame, engine: &mut nu::Engine, store: &Store) {
         if let Some(name) = frame.topic.strip_suffix(".nu") {
             if !name.is_empty() && frame.hash.is_some() {

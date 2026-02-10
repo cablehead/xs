@@ -47,10 +47,8 @@ impl HandlerRegistry {
         if let Some((topic, suffix)) = frame.topic.rsplit_once('.') {
             match suffix {
                 "register" => {
-                    self.compacted.insert(
-                        topic.to_string(),
-                        (frame.clone(), engine.clone()),
-                    );
+                    self.compacted
+                        .insert(topic.to_string(), (frame.clone(), engine.clone()));
                 }
                 "unregister" | "inactive" => {
                     if let Some(meta) = &frame.meta {

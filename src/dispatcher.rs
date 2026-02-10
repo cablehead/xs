@@ -13,7 +13,7 @@ pub async fn serve(
     nu::add_core_commands(&mut engine, &store)?;
     engine.add_alias(".rm", ".remove")?;
 
-    let mut modules = ModuleRegistry::new();
+    let mut modules = ModuleRegistry;
     let mut handlers = HandlerRegistry::new();
     let mut generators = GeneratorRegistry::new();
     let mut commands = CommandRegistry::new();
