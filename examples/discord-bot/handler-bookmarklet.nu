@@ -16,7 +16,7 @@
             if $message.d.emoji.name != "🔖" { return }
 
             let bookmarks = (
-                .head "bookmarks" | if ($in | is-not-empty)  {
+                .last "bookmarks" | if ($in | is-not-empty)  {
                     $in | .cas | from json
                 } else { {} })
 
@@ -29,7 +29,7 @@
             if $message.d.emoji.name != "🔖" { return }
 
             let bookmarks = (
-                .head "bookmarks" | if ($in | is-not-empty)  {
+                .last "bookmarks" | if ($in | is-not-empty)  {
                     $in | .cas | from json
                 } else { {} })
 

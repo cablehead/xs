@@ -67,10 +67,10 @@ $env.state = {
     resume_gateway_url: null
   }
 
-$env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
+$env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
 
 {
-  resume_from: (.head discord.ws.running | if ($in | is-not-empty) { get id })
+  start: (.last discord.ws.running | get -i id | default "first")
   pulse: 1000
 
   run: {|frame|

@@ -29,12 +29,11 @@ def run-roll [] {
   $content
 }
 
-$env.BOT_TOKEN = .head discord.ws.token | .cas $in.hash
+$env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
 
 {
-  modules: {discord: (.head discord.nu | .cas $in.hash)}
-
   run: {|frame|
+    use xs/discord
     if $frame.topic != "discord.ws.recv" { return }
 
     # TODO: .cas should also be able to take a record, to match xs2.nu's usage
