@@ -12,14 +12,14 @@ Topics organize frames in the event stream. The `.` character creates hierarchy,
 | Rule | Detail |
 | ---- | ------ |
 | Allowed characters | `a-z A-Z 0-9 _ - .` |
-| Must start with | `a-z A-Z 0-9 _` |
+| Must start with | `a-z A-Z _` |
 | Cannot end with | `.` |
 | Cannot contain | `..` |
 | Max length | 255 bytes |
 
 Valid: `chat`, `user.alice`, `orders.2024.pending`, `my_topic-v2`
 
-Invalid: `.hidden`, `-dash`, `trailing.`, `foo..bar`, `has space`
+Invalid: `.hidden`, `-dash`, `123`, `trailing.`, `foo..bar`, `has space`
 
 ## Hierarchy
 

@@ -529,7 +529,7 @@ mod tests_topic {
         assert!(validate_topic("user-123").is_ok());
         assert!(validate_topic("user_123").is_ok());
         assert!(validate_topic("_private").is_ok());
-        assert!(validate_topic("123").is_ok());
+        assert!(validate_topic("123").is_err());
         assert!(validate_topic("a").is_ok());
 
         // Invalid: empty

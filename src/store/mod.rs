@@ -840,10 +840,8 @@ pub fn validate_topic(topic: &str) -> Result<(), crate::error::Error> {
 
     let bytes = topic.as_bytes();
     let first = bytes[0];
-    if !first.is_ascii_alphanumeric() && first != b'_' {
-        return Err("Topic must start with a-z, A-Z, 0-9, or _"
-            .to_string()
-            .into());
+    if !first.is_ascii_alphabetic() && first != b'_' {
+        return Err("Topic must start with a-z, A-Z, or _".to_string().into());
     }
 
     for &b in bytes {

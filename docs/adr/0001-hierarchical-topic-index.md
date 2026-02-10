@@ -4,7 +4,7 @@
 
 Allowed characters: `a-z A-Z 0-9 _ - .`
 
-Must start with: `a-z A-Z 0-9 _`
+Must start with: `a-z A-Z _`
 
 Cannot be empty. Cannot end with `.`. Cannot contain `..`. Max length 255 bytes.
 
@@ -14,7 +14,7 @@ The `.` character is the hierarchy separator.
 
 Syntax: `--topic user.*` matches all topics starting with `user.`
 
-Does not include exact topic `user` — only children. Follows NATS/Redis glob semantics.
+Excludes exact topic `user`, only matches children. Follows NATS/Redis glob semantics.
 
 Results ordered chronologically by frame_id.
 

@@ -19,7 +19,10 @@ Example good commit messages from this project:
 
 ## Tone and Communication
 
-Prefer calm, matter-of-fact technical tone like "docs: improve release process with lessons from 0.6.4".
+- ASCII only. No em dashes, smart quotes, or other unicode punctuation.
+- No wasted words. No fluff. Each word should add value to the reader.
+- Human readable and clear.
+- Calm, matter-of-fact technical tone.
 
 ## Code Quality
 
