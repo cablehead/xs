@@ -332,23 +332,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
         let store = store.clone();
         let engine = engine.clone();
         tokio::spawn(async move {
-            let _ = xs::generators::serve(store, engine).await;
-        });
-    }
-
-    {
-        let store = store.clone();
-        let engine = engine.clone();
-        tokio::spawn(async move {
-            let _ = xs::handlers::serve(store, engine).await;
-        });
-    }
-
-    {
-        let store = store.clone();
-        let engine = engine.clone();
-        tokio::spawn(async move {
-            let _ = xs::commands::serve(store, engine).await;
+            let _ = xs::dispatcher::serve(store, engine).await;
         });
     }
 

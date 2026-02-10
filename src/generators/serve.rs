@@ -5,7 +5,7 @@ use tokio::task::JoinHandle;
 
 use crate::generators::generator;
 use crate::nu;
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{Frame, Store};
 
 async fn try_start_task(
     topic: &str,
@@ -56,55 +56,67 @@ async fn handle_spawn_event(
     Ok(())
 }
 
-pub async fn serve(
-    store: Store,
-    engine: nu::Engine,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+#[derive(Default)]
+pub struct GeneratorRegistry {
+    active: HashMap<String, JoinHandle<()>>,
+    compacted: HashMap<String, (Frame, nu::Engine)>,
+}
 
-    let mut active: HashMap<String, JoinHandle<()>> = HashMap::new();
-    let mut compacted: HashMap<String, Frame> = HashMap::new();
-
-    while let Some(frame) = recver.recv().await {
-        if frame.topic == "xs.threshold" {
-            break;
+impl GeneratorRegistry {
+    pub fn new() -> Self {
+        Self {
+            active: HashMap::new(),
+            compacted: HashMap::new(),
         }
+    }
+
+    pub fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine) {
         if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".parse.error") {
             if let Some(prefix) = frame
                 .topic
                 .strip_suffix(".parse.error")
                 .or_else(|| frame.topic.strip_suffix(".spawn"))
             {
-                compacted.insert(prefix.to_string(), frame);
+                self.compacted
+                    .insert(prefix.to_string(), (frame.clone(), engine.clone()));
             }
         } else if let Some(prefix) = frame.topic.strip_suffix(".terminate") {
-            compacted.remove(prefix);
+            self.compacted.remove(prefix);
         }
     }
 
-    for (topic, frame) in &compacted {
-        if frame.topic.ends_with(".spawn") {
-            try_start_task(topic, frame, &mut active, &engine, &store).await;
+    pub async fn materialize(
+        &mut self,
+        store: &Store,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        for (topic, (frame, engine)) in self.compacted.drain() {
+            if frame.topic.ends_with(".spawn") {
+                try_start_task(&topic, &frame, &mut self.active, &engine, store).await;
+            }
         }
+        Ok(())
     }
 
-    while let Some(frame) = recver.recv().await {
+    pub async fn process_live(
+        &mut self,
+        frame: &Frame,
+        store: &Store,
+        engine: &nu::Engine,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(prefix) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(prefix, &frame, &mut active, &engine, &store).await;
-            continue;
+            try_start_task(prefix, frame, &mut self.active, engine, store).await;
+            return Ok(());
         }
 
-        if let Some(_prefix) = frame.topic.strip_suffix(".parse.error") {
+        if frame.topic.ends_with(".parse.error") {
             // parse.error frames are informational; ignore them
-            continue;
+            return Ok(());
         }
 
         if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
-            active.remove(prefix);
-            continue;
+            self.active.remove(prefix);
         }
-    }
 
-    Ok(())
+        Ok(())
+    }
 }

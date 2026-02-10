@@ -1,5 +1,6 @@
-use super::*;
+use crate::dispatcher;
 use crate::generators::generator::emit_event;
+use crate::generators::{GeneratorEventKind, GeneratorLoop, StopReason, Task};
 use crate::nu::ReturnOptions;
 use nu_protocol;
 use scru128;
@@ -23,7 +24,7 @@ async fn test_serve_basic() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         }));
     }
 
@@ -70,7 +71,7 @@ async fn test_serve_duplex() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         }));
     }
 
@@ -145,7 +146,7 @@ async fn test_serve_compact() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         }));
     }
 
@@ -183,7 +184,7 @@ async fn test_respawn_after_terminate() {
         let store = store.clone();
         let engine = engine.clone();
         tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         });
     }
 
@@ -232,7 +233,7 @@ async fn test_serve_restart_until_terminated() {
         let store = store.clone();
         let engine = engine.clone();
         tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         });
     }
 
@@ -288,7 +289,7 @@ async fn test_duplex_terminate_stops() {
         let store = store.clone();
         let engine = engine.clone();
         tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         });
     }
 
@@ -338,7 +339,7 @@ async fn test_parse_error_eviction() {
         let store = store.clone();
         let engine = engine.clone();
         tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         });
     }
 
@@ -366,7 +367,7 @@ async fn test_parse_error_eviction() {
 
     // no stop frame should be emitted on parse error
 
-    // Allow ServeLoop to process the parse.error and evict the generator
+    // Allow the dispatcher to process the parse.error and evict the generator
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let good_script = r#"{ run: {|| "ok" } }"#;
@@ -397,7 +398,7 @@ async fn test_refresh_on_new_spawn() {
         let store = store.clone();
         let engine = engine.clone();
         tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         });
     }
 
@@ -459,7 +460,7 @@ async fn test_terminate_one_of_two_generators() {
     {
         let store = store.clone();
         let engine = engine.clone();
-        tokio::spawn(async move { serve(store, engine).await.unwrap() });
+        tokio::spawn(async move { dispatcher::serve(store, engine).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -515,7 +516,7 @@ async fn test_bytestream_ping() {
     {
         let store = store.clone();
         let engine = engine.clone();
-        tokio::spawn(async move { serve(store, engine).await.unwrap() });
+        tokio::spawn(async move { dispatcher::serve(store, engine).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -659,7 +660,7 @@ async fn test_external_command_error_message() {
         let store = store.clone();
         let engine = engine.clone();
         tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         });
     }
 

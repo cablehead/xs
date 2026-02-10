@@ -1,6 +1,6 @@
 ---
 title: Commands
-description: Stateless, parallelizable operations that can be called on-demand with streaming results
+description: Stateless, parallelizable operations that can be called on-demand
 sidebar:
   order: 4
 ---
@@ -27,11 +27,6 @@ r#'{
     let input = if ($frame.hash != null) { .cas $frame.hash } else { null }
     let n = $frame.meta.args.n
     1..($n) | each {$"($in): ($input)"}
-  }
-
-  # Optional: Module definitions
-  modules: {
-    "my-util": "export def format [x] { $\"formatted: ($x)\" }"
   }
 
   # Optional: Control output frame behavior
@@ -95,21 +90,16 @@ invocation is independent.
 
 ## Modules
 
-Commands can use custom Nushell modules:
+Commands can use modules registered via `*.nu` topics. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r#'{
   run: {|frame|
+    use xs/my-math
     my-math double ($frame.meta.args.number)
-  }
-
-  modules: {
-    "my-math": "export def double [x] { $x * 2 }"
   }
 }'# | .append calculator.define
 ```
-
-This allows you to modularize your commands and reuse code across different commands.
 
 ## Built-in Store Commands
 
@@ -130,7 +120,7 @@ cross.stream:
 | -------------- | ----------------------- | ---------------------- | --------------- |
 | State          | Stateless               | Stateful between calls | Stateless       |
 | Execution      | On-demand               | Event-driven           | Continuous      |
-| Results        | Streamed immediately    | Batched on completion  | Streamed        |
+| Results        | Collected into response | Batched on completion  | Streamed        |
 | Parallelism    | Multiple parallel calls | Sequential processing  | Single instance |
 | Error Handling | Per-invocation          | Unregisters handler    | Auto-restarts   |
-| Modules        | Supported               | Supported              | Not supported   |
+| Modules        | Supported               | Supported              | Supported       |

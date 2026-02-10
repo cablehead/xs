@@ -3,4 +3,4 @@ mod serve;
 #[cfg(test)]
 mod tests;
 
-pub use serve::serve;
+pub use serve::CommandRegistry;

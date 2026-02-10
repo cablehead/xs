@@ -4,4 +4,4 @@ mod serve;
 mod tests;
 
 pub use handler::Handler;
-pub use serve::serve;
+pub use serve::HandlerRegistry;

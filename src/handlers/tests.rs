@@ -1,7 +1,7 @@
 use tempfile::TempDir;
 
+use crate::dispatcher;
 use crate::error::Error;
-use crate::handlers::serve;
 use crate::nu;
 use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -659,8 +659,8 @@ async fn test_handler_with_module() -> Result<(), Error> {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // First create our module that exports a function
-    let _ = store
+    // Register a VFS module via *.nu topic
+    store
         .append(
             Frame::builder("mymod.nu")
                 .hash(
@@ -680,26 +680,18 @@ async fn test_handler_with_module() -> Result<(), Error> {
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
 
-    // Create handler that uses the module
+    // Create handler that uses the VFS module
+    let handler_script = r#"{
+            run: {|frame|
+                if $frame.topic != "trigger" { return }
+                use xs/mymod
+                mymod add_nums 40 2
+            }
+        }"#;
     let frame_handler = store
         .append(
             Frame::builder("test.register")
-                .hash(
-                    store
-                        .cas_insert(
-                            r#"{
-                            modules: {
-                                mymod: (.last mymod.nu | .cas $in.hash)
-                            }
-
-                            run: {|frame|
-                                if $frame.topic != "trigger" { return }
-                                mymod add_nums 40 2
-                            }
-                        }"#,
-                        )
-                        .await?,
-                )
+                .hash(store.cas_insert(&handler_script).await?)
                 .build(),
         )
         .unwrap();
@@ -829,7 +821,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            serve(store, engine).await.unwrap();
+            dispatcher::serve(store, engine).await.unwrap();
         }));
     }
 

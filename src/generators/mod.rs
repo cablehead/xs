@@ -1,4 +1,4 @@
-mod generator;
+pub(crate) mod generator;
 mod serve;
 
 pub use generator::{
@@ -9,4 +9,4 @@ pub use generator::{
 #[cfg(test)]
 mod tests;
 
-pub use serve::serve;
+pub use serve::GeneratorRegistry;
