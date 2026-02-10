@@ -29,20 +29,16 @@ async fn start_handler(
     }
 }
 
-struct TopicState {
-    register_frame: Frame,
-    handler_id: String,
-    engine: nu::Engine,
-}
-
 #[derive(Default)]
 pub struct HandlerRegistry {
-    active: HashMap<String, TopicState>,
+    compacted: HashMap<String, (Frame, nu::Engine)>,
+    active: HashMap<String, String>, // topic -> handler_id
 }
 
 impl HandlerRegistry {
     pub fn new() -> Self {
         Self {
+            compacted: HashMap::new(),
             active: HashMap::new(),
         }
     }
@@ -51,22 +47,17 @@ impl HandlerRegistry {
         if let Some((topic, suffix)) = frame.topic.rsplit_once('.') {
             match suffix {
                 "register" => {
-                    self.active.insert(
+                    self.compacted.insert(
                         topic.to_string(),
-                        TopicState {
-                            register_frame: frame.clone(),
-                            handler_id: frame.id.to_string(),
-                            engine: engine.clone(),
-                        },
+                        (frame.clone(), engine.clone()),
                     );
                 }
                 "unregister" | "inactive" => {
                     if let Some(meta) = &frame.meta {
                         if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {
-                            let key = topic.to_string();
-                            if let Some(state) = self.active.get(&key) {
-                                if state.handler_id == handler_id {
-                                    self.active.remove(&key);
+                            if let Some((f, _)) = self.compacted.get(topic) {
+                                if f.id.to_string() == handler_id {
+                                    self.compacted.remove(topic);
                                 }
                             }
                         }
@@ -81,13 +72,12 @@ impl HandlerRegistry {
         &mut self,
         store: &Store,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut ordered_states: Vec<_> = self.active.values().collect();
-        ordered_states.sort_by_key(|state| state.register_frame.id);
+        let mut ordered: Vec<_> = self.compacted.drain().collect();
+        ordered.sort_by_key(|(_, (frame, _))| frame.id);
 
-        for state in ordered_states {
-            if let Some(topic) = state.register_frame.topic.strip_suffix(".register") {
-                start_handler(&state.register_frame, store, &state.engine, topic).await?;
-            }
+        for (topic, (frame, engine)) in ordered {
+            start_handler(&frame, store, &engine, &topic).await?;
+            self.active.insert(topic, frame.id.to_string());
         }
 
         Ok(())
@@ -101,6 +91,7 @@ impl HandlerRegistry {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(topic) = frame.topic.strip_suffix(".register") {
             start_handler(frame, store, engine, topic).await?;
+            self.active.insert(topic.to_string(), frame.id.to_string());
         }
         Ok(())
     }

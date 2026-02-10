@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use nu_protocol::engine::{StateWorkingSet, VirtualPath};
 
 use crate::nu;
@@ -16,10 +14,7 @@ use crate::store::{Frame, Store};
 /// The module name is the last path component (Z). Re-registering a module
 /// at the same path shadows the previous version.
 #[derive(Default)]
-pub struct ModuleRegistry {
-    /// Accumulated module frames: topic -> list of frames (one per version)
-    pub(crate) modules: HashMap<String, Vec<Frame>>,
-}
+pub struct ModuleRegistry;
 
 impl ModuleRegistry {
     pub fn new() -> Self {
@@ -29,11 +24,6 @@ impl ModuleRegistry {
     pub fn process_historical(&mut self, frame: &Frame, engine: &mut nu::Engine, store: &Store) {
         if let Some(name) = frame.topic.strip_suffix(".nu") {
             if !name.is_empty() && frame.hash.is_some() {
-                self.modules
-                    .entry(name.to_string())
-                    .or_default()
-                    .push(frame.clone());
-
                 if let Err(e) = register_module_frame(frame, store, engine) {
                     tracing::warn!(
                         "Failed to load module from frame {} ({}): {}",
@@ -63,11 +53,6 @@ impl ModuleRegistry {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(name) = frame.topic.strip_suffix(".nu") {
             if !name.is_empty() && frame.hash.is_some() {
-                self.modules
-                    .entry(name.to_string())
-                    .or_default()
-                    .push(frame.clone());
-
                 if let Err(e) = register_module_frame(frame, store, engine) {
                     tracing::warn!(
                         "Failed to load module from frame {} ({}): {}",

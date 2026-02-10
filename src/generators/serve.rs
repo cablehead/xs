@@ -89,9 +89,9 @@ impl GeneratorRegistry {
         &mut self,
         store: &Store,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        for (topic, (frame, engine)) in &self.compacted {
+        for (topic, (frame, engine)) in self.compacted.drain() {
             if frame.topic.ends_with(".spawn") {
-                try_start_task(topic, frame, &mut self.active, engine, store).await;
+                try_start_task(&topic, &frame, &mut self.active, &engine, store).await;
             }
         }
         Ok(())

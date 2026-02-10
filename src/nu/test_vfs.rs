@@ -1,3 +1,4 @@
+use nu_protocol::engine::{StateWorkingSet, VirtualPath};
 use tempfile::TempDir;
 
 use crate::dispatcher;
@@ -33,6 +34,21 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
     }
 }
 
+fn has_virtual_path(engine: &nu::Engine, name: &str) -> bool {
+    let ws = StateWorkingSet::new(&engine.state);
+    ws.find_virtual_path(name).is_some()
+}
+
+fn has_virtual_file(engine: &nu::Engine, name: &str) -> bool {
+    let ws = StateWorkingSet::new(&engine.state);
+    matches!(ws.find_virtual_path(name), Some(VirtualPath::File(_)))
+}
+
+fn has_virtual_dir(engine: &nu::Engine, name: &str) -> bool {
+    let ws = StateWorkingSet::new(&engine.state);
+    matches!(ws.find_virtual_path(name), Some(VirtualPath::Dir(_)))
+}
+
 // --- Unit tests for ModuleRegistry ---
 
 async fn unit_test_store() -> (Store, tempfile::TempDir) {
@@ -42,7 +58,7 @@ async fn unit_test_store() -> (Store, tempfile::TempDir) {
 }
 
 #[tokio::test]
-async fn test_process_historical_collects_nu_frames() {
+async fn test_process_historical_registers_vfs_paths() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
@@ -53,9 +69,8 @@ async fn test_process_historical_collects_nu_frames() {
 
     registry.process_historical(&frame, &mut engine, &store);
 
-    assert_eq!(registry.modules.len(), 1);
-    assert!(registry.modules.contains_key("mymod"));
-    assert_eq!(registry.modules["mymod"].len(), 1);
+    assert!(has_virtual_file(&engine, "xs/mymod/mod.nu"));
+    assert!(has_virtual_dir(&engine, "xs/mymod"));
 }
 
 #[tokio::test]
@@ -68,7 +83,7 @@ async fn test_process_historical_ignores_non_nu_frames() {
     let frame = Frame::builder("other.topic").hash(hash).build();
 
     registry.process_historical(&frame, &mut engine, &store);
-    assert!(registry.modules.is_empty());
+    assert!(!has_virtual_path(&engine, "xs/other/topic/mod.nu"));
 }
 
 #[tokio::test]
@@ -80,7 +95,7 @@ async fn test_process_historical_ignores_frames_without_hash() {
     let frame = Frame::builder("mymod.nu").build();
 
     registry.process_historical(&frame, &mut engine, &store);
-    assert!(registry.modules.is_empty());
+    assert!(!has_virtual_path(&engine, "xs/mymod/mod.nu"));
 }
 
 #[tokio::test]
@@ -94,11 +109,11 @@ async fn test_process_historical_ignores_bare_nu_suffix() {
     let frame = Frame::builder(".nu").hash(hash).build();
 
     registry.process_historical(&frame, &mut engine, &store);
-    assert!(registry.modules.is_empty());
+    assert!(!has_virtual_path(&engine, "xs/mod.nu"));
 }
 
 #[tokio::test]
-async fn test_process_historical_accumulates_versions() {
+async fn test_process_historical_latest_version_shadows() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
     let mut registry = ModuleRegistry::new();
@@ -109,11 +124,14 @@ async fn test_process_historical_accumulates_versions() {
     let frame1 = Frame::builder("mymod.nu").hash(hash1).build();
     let frame2 = Frame::builder("mymod.nu").hash(hash2).build();
 
+    let before = engine.state.num_virtual_paths();
     registry.process_historical(&frame1, &mut engine, &store);
     registry.process_historical(&frame2, &mut engine, &store);
+    let after = engine.state.num_virtual_paths();
 
-    assert_eq!(registry.modules.len(), 1);
-    assert_eq!(registry.modules["mymod"].len(), 2);
+    // Both versions registered (latest shadows via nushell's reverse search)
+    assert!(after > before);
+    assert!(has_virtual_file(&engine, "xs/mymod/mod.nu"));
 }
 
 #[tokio::test]
@@ -130,8 +148,9 @@ async fn test_process_historical_dot_separated_name() {
 
     registry.process_historical(&frame, &mut engine, &store);
 
-    assert_eq!(registry.modules.len(), 1);
-    assert!(registry.modules.contains_key("discord.api"));
+    assert!(has_virtual_file(&engine, "xs/discord/api/mod.nu"));
+    assert!(has_virtual_dir(&engine, "xs/discord/api"));
+    assert!(has_virtual_dir(&engine, "xs/discord"));
 }
 
 // --- Integration tests: VFS registration via dispatcher ---

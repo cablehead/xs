@@ -367,7 +367,7 @@ async fn test_parse_error_eviction() {
 
     // no stop frame should be emitted on parse error
 
-    // Allow ServeLoop to process the parse.error and evict the generator
+    // Allow the dispatcher to process the parse.error and evict the generator
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let good_script = r#"{ run: {|| "ok" } }"#;
