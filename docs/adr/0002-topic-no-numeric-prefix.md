@@ -4,7 +4,7 @@ Supersedes the "Must start with" rule in [ADR 0001](./0001-hierarchical-topic-in
 
 ## Context
 
-`.last` takes a `-n` flag for count: `.last topic -n 5`. Positional args (`.last [topic] [number]`) are simpler, but `.last 42` is ambiguous if topics can start with digits.
+`.last` accepts a positional count: `.last topic 5`. But `.last 42` is ambiguous if topics can start with digits.
 
 ## Decision
 

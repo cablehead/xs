@@ -781,13 +781,12 @@ async fn test_xs_last_cli() {
         "last frame overall should be beta.b2"
     );
 
-    // xs last <addr> <topic> -n 2 - multiple frames from topic
+    // xs last <addr> <topic> 2 - multiple frames from topic
     let output = cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "last",
         &sock_path,
         "alpha",
-        "-n",
         "2"
     )
     .read()
@@ -799,16 +798,10 @@ async fn test_xs_last_cli() {
     assert_eq!(frame1["topic"], "alpha");
     assert_eq!(frame2["topic"], "alpha");
 
-    // xs last <addr> -n 3 - multiple frames across all topics
-    let output = cmd!(
-        assert_cmd::cargo::cargo_bin!("xs"),
-        "last",
-        &sock_path,
-        "-n",
-        "3"
-    )
-    .read()
-    .unwrap();
+    // xs last <addr> 3 - multiple frames across all topics
+    let output = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "last", &sock_path, "3")
+        .read()
+        .unwrap();
     let lines: Vec<&str> = output.trim().lines().collect();
     assert_eq!(lines.len(), 3, "should return 3 frames");
 
@@ -822,8 +815,8 @@ async fn test_xs_last_cli() {
         "wildcard should return last frame overall"
     );
 
-    // xs last -n 3 requesting multiple but only 1 exists should return NDJSON, not JSON object
-    // Format should be based on request (-n > 1), not result count
+    // xs last 3 requesting multiple but only 1 exists should return NDJSON, not JSON object
+    // Format should be based on request (count > 1), not result count
     cmd!(
         assert_cmd::cargo::cargo_bin!("xs"),
         "append",
@@ -841,7 +834,6 @@ async fn test_xs_last_cli() {
         "last",
         &sock_path,
         "single",
-        "-n",
         "3"
     )
     .stdout_capture()

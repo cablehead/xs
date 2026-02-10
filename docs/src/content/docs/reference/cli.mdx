@@ -165,14 +165,14 @@ xs remove <addr> <id>
 Get the most recent frame(s), optionally filtered by topic.
 
 ```sh
-xs last <addr> [topic] [-n count] [--follow]
+xs last <addr> [topic] [count] [--follow]
 ```
 
 | Option             | Description                                       |
 | ------------------ | ------------------------------------------------- |
 | `<addr>`           | Address to connect to                             |
 | `[topic]`          | Topic to query (optional, supports wildcards)     |
-| `-n`, `--last`     | Number of frames to return (default: 1)           |
+| `[count]`          | Number of frames to return (default: 1)           |
 | `--follow`, `-f`   | Follow for updates                                |
 | `--with-timestamp` | Include RFC3339 timestamp extracted from frame ID |
 
@@ -180,8 +180,8 @@ Examples:
 ```sh
 xs last ./store note           # last frame for topic "note"
 xs last ./store                # last frame across all topics
-xs last ./store note -n 5      # last 5 frames for topic "note"
-xs last ./store -n 10          # last 10 frames across all topics
+xs last ./store note 5         # last 5 frames for topic "note"
+xs last ./store 10             # last 10 frames across all topics
 xs last ./store "user.*"       # last frame matching wildcard
 ```
 

@@ -32,11 +32,10 @@ impl Command for LastStreamCommand {
                 SyntaxShape::String,
                 "topic to get most recent frame from (default: all topics)",
             )
-            .named(
-                "last",
+            .optional(
+                "count",
                 SyntaxShape::Int,
-                "number of frames to return",
-                Some('n'),
+                "number of frames to return (default: 1)",
             )
             .switch(
                 "follow",
@@ -62,14 +61,18 @@ impl Command for LastStreamCommand {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let topic: Option<String> = call.opt(engine_state, stack, 0)?;
-        let n: usize = call
-            .get_flag::<i64>(engine_state, stack, "last")?
-            .map(|v| v as usize)
-            .unwrap_or(1);
+        let raw_topic: Option<String> = call.opt(engine_state, stack, 0)?;
+        let raw_count: Option<i64> = call.opt(engine_state, stack, 1)?;
         let follow = call.has_flag(engine_state, stack, "follow")?;
         let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let span = call.head;
+
+        // Disambiguate: if topic parses as a positive integer and count is absent,
+        // treat it as the count (topics cannot start with digits per ADR 0002)
+        let (topic, n) = match (&raw_topic, raw_count) {
+            (Some(t), None) if t.parse::<usize>().is_ok() => (None, t.parse::<usize>().unwrap()),
+            _ => (raw_topic, raw_count.map(|v| v as usize).unwrap_or(1)),
+        };
 
         if !follow {
             // Non-follow mode: use sync path

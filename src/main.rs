@@ -176,13 +176,9 @@ struct CommandLast {
     #[clap(value_parser)]
     addr: String,
 
-    /// Topic to get the most recent frame for (supports wildcards like user.*)
-    #[clap(value_parser = parse_topic_query)]
-    topic: Option<String>,
-
-    /// Number of frames to return
-    #[clap(long, short = 'n', default_value = "1")]
-    last: usize,
+    /// [topic] [count] - topic to filter by and/or number of frames to return
+    #[clap(value_parser)]
+    args: Vec<String>,
 
     /// Follow for updates to the most recent frame
     #[clap(long, short = 'f')]
@@ -191,6 +187,26 @@ struct CommandLast {
     /// Include timestamp extracted from frame ID
     #[clap(long)]
     with_timestamp: bool,
+}
+
+impl CommandLast {
+    fn parse_args(
+        &self,
+    ) -> Result<(Option<String>, usize), Box<dyn std::error::Error + Send + Sync>> {
+        let mut topic: Option<String> = None;
+        let mut count: usize = 1;
+
+        for arg in &self.args {
+            if let Ok(n) = arg.parse::<usize>() {
+                count = n;
+            } else {
+                validate_topic_query(arg)?;
+                topic = Some(arg.clone());
+            }
+        }
+
+        Ok((topic, count))
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -524,10 +540,11 @@ async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + S
 }
 
 async fn last(args: CommandLast) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (topic, count) = args.parse_args()?;
     xs::client::last(
         &args.addr,
-        args.topic.as_deref(),
-        args.last,
+        topic.as_deref(),
+        count,
         args.follow,
         args.with_timestamp,
     )

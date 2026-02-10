@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn test_last_command_n_flag() -> Result<(), Error> {
+    fn test_last_command_count() -> Result<(), Error> {
         let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
@@ -239,8 +239,8 @@ mod tests {
             )
             .unwrap();
 
-        // .last -n 2 returns last 2 frames in chronological order
-        let result = nu_eval(&engine, PipelineData::empty(), ".last -n 2");
+        // .last 2 returns last 2 frames in chronological order
+        let result = nu_eval(&engine, PipelineData::empty(), ".last 2");
         let frames = result.as_list().unwrap();
         assert_eq!(frames.len(), 2);
         assert_eq!(
@@ -252,15 +252,15 @@ mod tests {
             frame3.id.to_string()
         );
 
-        // .last -n 1 returns single value (not list)
-        let result = nu_eval(&engine, PipelineData::empty(), ".last -n 1");
+        // .last 1 returns single value (not list)
+        let result = nu_eval(&engine, PipelineData::empty(), ".last 1");
         assert_eq!(
             result.get_data_by_key("id").unwrap().as_str().unwrap(),
             frame3.id.to_string()
         );
 
-        // .last -n 10 with only 3 frames returns all 3
-        let result = nu_eval(&engine, PipelineData::empty(), ".last -n 10");
+        // .last 10 with only 3 frames returns all 3
+        let result = nu_eval(&engine, PipelineData::empty(), ".last 10");
         let frames = result.as_list().unwrap();
         assert_eq!(frames.len(), 3);
         assert_eq!(
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn test_last_command_topic_with_n_flag() -> Result<(), Error> {
+    fn test_last_command_topic_with_count() -> Result<(), Error> {
         let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
@@ -305,8 +305,8 @@ mod tests {
             )
             .unwrap();
 
-        // .last target -n 2 returns last 2 frames for "target" topic only
-        let result = nu_eval(&engine, PipelineData::empty(), ".last target -n 2");
+        // .last target 2 returns last 2 frames for "target" topic only
+        let result = nu_eval(&engine, PipelineData::empty(), ".last target 2");
         let frames = result.as_list().unwrap();
         assert_eq!(frames.len(), 2);
         assert_eq!(
