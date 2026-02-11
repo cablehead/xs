@@ -4,6 +4,22 @@ The official documentation site for **xs** - an event stream store for personal,
 
 Documentation is written in Markdown (`.md`) or MDX (`.mdx`) files in the `src/content/docs/` directory.
 
+## Content Organization (Diataxis)
+
+Documentation follows the [Diataxis](https://diataxis.fr/) framework. Place new
+pages in the section that matches their purpose:
+
+| Section           | Purpose                                        |
+| :---------------- | :--------------------------------------------- |
+| Getting Started   | First-run orientation (install, first stream)   |
+| Tutorials         | Learning-oriented walkthroughs                  |
+| How-to Guides     | Goal-oriented recipes for specific tasks        |
+| Explanation        | Understanding-oriented background and concepts  |
+| Reference         | Information-oriented API and topic docs          |
+
+When in doubt, ask: "Is the reader *learning* (tutorial), *doing* (how-to),
+*understanding* (explanation), or *looking something up* (reference)?"
+
 ## Development Commands
 
 All commands are run from the `docs/` directory:

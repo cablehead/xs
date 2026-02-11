@@ -43,6 +43,16 @@ export default defineConfig({
         },
 
         {
+          label: "How-to Guides",
+          autogenerate: { directory: "how-to" },
+        },
+
+        {
+          label: "Explanation",
+          autogenerate: { directory: "explanation" },
+        },
+
+        {
           label: "Reference",
           autogenerate: { directory: "reference" },
         },
