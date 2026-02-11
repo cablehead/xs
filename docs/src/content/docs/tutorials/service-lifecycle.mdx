@@ -61,12 +61,12 @@ Your monitor shows two frames:
 
 ```bash withOutput
 > .cat | where { $in.topic | str starts-with "log." }
-─#─┬───topic─────┬────────────id─────────────┬─hash─┬──────────meta──────────
- 0 │ log.spawn   │ 03abc0000000000000000000a │ ...  │
- 1 │ log.running │ 03abc0000000000000000000b │      │ ─────────────┬─────────
-   │             │                           │      │  source_id   │ 03ab...
-   │             │                           │      │ ─────────────┴─────────
-─#─┴───topic─────┴────────────id─────────────┴─hash─┴──────────meta──────────
+-#-+---topic-----+------------id-------------+-hash-+----------meta----------
+ 0 | log.spawn   | 03abc0000000000000000000a | ...  |
+ 1 | log.running | 03abc0000000000000000000b |      | -------------+---------
+   |             |                           |      |  source_id   | 03ab...
+   |             |                           |      | -------------+---------
+-#-+---topic-----+------------id-------------+-hash-+----------meta----------
 ```
 
 `log.spawn` carries the script in CAS. `log.running` signals the pipeline is live.
@@ -101,10 +101,10 @@ The monitor shows the service stop and restart:
 
 ```bash withOutput
 > .cat | where topic == "log.stopped" | last | get meta
-───────────┬──────────────────────────
- reason    │ finished
- source_id │ 03ab...
-───────────┴──────────────────────────
+-----------+--------------------------
+ reason    | finished
+ source_id | 03ab...
+-----------+--------------------------
 ```
 
 The reason is `finished` -- the pipeline exited on its own. After a 1-second
@@ -134,11 +134,11 @@ the new one:
 
 ```bash withOutput
 > .cat | where topic == "log.stopped" | last | get meta
-───────────┬──────────────────────────
- reason    │ update
- source_id │ 03ab...
- update_id │ 03ab...
-───────────┴──────────────────────────
+-----------+--------------------------
+ reason    | update
+ source_id | 03ab...
+ update_id | 03ab...
+-----------+--------------------------
 ```
 
 The reason is `update` and `update_id` points to the new spawn frame. A
@@ -173,10 +173,10 @@ The monitor shows three frames in sequence:
 
 ```bash withOutput
 > .cat | where topic == "log.stopped" | last | get meta
-───────────┬──────────────────────────
- reason    │ terminate
- source_id │ 03ab...
-───────────┴──────────────────────────
+-----------+--------------------------
+ reason    | terminate
+ source_id | 03ab...
+-----------+--------------------------
 ```
 
 After `log.shutdown`, the dispatcher evicts the service. It will not restart.
