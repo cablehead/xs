@@ -1,6 +1,6 @@
 ---
 title: Service Lifecycle
-description: Walk through the lifecycle of a cross.stream service -- spawn, auto-restart, hot reload, and terminate.
+description: Walk through the lifecycle of a cross.stream service -- spawn, auto-restart, hot reload, terminate, and graceful shutdown.
 sidebar:
   order: 4
 ---
@@ -181,6 +181,41 @@ The monitor shows three frames in sequence:
 
 After `log.shutdown`, the dispatcher evicts the service. It will not restart.
 
+## Graceful shutdown
+
+When xs itself stops (e.g. Ctrl+C), it emits an `xs.stopping` frame. Every
+running service sees this frame, interrupts its pipeline, and emits the usual
+`.stopped` / `.shutdown` sequence -- just like a terminate, but with a distinct
+reason.
+
+Restart the service so we can see this in action:
+
+```nushell
+r#'{
+  run: {|| ^tail -F /tmp/log.txt | lines }
+}'# | .append log.spawn
+```
+
+Wait for `log.running` to appear in the monitor, then press **Ctrl+C** in
+terminal 1 (where `xs serve` is running).
+
+The monitor shows:
+
+1. `xs.stopping` -- emitted by xs before exit
+2. `log.stopped` with `meta.reason` set to `shutdown`
+3. `log.shutdown` -- the service loop has fully exited
+
+```bash withOutput
+> .cat | where topic == "log.stopped" | last | get meta
+-----------+--------------------------
+ reason    | shutdown
+ source_id | 03ab...
+-----------+--------------------------
+```
+
+xs waits up to a few seconds for all services to finish before exiting. This
+gives services a chance to flush output and clean up resources.
+
 ## Recap
 
 | Suffix      | Emitted when                                              |
@@ -189,7 +224,7 @@ After `log.shutdown`, the dispatcher evicts the service. It will not restart.
 | `.running`  | The pipeline is live and producing output                  |
 | `.recv`     | Each line or chunk of output from the pipeline             |
 | `.stopped`  | The pipeline exited -- check `meta.reason` for why         |
-| `.shutdown` | The service loop has fully exited after a terminate        |
+| `.shutdown` | The service loop has fully exited (terminate or shutdown)  |
 
 Stopped reasons:
 
@@ -199,3 +234,4 @@ Stopped reasons:
 | `error`     | Pipeline failed                   | Auto-restart after 1s |
 | `update`    | New `.spawn` frame arrived        | Immediate restart     |
 | `terminate` | `.terminate` frame arrived        | `.shutdown`, no restart |
+| `shutdown`  | `xs.stopping` frame arrived       | `.shutdown`, no restart |
