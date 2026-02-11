@@ -1,7 +1,7 @@
+pub mod action;
 pub mod actor;
 pub mod api;
 pub mod client;
-pub mod commands;
 pub mod error;
 pub mod listener;
 pub mod nu;

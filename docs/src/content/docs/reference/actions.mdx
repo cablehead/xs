@@ -1,5 +1,5 @@
 ---
-title: Commands
+title: Actions
 description: Stateless, parallelizable operations that can be called on-demand
 sidebar:
   order: 4
@@ -7,21 +7,21 @@ sidebar:
 
 import { Link } from '../../../utils/links';
 
-cross.stream commands use <Link to="nu" /> expressions to define reusable
+cross.stream actions use <Link to="nu" /> expressions to define reusable
 operations that can be called on-demand with arguments. Unlike actors which
 maintain state between invocations, or services which run continuously,
-commands are stateless and execute independently each time they are called.
+actions are stateless and execute independently each time they are called.
 
-## Defining Commands
+## Defining Actions
 
-To create a command, append a definition string with the topic
-`<command-name>.define`:
+To create an action, append a definition string with the topic
+`<action-name>.define`:
 
 ```nushell
 r#'{
-  # Required: Command closure
+  # Required: Action closure
   run: {|frame|
-    # frame.topic - always <command>.call
+    # frame.topic - always <action>.call
     # frame.hash - contains input content if present
     # frame.meta.args - contains call arguments
     let input = if ($frame.hash != null) { .cas $frame.hash } else { null }
@@ -38,59 +38,59 @@ r#'{
 ```
 
 The `return_options` field controls the suffix and TTL for the `.response` frame
-produced by the command. TTL only applies to this `.response` frame—`.error`
+produced by the action. TTL only applies to this `.response` frame---`.error`
 events never expire.
 
-The command definition requires:
+The action definition requires:
 
 - `run`: A closure that receives the call frame and can return a pipeline of
   results
 
-Upon successful definition, the command emits a `<command>.ready` frame indicating it's ready to accept calls.
+Upon successful definition, the action emits a `<action>.ready` frame indicating it's ready to accept calls.
 
 All values produced by the closure's output pipeline are collected into a single
 `.response` event automatically.
 
-## Calling Commands
+## Calling Actions
 
-Commands are called by appending to `<command-name>.call` with input content and
+Actions are called by appending to `<action-name>.call` with input content and
 arguments:
 
 ```nushell
-# Call the repeat command with input and args
+# Call the repeat action with input and args
 "foo" | .append repeat.call --meta {args: {n: 3}}
 ```
 
 ## Lifecycle Events
 
-Commands emit events to track their execution. See <Link to="/reference/topics/">Topics</Link> for all component suffixes.
+Actions emit events to track their execution. See <Link to="/reference/topics/">Topics</Link> for all component suffixes.
 
 | Event                | Description                              |
 | -------------------- | ---------------------------------------- |
-| `<command>.ready`    | Command successfully defined and ready for calls |
-| `<command>.response` | Collected result of the command pipeline |
-| `<command>.error`    | Error occurred during command execution  |
+| `<action>.ready`    | Action successfully defined and ready for calls |
+| `<action>.response` | Collected result of the action pipeline |
+| `<action>.error`    | Error occurred during action execution  |
 
 All events include:
 
-- `command_id`: ID of the command definition
+- `action_id`: ID of the action definition
 - `frame_id`: ID of this specific invocation
 
 ## Error Handling
 
-If a command encounters an error during execution, it will:
+If an action encounters an error during execution, it will:
 
-1. Emit a `<command>.error` frame with:
+1. Emit a `<action>.error` frame with:
    - The error message
-   - Reference to both command_id and frame_id
+   - Reference to both action_id and frame_id
 2. Stop processing the current invocation
 
-Unlike services, commands do not automatically restart on error - each
+Unlike services, actions do not automatically restart on error - each
 invocation is independent.
 
 ## Modules
 
-Commands can use modules registered via `*.nu` topics. A command sees the modules as they existed when it was defined. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Actions can use modules registered via `*.nu` topics. An action sees the modules as they existed when it was defined. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r#'{
@@ -106,17 +106,17 @@ r#'{
 When the `run` closure executes it can use several helper commands provided by
 cross.stream:
 
-- `.append` – append a new frame. Metadata you provide is merged with
-  `command_id` and `frame_id`.
-- `.cat` – read frames from the store.
-- `.last` – fetch the most recent frame(s), optionally filtered by topic.
-- `.cas` – read content from CAS by hash.
-- `.get` – retrieve a frame by ID.
-- `.remove` – delete a frame from the stream.
+- `.append` -- append a new frame. Metadata you provide is merged with
+  `action_id` and `frame_id`.
+- `.cat` -- read frames from the store.
+- `.last` -- fetch the most recent frame(s), optionally filtered by topic.
+- `.cas` -- read content from CAS by hash.
+- `.get` -- retrieve a frame by ID.
+- `.remove` -- delete a frame from the stream.
 
 ## Key Differences
 
-| Feature        | Commands                | Actors                 | Services        |
+| Feature        | Actions                 | Actors                 | Services        |
 | -------------- | ----------------------- | ---------------------- | --------------- |
 | State          | Stateless               | Stateful between calls | Stateless       |
 | Execution      | On-demand               | Event-driven           | Continuous      |

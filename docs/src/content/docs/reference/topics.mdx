@@ -107,15 +107,15 @@ cross.stream uses topic suffixes to coordinate component lifecycle.
 | `.unregistered` | Actor has been removed | System |
 | `.out` | Output from actor | System |
 
-### Commands
+### Actions
 
 | Suffix | Description | Emitted By |
 | ------ | ----------- | ---------- |
-| `.define` | Define a command | User |
-| `.call` | Invoke a command | User |
-| `.ready` | Command ready for calls | System |
-| `.error` | Command execution failed | System |
-| `.response` | Command execution result | System |
+| `.define` | Define an action | User |
+| `.call` | Invoke an action | User |
+| `.ready` | Action ready for calls | System |
+| `.error` | Action execution failed | System |
+| `.response` | Action execution result | System |
 
 ## System Topics
 
@@ -131,7 +131,7 @@ Output suffixes can be changed via `return_options.suffix`:
 
 - `.recv` (Services)
 - `.out` (Actors)
-- `.response` (Commands)
+- `.response` (Actions)
 
 ```nushell
 {
@@ -146,7 +146,7 @@ Output suffixes can be changed via `return_options.suffix`:
 
 Lifecycle and output events include:
 
-- `source_id` / `actor_id` / `command_id`: Component instance ID
-- `frame_id`: Triggering frame ID (actors/commands)
+- `source_id` / `actor_id` / `action_id`: Component instance ID
+- `frame_id`: Triggering frame ID (actors/actions)
 - `error`: Error details (on error events)
 - `reason`: Stop reason (on stopped events)

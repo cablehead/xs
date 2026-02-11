@@ -7,7 +7,7 @@ sidebar:
 
 cross.stream is built around four fundamental concepts that work together to
 create a powerful and flexible event streaming system: the event store,
-services, actors, and commands. Let's explore how these components interact
+services, actors, and actions. Let's explore how these components interact
 and complement each other.
 
 ## Event Store: The Foundation
@@ -59,13 +59,13 @@ An actor might:
 - Aggregate or analyze event data
 - Create chains of event processing
 
-### Commands: The On-demand Processors
+### Actions: The On-demand Processors
 
-Commands are reusable operations that can be called on-demand with input data.
+Actions are reusable operations that can be called on-demand with input data.
 Unlike services which run continuously, or actors which maintain state,
-commands are stateless and execute independently each time they are called.
+actions are stateless and execute independently each time they are called.
 
-A command might:
+An action might:
 
 - Make an HTTP request and stream back SSE responses
 - Transform input data in a complex way
@@ -73,7 +73,7 @@ A command might:
 
 ## Component Comparison
 
-| Aspect           | Services                              | Actors                        | Commands                     |
+| Aspect           | Services                              | Actors                        | Actions                      |
 | ---------------- | ------------------------------------- | ----------------------------- | ---------------------------- |
 | Purpose          | Produce events from external sources  | Process existing events       | Perform on-demand operations |
 | Execution        | Continuous background process         | Event-driven                  | Called on-demand             |
@@ -102,7 +102,7 @@ gradually add complexity as needed:
    - Start with simple transformations
    - Build up to more complex event processing chains
 
-4. **Define Commands**
+4. **Define Actions**
    - When you need reusable, on-demand operations
    - Encapsulate common operations
    - Use for streaming interactions with external services
@@ -113,13 +113,13 @@ These components create a flexible architecture where:
 
 1. **Services** feed events into the system from external sources
 2. **Actors** process those events, maintaining state if needed
-3. **Commands** provide reusable operations that can be called on-demand
+3. **Actions** provide reusable operations that can be called on-demand
 4. The **event store** ensures everything is reliably recorded and retrievable
 
 For example, you might have:
 
 - A service watching system metrics
 - An actor that processes those metrics and detects anomalies
-- A command that can be called to fetch additional data when an anomaly is
+- An action that can be called to fetch additional data when an anomaly is
   detected
 - The event store maintaining the complete history of metrics and analysis

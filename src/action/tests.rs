@@ -6,14 +6,14 @@ use crate::error::Error;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[tokio::test]
-async fn test_command_with_pipeline() -> Result<(), Error> {
+async fn test_action_with_pipeline() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Define the command
-    let frame_command = store.append(
+    // Define the action
+    let frame_action = store.append(
         Frame::builder("echo.define")
             .hash(
                 store
@@ -33,7 +33,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "echo.define");
     assert_eq!(recver.recv().await.unwrap().topic, "echo.ready");
 
-    // Call the command
+    // Call the action
     let frame_call = store.append(
         Frame::builder("echo.call")
             .hash(store.cas_insert(r#"foo"#).await?)
@@ -46,7 +46,7 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.response");
     let meta = frame.meta.as_ref().expect("Meta should be present");
-    assert_eq!(meta["command_id"], frame_command.id.to_string());
+    assert_eq!(meta["action_id"], frame_action.id.to_string());
     assert_eq!(meta["frame_id"], frame_call.id.to_string());
 
     let hash = frame.hash.as_ref().expect("Hash should be present");
@@ -60,14 +60,14 @@ async fn test_command_with_pipeline() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn test_command_error_handling() -> Result<(), Error> {
+async fn test_action_error_handling() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Define command that will error with invalid access
-    let frame_command = store
+    // Define action that will error with invalid access
+    let frame_action = store
         .append(
             Frame::builder("will_error.define")
                 .hash(
@@ -87,7 +87,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.define");
     assert_eq!(recver.recv().await.unwrap().topic, "will_error.ready");
 
-    // Call the command
+    // Call the action
     let frame_call = store
         .append(
             Frame::builder("will_error.call")
@@ -102,7 +102,7 @@ async fn test_command_error_handling() -> Result<(), Error> {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "will_error.error");
     let meta = frame.meta.as_ref().expect("Meta should be present");
-    assert_eq!(meta["command_id"], frame_command.id.to_string());
+    assert_eq!(meta["action_id"], frame_action.id.to_string());
     assert_eq!(meta["frame_id"], frame_call.id.to_string());
     assert!(meta["error"].as_str().unwrap().contains("not_exists"));
 
@@ -111,14 +111,14 @@ async fn test_command_error_handling() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn test_command_single_value() -> Result<(), Error> {
+async fn test_action_single_value() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Define the command
-    let frame_command = store.append(
+    // Define the action
+    let frame_action = store.append(
         Frame::builder("single.define")
             .hash(
                 store
@@ -134,7 +134,7 @@ async fn test_command_single_value() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "single.define");
     assert_eq!(recver.recv().await.unwrap().topic, "single.ready");
 
-    // Call the command
+    // Call the action
     let frame_call = store.append(Frame::builder("single.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "single.call");
 
@@ -142,7 +142,7 @@ async fn test_command_single_value() -> Result<(), Error> {
     let frame_resp = recver.recv().await.unwrap();
     assert_eq!(frame_resp.topic, "single.response");
     let meta_resp = frame_resp.meta.as_ref().expect("Meta should be present");
-    assert_eq!(meta_resp["command_id"], frame_command.id.to_string());
+    assert_eq!(meta_resp["action_id"], frame_action.id.to_string());
     assert_eq!(meta_resp["frame_id"], frame_call.id.to_string());
 
     let hash = frame_resp.hash.as_ref().expect("Hash should be present");
@@ -156,14 +156,14 @@ async fn test_command_single_value() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn test_command_empty_output() -> Result<(), Error> {
+async fn test_action_empty_output() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Define the command
-    let frame_command = store.append(
+    // Define the action
+    let frame_action = store.append(
         Frame::builder("empty.define")
             .hash(
                 store
@@ -179,7 +179,7 @@ async fn test_command_empty_output() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "empty.define");
     assert_eq!(recver.recv().await.unwrap().topic, "empty.ready");
 
-    // Call the command
+    // Call the action
     let frame_call = store.append(Frame::builder("empty.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "empty.call");
 
@@ -187,7 +187,7 @@ async fn test_command_empty_output() -> Result<(), Error> {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "empty.response");
     let meta = frame.meta.as_ref().expect("Meta should be present");
-    assert_eq!(meta["command_id"], frame_command.id.to_string());
+    assert_eq!(meta["action_id"], frame_action.id.to_string());
     assert_eq!(meta["frame_id"], frame_call.id.to_string());
     let content = store.cas_read(frame.hash.as_ref().unwrap()).await?;
     assert_eq!(String::from_utf8(content)?, "[]");
@@ -197,14 +197,14 @@ async fn test_command_empty_output() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn test_command_tee_and_append() -> Result<(), Error> {
+async fn test_action_tee_and_append() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Define the command that outputs a simple pipeline of 1, 2, 3
-    let frame_command = store.append(
+    // Define the action that outputs a simple pipeline of 1, 2, 3
+    let frame_action = store.append(
         Frame::builder("numbers.define")
             .hash(
                 store
@@ -222,11 +222,11 @@ async fn test_command_tee_and_append() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.define");
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.ready");
 
-    // Call the command
+    // Call the action
     let frame_call = store.append(Frame::builder("numbers.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "numbers.call");
 
-    let expected_meta = json!({"command_id": frame_command.id, "frame_id": frame_call.id});
+    let expected_meta = json!({"action_id": frame_action.id, "frame_id": frame_call.id});
 
     // Expect sum event from tee side pipeline
     let frame = recver.recv().await.unwrap();
@@ -269,7 +269,7 @@ async fn setup_test_environment() -> (TempDir, Store) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::commands::run(store).await.unwrap();
+            crate::action::run(store).await.unwrap();
         }));
     }
 
