@@ -70,7 +70,7 @@ export class FeatureCard extends LitElement {
       --icon-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='currentColor' d='M4 4h12v2H4V4zm0 4h12v2H4V8zm0 4h12v2H4v-2zm0 4h12v2H4v-2z'/%3E%3C/svg%3E");
     }
 
-    :host([type="generators"]) {
+    :host([type="services"]) {
       --card-accent: #10b981;
       --icon-radius: 50%;
       --icon-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='currentColor' d='M10 3a1 1 0 011 1v5.586l3.707-3.707a1 1 0 111.414 1.414L12.414 11H18a1 1 0 110 2h-5.586l3.707 3.707a1 1 0 11-1.414 1.414L11 14.414V20a1 1 0 11-2 0v-5.586l-3.707 3.707a1 1 0 01-1.414-1.414L7.586 13H2a1 1 0 110-2h5.586L3.879 7.293a1 1 0 011.414-1.414L9 9.586V4a1 1 0 011-1z'/%3E%3C/svg%3E");

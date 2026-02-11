@@ -44,7 +44,7 @@
   that can trigger automations, like summarization or archiving.
 - **GitHub Webhook Trigger**: Local scripts fire in response to repo events via
   smee.io — perfect for dev workflows without cloud CI/CD complexity.
-- **MCP Client Generators**: Run a local MCP server as a generator to extend
+- **MCP Client Services**: Run a local MCP server as a service to extend
   capabilities dynamically, without changing core code.
 - **Publishing Stream as a Digital Garden**: Append raw thoughts to the stream;
   expand them over time; render the evolving state into a public site with
