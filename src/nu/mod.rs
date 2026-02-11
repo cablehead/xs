@@ -7,7 +7,7 @@ pub mod util;
 pub use config::{parse_config, NuScriptConfig, ReturnOptions};
 pub use engine::{add_core_commands, Engine};
 pub use util::{frame_to_pipeline, frame_to_value, value_to_json};
-pub use vfs::ModuleRegistry;
+pub use vfs::load_modules;
 
 #[cfg(test)]
 mod test_commands;

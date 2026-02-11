@@ -3,7 +3,6 @@ use tempfile::TempDir;
 use serde_json::json;
 
 use crate::error::Error;
-use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[tokio::test]
@@ -266,14 +265,11 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
 async fn setup_test_environment() -> (TempDir, Store) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
-    let engine = nu::Engine::new().unwrap();
 
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::dispatcher::serve(store, engine.clone())
-                .await
-                .unwrap();
+            crate::commands::run(store).await.unwrap();
         }));
     }
 

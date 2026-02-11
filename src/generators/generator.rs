@@ -140,12 +140,28 @@ fn stop_reason_str(r: &StopReason) -> &'static str {
     }
 }
 
-pub fn spawn(store: Store, engine: nu::Engine, spawn_frame: Frame) -> JoinHandle<()> {
-    tokio::spawn(async move { run(store, engine, spawn_frame).await })
+pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
+    tokio::spawn(async move { run(store, spawn_frame).await })
 }
 
-async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
-    let pristine = engine.clone();
+fn build_generator_engine(
+    store: &Store,
+    as_of: &Scru128Id,
+) -> Result<nu::Engine, Box<dyn std::error::Error + Send + Sync>> {
+    let mut engine = nu::Engine::new()?;
+    nu::add_core_commands(&mut engine, store)?;
+    engine.add_alias(".rm", ".remove")?;
+    let modules = store.nu_modules_at(as_of);
+    nu::load_modules(&mut engine.state, store, &modules)?;
+    Ok(engine)
+}
+
+async fn run(store: Store, spawn_frame: Frame) {
+    let mut engine = match build_generator_engine(&store, &spawn_frame.id) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
     let hash = match spawn_frame.hash.clone() {
         Some(h) => h,
         None => return,
@@ -196,10 +212,10 @@ async fn run(store: Store, mut engine: nu::Engine, spawn_frame: Frame) {
         engine,
     };
 
-    run_loop(store, loop_ctx, task, pristine).await;
+    run_loop(store, loop_ctx, task).await;
 }
 
-async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristine: nu::Engine) {
+async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
     // Create the first start frame and set up a persistent control subscription
     let start_event = emit_event(
         &store,
@@ -288,7 +304,10 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task, pristin
                                 if let Ok(mut reader) = store.cas_reader(hash).await {
                                     let mut script = String::new();
                                     if reader.read_to_string(&mut script).await.is_ok() {
-                                        let mut new_engine = pristine.clone();
+                                        let mut new_engine = match build_generator_engine(&store, &frame.id) {
+                                            Ok(e) => e,
+                                            Err(_) => continue,
+                                        };
                                         match nu::parse_config(&mut new_engine, &script) {
                                             Ok(cfg) => {
                                                 let opts: GeneratorScriptOptions = cfg.deserialize_options().unwrap_or_default();

@@ -1,97 +1,53 @@
-use nu_protocol::engine::{StateWorkingSet, VirtualPath};
+use std::collections::HashMap;
 
-use crate::nu;
-use crate::store::{Frame, Store};
+use nu_protocol::engine::{EngineState, StateWorkingSet, VirtualPath};
 
-/// Registry that loads *.nu topic frames into the nushell VFS.
+use crate::store::Store;
+
+/// Load modules from a topic->hash map into the engine's VFS.
 ///
-/// Each frame with topic `X.Y.Z.nu` is registered as:
+/// Each entry with topic `X.Y.Z.nu` is registered as:
 ///   xs/X/Y/Z/mod.nu
 ///
-/// This allows handler/generator/command scripts to write:
+/// This allows scripts to write:
 ///   use xs/X/Y/Z
-///
-/// The module name is the last path component (Z). Re-registering a module
-/// at the same path shadows the previous version.
-#[derive(Default)]
-pub struct ModuleRegistry;
-
-impl ModuleRegistry {
-    pub fn process_historical(&mut self, frame: &Frame, engine: &mut nu::Engine, store: &Store) {
-        if let Some(name) = frame.topic.strip_suffix(".nu") {
-            if !name.is_empty() && frame.hash.is_some() {
-                if let Err(e) = register_module_frame(frame, store, engine) {
-                    tracing::warn!(
-                        "Failed to load module from frame {} ({}): {}",
-                        frame.id,
-                        frame.topic,
-                        e
-                    );
-                }
-            }
-        }
+pub fn load_modules(
+    engine_state: &mut EngineState,
+    store: &Store,
+    modules: &HashMap<String, ssri::Integrity>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    for (topic, hash) in modules {
+        let name = match topic.strip_suffix(".nu") {
+            Some(n) if !n.is_empty() => n,
+            _ => continue,
+        };
+        let content_bytes = store.cas_read_sync(hash)?;
+        let content = String::from_utf8(content_bytes)?;
+        register_module(engine_state, name, &content)?;
     }
-
-    pub async fn materialize(
-        &mut self,
-        _store: &Store,
-        _engine: &mut nu::Engine,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Modules are eagerly registered during process_historical
-        Ok(())
-    }
-
-    pub async fn process_live(
-        &mut self,
-        frame: &Frame,
-        store: &Store,
-        engine: &mut nu::Engine,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(name) = frame.topic.strip_suffix(".nu") {
-            if !name.is_empty() && frame.hash.is_some() {
-                if let Err(e) = register_module_frame(frame, store, engine) {
-                    tracing::warn!(
-                        "Failed to load module from frame {} ({}): {}",
-                        frame.id,
-                        frame.topic,
-                        e
-                    );
-                }
-            }
-        }
-        Ok(())
-    }
+    Ok(())
 }
 
-/// Register a single *.nu frame as a virtual module in the engine's VFS.
+/// Register a single module by name and content into the engine's VFS.
 ///
-/// testmod.nu becomes:
+/// testmod becomes:
 ///   xs/testmod/mod.nu  (virtual file)
 ///   xs/testmod          (virtual dir containing mod.nu)
 ///
-/// discord.api.nu becomes:
+/// discord.api becomes:
 ///   xs/discord/api/mod.nu
 ///   xs/discord/api      (virtual dir containing mod.nu)
 ///   xs/discord           (virtual dir containing api/)
 ///
 /// Usage: `use xs/testmod` imports module named "testmod"
-fn register_module_frame(
-    frame: &Frame,
-    store: &Store,
-    engine: &mut nu::Engine,
+fn register_module(
+    engine_state: &mut EngineState,
+    name: &str,
+    content: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let name = frame
-        .topic
-        .strip_suffix(".nu")
-        .ok_or("frame topic does not end with .nu")?;
-    let hash = frame.hash.as_ref().ok_or("frame has no hash")?;
-
-    let content_bytes = store.cas_read_sync(hash)?;
-    let content = String::from_utf8(content_bytes)?;
-
     let module_path = name.replace('.', "/");
 
-    let mut working_set = StateWorkingSet::new(&engine.state);
+    let mut working_set = StateWorkingSet::new(engine_state);
 
     // Register xs/<module_path>/mod.nu as a virtual file
     let virt_file_name = format!("xs/{module_path}/mod.nu");
@@ -115,13 +71,9 @@ fn register_module_frame(
         child_id = working_set.add_virtual_path(dir_path, VirtualPath::Dir(vec![child_id]));
     }
 
-    engine.state.merge_delta(working_set.render())?;
+    engine_state.merge_delta(working_set.render())?;
 
-    tracing::debug!(
-        "Registered VFS module: xs/{} from frame {}",
-        module_path,
-        frame.id
-    );
+    tracing::debug!("Registered VFS module: xs/{}", module_path);
 
     Ok(())
 }

@@ -1,4 +1,3 @@
-use crate::dispatcher;
 use crate::generators::generator::emit_event;
 use crate::generators::{GeneratorEventKind, GeneratorLoop, StopReason, Task};
 use crate::nu::ReturnOptions;
@@ -10,21 +9,19 @@ use tempfile::TempDir;
 use crate::nu;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
-fn setup_test_env() -> (Store, nu::Engine) {
+fn setup_test_env() -> Store {
     let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.keep()).unwrap();
-    let engine = nu::Engine::new().unwrap();
-    (store, engine)
+    Store::new(temp_dir.keep()).unwrap()
 }
 
 #[tokio::test]
 async fn test_serve_basic() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         }));
     }
 
@@ -66,12 +63,12 @@ async fn test_serve_basic() {
 
 #[tokio::test]
 async fn test_serve_duplex() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         }));
     }
 
@@ -116,7 +113,7 @@ async fn test_serve_duplex() {
 
 #[tokio::test]
 async fn test_serve_compact() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     let script1 = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
     let _ = store
@@ -146,7 +143,7 @@ async fn test_serve_compact() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         }));
     }
 
@@ -178,13 +175,12 @@ async fn test_serve_compact() {
 
 #[tokio::test]
 async fn test_respawn_after_terminate() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
-        let engine = engine.clone();
         tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         });
     }
 
@@ -227,13 +223,12 @@ async fn test_respawn_after_terminate() {
 
 #[tokio::test]
 async fn test_serve_restart_until_terminated() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
-        let engine = engine.clone();
         tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         });
     }
 
@@ -283,13 +278,12 @@ async fn test_serve_restart_until_terminated() {
 
 #[tokio::test]
 async fn test_duplex_terminate_stops() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
-        let engine = engine.clone();
         tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         });
     }
 
@@ -333,13 +327,12 @@ async fn test_duplex_terminate_stops() {
 
 #[tokio::test]
 async fn test_parse_error_eviction() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
-        let engine = engine.clone();
         tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         });
     }
 
@@ -391,14 +384,13 @@ async fn test_parse_error_eviction() {
 #[tokio::test]
 async fn test_refresh_on_new_spawn() {
     // Verify that a new `.spawn` triggers a stop with `update_id` and restarts the generator.
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     // Spawn serve in the background
     {
         let store = store.clone();
-        let engine = engine.clone();
         tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         });
     }
 
@@ -455,12 +447,11 @@ async fn test_refresh_on_new_spawn() {
 
 #[tokio::test]
 async fn test_terminate_one_of_two_generators() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
-        let engine = engine.clone();
-        tokio::spawn(async move { dispatcher::serve(store, engine).await.unwrap() });
+        tokio::spawn(async move { crate::generators::run(store).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -511,12 +502,11 @@ async fn test_terminate_one_of_two_generators() {
 
 #[tokio::test]
 async fn test_bytestream_ping() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
-        let engine = engine.clone();
-        tokio::spawn(async move { dispatcher::serve(store, engine).await.unwrap() });
+        tokio::spawn(async move { crate::generators::run(store).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -654,13 +644,12 @@ fn test_emit_event_helper() {
 
 #[tokio::test]
 async fn test_external_command_error_message() {
-    let (store, engine) = setup_test_env();
+    let store = setup_test_env();
 
     {
         let store = store.clone();
-        let engine = engine.clone();
         tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::generators::run(store).await.unwrap();
         });
     }
 

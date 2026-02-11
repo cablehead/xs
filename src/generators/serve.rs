@@ -4,19 +4,15 @@ use serde_json::json;
 use tokio::task::JoinHandle;
 
 use crate::generators::generator;
-use crate::nu;
-use crate::store::{Frame, Store};
+use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
 
-async fn try_start_task(
+async fn try_start(
     topic: &str,
     frame: &Frame,
     active: &mut HashMap<String, JoinHandle<()>>,
-    engine: &nu::Engine,
     store: &Store,
 ) {
-    if let Err(e) =
-        handle_spawn_event(topic, frame.clone(), active, engine.clone(), store.clone()).await
-    {
+    if let Err(e) = handle_spawn_event(topic, frame.clone(), active, store.clone()).await {
         let meta = json!({
             "source_id": frame.id.to_string(),
             "reason": e.to_string()
@@ -36,7 +32,6 @@ async fn handle_spawn_event(
     topic: &str,
     frame: Frame,
     active: &mut HashMap<String, JoinHandle<()>>,
-    engine: nu::Engine,
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let key = topic.to_string();
@@ -51,72 +46,48 @@ async fn handle_spawn_event(
         }
     }
 
-    let handle = generator::spawn(store.clone(), engine.clone(), frame);
+    let handle = generator::spawn(store, frame);
     active.insert(key, handle);
     Ok(())
 }
 
-#[derive(Default)]
-pub struct GeneratorRegistry {
-    active: HashMap<String, JoinHandle<()>>,
-    compacted: HashMap<String, (Frame, nu::Engine)>,
-}
+pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let rx = store
+        .read(ReadOptions::builder().follow(FollowOption::On).build())
+        .await;
+    let mut lifecycle = LifecycleReader::new(rx);
+    let mut compacted: HashMap<String, Frame> = HashMap::new();
+    let mut active: HashMap<String, JoinHandle<()>> = HashMap::new();
 
-impl GeneratorRegistry {
-    pub fn new() -> Self {
-        Self {
-            active: HashMap::new(),
-            compacted: HashMap::new(),
-        }
-    }
-
-    pub fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine) {
-        if frame.topic.ends_with(".spawn") || frame.topic.ends_with(".parse.error") {
-            if let Some(prefix) = frame
-                .topic
-                .strip_suffix(".parse.error")
-                .or_else(|| frame.topic.strip_suffix(".spawn"))
-            {
-                self.compacted
-                    .insert(prefix.to_string(), (frame.clone(), engine.clone()));
+    while let Some(event) = lifecycle.recv().await {
+        match event {
+            Lifecycle::Historical(frame) => {
+                if let Some(prefix) = frame
+                    .topic
+                    .strip_suffix(".parse.error")
+                    .or_else(|| frame.topic.strip_suffix(".spawn"))
+                {
+                    compacted.insert(prefix.to_string(), frame);
+                } else if let Some(prefix) = frame.topic.strip_suffix(".terminate") {
+                    compacted.remove(prefix);
+                }
             }
-        } else if let Some(prefix) = frame.topic.strip_suffix(".terminate") {
-            self.compacted.remove(prefix);
-        }
-    }
-
-    pub async fn materialize(
-        &mut self,
-        store: &Store,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        for (topic, (frame, engine)) in self.compacted.drain() {
-            if frame.topic.ends_with(".spawn") {
-                try_start_task(&topic, &frame, &mut self.active, &engine, store).await;
+            Lifecycle::Threshold(_) => {
+                for (topic, frame) in compacted.drain() {
+                    if frame.topic.ends_with(".spawn") {
+                        try_start(&topic, &frame, &mut active, &store).await;
+                    }
+                }
+            }
+            Lifecycle::Live(frame) => {
+                if let Some(prefix) = frame.topic.strip_suffix(".spawn") {
+                    try_start(prefix, &frame, &mut active, &store).await;
+                } else if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
+                    active.remove(prefix);
+                }
             }
         }
-        Ok(())
     }
 
-    pub async fn process_live(
-        &mut self,
-        frame: &Frame,
-        store: &Store,
-        engine: &nu::Engine,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(prefix) = frame.topic.strip_suffix(".spawn") {
-            try_start_task(prefix, frame, &mut self.active, engine, store).await;
-            return Ok(());
-        }
-
-        if frame.topic.ends_with(".parse.error") {
-            // parse.error frames are informational; ignore them
-            return Ok(());
-        }
-
-        if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
-            self.active.remove(prefix);
-        }
-
-        Ok(())
-    }
+    Ok(())
 }

@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 
 use crate::handlers::Handler;
-use crate::nu;
-use crate::store::{Frame, Store};
+use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
 
 async fn start_handler(
     frame: &Frame,
     store: &Store,
-    engine: &nu::Engine,
     topic: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match Handler::from_frame(frame, store, engine.clone()).await {
+    match Handler::from_frame(frame, store).await {
         Ok(handler) => {
             handler.spawn(store.clone()).await?;
             Ok(())
@@ -29,68 +27,53 @@ async fn start_handler(
     }
 }
 
-#[derive(Default)]
-pub struct HandlerRegistry {
-    compacted: HashMap<String, (Frame, nu::Engine)>,
-    active: HashMap<String, String>, // topic -> handler_id
-}
+pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let rx = store
+        .read(ReadOptions::builder().follow(FollowOption::On).build())
+        .await;
+    let mut lifecycle = LifecycleReader::new(rx);
+    let mut compacted: HashMap<String, Frame> = HashMap::new();
 
-impl HandlerRegistry {
-    pub fn new() -> Self {
-        Self {
-            compacted: HashMap::new(),
-            active: HashMap::new(),
-        }
-    }
-
-    pub fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine) {
-        if let Some((topic, suffix)) = frame.topic.rsplit_once('.') {
-            match suffix {
-                "register" => {
-                    self.compacted
-                        .insert(topic.to_string(), (frame.clone(), engine.clone()));
-                }
-                "unregister" | "inactive" => {
-                    if let Some(meta) = &frame.meta {
-                        if let Some(handler_id) = meta.get("handler_id").and_then(|v| v.as_str()) {
-                            if let Some((f, _)) = self.compacted.get(topic) {
-                                if f.id.to_string() == handler_id {
-                                    self.compacted.remove(topic);
+    while let Some(event) = lifecycle.recv().await {
+        match event {
+            Lifecycle::Historical(frame) => {
+                if let Some((topic, suffix)) = frame.topic.rsplit_once('.') {
+                    match suffix {
+                        "register" => {
+                            compacted.insert(topic.to_string(), frame);
+                        }
+                        "unregister" | "inactive" => {
+                            if let Some(meta) = &frame.meta {
+                                if let Some(handler_id) =
+                                    meta.get("handler_id").and_then(|v| v.as_str())
+                                {
+                                    if let Some(f) = compacted.get(topic) {
+                                        if f.id.to_string() == handler_id {
+                                            compacted.remove(topic);
+                                        }
+                                    }
                                 }
                             }
                         }
+                        _ => {}
                     }
                 }
-                _ => {}
+            }
+            Lifecycle::Threshold(_) => {
+                let mut ordered: Vec<_> = compacted.drain().collect();
+                ordered.sort_by_key(|(_, frame)| frame.id);
+
+                for (topic, frame) in ordered {
+                    start_handler(&frame, &store, &topic).await?;
+                }
+            }
+            Lifecycle::Live(frame) => {
+                if let Some(topic) = frame.topic.strip_suffix(".register") {
+                    start_handler(&frame, &store, topic).await?;
+                }
             }
         }
     }
 
-    pub async fn materialize(
-        &mut self,
-        store: &Store,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut ordered: Vec<_> = self.compacted.drain().collect();
-        ordered.sort_by_key(|(_, (frame, _))| frame.id);
-
-        for (topic, (frame, engine)) in ordered {
-            start_handler(&frame, store, &engine, &topic).await?;
-            self.active.insert(topic, frame.id.to_string());
-        }
-
-        Ok(())
-    }
-
-    pub async fn process_live(
-        &mut self,
-        frame: &Frame,
-        store: &Store,
-        engine: &nu::Engine,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(topic) = frame.topic.strip_suffix(".register") {
-            start_handler(frame, store, engine, topic).await?;
-            self.active.insert(topic.to_string(), frame.id.to_string());
-        }
-        Ok(())
-    }
+    Ok(())
 }

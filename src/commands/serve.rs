@@ -6,7 +6,7 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
 use crate::nu::ReturnOptions;
-use crate::store::{Frame, Store};
+use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
 
 #[derive(Clone)]
 struct Command {
@@ -19,11 +19,10 @@ struct Command {
 async fn handle_define(
     frame: &Frame,
     name: &str,
-    base_engine: &nu::Engine,
     store: &Store,
     active: &mut HashMap<String, Command>,
 ) {
-    match register_command(frame, base_engine, store).await {
+    match register_command(frame, store).await {
         Ok(command) => {
             active.insert(name.to_string(), command);
             let _ = store.append(
@@ -47,88 +46,27 @@ async fn handle_define(
     }
 }
 
-#[derive(Default)]
-pub struct CommandRegistry {
-    compacted: HashMap<String, (Frame, nu::Engine)>,
-    active: HashMap<String, Command>,
-}
-
-impl CommandRegistry {
-    pub fn new() -> Self {
-        Self {
-            compacted: HashMap::new(),
-            active: HashMap::new(),
-        }
-    }
-
-    pub fn process_historical(&mut self, frame: &Frame, engine: &nu::Engine) {
-        if let Some(name) = frame.topic.strip_suffix(".define") {
-            self.compacted
-                .insert(name.to_string(), (frame.clone(), engine.clone()));
-        }
-    }
-
-    pub async fn materialize(
-        &mut self,
-        store: &Store,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut ordered: Vec<_> = self.compacted.drain().collect();
-        ordered.sort_by_key(|(_, (frame, _))| frame.id);
-
-        for (name, (frame, engine)) in ordered {
-            handle_define(&frame, &name, &engine, store, &mut self.active).await;
-        }
-        Ok(())
-    }
-
-    pub async fn process_live(
-        &mut self,
-        frame: &Frame,
-        store: &Store,
-        engine: &nu::Engine,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(name) = frame.topic.strip_suffix(".define") {
-            handle_define(frame, name, engine, store, &mut self.active).await;
-        } else if let Some(name) = frame.topic.strip_suffix(".call") {
-            let name = name.to_owned();
-            if let Some(command) = self.active.get(&name) {
-                let store = store.clone();
-                let frame = frame.clone();
-                let command = command.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = execute_command(command, &frame, &store).await {
-                        tracing::error!("Failed to execute command '{}': {:?}", name, e);
-                        let _ = store.append(
-                            Frame::builder(format!("{name}.error"))
-                                .meta(serde_json::json!({
-                                    "error": e.to_string(),
-                                }))
-                                .build(),
-                        );
-                    }
-                });
-            }
-        }
-        Ok(())
-    }
-}
-
-async fn register_command(
-    frame: &Frame,
-    base_engine: &nu::Engine,
-    store: &Store,
-) -> Result<Command, Error> {
+async fn register_command(frame: &Frame, store: &Store) -> Result<Command, Error> {
     // Get definition from CAS
     let hash = frame.hash.as_ref().ok_or("Missing hash field")?;
     let definition_bytes = store.cas_read(hash).await?;
     let definition = String::from_utf8(definition_bytes)?;
 
-    let mut engine = base_engine.clone();
+    // Build engine from scratch with VFS modules at this point in the stream
+    let mut engine = nu::Engine::new()?;
+    nu::add_core_commands(&mut engine, store)?;
+    engine.add_alias(".rm", ".remove")?;
+    let modules = store.nu_modules_at(&frame.id);
+    nu::load_modules(&mut engine.state, store, &modules)?;
 
-    // Add additional commands
+    // Add streaming .cat and .last (commands get the streaming versions)
     engine.add_commands(vec![
-        Box::new(commands::cat_command::CatCommand::new(store.clone())),
-        Box::new(commands::last_command::LastCommand::new(store.clone())),
+        Box::new(commands::cat_stream_command::CatStreamCommand::new(
+            store.clone(),
+        )),
+        Box::new(commands::last_stream_command::LastStreamCommand::new(
+            store.clone(),
+        )),
     ])?;
 
     // Parse the command configuration
@@ -255,4 +193,57 @@ fn run_command(
         None,
         format!("command {topic}", topic = frame.topic),
     )
+}
+
+pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let rx = store
+        .read(ReadOptions::builder().follow(FollowOption::On).build())
+        .await;
+    let mut lifecycle = LifecycleReader::new(rx);
+    let mut compacted: HashMap<String, Frame> = HashMap::new();
+    let mut active: HashMap<String, Command> = HashMap::new();
+
+    while let Some(event) = lifecycle.recv().await {
+        match event {
+            Lifecycle::Historical(frame) => {
+                if let Some(name) = frame.topic.strip_suffix(".define") {
+                    compacted.insert(name.to_string(), frame);
+                }
+            }
+            Lifecycle::Threshold(_) => {
+                let mut ordered: Vec<_> = compacted.drain().collect();
+                ordered.sort_by_key(|(_, frame)| frame.id);
+
+                for (name, frame) in ordered {
+                    handle_define(&frame, &name, &store, &mut active).await;
+                }
+            }
+            Lifecycle::Live(frame) => {
+                if let Some(name) = frame.topic.strip_suffix(".define") {
+                    handle_define(&frame, name, &store, &mut active).await;
+                } else if let Some(name) = frame.topic.strip_suffix(".call") {
+                    let name = name.to_owned();
+                    if let Some(command) = active.get(&name) {
+                        let store = store.clone();
+                        let frame = frame.clone();
+                        let command = command.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = execute_command(command, &frame, &store).await {
+                                tracing::error!("Failed to execute command '{}': {:?}", name, e);
+                                let _ = store.append(
+                                    Frame::builder(format!("{name}.error"))
+                                        .meta(serde_json::json!({
+                                            "error": e.to_string(),
+                                        }))
+                                        .build(),
+                                );
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

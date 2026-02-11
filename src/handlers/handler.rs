@@ -264,11 +264,7 @@ impl Handler {
         Ok(())
     }
 
-    pub async fn from_frame(
-        frame: &Frame,
-        store: &Store,
-        engine: nu::Engine,
-    ) -> Result<Self, Error> {
+    pub async fn from_frame(frame: &Frame, store: &Store) -> Result<Self, Error> {
         let topic = frame
             .topic
             .strip_suffix(".register")
@@ -286,6 +282,13 @@ impl Handler {
             .read_to_string(&mut expression)
             .await
             .map_err(|e| format!("Failed to read expression: {e}"))?;
+
+        // Build engine from scratch with VFS modules at this point in the stream
+        let mut engine = nu::Engine::new()?;
+        nu::add_core_commands(&mut engine, store)?;
+        engine.add_alias(".rm", ".remove")?;
+        let modules = store.nu_modules_at(&frame.id);
+        nu::load_modules(&mut engine.state, store, &modules)?;
 
         let handler = Handler::new(
             frame.id,

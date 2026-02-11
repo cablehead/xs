@@ -1,7 +1,6 @@
 pub mod api;
 pub mod client;
 pub mod commands;
-pub mod dispatcher;
 pub mod error;
 pub mod generators;
 pub mod handlers;

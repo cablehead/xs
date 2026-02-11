@@ -1,8 +1,6 @@
 use tempfile::TempDir;
 
-use crate::dispatcher;
 use crate::error::Error;
-use crate::nu;
 use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use std::collections::HashSet;
@@ -816,12 +814,11 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
 async fn setup_test_environment() -> (Store, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
-    let engine = nu::Engine::new().unwrap();
 
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            dispatcher::serve(store, engine).await.unwrap();
+            crate::handlers::run(store).await.unwrap();
         }));
     }
 

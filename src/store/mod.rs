@@ -1,4 +1,6 @@
+mod lifecycle;
 mod ttl;
+pub use lifecycle::*;
 pub use ttl::*;
 
 #[cfg(test)]
@@ -525,6 +527,29 @@ impl Store {
         };
 
         frames.into_iter()
+    }
+
+    /// Returns the current `.nu` module state as of a given point in the stream.
+    ///
+    /// Scans all frames up to (and including) `as_of` and returns a mapping of
+    /// topic name to CAS hash for the latest frame on each `*.nu` topic.
+    pub fn nu_modules_at(
+        &self,
+        as_of: &Scru128Id,
+    ) -> std::collections::HashMap<String, ssri::Integrity> {
+        let mut modules = std::collections::HashMap::new();
+        let options = ReadOptions::builder().follow(FollowOption::Off).build();
+        for frame in self.read_sync(options) {
+            if frame.id > *as_of {
+                break;
+            }
+            if let Some(hash) = frame.hash {
+                if frame.topic.ends_with(".nu") {
+                    modules.insert(frame.topic, hash);
+                }
+            }
+        }
+        modules
     }
 
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {

@@ -9,4 +9,4 @@ pub use generator::{
 #[cfg(test)]
 mod tests;
 
-pub use serve::GeneratorRegistry;
+pub use serve::run;
