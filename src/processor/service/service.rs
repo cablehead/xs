@@ -62,6 +62,7 @@ pub enum StopReason {
     Finished,
     Error { message: String },
     Terminate,
+    Shutdown,
     Update { update_id: Scru128Id },
 }
 
@@ -136,6 +137,7 @@ fn stop_reason_str(r: &StopReason) -> &'static str {
         StopReason::Finished => "finished",
         StopReason::Error { .. } => "error",
         StopReason::Terminate => "terminate",
+        StopReason::Shutdown => "shutdown",
         StopReason::Update { .. } => "update",
     }
 }
@@ -226,6 +228,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
         Continue,
         Update(Box<Task>, Scru128Id),
         Terminate,
+        Shutdown,
         Error(String),
     }
 
@@ -235,6 +238,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                 LoopOutcome::Continue => write!(f, "Continue"),
                 LoopOutcome::Update(_, id) => f.debug_tuple("Update").field(id).finish(),
                 LoopOutcome::Terminate => write!(f, "Terminate"),
+                LoopOutcome::Shutdown => write!(f, "Shutdown"),
                 LoopOutcome::Error(e) => f.debug_tuple("Error").field(e).finish(),
             }
         }
@@ -246,6 +250,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                 LoopOutcome::Continue => StopReason::Finished,
                 LoopOutcome::Update(_, id) => StopReason::Update { update_id: *id },
                 LoopOutcome::Terminate => StopReason::Terminate,
+                LoopOutcome::Shutdown => StopReason::Shutdown,
                 LoopOutcome::Error(e) => StopReason::Error { message: e.clone() },
             }
         }
@@ -286,6 +291,12 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                             task.engine.kill_job_by_name(&task.id.to_string());
                             let _ = (&mut done_rx).await;
                             break 'ctrl LoopOutcome::Terminate;
+                        }
+                        Some(frame) if frame.topic == "xs.stopping" => {
+                            task.engine.state.signals().trigger();
+                            task.engine.kill_job_by_name(&task.id.to_string());
+                            let _ = (&mut done_rx).await;
+                            break 'ctrl LoopOutcome::Shutdown;
                         }
                         Some(frame) if frame.topic == spawn_topic => {
                             if let Some(hash) = frame.hash.clone() {
@@ -377,7 +388,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                     start_id = event.frame.id;
                 }
             }
-            LoopOutcome::Terminate | LoopOutcome::Error(_) => {
+            LoopOutcome::Terminate | LoopOutcome::Shutdown | LoopOutcome::Error(_) => {
                 let _ = emit_event(
                     &store,
                     &loop_ctx,

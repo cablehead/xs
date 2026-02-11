@@ -698,3 +698,48 @@ async fn test_external_command_error_message() {
     // Expect shutdown event
     assert_eq!(recver.recv().await.unwrap().topic, "error-test.shutdown");
 }
+
+#[tokio::test]
+async fn test_graceful_shutdown_via_xs_stopping() {
+    let store = setup_test_env();
+
+    let service_handle = {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        })
+    };
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let script = r#"{ run: {|| ^sleep 1000 } }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+
+    store
+        .append(Frame::builder("sleepy.spawn").hash(hash).build())
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "sleepy.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "sleepy.running");
+
+    // Emit xs.stopping to trigger graceful shutdown
+    store.append(Frame::builder("xs.stopping").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.stopping");
+
+    let stop = recver.recv().await.unwrap();
+    assert_eq!(stop.topic, "sleepy.stopped");
+    assert_eq!(stop.meta.unwrap()["reason"], "shutdown");
+
+    assert_eq!(recver.recv().await.unwrap().topic, "sleepy.shutdown");
+
+    // The service processor handle should complete
+    let result = tokio::time::timeout(Duration::from_secs(5), service_handle).await;
+    assert!(
+        result.is_ok(),
+        "service handle should complete after xs.stopping"
+    );
+}

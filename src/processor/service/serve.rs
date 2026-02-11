@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use serde_json::json;
 use tokio::task::JoinHandle;
@@ -81,6 +82,9 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                 }
             }
             Lifecycle::Live(frame) => {
+                if frame.topic == "xs.stopping" {
+                    break;
+                }
                 if let Some(prefix) = frame.topic.strip_suffix(".spawn") {
                     try_start(prefix, &frame, &mut active, &store).await;
                 } else if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
@@ -88,6 +92,12 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                 }
             }
         }
+    }
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    for (_, handle) in active {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let _ = tokio::time::timeout(remaining, handle).await;
     }
 
     Ok(())

@@ -353,14 +353,14 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
         });
     }
 
-    {
+    let service_handle = {
         let store = store.clone();
         tokio::spawn(async move {
             if let Err(e) = xs::processor::service::run(store).await {
                 eprintln!("Service processor error: {e}");
             }
-        });
-    }
+        })
+    };
 
     {
         let store = store.clone();
@@ -371,8 +371,13 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
         });
     }
 
-    // TODO: graceful shutdown
-    xs::api::serve(store, engine.clone(), args.expose).await?;
+    tokio::select! {
+        res = xs::api::serve(store.clone(), engine.clone(), args.expose) => { res?; }
+        _ = tokio::signal::ctrl_c() => {}
+    }
+
+    store.append(xs::store::Frame::builder("xs.stopping").build())?;
+    let _ = tokio::time::timeout(Duration::from_secs(3), service_handle).await;
 
     Ok(())
 }
