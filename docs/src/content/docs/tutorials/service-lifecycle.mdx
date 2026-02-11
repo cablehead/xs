@@ -1,0 +1,201 @@
+---
+title: Service Lifecycle
+description: Walk through the lifecycle of a cross.stream service -- spawn, auto-restart, hot reload, and terminate.
+sidebar:
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Link } from '../../../utils/links';
+
+This tutorial walks through every stage of a <Link to="/reference/services/">service</Link> lifecycle
+so you can build intuition for what happens under the hood.
+
+<Aside type="tip">
+See the <Link to="/reference/services/">Services reference</Link> for configuration
+options, duplex communication, and return options.
+</Aside>
+
+## Prerequisites
+
+- xs installed and on your PATH (see <Link to="/getting-started/installation/">Installation</Link>)
+- Two terminal windows, both running <Link to="nu" /> with `use xs.nu *`
+
+## Serve
+
+Start a store in terminal 1:
+
+```bash withOutput
+xs serve ./store
+```
+
+## Monitor the stream
+
+In terminal 2, start a live monitor so we can watch lifecycle frames as they appear:
+
+```nushell
+.cat -f | each {
+  if $in.hash != null { insert content { .cas $in.hash } } else { } | print ($in | table -e)
+}
+```
+
+Keep this running -- every frame we discuss will show up here.
+
+## Spawn a service
+
+Create a temporary file for the service to watch:
+
+```nushell
+touch /tmp/log.txt
+```
+
+Now spawn a service that tails the file:
+
+```nushell
+r#'{
+  run: {|| ^tail -F /tmp/log.txt | lines }
+}'# | .append log.spawn
+```
+
+Your monitor shows two frames:
+
+```bash withOutput
+> .cat | where { $in.topic | str starts-with "log." }
+─#─┬───topic─────┬────────────id─────────────┬─hash─┬──────────meta──────────
+ 0 │ log.spawn   │ 03abc0000000000000000000a │ ...  │
+ 1 │ log.running │ 03abc0000000000000000000b │      │ ─────────────┬─────────
+   │             │                           │      │  source_id   │ 03ab...
+   │             │                           │      │ ─────────────┴─────────
+─#─┴───topic─────┴────────────id─────────────┴─hash─┴──────────meta──────────
+```
+
+`log.spawn` carries the script in CAS. `log.running` signals the pipeline is live.
+
+## See output
+
+Write some lines to the file:
+
+```nushell
+"hello\nworld\n" | save -a /tmp/log.txt
+```
+
+Two `log.recv` frames appear -- one per line. Read the content back:
+
+```bash withOutput
+> .last log.recv | .cas $in.hash
+world
+```
+
+Each line the service produces is stored as a separate `log.recv` frame with its
+content in CAS.
+
+## Auto-restart
+
+Remove the file so `tail` exits:
+
+```nushell
+rm /tmp/log.txt
+```
+
+The monitor shows the service stop and restart:
+
+```bash withOutput
+> .cat | where topic == "log.stopped" | last | get meta
+───────────┬──────────────────────────
+ reason    │ finished
+ source_id │ 03ab...
+───────────┴──────────────────────────
+```
+
+The reason is `finished` -- the pipeline exited on its own. After a 1-second
+pause, a new `log.running` frame appears and the service is alive again.
+
+Recreate the file and write to it:
+
+```nushell
+touch /tmp/log.txt
+"back in business\n" | save -a /tmp/log.txt
+```
+
+A fresh `log.recv` frame appears. The service recovered automatically.
+
+## Hot reload
+
+Append a new script to `log.spawn` while the service is running:
+
+```nushell
+r#'{
+  run: {|| ^tail -F /tmp/log.txt | lines | each {|line| $"[LOG] ($line)" } }
+}'# | .append log.spawn
+```
+
+The running service picks up the new spawn, stops the old pipeline, and starts
+the new one:
+
+```bash withOutput
+> .cat | where topic == "log.stopped" | last | get meta
+───────────┬──────────────────────────
+ reason    │ update
+ source_id │ 03ab...
+ update_id │ 03ab...
+───────────┴──────────────────────────
+```
+
+The reason is `update` and `update_id` points to the new spawn frame. A
+`log.running` frame follows immediately.
+
+Verify the new behavior:
+
+```nushell
+"reloaded\n" | save -a /tmp/log.txt
+```
+
+```bash withOutput
+> .last log.recv | .cas $in.hash
+[LOG] reloaded
+```
+
+The output now includes the `[LOG]` prefix from the updated script.
+
+## Terminate
+
+Stop the service explicitly:
+
+```nushell
+.append log.terminate
+```
+
+The monitor shows three frames in sequence:
+
+1. `log.terminate` -- your request
+2. `log.stopped` with `meta.reason` set to `terminate`
+3. `log.shutdown` -- the service loop has fully exited
+
+```bash withOutput
+> .cat | where topic == "log.stopped" | last | get meta
+───────────┬──────────────────────────
+ reason    │ terminate
+ source_id │ 03ab...
+───────────┴──────────────────────────
+```
+
+After `log.shutdown`, the dispatcher evicts the service. It will not restart.
+
+## Recap
+
+| Suffix      | Emitted when                                              |
+| ----------- | --------------------------------------------------------- |
+| `.spawn`    | You append a script to start (or reload) the service      |
+| `.running`  | The pipeline is live and producing output                  |
+| `.recv`     | Each line or chunk of output from the pipeline             |
+| `.stopped`  | The pipeline exited -- check `meta.reason` for why         |
+| `.shutdown` | The service loop has fully exited after a terminate        |
+
+Stopped reasons:
+
+| Reason      | What happened                     | What follows          |
+| ----------- | --------------------------------- | --------------------- |
+| `finished`  | Pipeline exited on its own        | Auto-restart after 1s |
+| `error`     | Pipeline failed                   | Auto-restart after 1s |
+| `update`    | New `.spawn` frame arrived        | Immediate restart     |
+| `terminate` | `.terminate` frame arrived        | `.shutdown`, no restart |
