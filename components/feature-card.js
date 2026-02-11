@@ -76,7 +76,7 @@ export class FeatureCard extends LitElement {
       --icon-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='currentColor' d='M10 3a1 1 0 011 1v5.586l3.707-3.707a1 1 0 111.414 1.414L12.414 11H18a1 1 0 110 2h-5.586l3.707 3.707a1 1 0 11-1.414 1.414L11 14.414V20a1 1 0 11-2 0v-5.586l-3.707 3.707a1 1 0 01-1.414-1.414L7.586 13H2a1 1 0 110-2h5.586L3.879 7.293a1 1 0 011.414-1.414L9 9.586V4a1 1 0 011-1z'/%3E%3C/svg%3E");
     }
 
-    :host([type="handlers"]) {
+    :host([type="actors"]) {
       --card-accent: #f59e0b;
       --icon-radius: 3px;
       --icon-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='currentColor' d='M11.827 2.173a1 1 0 00-1.414 0L8 4.586 6.586 3.172a1 1 0 00-1.414 1.414L6.586 6 4.172 8.414a1 1 0 101.414 1.414L8 7.414l2.414 2.414a1 1 0 001.414-1.414L9.414 6l2.414-2.414a1 1 0 000-1.414z'/%3E%3Cpath fill='currentColor' d='M15.828 12.172a1 1 0 00-1.414 1.414L16 15.172l-1.586 1.586a1 1 0 101.414 1.414L18.242 16l1.586 1.586a1 1 0 001.414-1.414L19.656 14.586l1.586-1.586a1 1 0 00-1.414-1.414L18.242 13.172l-1.586-1.586a1 1 0 00-1.414 0z'/%3E%3C/svg%3E");

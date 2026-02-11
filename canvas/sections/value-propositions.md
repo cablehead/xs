@@ -22,7 +22,7 @@
    ```bash
    "https://example.com" | .append url
    ```
-3. **Automation**: A small, visible handler they can read and understand picks
+3. **Automation**: A small, visible actor they can read and understand picks
    up the event, launches a screenshot service, and saves the image to the
    stream.
 4. **Feedback**: Within seconds, the stream updates in their terminal — now
@@ -30,7 +30,7 @@
 5. **Emotional payoff**:
 
    - _Instant gratification_: "I did that in two minutes."
-   - _Understanding_: "I can see exactly which handler did the work and how."
+   - _Understanding_: "I can see exactly which actor did the work and how."
    - _Control_: "I can swap the screenshot service, change the output format, or
      chain another step without touching anything else."
 
