@@ -22,9 +22,8 @@
    ```bash
    "https://example.com" | .append url
    ```
-3. **Automation**: A small, visible actor they can read and understand picks
-   up the event, launches a screenshot service, and saves the image to the
-   stream.
+3. **Automation**: A small, visible actor they can read and understand picks up
+   the event, launches a screenshot service, and saves the image to the stream.
 4. **Feedback**: Within seconds, the stream updates in their terminal — now
    showing the original URL and the screenshot as a new event.
 5. **Emotional payoff**:
