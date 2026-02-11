@@ -82,7 +82,7 @@ export class FeatureCard extends LitElement {
       --icon-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='currentColor' d='M11.827 2.173a1 1 0 00-1.414 0L8 4.586 6.586 3.172a1 1 0 00-1.414 1.414L6.586 6 4.172 8.414a1 1 0 101.414 1.414L8 7.414l2.414 2.414a1 1 0 001.414-1.414L9.414 6l2.414-2.414a1 1 0 000-1.414z'/%3E%3Cpath fill='currentColor' d='M15.828 12.172a1 1 0 00-1.414 1.414L16 15.172l-1.586 1.586a1 1 0 101.414 1.414L18.242 16l1.586 1.586a1 1 0 001.414-1.414L19.656 14.586l1.586-1.586a1 1 0 00-1.414-1.414L18.242 13.172l-1.586-1.586a1 1 0 00-1.414 0z'/%3E%3C/svg%3E");
     }
 
-    :host([type="commands"]) {
+    :host([type="actions"]) {
       --card-accent: #8b5cf6;
       --icon-radius: 2px;
       --icon-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='currentColor' d='M2 3a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm2 2v12h12V5H4zm2 2h2v2H6V7zm4 0h4v2h-4V7zm-4 4h8v2H6v-2z'/%3E%3C/svg%3E");
