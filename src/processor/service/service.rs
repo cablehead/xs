@@ -144,20 +144,8 @@ pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
     tokio::spawn(async move { run(store, spawn_frame).await })
 }
 
-fn build_service_engine(
-    store: &Store,
-    as_of: &Scru128Id,
-) -> Result<nu::Engine, Box<dyn std::error::Error + Send + Sync>> {
-    let mut engine = nu::Engine::new()?;
-    nu::add_core_commands(&mut engine, store)?;
-    engine.add_alias(".rm", ".remove")?;
-    let modules = store.nu_modules_at(as_of);
-    nu::load_modules(&mut engine.state, store, &modules)?;
-    Ok(engine)
-}
-
 async fn run(store: Store, spawn_frame: Frame) {
-    let mut engine = match build_service_engine(&store, &spawn_frame.id) {
+    let mut engine = match crate::processor::build_engine(&store, &spawn_frame.id) {
         Ok(e) => e,
         Err(_) => return,
     };
@@ -304,7 +292,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                                 if let Ok(mut reader) = store.cas_reader(hash).await {
                                     let mut script = String::new();
                                     if reader.read_to_string(&mut script).await.is_ok() {
-                                        let mut new_engine = match build_service_engine(&store, &frame.id) {
+                                        let mut new_engine = match crate::processor::build_engine(&store, &frame.id) {
                                             Ok(e) => e,
                                             Err(_) => continue,
                                         };

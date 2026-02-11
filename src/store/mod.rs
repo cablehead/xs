@@ -1,6 +1,4 @@
-mod lifecycle;
 mod ttl;
-pub use lifecycle::*;
 pub use ttl::*;
 
 #[cfg(test)]

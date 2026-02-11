@@ -284,11 +284,7 @@ impl Actor {
             .map_err(|e| format!("Failed to read expression: {e}"))?;
 
         // Build engine from scratch with VFS modules at this point in the stream
-        let mut engine = nu::Engine::new()?;
-        nu::add_core_commands(&mut engine, store)?;
-        engine.add_alias(".rm", ".remove")?;
-        let modules = store.nu_modules_at(&frame.id);
-        nu::load_modules(&mut engine.state, store, &modules)?;
+        let engine = crate::processor::build_engine(store, &frame.id)?;
 
         let actor = Actor::new(
             frame.id,

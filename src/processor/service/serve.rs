@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use serde_json::json;
 use tokio::task::JoinHandle;
 
-use crate::service::service;
-use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
+use crate::processor::service::service;
+use crate::processor::{Lifecycle, LifecycleReader};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 async fn try_start(
     topic: &str,

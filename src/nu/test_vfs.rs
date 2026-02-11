@@ -12,7 +12,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::actor::run(store).await.unwrap();
+            crate::processor::actor::run(store).await.unwrap();
         }));
     }
 
@@ -20,7 +20,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::action::run(store).await.unwrap();
+            crate::processor::action::run(store).await.unwrap();
         }));
     }
 

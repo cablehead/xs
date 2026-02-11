@@ -32,7 +32,7 @@ This design makes the event store particularly good at maintaining an accurate
 history of what happened and when, while still being efficient to query and
 process.
 
-## Processing Components
+## Processors
 
 ### Services: The Producers
 
@@ -109,7 +109,7 @@ gradually add complexity as needed:
 
 ## Working Together
 
-These components create a flexible architecture where:
+These processors create a flexible architecture where:
 
 1. **Services** feed events into the system from external sources
 2. **Actors** process those events, maintaining state if needed

@@ -1,6 +1,6 @@
 use crate::nu::ReturnOptions;
-use crate::service::service::emit_event;
-use crate::service::{ServiceEventKind, ServiceLoop, StopReason, Task};
+use crate::processor::service::service::emit_event;
+use crate::processor::service::{ServiceEventKind, ServiceLoop, StopReason, Task};
 use nu_protocol;
 use scru128;
 use std::time::{Duration, Instant};
@@ -21,7 +21,7 @@ async fn test_serve_basic() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         }));
     }
 
@@ -68,7 +68,7 @@ async fn test_serve_duplex() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         }));
     }
 
@@ -143,7 +143,7 @@ async fn test_serve_compact() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         }));
     }
 
@@ -180,7 +180,7 @@ async fn test_respawn_after_terminate() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         });
     }
 
@@ -228,7 +228,7 @@ async fn test_serve_restart_until_terminated() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         });
     }
 
@@ -283,7 +283,7 @@ async fn test_duplex_terminate_stops() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         });
     }
 
@@ -332,7 +332,7 @@ async fn test_parse_error_eviction() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         });
     }
 
@@ -390,7 +390,7 @@ async fn test_refresh_on_new_spawn() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         });
     }
 
@@ -451,7 +451,7 @@ async fn test_terminate_one_of_two_services() {
 
     {
         let store = store.clone();
-        tokio::spawn(async move { crate::service::run(store).await.unwrap() });
+        tokio::spawn(async move { crate::processor::service::run(store).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -506,7 +506,7 @@ async fn test_bytestream_ping() {
 
     {
         let store = store.clone();
-        tokio::spawn(async move { crate::service::run(store).await.unwrap() });
+        tokio::spawn(async move { crate::processor::service::run(store).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -649,7 +649,7 @@ async fn test_external_command_error_message() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::service::run(store).await.unwrap();
+            crate::processor::service::run(store).await.unwrap();
         });
     }
 

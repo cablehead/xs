@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crate::actor::Actor;
-use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
+use crate::processor::actor::Actor;
+use crate::processor::{Lifecycle, LifecycleReader};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 async fn start_actor(
     frame: &Frame,

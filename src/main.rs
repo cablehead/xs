@@ -347,7 +347,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     {
         let store = store.clone();
         tokio::spawn(async move {
-            if let Err(e) = xs::actor::run(store).await {
+            if let Err(e) = xs::processor::actor::run(store).await {
                 eprintln!("Actor processor error: {e}");
             }
         });
@@ -356,7 +356,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     {
         let store = store.clone();
         tokio::spawn(async move {
-            if let Err(e) = xs::service::run(store).await {
+            if let Err(e) = xs::processor::service::run(store).await {
                 eprintln!("Service processor error: {e}");
             }
         });
@@ -365,7 +365,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     {
         let store = store.clone();
         tokio::spawn(async move {
-            if let Err(e) = xs::action::run(store).await {
+            if let Err(e) = xs::processor::action::run(store).await {
                 eprintln!("Action processor error: {e}");
             }
         });

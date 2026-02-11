@@ -53,7 +53,7 @@ Topic queries return frames in chronological order (by frame ID), not grouped by
 
 ## Module Topics
 
-Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any actor, service, or command script can then `use` these modules by their stable VFS path.
+Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any actor, service, or action script can then `use` these modules by their stable VFS path.
 
 ```nushell
 # Register a module
@@ -78,11 +78,11 @@ r#'{
 }'# | .append greeter.register
 ```
 
-Each actor, service, or command sees the modules as they existed when it was registered. Modules appended later are only visible to components registered after them. Re-appending a module and then re-registering a component picks up the new version.
+Each actor, service, or command sees the modules as they existed when it was registered. Modules appended later are only visible to processors registered after them. Re-appending a module and then re-registering a processor picks up the new version.
 
-## Component Suffixes
+## Processor Suffixes
 
-cross.stream uses topic suffixes to coordinate component lifecycle.
+cross.stream uses topic suffixes to coordinate processor lifecycle.
 
 ### Services
 

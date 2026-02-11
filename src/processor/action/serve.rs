@@ -6,7 +6,8 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
 use crate::nu::ReturnOptions;
-use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
+use crate::processor::{Lifecycle, LifecycleReader};
+use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
 #[derive(Clone)]
 struct Action {
@@ -53,11 +54,7 @@ async fn register_action(frame: &Frame, store: &Store) -> Result<Action, Error> 
     let definition = String::from_utf8(definition_bytes)?;
 
     // Build engine from scratch with VFS modules at this point in the stream
-    let mut engine = nu::Engine::new()?;
-    nu::add_core_commands(&mut engine, store)?;
-    engine.add_alias(".rm", ".remove")?;
-    let modules = store.nu_modules_at(&frame.id);
-    nu::load_modules(&mut engine.state, store, &modules)?;
+    let mut engine = crate::processor::build_engine(store, &frame.id)?;
 
     // Add streaming .cat and .last (actions get the streaming versions)
     engine.add_commands(vec![
