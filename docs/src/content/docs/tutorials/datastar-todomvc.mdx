@@ -3,10 +3,17 @@ title: TodoMVC with Datastar
 description: Learn to build reactive web apps using the hypermedia approach where backend drives UI updates via immediate mode HTML streaming
 sidebar:
   order: 3
+  badge:
+    text: Deprecated
+    variant: caution
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+import { Card, CardGrid, Aside } from "@astrojs/starlight/components";
 import MuxVideo from '../../../components/MuxVideo.astro';
+
+<Aside type="caution" title="Deprecated">
+This tutorial targets Datastar v1.0.0-RC.5 and is no longer maintained. The Datastar SDK has since released breaking changes to its SSE protocol and attribute API. The underlying concepts -- event sourcing, server-driven UI via SSE, hypermedia-style reactivity -- are still valid. The code examples are not.
+</Aside>
 
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
 
@@ -16,8 +23,8 @@ This tutorial demonstrates the hypermedia/immediate mode approach to web develop
 
 <CardGrid>
   <Card title="Live Demo" icon="rocket">
-    **[Try it live](https://datastar-todomvc.cross.stream)** - see the reactive
-    TodoMVC in action!
+    **[Try it live](https://datastar-todomvc.cross.stream)** - historical snapshot
+    using Datastar v1.0.0-RC.5.
   </Card>
   <Card title="Original Guide" icon="open-book">
     **[Datastar's TodoMVC example](https://data-star.dev/examples/todomvc)** -
@@ -412,7 +419,7 @@ Create an `index.html` that uses Datastar for reactive updates:
     <title>TodoMVC with Datastar</title>
     <script
       type="module"
-      src="https://cdn.jsdelivr.net/gh/starfederation/datastar@main/bundles/datastar.js"
+      src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0-RC.5/bundles/datastar.js"
     ></script>
   </head>
   <body>

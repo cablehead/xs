@@ -1,5 +1,9 @@
 # Datastar TodoMVC
 
+> **Deprecated:** This example targets Datastar v1.0.0-RC.5. The Datastar SDK
+> has since shipped breaking changes. Left up because the underlying patterns
+> (event sourcing, SSE-driven UI, hypermedia reactivity) are still valid.
+
 TodoMVC implemented with Datastar frontend and [Nushell](https://www.nushell.sh)
 / [cross.stream](https://cablehead.github.io/xs/) backend.
 
