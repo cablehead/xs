@@ -8,7 +8,7 @@ sidebar:
 import { Link } from '../../../utils/links';
 
 cross.stream commands use <Link to="nu" /> expressions to define reusable
-operations that can be called on-demand with arguments. Unlike handlers which
+operations that can be called on-demand with arguments. Unlike actors which
 maintain state between invocations, or generators which run continuously,
 commands are stateless and execute independently each time they are called.
 
@@ -116,11 +116,11 @@ cross.stream:
 
 ## Key Differences
 
-| Feature        | Commands                | Handlers               | Generators      |
+| Feature        | Commands                | Actors                 | Generators      |
 | -------------- | ----------------------- | ---------------------- | --------------- |
 | State          | Stateless               | Stateful between calls | Stateless       |
 | Execution      | On-demand               | Event-driven           | Continuous      |
 | Results        | Collected into response | Batched on completion  | Streamed        |
 | Parallelism    | Multiple parallel calls | Sequential processing  | Single instance |
-| Error Handling | Per-invocation          | Unregisters handler    | Auto-restarts   |
+| Error Handling | Per-invocation          | Unregisters actor      | Auto-restarts   |
 | Modules        | Supported               | Supported              | Supported       |

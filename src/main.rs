@@ -347,8 +347,8 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
     {
         let store = store.clone();
         tokio::spawn(async move {
-            if let Err(e) = xs::handlers::run(store).await {
-                eprintln!("Handler processor error: {e}");
+            if let Err(e) = xs::actor::run(store).await {
+                eprintln!("Actor processor error: {e}");
             }
         });
     }

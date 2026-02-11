@@ -12,7 +12,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::handlers::run(store).await.unwrap();
+            crate::actor::run(store).await.unwrap();
         }));
     }
 
@@ -192,8 +192,8 @@ async fn test_module_registered_in_vfs() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "testmod.nu");
 
-    // Register a handler that uses the module
-    let handler_script = r#"{
+    // Register an actor that uses the module
+    let actor_script = r#"{
             run: {|frame|
                 use xs/testmod
                 testmod greet "world"
@@ -203,7 +203,7 @@ async fn test_module_registered_in_vfs() {
     store
         .append(
             Frame::builder("vfstest.register")
-                .hash(store.cas_insert(&handler_script).await.unwrap())
+                .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
@@ -213,11 +213,11 @@ async fn test_module_registered_in_vfs() {
     let next = recver.recv().await.unwrap();
     if next.topic == "vfstest.unregistered" {
         let meta = next.meta.as_ref().unwrap();
-        panic!("handler unregistered with error: {}", meta["error"]);
+        panic!("actor unregistered with error: {}", meta["error"]);
     }
     assert_eq!(next.topic, "vfstest.active");
 
-    // Trigger the handler
+    // Trigger the actor
     store.append(Frame::builder("ping").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "ping");
 
@@ -254,8 +254,8 @@ async fn test_module_dot_path_maps_to_directory() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "mylib.utils.nu");
 
-    // Handler uses xs/mylib/utils (dots become slashes)
-    let handler_script = r#"{
+    // Actor uses xs/mylib/utils (dots become slashes)
+    let actor_script = r#"{
             run: {|frame|
                 use xs/mylib/utils
                 utils add 3 4
@@ -265,7 +265,7 @@ async fn test_module_dot_path_maps_to_directory() {
     store
         .append(
             Frame::builder("dotpath.register")
-                .hash(store.cas_insert(&handler_script).await.unwrap())
+                .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
@@ -309,8 +309,8 @@ async fn test_live_module_registration() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "mathlib.nu");
 
-    // Now register a handler that uses the live-registered module
-    let handler_script = r#"{
+    // Now register an actor that uses the live-registered module
+    let actor_script = r#"{
             run: {|frame|
                 use xs/mathlib
                 mathlib double 21
@@ -320,7 +320,7 @@ async fn test_live_module_registration() {
     store
         .append(
             Frame::builder("livemod.register")
-                .hash(store.cas_insert(&handler_script).await.unwrap())
+                .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();

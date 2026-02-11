@@ -1,6 +1,6 @@
 ---
-title: Handlers
-description: "Detailed reference for writing Nushell handlers that react to frames, manage state, and emit new events"
+title: Actors
+description: "Detailed reference for writing Nushell actors that react to frames, manage state, and emit new events"
 sidebar:
   order: 3
 ---
@@ -9,7 +9,7 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 import { Link } from '../../../utils/links';
 
-cross.stream handlers use <Link to="nu" />
+cross.stream actors use <Link to="nu" />
 [closures](https://www.nushell.sh/lang-guide/chapters/types/basic_types/closure.html)
 to process and act on incoming frames as they are appended to the store.
 
@@ -17,31 +17,31 @@ to process and act on incoming frames as they are appended to the store.
 {
   run: {|frame|
     if $frame.topic == "ping" {
-      "pong" # Will be appended to handler.out
+      "pong" # Will be appended to actor.out
     }
   }
 }
 ```
 
-The handler closure receives each new frame and can:
+The actor closure receives each new frame and can:
 
 - Process the frame's content
-- Return a value (which gets automatically appended to `<handler-name>.out`)
+- Return a value (which gets automatically appended to `<actor-name>.out`)
 - Explicitly append new frames using the `.append` command
 - Filter which frames to process using conditionals
 
 ## Registering
 
-To register a handler, append a registration script with the topic
-`<handler-name>.register`. The script must return a record that configures the
-handler's behavior:
+To register an actor, append a registration script with the topic
+`<actor-name>.register`. The script must return a record that configures the
+actor's behavior:
 
 ```nushell
 r###'{
-  # Required: Handler closure
+  # Required: Actor closure
   run: {|frame|
     if $frame.topic == "ping" {
-      "pong" # Will be appended to handler.out
+      "pong" # Will be appended to actor.out
     }
   }
 
@@ -63,21 +63,21 @@ r###'{
 The `run` closure must accept **exactly one positional argument** which is the
 incoming frame.
 
-The registration script is stored in CAS and evaluated to obtain the handler's
+The registration script is stored in CAS and evaluated to obtain the actor's
 configuration.
 
-Upon a successful start the handler appends a `<handler-name>.active` frame
+Upon a successful start the actor appends a `<actor-name>.active` frame
 with metadata:
 
-- `handler_id` – the ID of the handler instance
-- `new` – whether processing started from the end of the topic (new items only)
-- `after` – the frame ID that processing resumed after (if any)
+- `actor_id` -- the ID of the actor instance
+- `new` -- whether processing started from the end of the topic (new items only)
+- `after` -- the frame ID that processing resumed after (if any)
 
 ### Configuration Record Fields
 
 | Field            | Description                                                                |
 | ---------------- | -------------------------------------------------------------------------- |
-| `run`            | Required handler closure that processes each frame                         |
+| `run`            | Required actor closure that processes each frame                           |
 | `start`          | "new" (default), "first", or scru128 ID to control where processing starts |
 | `pulse`          | Interval in milliseconds to send synthetic xs.pulse events                 |
 | `return_options` | Controls output frames: see Return Options                                 |
@@ -86,7 +86,7 @@ with metadata:
 
 The `return_options` field controls how return values are handled:
 
-- `suffix`: String appended to handler's name for output topic (default: ".out")
+- `suffix`: String appended to actor's name for output topic (default: ".out")
 - `ttl`: Time-to-live for output frames
   - `"forever"`: Never expire
   - `"ephemeral"`: Not stored; only active subscribers receive it
@@ -95,7 +95,7 @@ The `return_options` field controls how return values are handled:
 
 #### Modules
 
-Handlers can use modules registered via `*.nu` topics. A handler sees the modules as they existed when it was registered. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Actors can use modules registered via `*.nu` topics. An actor sees the modules as they existed when it was registered. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r###'{
@@ -108,7 +108,7 @@ r###'{
 
 ## State and Environment
 
-Handlers can maintain state using environment variables which persist between
+Actors can maintain state using environment variables which persist between
 calls:
 
 ```nushell
@@ -123,16 +123,16 @@ r#'{
 
 ## Output
 
-Handlers can produce output in two ways:
+Actors can produce output in two ways:
 
 1. **Return Values**: Any non-null return value is automatically appended to the
-   handler's output topic (`<handler-name>.out` by default unless modified by
+   actor's output topic (`<actor-name>.out` by default unless modified by
    return_options.suffix)
 
 ```nushell
 {|frame|
   if $frame.topic == "ping" {
-    "pong" # Automatically appended to handler.out
+    "pong" # Automatically appended to actor.out
   }
 }
 ```
@@ -150,10 +150,10 @@ Handlers can produce output in two ways:
 
 All output frames automatically include:
 
-- `handler_id`: ID of the handler that created the frame
-- `frame_id`: ID of the frame that triggered the handler
-- Frames with `meta.handler_id` equal to the handler's ID are ignored to avoid
-  reacting to the handler's own output
+- `actor_id`: ID of the actor that created the frame
+- `frame_id`: ID of the frame that triggered the actor
+- Frames with `meta.actor_id` equal to the actor's ID are ignored to avoid
+  reacting to the actor's own output
 
 ## Lifecycle
 
@@ -184,21 +184,21 @@ stateDiagram-v2
 
 ### Unregistering
 
-A handler can be unregistered by:
+An actor can be unregistered by:
 
-- Appending `<handler-name>.unregister`
-- Registering a new handler with the same name
-- Runtime errors in the handler closure
+- Appending `<actor-name>.unregister`
+- Registering a new actor with the same name
+- Runtime errors in the actor closure
 
-When unregistered, the handler appends a confirmation frame
-`<handler-name>.unregistered`. If unregistered due to an error, the frame
+When unregistered, the actor appends a confirmation frame
+`<actor-name>.unregistered`. If unregistered due to an error, the frame
 includes an `error` field in its metadata.
 
 ### Error Handling
 
-If a handler encounters an error during execution:
+If an actor encounters an error during execution:
 
-1. The handler is automatically unregistered
-2. A frame is appended to `<handler-name>.unregistered` with:
+1. The actor is automatically unregistered
+2. A frame is appended to `<actor-name>.unregistered` with:
    - The error message in metadata
    - Reference to the triggering frame

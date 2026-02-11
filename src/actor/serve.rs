@@ -1,23 +1,23 @@
 use std::collections::HashMap;
 
-use crate::handlers::Handler;
+use crate::actor::Actor;
 use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
 
-async fn start_handler(
+async fn start_actor(
     frame: &Frame,
     store: &Store,
     topic: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match Handler::from_frame(frame, store).await {
-        Ok(handler) => {
-            handler.spawn(store.clone()).await?;
+    match Actor::from_frame(frame, store).await {
+        Ok(actor) => {
+            actor.spawn(store.clone()).await?;
             Ok(())
         }
         Err(err) => {
             let _ = store.append(
                 Frame::builder(format!("{topic}.unregistered"))
                     .meta(serde_json::json!({
-                        "handler_id": frame.id.to_string(),
+                        "actor_id": frame.id.to_string(),
                         "error": err.to_string(),
                     }))
                     .build(),
@@ -44,11 +44,11 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                         }
                         "unregister" | "inactive" => {
                             if let Some(meta) = &frame.meta {
-                                if let Some(handler_id) =
-                                    meta.get("handler_id").and_then(|v| v.as_str())
+                                if let Some(actor_id) =
+                                    meta.get("actor_id").and_then(|v| v.as_str())
                                 {
                                     if let Some(f) = compacted.get(topic) {
-                                        if f.id.to_string() == handler_id {
+                                        if f.id.to_string() == actor_id {
                                             compacted.remove(topic);
                                         }
                                     }
@@ -64,12 +64,12 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                 ordered.sort_by_key(|(_, frame)| frame.id);
 
                 for (topic, frame) in ordered {
-                    start_handler(&frame, &store, &topic).await?;
+                    start_actor(&frame, &store, &topic).await?;
                 }
             }
             Lifecycle::Live(frame) => {
                 if let Some(topic) = frame.topic.strip_suffix(".register") {
-                    start_handler(&frame, &store, topic).await?;
+                    start_actor(&frame, &store, topic).await?;
                 }
             }
         }

@@ -56,7 +56,7 @@ to get started.
 
 ## Features
 
-- **Reactive Workflows**: Build handlers that automatically respond to events as
+- **Reactive Workflows**: Build actors that automatically respond to events as
   they flow through the stream
 - **CLI Integration**: Turn any command-line tool into a streaming component
   with generators

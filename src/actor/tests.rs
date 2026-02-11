@@ -5,15 +5,15 @@ use crate::store::TTL;
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use std::collections::HashSet;
 
-macro_rules! validate_handler_output_frame {
+macro_rules! validate_actor_output_frame {
     ($frame_expr:expr, $expected_topic:expr, $handler:expr, $trigger:expr, $state_frame:expr) => {{
         let frame = $frame_expr; // Capture the expression result into a local variable
         assert_eq!(frame.topic, $expected_topic, "Unexpected topic");
         let meta = frame.meta.as_ref().expect("Meta is None");
         assert_eq!(
-            meta["handler_id"],
+            meta["actor_id"],
             $handler.id.to_string(),
-            "Unexpected handler_id"
+            "Unexpected actor_id"
         );
         assert_eq!(
             meta["frame_id"],
@@ -31,11 +31,11 @@ macro_rules! validate_handler_output_frame {
     }};
 }
 
-macro_rules! validate_handler_output_frames {
+macro_rules! validate_actor_output_frames {
     ($recver:expr, $handler:expr, $trigger:expr, $state_frame:expr, [$( $topic:expr ),+ $(,)?]) => {{
         let state_frame: Option<&Frame> = $state_frame; // Explicit type for state_frame
         $(
-            validate_handler_output_frame!(
+            validate_actor_output_frame!(
                 $recver.recv().await.unwrap(),
                 $topic,
                 $handler,
@@ -77,11 +77,11 @@ macro_rules! validate_field {
             $value
         );
     }};
-    // Validation for meta fields like "handler", "trigger", "state"
+    // Validation for meta fields like "actor", "trigger", "state"
     ($frame:expr, $field:ident : $value:expr) => {{
         let meta = $frame.meta.as_ref().expect("Meta is None");
         let key = match stringify!($field) {
-            "handler" => "handler_id",
+            "handler" => "actor_id",
             "trigger" => "frame_id",
             "state" => "state_id",
             _ => panic!("Invalid field: {}", stringify!($field)),
@@ -109,7 +109,7 @@ async fn test_register_invalid_closure() {
     );
 
     // Attempt to register a closure with no arguments
-    let frame_handler = store
+    let frame_actor = store
         .append(
             Frame::builder("invalid.register")
                 .hash(
@@ -134,7 +134,7 @@ async fn test_register_invalid_closure() {
     validate_frame!(
         recver.recv().await.unwrap(), {
         topic: "invalid.unregistered",
-        handler: frame_handler,
+        handler: frame_actor,
         error: "Closure must accept exactly one frame argument, found 0",
     });
 
@@ -153,7 +153,7 @@ async fn test_register_parse_error() {
     );
 
     // Attempt to register a closure which should fail to parse
-    let frame_handler = store
+    let frame_actor = store
         .append(
             Frame::builder("invalid.register")
                 .hash(
@@ -184,7 +184,7 @@ async fn test_register_parse_error() {
     validate_frame!(
         recver.recv().await.unwrap(), {
         topic: "invalid.unregistered",
-        handler: frame_handler,
+        handler: frame_actor,
         error: "Parse error", // Expecting parse error details
     });
 
@@ -192,7 +192,7 @@ async fn test_register_parse_error() {
 }
 
 #[tokio::test]
-// This test is to ensure that a handler does not run its own output
+// This test is to ensure that an actor does not run its own output
 async fn test_no_self_loop() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -203,7 +203,7 @@ async fn test_no_self_loop() {
         "xs.threshold".to_string()
     );
 
-    // Register handler that would run its own output if not prevented
+    // Register actor that would run its own output if not prevented
     store
         .append(
             Frame::builder("echo.register")
@@ -222,7 +222,7 @@ async fn test_no_self_loop() {
 
     // note we don't see an echo of the echo.active frame
 
-    // Trigger the handler
+    // Trigger the actor
     store.append(Frame::builder("a-frame").build()).unwrap();
     // we should see the trigger, and then a single echo
     assert_eq!(recver.recv().await.unwrap().topic, "a-frame");
@@ -257,8 +257,8 @@ async fn test_essentials() {
         )
         .unwrap();
 
-    // Register handler with start pointing to the content of action.out
-    let handler_proto = Frame::builder("action.register")
+    // Register actor with start pointing to the content of action.out
+    let actor_proto = Frame::builder("action.register")
         .hash(
             store
                 .cas_insert(
@@ -277,8 +277,8 @@ async fn test_essentials() {
         )
         .build();
 
-    // Start handler
-    let frame_handler = store.append(handler_proto.clone()).unwrap();
+    // Start actor
+    let frame_actor = store.append(actor_proto.clone()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.out"); // The pointer frame
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
 
@@ -286,7 +286,7 @@ async fn test_essentials() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+    assert_eq!(meta["actor_id"], frame_actor.id.to_string());
     assert_eq!(meta["new"], false);
     // The last_id should the frame pointed to the pointer frame
     assert_eq!(meta["after"], pew1.id.to_string());
@@ -294,13 +294,13 @@ async fn test_essentials() {
     // Should process frame2 (since pew1 was before the start point)
     validate_frame!(recver.recv().await.unwrap(), {
         topic: "action.out",
-        handler: &frame_handler,
+        handler: &frame_actor,
         trigger: &pew2,
     });
 
     assert_no_more_frames(&mut recver).await;
 
-    // Unregister handler and restart - should resume from cursor
+    // Unregister actor and restart - should resume from cursor
     store
         .append(Frame::builder("action.unregister").build())
         .unwrap();
@@ -309,15 +309,15 @@ async fn test_essentials() {
 
     assert_no_more_frames(&mut recver).await;
 
-    // Restart handler
-    let frame_handler_2 = store.append(handler_proto.clone()).unwrap();
+    // Restart actor
+    let frame_actor_2 = store.append(actor_proto.clone()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
 
     // Assert active frame has the correct meta
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "action.active");
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler_2.id.to_string());
+    assert_eq!(meta["actor_id"], frame_actor_2.id.to_string());
     assert_eq!(meta["new"], false);
     // The last_id should now be pew2
     assert_eq!(meta["after"], pew2.id.to_string());
@@ -328,7 +328,7 @@ async fn test_essentials() {
     // Should resume processing from pew3 on
     validate_frame!(recver.recv().await.unwrap(), {
         topic: "action.out",
-        handler: &frame_handler_2,
+        handler: &frame_actor_2,
         trigger: &pew3,
     });
 
@@ -343,17 +343,17 @@ async fn test_unregister_on_error() {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // This frame will trigger the error when the handler comes online
+    // This frame will trigger the error when the actor comes online
     let frame_trigger = store.append(Frame::builder("trigger").build()).unwrap();
     validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
 
-    // add an additional frame, which shouldn't be processed, as the handler should immediately
+    // add an additional frame, which shouldn't be processed, as the actor should immediately
     // unregister
     let _ = store.append(Frame::builder("trigger").build()).unwrap();
     validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
 
-    // Start handler
-    let frame_handler = store
+    // Start actor
+    let frame_actor = store
         .append(
             Frame::builder("error.register")
                 .hash(
@@ -380,7 +380,7 @@ async fn test_unregister_on_error() {
     // Expect an inactive frame to be appended
     validate_frame!(recver.recv().await.unwrap(), {
         topic: "error.unregistered",
-        handler: &frame_handler,
+        handler: &frame_actor,
         trigger: &frame_trigger,
         error: "nothing doesn't support cell paths",
     });
@@ -397,8 +397,8 @@ async fn test_return_options() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Register handler with return_options
-    let handler_proto = Frame::builder("echo.register")
+    // Register actor with return_options
+    let actor_proto = Frame::builder("echo.register")
         .hash(
             store
                 .cas_insert(
@@ -419,7 +419,7 @@ async fn test_return_options() {
         )
         .build();
 
-    let frame_handler = store.append(handler_proto).unwrap();
+    let frame_actor = store.append(actor_proto).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "echo.register");
     assert_eq!(recver.recv().await.unwrap().topic, "echo.active");
 
@@ -432,7 +432,7 @@ async fn test_return_options() {
     assert_eq!(response1.topic, "echo.warble");
     assert_eq!(response1.ttl, Some(TTL::Last(1)));
     let meta = response1.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+    assert_eq!(meta["actor_id"], frame_actor.id.to_string());
     assert_eq!(meta["frame_id"], frame1.id.to_string());
 
     // Send second ping - should only see newest response due to Last(1)
@@ -469,8 +469,8 @@ async fn test_binary_return_value() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Register handler that returns binary msgpack data
-    let handler_proto = Frame::builder("binary.register")
+    // Register actor that returns binary msgpack data
+    let actor_proto = Frame::builder("binary.register")
         .hash(
             store
                 .cas_insert(
@@ -486,7 +486,7 @@ async fn test_binary_return_value() {
         )
         .build();
 
-    let frame_handler = store.append(handler_proto).unwrap();
+    let frame_actor = store.append(actor_proto).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "binary.register");
     assert_eq!(recver.recv().await.unwrap().topic, "binary.active");
 
@@ -500,7 +500,7 @@ async fn test_binary_return_value() {
 
     // Verify metadata
     let meta = output_frame.meta.unwrap();
-    assert_eq!(meta["handler_id"], frame_handler.id.to_string());
+    assert_eq!(meta["actor_id"], frame_actor.id.to_string());
     assert_eq!(meta["frame_id"], trigger_frame.id.to_string());
 
     // Verify the binary content is stored correctly (not "null")
@@ -533,7 +533,7 @@ async fn test_custom_append() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    let handler_proto = Frame::builder("action.register")
+    let actor_proto = Frame::builder("action.register")
         .hash(
             store
                 .cas_insert(
@@ -551,17 +551,17 @@ async fn test_custom_append() {
         )
         .build();
 
-    // Start handler
-    let frame_handler = store.append(handler_proto.clone()).unwrap();
+    // Start actor
+    let frame_actor = store.append(actor_proto.clone()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "action.register");
     assert_eq!(recver.recv().await.unwrap().topic, "action.active");
 
     let trigger_frame = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
-    validate_handler_output_frames!(
+    validate_actor_output_frames!(
         recver,
-        frame_handler,
+        frame_actor,
         trigger_frame,
         None,
         ["topic1", "topic2", "action.out"]
@@ -571,7 +571,7 @@ async fn test_custom_append() {
 }
 
 #[tokio::test]
-async fn test_handler_replacement() {
+async fn test_actor_replacement() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
@@ -579,7 +579,7 @@ async fn test_handler_replacement() {
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Register first handler
+    // Register first actor
     let _ = store
         .append(
             Frame::builder("h.register")
@@ -601,8 +601,8 @@ async fn test_handler_replacement() {
     assert_eq!(recver.recv().await.unwrap().topic, "h.register");
     assert_eq!(recver.recv().await.unwrap().topic, "h.active");
 
-    // Register second handler for same topic
-    let handler2 = store
+    // Register second actor for same topic
+    let actor2 = store
         .append(
             Frame::builder("h.register")
                 .hash(
@@ -632,15 +632,15 @@ async fn test_handler_replacement() {
         HashSet::from(["h.unregistered".to_string(), "h.active".to_string(),])
     );
 
-    // Send trigger - should be handled by handler2
+    // Send trigger - should be handled by actor2
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
-    // Verify handler2 processed it
+    // Verify actor2 processed it
     let response = recver.recv().await.unwrap();
     assert_eq!(response.topic, "h.out");
     let meta = response.meta.unwrap();
-    assert_eq!(meta["handler_id"], handler2.id.to_string());
+    assert_eq!(meta["actor_id"], actor2.id.to_string());
     assert_eq!(meta["frame_id"], trigger.id.to_string());
 
     // Verify content shows it was handler2
@@ -651,7 +651,7 @@ async fn test_handler_replacement() {
 }
 
 #[tokio::test]
-async fn test_handler_with_module() -> Result<(), Error> {
+async fn test_actor_with_module() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -678,23 +678,23 @@ async fn test_handler_with_module() -> Result<(), Error> {
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
 
-    // Create handler that uses the VFS module
-    let handler_script = r#"{
+    // Create actor that uses the VFS module
+    let actor_script = r#"{
             run: {|frame|
                 if $frame.topic != "trigger" { return }
                 use xs/mymod
                 mymod add_nums 40 2
             }
         }"#;
-    let frame_handler = store
+    let frame_actor = store
         .append(
             Frame::builder("test.register")
-                .hash(store.cas_insert(&handler_script).await?)
+                .hash(store.cas_insert(&actor_script).await?)
                 .build(),
         )
         .unwrap();
 
-    // Wait for handler registration
+    // Wait for actor registration
     assert_eq!(recver.recv().await.unwrap().topic, "test.register");
     assert_eq!(recver.recv().await.unwrap().topic, "test.active");
 
@@ -702,9 +702,9 @@ async fn test_handler_with_module() -> Result<(), Error> {
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
-    // Get handler output
+    // Get actor output
     let output = recver.recv().await.unwrap();
-    validate_handler_output_frame!(&output, "test.out", frame_handler, trigger, None);
+    validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content
     let content = store.cas_read(&output.hash.unwrap()).await?;
@@ -716,7 +716,7 @@ async fn test_handler_with_module() -> Result<(), Error> {
 }
 
 #[tokio::test]
-async fn test_handler_preserve_env() -> Result<(), Error> {
+async fn test_actor_preserve_env() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -740,7 +740,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "abc.delta");
 
-    let frame_handler = store
+    let frame_actor = store
         .append(
             Frame::builder("test.register")
                 .hash(store.cas_insert_sync(
@@ -764,7 +764,7 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
         )
         .unwrap();
 
-    // Wait for handler registration
+    // Wait for actor registration
     assert_eq!(recver.recv().await.unwrap().topic, "test.register");
     assert_eq!(recver.recv().await.unwrap().topic, "test.active");
 
@@ -772,9 +772,9 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
-    // Get handler output
+    // Get actor output
     let output = recver.recv().await.unwrap();
-    validate_handler_output_frame!(&output, "test.out", frame_handler, trigger, None);
+    validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content shows the env var value
     let content = store.cas_read(&output.hash.unwrap()).await?;
@@ -785,9 +785,9 @@ async fn test_handler_preserve_env() -> Result<(), Error> {
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
 
-    // Get handler output
+    // Get actor output
     let output = recver.recv().await.unwrap();
-    validate_handler_output_frame!(&output, "test.out", frame_handler, trigger, None);
+    validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content shows the env var value
     let content = store.cas_read(&output.hash.unwrap()).await?;
@@ -818,7 +818,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::handlers::run(store).await.unwrap();
+            crate::actor::run(store).await.unwrap();
         }));
     }
 

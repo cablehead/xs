@@ -175,9 +175,9 @@ The MCP server responds with "The sum of 100 and 200 is 300." which will appear 
 
 Now that we have MCP server responses flowing through cross.stream, we can build reactive workflows that automatically respond to events.
 
-### Building Handler Chains
+### Building Actor Chains
 
-Create [handlers](../../reference/handlers/) that automatically react to MCP responses and trigger follow-up actions. But first, let's explore the structure of MCP responses interactively to understand what we're working with.
+Create [actors](../../reference/actors/) that automatically react to MCP responses and trigger follow-up actions. But first, let's explore the structure of MCP responses interactively to understand what we're working with.
 
 ### Exploring Response Structure
 
@@ -193,9 +193,9 @@ This shows you the full JSONRPC response structure. Now let's drill down to extr
 .last mcp.recv | .cas $in.hash | from json | get result.content.0.text
 ```
 
-You should see "The sum of 100 and 200 is 300." - this is the actual text our handler will analyze.
+You should see "The sum of 100 and 200 is 300." - this is the actual text our actor will analyze.
 
-This interactive exploration helps you understand the data structure before writing handlers. Now let's build a handler that watches for specific responses:
+This interactive exploration helps you understand the data structure before writing actors. Now let's build an actor that watches for specific responses:
 
 ```nushell
 r#'{
@@ -221,16 +221,16 @@ Watch your monitoring window! You'll see:
 2. The `mcp.recv` frame with "The sum of 21 and 21 is 42."
 3. A `meaning.detector.out` frame containing "meaning of life detected!"
 
-The handler uses simple substring matching (`"42" in $content`) to scan response text. When the target value is found, it returns "meaning of life detected!" which automatically becomes a new frame in the stream.
+The actor uses simple substring matching (`"42" in $content`) to scan response text. When the target value is found, it returns "meaning of life detected!" which automatically becomes a new frame in the stream.
 
 This demonstrates the power of event-driven workflows in cross.stream:
 
-- **Reactive**: Handlers automatically respond to events as they flow through the stream
-- **Composable**: You can chain multiple handlers together for complex automation
-- **Persistent**: Handlers run continuously, maintaining state across interactions
-- **Observable**: All handler outputs become part of the permanent event stream
+- **Reactive**: Actors automatically respond to events as they flow through the stream
+- **Composable**: You can chain multiple actors together for complex automation
+- **Persistent**: Actors run continuously, maintaining state across interactions
+- **Observable**: All actor outputs become part of the permanent event stream
 
-You could extend this pattern to create sophisticated automation - handlers that trigger on specific responses, maintain counters, coordinate between multiple MCP servers, or trigger [commands](../../reference/commands/) based on detected events.
+You could extend this pattern to create sophisticated automation - actors that trigger on specific responses, maintain counters, coordinate between multiple MCP servers, or trigger [commands](../../reference/commands/) based on detected events.
 
 ## Part 4: Advanced Operations
 
@@ -301,6 +301,6 @@ This pattern lets you integrate any MCP-compatible tool into your cross.stream w
 ## Next Steps
 
 - Explore the [generators reference](../../reference/generators/) for advanced generator configuration
-- Learn about [handlers reference](../../reference/handlers/) for processing MCP responses
+- Learn about [actors reference](../../reference/actors/) for processing MCP responses
 - Learn about [topics](../../reference/topics/) for understanding the event lifecycle
 - Try spawning other MCP servers from the [official examples](https://modelcontextprotocol.io/examples)

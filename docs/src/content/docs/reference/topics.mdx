@@ -53,7 +53,7 @@ Topic queries return frames in chronological order (by frame ID), not grouped by
 
 ## Module Topics
 
-Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any handler, generator, or command script can then `use` these modules by their stable VFS path.
+Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any actor, generator, or command script can then `use` these modules by their stable VFS path.
 
 ```nushell
 # Register a module
@@ -78,7 +78,7 @@ r#'{
 }'# | .append greeter.register
 ```
 
-Each handler, generator, or command sees the modules as they existed when it was registered. Modules appended later are only visible to components registered after them. Re-appending a module and then re-registering a component picks up the new version.
+Each actor, generator, or command sees the modules as they existed when it was registered. Modules appended later are only visible to components registered after them. Re-appending a module and then re-registering a component picks up the new version.
 
 ## Component Suffixes
 
@@ -97,15 +97,15 @@ cross.stream uses topic suffixes to coordinate component lifecycle.
 | `.parse.error` | Script parsing failed | System |
 | `.recv` | Output from generator | System |
 
-### Handlers
+### Actors
 
 | Suffix | Description | Emitted By |
 | ------ | ----------- | ---------- |
-| `.register` | Register a handler | User |
-| `.unregister` | Unregister a handler | User |
-| `.active` | Handler is now active | System |
-| `.unregistered` | Handler has been removed | System |
-| `.out` | Output from handler | System |
+| `.register` | Register an actor | User |
+| `.unregister` | Unregister an actor | User |
+| `.active` | Actor is now active | System |
+| `.unregistered` | Actor has been removed | System |
+| `.out` | Output from actor | System |
 
 ### Commands
 
@@ -130,7 +130,7 @@ cross.stream uses topic suffixes to coordinate component lifecycle.
 Output suffixes can be changed via `return_options.suffix`:
 
 - `.recv` (Generators)
-- `.out` (Handlers)
+- `.out` (Actors)
 - `.response` (Commands)
 
 ```nushell
@@ -146,7 +146,7 @@ Output suffixes can be changed via `return_options.suffix`:
 
 Lifecycle and output events include:
 
-- `source_id` / `handler_id` / `command_id`: Component instance ID
-- `frame_id`: Triggering frame ID (handlers/commands)
+- `source_id` / `actor_id` / `command_id`: Component instance ID
+- `frame_id`: Triggering frame ID (actors/commands)
 - `error`: Error details (on error events)
 - `reason`: Stop reason (on stopped events)

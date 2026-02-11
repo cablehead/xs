@@ -38,7 +38,7 @@ impl NuScriptConfig {
 /// Options for customizing the output frames
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ReturnOptions {
-    /// Custom suffix for output frames (default is ".out" for handlers, ".recv" for commands)
+    /// Custom suffix for output frames (default is ".out" for actors, ".recv" for commands)
     pub suffix: Option<String>,
     /// Optional time-to-live for the output frames
     pub ttl: Option<TTL>,

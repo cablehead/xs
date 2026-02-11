@@ -44,7 +44,7 @@ impl Command for AppendCommand {
     }
 
     fn description(&self) -> &str {
-        "Writes its input to the CAS and buffers a frame for later batch processing. The frame will include the content hash, any provided metadata and TTL settings. Meant for use with handlers that need to batch multiple appends."
+        "Writes its input to the CAS and buffers a frame for later batch processing. The frame will include the content hash, any provided metadata and TTL settings. Meant for use with actors that need to batch multiple appends."
     }
 
     fn run(
