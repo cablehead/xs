@@ -1,5 +1,5 @@
 ---
-title: Generators
+title: Services
 description: "How to use Nushell closures to spawn external processes and stream their output into cross.stream, with optional duplex communication and lifecycle events"
 sidebar:
   order: 2
@@ -7,14 +7,14 @@ sidebar:
 
 import { Link } from '../../../utils/links';
 
-cross.stream generators use <Link to="nu" /> closures to create streams of data
+cross.stream services use <Link to="nu" /> closures to create streams of data
 that are emitted as frames into the store.
 
-You can also compose external request-response servers, particularly CLI tools that read requests on stdin and write responses to stdout, using [duplex](#bi-directional-communication) generators.
+You can also compose external request-response servers, particularly CLI tools that read requests on stdin and write responses to stdout, using [duplex](#bi-directional-communication) services.
 
 ## Basic Usage
 
-To create a generator, append a Nushell script that evaluates to a configuration
+To create a service, append a Nushell script that evaluates to a configuration
 record with a `run` closure using the topic `<topic>.spawn`:
 
 ```nushell
@@ -23,7 +23,7 @@ r#'{
 }'# | .append log.spawn
 ```
 
-The generator will:
+The service will:
 
 - Execute the provided Nushell expression
 - Output from the pipeline is streamed as `log.recv` frames. Text pipelines emit
@@ -32,30 +32,30 @@ The generator will:
 
 ## Lifecycle Events
 
-Generators emit lifecycle events to track their state. See <Link to="/reference/topics/">Topics</Link> for all component suffixes.
+Services emit lifecycle events to track their state. See <Link to="/reference/topics/">Topics</Link> for all component suffixes.
 
 | Event                 | Description                             |
 | --------------------- | --------------------------------------- |
-| `<topic>.running`     | Generator has started processing        |
-| `<topic>.recv`        | Output value from the generator         |
-| `<topic>.stopped` | Generator pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate` and `update`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the generator loop will shut down. `update` indicates the generator reloaded due to a new `.spawn` frame. |
+| `<topic>.running`     | Service has started processing        |
+| `<topic>.recv`        | Output value from the service         |
+| `<topic>.stopped` | Service pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate` and `update`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the service loop will shut down. `update` indicates the service reloaded due to a new `.spawn` frame. |
 | `<topic>.parse.error` | Script failed to parse |
-| `<topic>.shutdown` | Generator loop has fully exited; the dispatcher evicts it |
+| `<topic>.shutdown` | Service loop has fully exited; the dispatcher evicts it |
 
-All events include `source_id` which is the ID of the generator instance. When a `.stopped` frame has `meta.reason` set to `update`, it also includes `update_id` referencing the spawn that triggered the reload. The dispatcher evicts a generator when it receives a `<topic>.shutdown` frame.
+All events include `source_id` which is the ID of the service instance. When a `.stopped` frame has `meta.reason` set to `update`, it also includes `update_id` referencing the spawn that triggered the reload. The dispatcher evicts a service when it receives a `<topic>.shutdown` frame.
 
 ## Configuration Options
 
 | Option   | Type    | Default | Description                                                         |
 | -------- | ------- | ------- | ------------------------------------------------------------------- |
-| `duplex` | boolean | false   | Enable sending input to the generator's pipeline via `<topic>.send` |
+| `duplex` | boolean | false   | Enable sending input to the service's pipeline via `<topic>.send` |
 | `return_options` | record | — | Customize output frames (see Return Options) |
 
-The `return_options` field controls the suffix and TTL for the `.recv` frames produced by the generator.
+The `return_options` field controls the suffix and TTL for the `.recv` frames produced by the service.
 
 ## Return Options
 
-The `return_options` record allows you to customize the output frames produced by the generator:
+The `return_options` record allows you to customize the output frames produced by the service:
 
 | Option   | Type   | Default   | Description                                           |
 | -------- | ------ | --------- | ----------------------------------------------------- |
@@ -81,11 +81,11 @@ r#'{
 }'# | .append logs.spawn
 ```
 
-This generator will emit frames with the topic `logs.line` and automatically maintain only the 100 most recent log entries.
+This service will emit frames with the topic `logs.line` and automatically maintain only the 100 most recent log entries.
 
 ## Modules
 
-Generators can use modules registered via `*.nu` topics. A generator sees the modules as they existed when it was spawned. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Services can use modules registered via `*.nu` topics. A service sees the modules as they existed when it was spawned. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r#'{
@@ -98,7 +98,7 @@ r#'{
 
 ## Bi-directional Communication
 
-When `duplex` is enabled, you can send data into the generator's input pipeline
+When `duplex` is enabled, you can send data into the service's input pipeline
 via `<topic>.send` frames:
 
 ```nushell
@@ -113,30 +113,30 @@ r#'{
 "hello\n" | .append echo.send
 ```
 
-When running this generator:
+When running this service:
 
 - Lines received from the websocket server are emitted as `<topic>.recv` frames
 - Content from `<topic>.send` frames is sent to the websocket server
 
 ## Error Handling
 
-If a generator encounters an error during spawning a `<topic>.parse.error` frame
+If a service encounters an error during spawning a `<topic>.parse.error` frame
 is emitted with:
 
 - `source_id`: ID of the failed spawn attempt
 - `reason`: Error message describing what went wrong
 
-The generator does not start and no stop frame is produced.
+The service does not start and no stop frame is produced.
 
-When a running generator finishes or fails, it automatically restarts after a 1-second delay.
+When a running service finishes or fails, it automatically restarts after a 1-second delay.
 
-## Stopping Generators
+## Stopping Services
 
-To stop a running generator, append a frame with the topic `<topic>.terminate`.
-The generator will stop and emit a `<topic>.stopped` frame with `meta.reason` set to
+To stop a running service, append a frame with the topic `<topic>.terminate`.
+The service will stop and emit a `<topic>.stopped` frame with `meta.reason` set to
 `terminate`.
 
-Appending a new `<topic>.spawn` frame while a generator of the same topic
+Appending a new `<topic>.spawn` frame while a service of the same topic
 is running reloads it with the new script. If the reload fails to parse,
-you'll see a `<topic>.parse.error` frame, and the previous generator continues
+you'll see a `<topic>.parse.error` frame, and the previous service continues
 running.

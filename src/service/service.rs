@@ -14,13 +14,13 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use serde_json::json;
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
-pub struct GeneratorScriptOptions {
+pub struct ServiceScriptOptions {
     pub duplex: Option<bool>,
     pub return_options: Option<ReturnOptions>,
 }
 
 #[derive(Clone)]
-pub struct GeneratorLoop {
+pub struct ServiceLoop {
     pub topic: String,
 }
 
@@ -35,7 +35,7 @@ pub struct Task {
 
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone)]
-pub enum GeneratorEventKind {
+pub enum ServiceEventKind {
     Running,
     /// output frame flushed; payload is raw bytes
     Recv {
@@ -51,8 +51,8 @@ pub enum GeneratorEventKind {
 
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone)]
-pub struct GeneratorEvent {
-    pub kind: GeneratorEventKind,
+pub struct ServiceEvent {
+    pub kind: ServiceEventKind,
     pub frame: Frame,
 }
 
@@ -67,19 +67,19 @@ pub enum StopReason {
 
 pub(crate) fn emit_event(
     store: &Store,
-    loop_ctx: &GeneratorLoop,
+    loop_ctx: &ServiceLoop,
     source_id: Scru128Id,
     return_opts: Option<&ReturnOptions>,
-    kind: GeneratorEventKind,
-) -> Result<GeneratorEvent, Box<dyn std::error::Error + Send + Sync>> {
+    kind: ServiceEventKind,
+) -> Result<ServiceEvent, Box<dyn std::error::Error + Send + Sync>> {
     let frame = match &kind {
-        GeneratorEventKind::Running => store.append(
+        ServiceEventKind::Running => store.append(
             Frame::builder(format!("{topic}.running", topic = loop_ctx.topic))
                 .meta(json!({ "source_id": source_id.to_string() }))
                 .build(),
         )?,
 
-        GeneratorEventKind::Recv { suffix, data } => {
+        ServiceEventKind::Recv { suffix, data } => {
             let hash = store.cas_insert_bytes_sync(data)?;
             store.append(
                 Frame::builder(format!(
@@ -94,7 +94,7 @@ pub(crate) fn emit_event(
             )?
         }
 
-        GeneratorEventKind::Stopped(reason) => {
+        ServiceEventKind::Stopped(reason) => {
             let mut meta = json!({
                 "source_id": source_id.to_string(),
                 "reason": stop_reason_str(reason),
@@ -112,7 +112,7 @@ pub(crate) fn emit_event(
             )?
         }
 
-        GeneratorEventKind::ParseError { message } => store.append(
+        ServiceEventKind::ParseError { message } => store.append(
             Frame::builder(format!("{topic}.parse.error", topic = loop_ctx.topic))
                 .meta(json!({
                     "source_id": source_id.to_string(),
@@ -121,14 +121,14 @@ pub(crate) fn emit_event(
                 .build(),
         )?,
 
-        GeneratorEventKind::Shutdown => store.append(
+        ServiceEventKind::Shutdown => store.append(
             Frame::builder(format!("{topic}.shutdown", topic = loop_ctx.topic))
                 .meta(json!({ "source_id": source_id.to_string() }))
                 .build(),
         )?,
     };
 
-    Ok(GeneratorEvent { kind, frame })
+    Ok(ServiceEvent { kind, frame })
 }
 
 fn stop_reason_str(r: &StopReason) -> &'static str {
@@ -144,7 +144,7 @@ pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
     tokio::spawn(async move { run(store, spawn_frame).await })
 }
 
-fn build_generator_engine(
+fn build_service_engine(
     store: &Store,
     as_of: &Scru128Id,
 ) -> Result<nu::Engine, Box<dyn std::error::Error + Send + Sync>> {
@@ -157,7 +157,7 @@ fn build_generator_engine(
 }
 
 async fn run(store: Store, spawn_frame: Frame) {
-    let mut engine = match build_generator_engine(&store, &spawn_frame.id) {
+    let mut engine = match build_service_engine(&store, &spawn_frame.id) {
         Ok(e) => e,
         Err(_) => return,
     };
@@ -175,7 +175,7 @@ async fn run(store: Store, spawn_frame: Frame) {
         return;
     }
 
-    let loop_ctx = GeneratorLoop {
+    let loop_ctx = ServiceLoop {
         topic: spawn_frame
             .topic
             .strip_suffix(".spawn")
@@ -191,14 +191,14 @@ async fn run(store: Store, spawn_frame: Frame) {
                 &loop_ctx,
                 spawn_frame.id,
                 None,
-                GeneratorEventKind::ParseError {
+                ServiceEventKind::ParseError {
                     message: e.to_string(),
                 },
             );
             return;
         }
     };
-    let opts: GeneratorScriptOptions = nu_config.deserialize_options().unwrap_or_default();
+    let opts: ServiceScriptOptions = nu_config.deserialize_options().unwrap_or_default();
 
     // Create and set the interrupt signal on the engine state
     let interrupt = Arc::new(AtomicBool::new(false));
@@ -215,14 +215,14 @@ async fn run(store: Store, spawn_frame: Frame) {
     run_loop(store, loop_ctx, task).await;
 }
 
-async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
+async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
     // Create the first start frame and set up a persistent control subscription
     let start_event = emit_event(
         &store,
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Running,
+        ServiceEventKind::Running,
     )
     .expect("failed to emit running event");
     let mut start_id = start_event.frame.id;
@@ -304,13 +304,13 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
                                 if let Ok(mut reader) = store.cas_reader(hash).await {
                                     let mut script = String::new();
                                     if reader.read_to_string(&mut script).await.is_ok() {
-                                        let mut new_engine = match build_generator_engine(&store, &frame.id) {
+                                        let mut new_engine = match build_service_engine(&store, &frame.id) {
                                             Ok(e) => e,
                                             Err(_) => continue,
                                         };
                                         match nu::parse_config(&mut new_engine, &script) {
                                             Ok(cfg) => {
-                                                let opts: GeneratorScriptOptions = cfg.deserialize_options().unwrap_or_default();
+                                                let opts: ServiceScriptOptions = cfg.deserialize_options().unwrap_or_default();
                                                 let interrupt = Arc::new(AtomicBool::new(false));
                                                 new_engine.state.set_signals(Signals::new(interrupt.clone()));
 
@@ -334,7 +334,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
                                                     &loop_ctx,
                                                     frame.id,
                                                     None,
-                                                    GeneratorEventKind::ParseError { message: e.to_string() },
+                                                    ServiceEventKind::ParseError { message: e.to_string() },
                                                 );
                                             }
                                         }
@@ -361,7 +361,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
             &loop_ctx,
             task.id,
             task.return_options.as_ref(),
-            GeneratorEventKind::Stopped(reason.clone()),
+            ServiceEventKind::Stopped(reason.clone()),
         );
 
         match outcome {
@@ -372,7 +372,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
                     &loop_ctx,
                     task.id,
                     task.return_options.as_ref(),
-                    GeneratorEventKind::Running,
+                    ServiceEventKind::Running,
                 ) {
                     start_id = event.frame.id;
                 }
@@ -384,7 +384,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
                     &loop_ctx,
                     task.id,
                     task.return_options.as_ref(),
-                    GeneratorEventKind::Running,
+                    ServiceEventKind::Running,
                 ) {
                     start_id = event.frame.id;
                 }
@@ -395,7 +395,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
                     &loop_ctx,
                     task.id,
                     task.return_options.as_ref(),
-                    GeneratorEventKind::Shutdown,
+                    ServiceEventKind::Shutdown,
                 );
                 break;
             }
@@ -405,7 +405,7 @@ async fn run_loop(store: Store, loop_ctx: GeneratorLoop, mut task: Task) {
 
 async fn build_input_pipeline(
     store: Store,
-    loop_ctx: &GeneratorLoop,
+    loop_ctx: &ServiceLoop,
     task: &Task,
     rx: tokio::sync::mpsc::Receiver<Frame>,
 ) -> PipelineData {
@@ -450,7 +450,7 @@ async fn build_input_pipeline(
 
 fn spawn_thread(
     store: Store,
-    loop_ctx: GeneratorLoop,
+    loop_ctx: ServiceLoop,
     mut task: Task,
     input_pipeline: PipelineData,
     done_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
@@ -479,7 +479,7 @@ fn spawn_thread(
                                     &loop_ctx,
                                     task.id,
                                     task.return_options.as_ref(),
-                                    GeneratorEventKind::Recv {
+                                    ServiceEventKind::Recv {
                                         suffix: suffix.clone(),
                                         data: val.into_bytes(),
                                     },
@@ -501,7 +501,7 @@ fn spawn_thread(
                                         &loop_ctx,
                                         task.id,
                                         task.return_options.as_ref(),
-                                        GeneratorEventKind::Recv {
+                                        ServiceEventKind::Recv {
                                             suffix: suffix.clone(),
                                             data: val.into_bytes(),
                                         },
@@ -529,7 +529,7 @@ fn spawn_thread(
                                                 &loop_ctx,
                                                 task.id,
                                                 task.return_options.as_ref(),
-                                                GeneratorEventKind::Recv {
+                                                ServiceEventKind::Recv {
                                                     suffix: suffix.clone(),
                                                     data: chunk.to_vec(),
                                                 },

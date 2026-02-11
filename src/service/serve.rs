@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::json;
 use tokio::task::JoinHandle;
 
-use crate::generators::generator;
+use crate::service::service;
 use crate::store::{FollowOption, Frame, Lifecycle, LifecycleReader, ReadOptions, Store};
 
 async fn try_start(
@@ -39,14 +39,14 @@ async fn handle_spawn_event(
         if handle.is_finished() {
             active.remove(&key);
         } else {
-            // A generator for this topic is already running. Ignore the
-            // new spawn frame; the running generator will handle it as a hot
+            // A service for this topic is already running. Ignore the
+            // new spawn frame; the running service will handle it as a hot
             // reload.
             return Ok(());
         }
     }
 
-    let handle = generator::spawn(store, frame);
+    let handle = service::spawn(store, frame);
     active.insert(key, handle);
     Ok(())
 }

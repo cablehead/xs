@@ -9,7 +9,7 @@ import { Link } from '../../../utils/links';
 
 cross.stream commands use <Link to="nu" /> expressions to define reusable
 operations that can be called on-demand with arguments. Unlike actors which
-maintain state between invocations, or generators which run continuously,
+maintain state between invocations, or services which run continuously,
 commands are stateless and execute independently each time they are called.
 
 ## Defining Commands
@@ -85,7 +85,7 @@ If a command encounters an error during execution, it will:
    - Reference to both command_id and frame_id
 2. Stop processing the current invocation
 
-Unlike generators, commands do not automatically restart on error - each
+Unlike services, commands do not automatically restart on error - each
 invocation is independent.
 
 ## Modules
@@ -116,7 +116,7 @@ cross.stream:
 
 ## Key Differences
 
-| Feature        | Commands                | Actors                 | Generators      |
+| Feature        | Commands                | Actors                 | Services        |
 | -------------- | ----------------------- | ---------------------- | --------------- |
 | State          | Stateless               | Stateful between calls | Stateless       |
 | Execution      | On-demand               | Event-driven           | Continuous      |

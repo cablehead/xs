@@ -20,7 +20,7 @@ For a full-featured project that integrates MCP servers with cross.stream this w
 ## What You'll Learn
 
 - How to run MCP servers and communicate with them using JSONRPC
-- How to spawn MCP servers as cross.stream [generators](../../reference/generators/)
+- How to spawn MCP servers as cross.stream [services](../../reference/services/)
 - How to send commands and receive responses through the event stream
 
 ## Prerequisites
@@ -93,11 +93,11 @@ The direct terminal approach shows the raw JSONRPC protocol that MCP servers use
 
 ## Part 2: Integration with cross.stream
 
-Now let's integrate this MCP server with cross.stream using a [generator](../../reference/generators/) so we can send commands through the event stream and receive responses as events.
+Now let's integrate this MCP server with cross.stream using a [service](../../reference/services/) so we can send commands through the event stream and receive responses as events.
 
 ### Monitoring the Stream
 
-Before we create the generator, let's open a new terminal window to monitor all activity on the stream. This will help us see everything that happens in real-time.
+Before we create the service, let's open a new terminal window to monitor all activity on the stream. This will help us see everything that happens in real-time.
 
 In a new terminal window, run:
 
@@ -115,9 +115,9 @@ This command:
 
 Keep this window open - you'll see all the MCP server lifecycle events, requests, and responses flow through in real-time.
 
-### Creating the MCP Generator
+### Creating the MCP Service
 
-Now let's spawn the MCP server as a [generator](../../reference/generators/) with [duplex](../../reference/generators/#bi-directional-communication) communication enabled:
+Now let's spawn the MCP server as a [service](../../reference/services/) with [duplex](../../reference/services/#bi-directional-communication) communication enabled:
 
 ```nushell
 r#'{
@@ -126,13 +126,13 @@ r#'{
 }'# | .append mcp.spawn
 ```
 
-This creates a [generator](../../reference/generators/) that:
+This creates a [service](../../reference/services/) that:
 - Runs the MCP server process (`npx -y "@modelcontextprotocol/server-everything"`)
 - Pipes output through `| lines` which provides "framing" - each line of output from the MCP server becomes a separate `mcp.recv` event
 - Enables `duplex: true` so we can send input to the server's stdin
 - Content from `mcp.send` frames is sent directly to the MCP server's stdin (so JSONRPC messages must include newline endings)
 
-In your monitoring window, you should see a `mcp.spawn` and then a `mcp.running` frame appear, indicating the generator has started successfully.
+In your monitoring window, you should see a `mcp.spawn` and then a `mcp.running` frame appear, indicating the service has started successfully.
 
 ### Sending Commands Through the Stream
 
@@ -144,7 +144,7 @@ Now we can send JSONRPC commands to the MCP server. First, let's send a tools/li
 
 ### Receiving Responses
 
-The [generator](../../reference/generators/) will forward our request to the MCP server and stream the response back. In your monitoring window, you should see:
+The [service](../../reference/services/) will forward our request to the MCP server and stream the response back. In your monitoring window, you should see:
 
 1. The `mcp.send` frame with your JSONRPC request
 2. The `mcp.recv` frame with the server's response containing the tools list
@@ -234,18 +234,18 @@ You could extend this pattern to create sophisticated automation - actors that t
 
 ## Part 4: Advanced Operations
 
-Now let's explore advanced operational features for managing generators and working with multiple servers.
+Now let's explore advanced operational features for managing services and working with multiple servers.
 
-### Generator Lifecycle Management
+### Service Lifecycle Management
 
-You can control the MCP server [generator](../../reference/generators/) lifecycle:
+You can control the MCP server [service](../../reference/services/) lifecycle:
 
 ```nushell
-# Stop the generator when done
+# Stop the service when done
 .append mcp.terminate
 ```
 
-In your monitoring window, you'll see the lifecycle frames: `mcp.terminate`, `mcp.stopped`, and `mcp.shutdown` as the generator shuts down completely.
+In your monitoring window, you'll see the lifecycle frames: `mcp.terminate`, `mcp.stopped`, and `mcp.shutdown` as the service shuts down completely.
 
 ### Logging and Monitoring
 
@@ -258,7 +258,7 @@ All MCP interactions are now part of your event stream, so you can:
 
 ### Multiple MCP Servers
 
-You can run multiple MCP servers as separate [generators](../../reference/generators/):
+You can run multiple MCP servers as separate [services](../../reference/services/):
 
 ```nushell
 # Spawn a filesystem server
@@ -290,17 +290,17 @@ Now you can send commands to different servers:
 You've learned how to:
 
 1. **Run MCP servers directly** and communicate via JSONRPC
-2. **Spawn MCP servers** as cross.stream [generators](../../reference/generators/) with duplex communication
+2. **Spawn MCP servers** as cross.stream [services](../../reference/services/) with duplex communication
 3. **Send commands** through the event stream using `.append topic.send`
 4. **Receive responses** as events using `.cat --topic topic.recv`
 5. **Build workflows** that leverage MCP capabilities through the stream
-6. **Manage [generator](../../reference/generators/) lifecycle** with start, stop, and monitoring
+6. **Manage [service](../../reference/services/) lifecycle** with start, stop, and monitoring
 
 This pattern lets you integrate any MCP-compatible tool into your cross.stream workflows while maintaining a complete audit trail of all interactions.
 
 ## Next Steps
 
-- Explore the [generators reference](../../reference/generators/) for advanced generator configuration
+- Explore the [services reference](../../reference/services/) for advanced service configuration
 - Learn about [actors reference](../../reference/actors/) for processing MCP responses
 - Learn about [topics](../../reference/topics/) for understanding the event lifecycle
 - Try spawning other MCP servers from the [official examples](https://modelcontextprotocol.io/examples)

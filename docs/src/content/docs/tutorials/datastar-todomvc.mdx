@@ -136,7 +136,7 @@ You now have three events: two "add" events and one "toggle" event.
 
 ## Aggregated View
 
-Raw events are awkward for presenting a summary of the current state of things. We want to create a projection of the stream. We can use an ad-hoc generator to aggregate events into state:
+Raw events are awkward for presenting a summary of the current state of things. We want to create a projection of the stream. We can use Nushell's `generate` command to aggregate events into state:
 
 ```bash withOutput wrap
 > .cat | where topic == "todos" | generate {|frame, todos = []|

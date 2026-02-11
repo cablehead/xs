@@ -59,7 +59,7 @@ to get started.
 - **Reactive Workflows**: Build actors that automatically respond to events as
   they flow through the stream
 - **CLI Integration**: Turn any command-line tool into a streaming component
-  with generators
+  with services
 - **Nushell Native**: First-class integration with Nushell for powerful data
   processing pipelines
 - **Real-time Streaming**: Subscribe to live event feeds and build responsive

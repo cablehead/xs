@@ -7,7 +7,7 @@ sidebar:
 
 cross.stream is built around four fundamental concepts that work together to
 create a powerful and flexible event streaming system: the event store,
-generators, actors, and commands. Let's explore how these components interact
+services, actors, and commands. Let's explore how these components interact
 and complement each other.
 
 ## Event Store: The Foundation
@@ -34,13 +34,13 @@ process.
 
 ## Processing Components
 
-### Generators: The Producers
+### Services: The Producers
 
-Generators are like automated watchers that produce new events into the stream.
+Services are like automated watchers that produce new events into the stream.
 They run as background processes, monitoring for specific conditions or changes
 and emitting corresponding events when they occur.
 
-For example, a generator might:
+For example, a service might:
 
 - Watch a log file and emit new lines as events
 - Monitor a websocket connection and turn incoming messages into events
@@ -62,7 +62,7 @@ An actor might:
 ### Commands: The On-demand Processors
 
 Commands are reusable operations that can be called on-demand with input data.
-Unlike generators which run continuously, or actors which maintain state,
+Unlike services which run continuously, or actors which maintain state,
 commands are stateless and execute independently each time they are called.
 
 A command might:
@@ -73,7 +73,7 @@ A command might:
 
 ## Component Comparison
 
-| Aspect           | Generators                            | Actors                        | Commands                     |
+| Aspect           | Services                              | Actors                        | Commands                     |
 | ---------------- | ------------------------------------- | ----------------------------- | ---------------------------- |
 | Purpose          | Produce events from external sources  | Process existing events       | Perform on-demand operations |
 | Execution        | Continuous background process         | Event-driven                  | Called on-demand             |
@@ -92,10 +92,10 @@ gradually add complexity as needed:
    - Get comfortable with the basic append/read operations
    - Use it like a specialized database
 
-2. **Add Generators**
+2. **Add Services**
    - When you need to automatically capture events from external sources
    - Start with simple file watchers or API monitors
-   - Let generators feed your event stream
+   - Let services feed your event stream
 
 3. **Introduce Actors**
    - As you need to process or react to events
@@ -111,14 +111,14 @@ gradually add complexity as needed:
 
 These components create a flexible architecture where:
 
-1. **Generators** feed events into the system from external sources
+1. **Services** feed events into the system from external sources
 2. **Actors** process those events, maintaining state if needed
 3. **Commands** provide reusable operations that can be called on-demand
 4. The **event store** ensures everything is reliably recorded and retrievable
 
 For example, you might have:
 
-- A generator watching system metrics
+- A service watching system metrics
 - An actor that processes those metrics and detects anomalies
 - A command that can be called to fetch additional data when an anomaly is
   detected

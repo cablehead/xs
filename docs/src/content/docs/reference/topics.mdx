@@ -53,7 +53,7 @@ Topic queries return frames in chronological order (by frame ID), not grouped by
 
 ## Module Topics
 
-Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any actor, generator, or command script can then `use` these modules by their stable VFS path.
+Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any actor, service, or command script can then `use` these modules by their stable VFS path.
 
 ```nushell
 # Register a module
@@ -78,24 +78,24 @@ r#'{
 }'# | .append greeter.register
 ```
 
-Each actor, generator, or command sees the modules as they existed when it was registered. Modules appended later are only visible to components registered after them. Re-appending a module and then re-registering a component picks up the new version.
+Each actor, service, or command sees the modules as they existed when it was registered. Modules appended later are only visible to components registered after them. Re-appending a module and then re-registering a component picks up the new version.
 
 ## Component Suffixes
 
 cross.stream uses topic suffixes to coordinate component lifecycle.
 
-### Generators
+### Services
 
 | Suffix | Description | Emitted By |
 | ------ | ----------- | ---------- |
-| `.spawn` | Create or update a generator | User |
-| `.terminate` | Stop a generator | User |
-| `.send` | Input to duplex generators | User |
-| `.running` | Generator has started | System |
-| `.stopped` | Generator pipeline stopped | System |
-| `.shutdown` | Generator loop fully exited | System |
+| `.spawn` | Create or update a service | User |
+| `.terminate` | Stop a service | User |
+| `.send` | Input to duplex services | User |
+| `.running` | Service has started | System |
+| `.stopped` | Service pipeline stopped | System |
+| `.shutdown` | Service loop fully exited | System |
 | `.parse.error` | Script parsing failed | System |
-| `.recv` | Output from generator | System |
+| `.recv` | Output from service | System |
 
 ### Actors
 
@@ -129,7 +129,7 @@ cross.stream uses topic suffixes to coordinate component lifecycle.
 
 Output suffixes can be changed via `return_options.suffix`:
 
-- `.recv` (Generators)
+- `.recv` (Services)
 - `.out` (Actors)
 - `.response` (Commands)
 

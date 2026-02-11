@@ -1,6 +1,6 @@
-use crate::generators::generator::emit_event;
-use crate::generators::{GeneratorEventKind, GeneratorLoop, StopReason, Task};
 use crate::nu::ReturnOptions;
+use crate::service::service::emit_event;
+use crate::service::{ServiceEventKind, ServiceLoop, StopReason, Task};
 use nu_protocol;
 use scru128;
 use std::time::{Duration, Instant};
@@ -21,12 +21,12 @@ async fn test_serve_basic() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         }));
     }
 
     let script = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
-    let frame_generator = store
+    let frame_service = store
         .append(
             Frame::builder("toml.spawn")
                 .maybe_hash(store.cas_insert(script).await.ok())
@@ -46,14 +46,14 @@ async fn test_serve_basic() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "toml.recv".to_string());
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["source_id"], frame_generator.id.to_string());
+    assert_eq!(meta["source_id"], frame_service.id.to_string());
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert_eq!(std::str::from_utf8(&content).unwrap(), "[package]");
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "toml.recv".to_string());
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["source_id"], frame_generator.id.to_string());
+    assert_eq!(meta["source_id"], frame_service.id.to_string());
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert_eq!(
         std::str::from_utf8(&content).unwrap(),
@@ -68,12 +68,12 @@ async fn test_serve_duplex() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         }));
     }
 
     let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true }"#;
-    let frame_generator = store
+    let frame_service = store
         .append(
             Frame::builder("greeter.spawn".to_string())
                 .maybe_hash(store.cas_insert(script).await.ok())
@@ -102,11 +102,11 @@ async fn test_serve_duplex() {
         "greeter.send".to_string()
     );
 
-    // assert we see a reaction from the generator
+    // assert we see a reaction from the service
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "greeter.recv".to_string());
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["source_id"], frame_generator.id.to_string());
+    assert_eq!(meta["source_id"], frame_service.id.to_string());
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert_eq!(std::str::from_utf8(&content).unwrap(), "hi: henry");
 }
@@ -124,9 +124,9 @@ async fn test_serve_compact() {
         )
         .unwrap();
 
-    // replaces the previous generator
+    // replaces the previous service
     let script2 = r#"{ run: {|| ^tail -n +2 -F Cargo.toml | lines } }"#;
-    let frame_generator = store
+    let frame_service = store
         .append(
             Frame::builder("toml.spawn")
                 .maybe_hash(store.cas_insert(script2).await.ok())
@@ -143,19 +143,19 @@ async fn test_serve_compact() {
     {
         let store = store.clone();
         drop(tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         }));
     }
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "toml.running".to_string());
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["source_id"], frame_generator.id.to_string());
+    assert_eq!(meta["source_id"], frame_service.id.to_string());
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "toml.recv".to_string());
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["source_id"], frame_generator.id.to_string());
+    assert_eq!(meta["source_id"], frame_service.id.to_string());
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert_eq!(
         std::str::from_utf8(&content).unwrap(),
@@ -165,7 +165,7 @@ async fn test_serve_compact() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "toml.recv".to_string());
     let meta = frame.meta.unwrap();
-    assert_eq!(meta["source_id"], frame_generator.id.to_string());
+    assert_eq!(meta["source_id"], frame_service.id.to_string());
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert_eq!(
         std::str::from_utf8(&content).unwrap(),
@@ -180,7 +180,7 @@ async fn test_respawn_after_terminate() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         });
     }
 
@@ -228,7 +228,7 @@ async fn test_serve_restart_until_terminated() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         });
     }
 
@@ -283,7 +283,7 @@ async fn test_duplex_terminate_stops() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         });
     }
 
@@ -304,7 +304,7 @@ async fn test_duplex_terminate_stops() {
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "echo.running");
 
-    // terminate while generator waits for input
+    // terminate while service waits for input
     store
         .append(Frame::builder("echo.terminate").build())
         .unwrap();
@@ -332,7 +332,7 @@ async fn test_parse_error_eviction() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         });
     }
 
@@ -360,7 +360,7 @@ async fn test_parse_error_eviction() {
 
     // no stop frame should be emitted on parse error
 
-    // Allow the dispatcher to process the parse.error and evict the generator
+    // Allow the dispatcher to process the parse.error and evict the service
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let good_script = r#"{ run: {|| "ok" } }"#;
@@ -383,14 +383,14 @@ async fn test_parse_error_eviction() {
 
 #[tokio::test]
 async fn test_refresh_on_new_spawn() {
-    // Verify that a new `.spawn` triggers a stop with `update_id` and restarts the generator.
+    // Verify that a new `.spawn` triggers a stop with `update_id` and restarts the service.
     let store = setup_test_env();
 
     // Spawn serve in the background
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         });
     }
 
@@ -412,7 +412,7 @@ async fn test_refresh_on_new_spawn() {
     // Expect the first running
     assert_eq!(recver.recv().await.unwrap().topic, "reload.running");
 
-    // Send a new spawn to refresh the generator while it's running
+    // Send a new spawn to refresh the service while it's running
     let script2 = r#"{ run: {|| "v2" } }"#;
     let spawn2 = store
         .append(
@@ -437,7 +437,7 @@ async fn test_refresh_on_new_spawn() {
     assert_eq!(meta["source_id"], spawn1.id.to_string());
     assert_eq!(meta["update_id"], spawn2.id.to_string());
 
-    // And the generator should restart with the new script
+    // And the service should restart with the new script
     assert_eq!(recver.recv().await.unwrap().topic, "reload.running");
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "reload.recv");
@@ -446,12 +446,12 @@ async fn test_refresh_on_new_spawn() {
 }
 
 #[tokio::test]
-async fn test_terminate_one_of_two_generators() {
+async fn test_terminate_one_of_two_services() {
     let store = setup_test_env();
 
     {
         let store = store.clone();
-        tokio::spawn(async move { crate::generators::run(store).await.unwrap() });
+        tokio::spawn(async move { crate::service::run(store).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -506,7 +506,7 @@ async fn test_bytestream_ping() {
 
     {
         let store = store.clone();
-        tokio::spawn(async move { crate::generators::run(store).await.unwrap() });
+        tokio::spawn(async move { crate::service::run(store).await.unwrap() });
     }
 
     let options = ReadOptions::builder()
@@ -578,7 +578,7 @@ fn test_emit_event_helper() {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.keep()).unwrap();
     let engine = nu::Engine::new().unwrap();
-    let loop_ctx = GeneratorLoop {
+    let loop_ctx = ServiceLoop {
         topic: "helper".into(),
     };
     let task = Task {
@@ -600,23 +600,23 @@ fn test_emit_event_helper() {
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Running,
+        ServiceEventKind::Running,
     )
     .unwrap();
-    assert!(matches!(ev.kind, GeneratorEventKind::Running));
+    assert!(matches!(ev.kind, ServiceEventKind::Running));
 
     let ev = emit_event(
         &store,
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Recv {
+        ServiceEventKind::Recv {
             suffix: "data".into(),
             data: b"hi".to_vec(),
         },
     )
     .unwrap();
-    assert!(matches!(ev.kind, GeneratorEventKind::Recv { .. }));
+    assert!(matches!(ev.kind, ServiceEventKind::Recv { .. }));
     assert_eq!(ev.frame.topic, "helper.data");
     let bytes = store.cas_read_sync(&ev.frame.hash.unwrap());
     assert_eq!(bytes.unwrap(), b"hi".to_vec());
@@ -626,17 +626,17 @@ fn test_emit_event_helper() {
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Stopped(StopReason::Finished),
+        ServiceEventKind::Stopped(StopReason::Finished),
     )
     .unwrap();
-    assert!(matches!(ev.kind, GeneratorEventKind::Stopped(_)));
+    assert!(matches!(ev.kind, ServiceEventKind::Stopped(_)));
 
     let ev = emit_event(
         &store,
         &loop_ctx,
         task.id,
         task.return_options.as_ref(),
-        GeneratorEventKind::Shutdown,
+        ServiceEventKind::Shutdown,
     )
     .unwrap();
     assert_eq!(ev.frame.topic, "helper.shutdown");
@@ -649,7 +649,7 @@ async fn test_external_command_error_message() {
     {
         let store = store.clone();
         tokio::spawn(async move {
-            crate::generators::run(store).await.unwrap();
+            crate::service::run(store).await.unwrap();
         });
     }
 
