@@ -78,7 +78,7 @@ r#'{
 }'# | .append greeter.register
 ```
 
-Modules appended before startup are available to all scripts. Modules appended at runtime are available to scripts registered after them.
+Each handler, generator, or command sees the modules as they existed when it was registered. Modules appended later are only visible to components registered after them. Re-appending a module and then re-registering a component picks up the new version.
 
 ## Component Suffixes
 
