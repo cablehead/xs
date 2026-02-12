@@ -201,10 +201,21 @@ h1 {
   padding: 1.5em;
   border-radius: 8px;
   border: 1px solid var(--border-default);
+  border-left: 4px solid var(--card-accent);
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.feature-card:hover {
+  border-color: var(--card-accent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
 }
 
 .feature-card h3 {
-  color: var(--accent-orange);
+  color: var(--card-accent);
   margin-bottom: 0.75em;
   font-size: 1.3em;
 }
@@ -212,6 +223,25 @@ h1 {
 .feature-card p {
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.feature-card.event-store {
+  --card-accent: #3b82f6;
+}
+.feature-card.services {
+  --card-accent: #10b981;
+}
+.feature-card.actors {
+  --card-accent: #f59e0b;
+}
+.feature-card.actions {
+  --card-accent: #8b5cf6;
+}
+.feature-card.local-first {
+  --card-accent: #ef4444;
+}
+.feature-card.nushell {
+  --card-accent: #06b6d4;
 }
 
 /* Quickstart Section */

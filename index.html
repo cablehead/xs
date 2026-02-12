@@ -138,8 +138,8 @@ additional_css %}
   <section id="what-is-event-streaming-store">
     <h2>What's an event streaming store?</h2>
     <p>
-      If you think of an "event" like a frame in a movie—a small package on a
-      timeline—an event streaming store is a <a
+      If you think of an "event" like a frame in a movie -a small package on a
+      timeline -an event streaming store is a <a
         href="https://cablehead.github.io/xs/reference/architecture/"
       >database</a> designed to record these frames in strict order,
       append-only, so they can be replayed or reacted to later.
@@ -150,44 +150,74 @@ additional_css %}
       >example</a>, you might append a frame every time a message is posted in a
       specific Discord channel. You can then <a
         href="https://cablehead.github.io/xs/getting-started/first-stream/#cat-and-cas-commands"
-      ><code>.cat</code></a> the stream to review all captured messages, and—if
-      you're in a <a href="https://www.nushell.sh/">Nushell</a> session—use
+      ><code>.cat</code></a> the stream to review all captured messages, and -if
+      you're in a <a href="https://www.nushell.sh/">Nushell</a> session -use
       pipelines to filter, aggregate, or process them with a CLI tool.
     </p>
   </section>
 
   <!-- Core Ideas Section -->
   <div class="features-grid">
-    <feature-card
-      type="event-store"
-      card-title="Event Store"
-      description="Append-only stream with content-addressable storage (CAS). Separate metadata from content for speed."
-    ></feature-card>
-    <feature-card
-      type="services"
-      card-title="Services"
-      description="Continuously pull data from files, APIs, websockets, serial devices, or sensors."
-    ></feature-card>
-    <feature-card
-      type="actors"
-      card-title="Actors"
-      description="React to incoming frames with stateful processors—transform, trigger, fan-out."
-    ></feature-card>
-    <feature-card
-      type="actions"
-      card-title="Actions"
-      description="On-demand, stateless ops. Perfect for RPC-style calls or streaming data back to the caller."
-    ></feature-card>
-    <feature-card
-      type="local-first"
-      card-title="Local-First"
-      description="Single binary, file-based store, Unix socket API. No cloud, works offline."
-    ></feature-card>
-    <feature-card
-      type="nushell"
-      card-title="Nushell Integration"
-      description="Write actors and services in Nushell with strong typing and structured pipelines."
-    ></feature-card>
+    <a
+      class="feature-card event-store"
+      href="https://cablehead.github.io/xs/explanation/architecture/"
+    >
+      <h3>Event Store</h3>
+      <p>
+        Append-only stream with content-addressable storage (CAS). Separate
+        metadata from content for speed.
+      </p>
+    </a>
+    <a
+      class="feature-card actors"
+      href="https://cablehead.github.io/xs/reference/actors/"
+    >
+      <h3>Actors</h3>
+      <p>
+        React to incoming frames with stateful processors -transform, trigger,
+        fan-out.
+      </p>
+    </a>
+    <a
+      class="feature-card actions"
+      href="https://cablehead.github.io/xs/reference/actions/"
+    >
+      <h3>Actions</h3>
+      <p>
+        On-demand, stateless ops. Perfect for RPC-style calls or streaming data
+        back to the caller.
+      </p>
+    </a>
+    <a
+      class="feature-card services"
+      href="https://cablehead.github.io/xs/reference/services/"
+    >
+      <h3>Services</h3>
+      <p>
+        Continuously pull data from files, APIs, websockets, serial devices, or
+        sensors.
+      </p>
+    </a>
+    <a
+      class="feature-card local-first"
+      href="https://cablehead.github.io/xs/getting-started/first-stream/"
+    >
+      <h3>Local-First</h3>
+      <p>
+        Single binary, file-based store, Unix socket API. No cloud, works
+        offline.
+      </p>
+    </a>
+    <a
+      class="feature-card nushell"
+      href="https://cablehead.github.io/xs/reference/xs-nu/"
+    >
+      <h3>Nushell Integration</h3>
+      <p>
+        Write actors and services in Nushell with strong typing and structured
+        pipelines.
+      </p>
+    </a>
   </div>
 
   <div class="cta-buttons">
