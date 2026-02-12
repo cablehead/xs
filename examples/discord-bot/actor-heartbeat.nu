@@ -54,7 +54,7 @@ def "scru128-since" [$id1, $id2] {
 }
 
 def .send [] {
-    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl head:5
+    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl last:5
 }
 
 $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
