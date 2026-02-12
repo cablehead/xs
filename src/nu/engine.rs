@@ -185,7 +185,7 @@ impl Engine {
     pub fn run_closure_in_job(
         &mut self,
         closure: &nu_protocol::engine::Closure,
-        arg: Option<Value>,
+        args: Vec<Value>,
         pipeline_input: Option<PipelineData>,
         job_name: impl Into<String>,
     ) -> Result<PipelineData, Box<ShellError>> {
@@ -207,70 +207,64 @@ impl Engine {
         let saved_bg_job = self.state.current_job.background_thread_job.clone();
         self.state.current_job.background_thread_job = Some(job.clone());
 
-        // -- prepare stack & validate/inject optional single Value argument ---
+        // -- prepare stack & validate/inject positional arguments ---
         let block = self.state.get_block(closure.block_id);
         let mut stack = Stack::new();
         let mut stack =
             stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
 
-        let num_required_pos = block.signature.required_positional.len();
-        // let num_optional_pos = block.signature.optional_positional.len(); // Not checking optional for now
+        let num_required = block.signature.required_positional.len();
+        let num_optional = block.signature.optional_positional.len();
+        let total_positional = num_required + num_optional;
 
-        match arg {
-            Some(val_to_set_as_arg) => {
-                if num_required_pos == 1 {
-                    // Simplistic: assumes if an arg is given, it's for the first required one.
-                    // Could be extended for multiple args if `arg` became `Vec<Value>`.
-                    if let Some(var_id) = block.signature.required_positional[0].var_id {
-                        stack.add_var(var_id, val_to_set_as_arg);
-                    } else {
-                        // This case should ideally not happen if parsing is correct.
-                        return Err(Box::new(ShellError::GenericError{
-                            error: format!("Closure for job '{job_display_name}' expects an argument but its definition is missing a variable ID."),
-                            msg: "Internal error: argument variable ID not found.".into(),
-                            span: Some(block.span.unwrap_or_else(Span::unknown)),
-                            help: None,
-                            inner: vec![],
-                        }));
-                    }
-                } else if num_required_pos == 0 {
-                    return Err(Box::new(ShellError::GenericError{
-                        error: format!("Argument provided to job '{job_display_name}', but its run closure takes no arguments."),
-                        msg: format!("Closure signature: {name}. Provided argument type: {typ:?}", name = block.signature.name, typ = val_to_set_as_arg.get_type()),
-                        span: Some(val_to_set_as_arg.span()),
-                        help: Some("Remove the argument or modify the closure to accept one.".into()),
-                        inner: vec![],
-                    }));
-                } else {
-                    // num_required_pos > 1
-                    return Err(Box::new(ShellError::GenericError{
-                        error: format!("Single argument provided to job '{job_display_name}', but its run closure expects {num_required_pos} arguments."),
-                        msg: format!("Closure signature: {name}. Provided argument type: {typ:?}", name = block.signature.name, typ = val_to_set_as_arg.get_type()),
-                        span: Some(val_to_set_as_arg.span()),
-                        help: Some(format!("Provide {num_required_pos} arguments or modify the closure.")),
-                        inner: vec![],
-                    }));
-                }
+        if args.len() > total_positional {
+            return Err(Box::new(ShellError::GenericError {
+                error: format!(
+                    "Too many arguments for job '{job_display_name}': got {}, closure accepts at most {total_positional}.",
+                    args.len()
+                ),
+                msg: format!("Closure signature: {name}", name = block.signature.name),
+                span: Some(block.span.unwrap_or_else(Span::unknown)),
+                help: None,
+                inner: vec![],
+            }));
+        }
+
+        if args.len() < num_required {
+            return Err(Box::new(ShellError::GenericError {
+                error: format!(
+                    "Job '{job_display_name}' run closure expects {num_required} required argument(s), but {} were provided.",
+                    args.len()
+                ),
+                msg: format!("Closure signature: {name}", name = block.signature.name),
+                span: Some(block.span.unwrap_or_else(Span::unknown)),
+                help: None,
+                inner: vec![],
+            }));
+        }
+
+        // Inject provided positional args
+        for (i, val) in args.iter().enumerate() {
+            let param = if i < num_required {
+                &block.signature.required_positional[i]
+            } else {
+                &block.signature.optional_positional[i - num_required]
+            };
+            if let Some(var_id) = param.var_id {
+                stack.add_var(var_id, val.clone());
             }
-            None => {
-                // No explicit `arg` provided. Check if closure *requires* one.
-                if num_required_pos > 0 {
-                    // We could allow $in to fulfill the first argument if `pipeline_input` is Some Value,
-                    // but that makes the contract less clear. Stricter is better here.
-                    // If $in is supposed to be the argument, caller should convert PipelineData::Value to Option<Value> for `arg`.
-                    return Err(Box::new(ShellError::GenericError {
-                        error: format!(
-                            "Job '{job_display_name}' run closure expects {num_required_pos} argument(s), but none were provided."
-                        ),
-                        msg: format!("Closure signature: {name}", name = block.signature.name),
-                        span: Some(block.span.unwrap_or_else(Span::unknown)),
-                        help: Some(format!(
-                            "Provide {num_required_pos} argument(s) or modify the closure."
-                        )),
-                        inner: vec![],
-                    }));
-                }
-                // If num_required_pos is 0 and arg is None, this is fine.
+        }
+
+        // Set default values for optional params not covered by provided args
+        let optional_covered = args.len().saturating_sub(num_required);
+        for i in optional_covered..num_optional {
+            let param = &block.signature.optional_positional[i];
+            if let Some(var_id) = param.var_id {
+                let default = param
+                    .default_value
+                    .clone()
+                    .unwrap_or_else(|| Value::nothing(Span::unknown()));
+                stack.add_var(var_id, default);
             }
         }
 

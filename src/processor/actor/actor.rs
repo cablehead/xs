@@ -54,6 +54,18 @@ struct ActorScriptOptions {
     pulse: Option<u64>,
     /// Optional customizations for return frames
     return_options: Option<ReturnOptions>,
+    /// Initial state for the actor closure's second parameter
+    initial: Option<serde_json::Value>,
+}
+
+pub(super) enum ClosureResult {
+    Continue {
+        output: Option<Value>,
+        next_state: Value,
+    },
+    Stop {
+        output: Option<Value>,
+    },
 }
 
 impl Actor {
@@ -78,21 +90,42 @@ impl Actor {
         let nu_script_config = nu::parse_config(&mut engine, &expression)?;
 
         // Deserialize actor-specific options from the full_config_value
-        let actor_config = extract_actor_config(&nu_script_config)?;
+        let (actor_config, initial_json) = extract_actor_config(&nu_script_config)?;
 
-        // Validate the closure signature
+        // Validate closure signature and resolve initial state
         let block = engine
             .state
             .get_block(nu_script_config.run_closure.block_id);
-        if block.signature.required_positional.len() != 1 {
+        let num_required = block.signature.required_positional.len();
+        let num_optional = block.signature.optional_positional.len();
+
+        let total_positional = num_required + num_optional;
+        if total_positional != 2 {
             return Err(format!(
-                "Closure must accept exactly one frame argument, found {count}",
-                count = block.signature.required_positional.len()
+                "Closure must accept exactly 2 params (frame, state) -- got {total_positional}"
             )
             .into());
         }
 
-        let engine_worker = Arc::new(EngineWorker::new(engine, nu_script_config.run_closure));
+        // Resolve initial state: config `initial` > param default > null
+        let span = nu_protocol::Span::unknown();
+        let initial_state = if let Some(json) = initial_json {
+            crate::nu::util::json_to_value(&json, span)
+        } else if num_optional > 0 {
+            let state_param = &block.signature.optional_positional[0];
+            state_param
+                .default_value
+                .clone()
+                .unwrap_or_else(|| Value::nothing(span))
+        } else {
+            Value::nothing(span)
+        };
+
+        let engine_worker = Arc::new(EngineWorker::new(
+            engine,
+            nu_script_config.run_closure,
+            initial_state,
+        ));
 
         Ok(Self {
             id,
@@ -103,7 +136,7 @@ impl Actor {
         })
     }
 
-    pub async fn eval_in_thread(&self, frame: &crate::store::Frame) -> Result<Value, Error> {
+    async fn eval_in_thread(&self, frame: &Frame) -> Result<ClosureResult, Error> {
         self.engine_worker.eval(frame.clone()).await
     }
 
@@ -116,42 +149,47 @@ impl Actor {
                 actor_id = self.id, topic = self.topic, frame_id = frame.id, frame_topic = frame.topic)
         )
     )]
-    async fn process_frame(&mut self, frame: &Frame, store: &Store) -> Result<(), Error> {
-        let frame_clone = frame.clone();
+    async fn process_frame(&mut self, frame: &Frame, store: &Store) -> Result<bool, Error> {
+        let result = self.eval_in_thread(frame).await?;
 
-        let value = self.eval_in_thread(&frame_clone).await?;
+        let (output, should_continue) = match result {
+            ClosureResult::Continue { output, .. } => (output, true),
+            ClosureResult::Stop { output } => (output, false),
+        };
 
         // Check if the evaluated value is an append frame
-        let additional_frame = if !is_value_an_append_frame_from_actor(&value, &self.id)
-            && !matches!(value, Value::Nothing { .. })
-        {
-            let return_options = self.config.return_options.as_ref();
-            let suffix = return_options
-                .and_then(|ro| ro.suffix.as_deref())
-                .unwrap_or(".out");
+        let additional_frame = match output {
+            Some(ref value)
+                if !is_value_an_append_frame_from_actor(value, &self.id)
+                    && !matches!(value, Value::Nothing { .. }) =>
+            {
+                let return_options = self.config.return_options.as_ref();
+                let suffix = return_options
+                    .and_then(|ro| ro.suffix.as_deref())
+                    .unwrap_or(".out");
 
-            let hash = match &value {
-                Value::Binary { val, .. } => {
-                    // Store binary data directly
-                    store.cas_insert(val).await?
-                }
-                _ => {
-                    // Store as JSON string (existing path)
-                    store.cas_insert(&value_to_json(&value).to_string()).await?
-                }
-            };
-            Some(
-                Frame::builder(format!(
-                    "{topic}{suffix}",
-                    topic = self.topic,
-                    suffix = suffix
-                ))
-                .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
-                .maybe_hash(Some(hash))
-                .build(),
-            )
-        } else {
-            None
+                let hash = match value {
+                    Value::Binary { val, .. } => {
+                        // Store binary data directly
+                        store.cas_insert(val).await?
+                    }
+                    _ => {
+                        // Store as JSON string (existing path)
+                        store.cas_insert(&value_to_json(value).to_string()).await?
+                    }
+                };
+                Some(
+                    Frame::builder(format!(
+                        "{topic}{suffix}",
+                        topic = self.topic,
+                        suffix = suffix
+                    ))
+                    .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
+                    .maybe_hash(Some(hash))
+                    .build(),
+                )
+            }
+            _ => None,
         };
 
         // Process buffered appends and the additional frame
@@ -182,7 +220,7 @@ impl Actor {
             let _ = store.append(output_frame);
         }
 
-        Ok(())
+        Ok(should_continue)
     }
 
     async fn serve(&mut self, store: &Store, options: ReadOptions) {
@@ -223,17 +261,32 @@ impl Actor {
                 continue;
             }
 
-            if let Err(err) = self.process_frame(&frame, store).await {
-                let _ = store.append(
-                    Frame::builder(format!("{topic}.unregistered", topic = self.topic))
-                        .meta(serde_json::json!({
-                            "actor_id": self.id.to_string(),
-                            "frame_id": frame.id.to_string(),
-                            "error": err.to_string(),
-                        }))
-                        .build(),
-                );
-                break;
+            match self.process_frame(&frame, store).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    // Actor self-terminated
+                    let _ = store.append(
+                        Frame::builder(format!("{topic}.unregistered", topic = self.topic))
+                            .meta(serde_json::json!({
+                                "actor_id": self.id.to_string(),
+                                "frame_id": frame.id.to_string(),
+                            }))
+                            .build(),
+                    );
+                    break;
+                }
+                Err(err) => {
+                    let _ = store.append(
+                        Frame::builder(format!("{topic}.unregistered", topic = self.topic))
+                            .meta(serde_json::json!({
+                                "actor_id": self.id.to_string(),
+                                "frame_id": frame.id.to_string(),
+                                "error": err.to_string(),
+                            }))
+                            .build(),
+                    );
+                    break;
+                }
             }
         }
     }
@@ -329,28 +382,33 @@ pub struct EngineWorker {
 
 struct WorkItem {
     frame: Frame,
-    resp_tx: oneshot::Sender<Result<Value, Error>>,
+    resp_tx: oneshot::Sender<Result<ClosureResult, Error>>,
 }
 
 impl EngineWorker {
-    pub fn new(engine: nu::Engine, closure: nu_protocol::engine::Closure) -> Self {
+    pub fn new(
+        engine: nu::Engine,
+        closure: nu_protocol::engine::Closure,
+        initial_state: Value,
+    ) -> Self {
         let (work_tx, mut work_rx) = mpsc::channel(32);
 
         std::thread::spawn(move || {
             let mut engine = engine;
+            let mut state = initial_state;
 
             while let Some(WorkItem { frame, resp_tx }) = work_rx.blocking_recv() {
-                let arg_val =
+                let frame_val =
                     crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown(), false);
 
                 let pipeline = engine.run_closure_in_job(
                     &closure,
-                    Some(arg_val), // The frame value for the closure's argument
-                    None,          // No separate $in pipeline
+                    vec![frame_val, state.clone()],
+                    None,
                     format!("actor {topic}", topic = frame.topic),
                 );
 
-                let output = pipeline
+                let result = pipeline
                     .map_err(|e| {
                         let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
                         Error::from(nu_protocol::format_cli_error(None, &working_set, &*e, None))
@@ -358,16 +416,21 @@ impl EngineWorker {
                     .and_then(|pd| {
                         pd.into_value(nu_protocol::Span::unknown())
                             .map_err(Error::from)
-                    });
+                    })
+                    .and_then(interpret_closure_result);
 
-                let _ = resp_tx.send(output);
+                if let Ok(ClosureResult::Continue { ref next_state, .. }) = result {
+                    state = next_state.clone();
+                }
+
+                let _ = resp_tx.send(result);
             }
         });
 
         Self { work_tx }
     }
 
-    pub async fn eval(&self, frame: Frame) -> Result<Value, Error> {
+    pub async fn eval(&self, frame: Frame) -> Result<ClosureResult, Error> {
         let (resp_tx, resp_rx) = oneshot::channel();
         let work_item = WorkItem { frame, resp_tx };
 
@@ -379,6 +442,32 @@ impl EngineWorker {
         resp_rx
             .await
             .map_err(|_| Error::from("Engine worker thread has terminated"))?
+    }
+}
+
+fn interpret_closure_result(value: Value) -> Result<ClosureResult, Error> {
+    match value {
+        Value::Nothing { .. } => Ok(ClosureResult::Stop { output: None }),
+        Value::Record { ref val, .. } => {
+            for key in val.columns() {
+                if key != "out" && key != "next" {
+                    return Err(format!(
+                        "Unexpected key '{key}' in closure return record; only 'out' and 'next' are allowed"
+                    )
+                    .into());
+                }
+            }
+            let output = val.get("out").cloned();
+            match val.get("next").cloned() {
+                Some(next_state) => Ok(ClosureResult::Continue { output, next_state }),
+                None => Ok(ClosureResult::Stop { output }),
+            }
+        }
+        _ => Err(format!(
+            "Closure must return a record with 'out' and/or 'next' keys, or nothing; got {}",
+            value.get_type()
+        )
+        .into()),
     }
 }
 
@@ -396,7 +485,9 @@ fn is_value_an_append_frame_from_actor(value: &Value, actor_id: &Scru128Id) -> b
 }
 
 /// Extract actor-specific configuration from the generic NuScriptConfig
-fn extract_actor_config(script_config: &NuScriptConfig) -> Result<ActorConfig, Error> {
+fn extract_actor_config(
+    script_config: &NuScriptConfig,
+) -> Result<(ActorConfig, Option<serde_json::Value>), Error> {
     // Deserialize the actor script options using the deserialize_options method
     let script_options: ActorScriptOptions = script_config.deserialize_options()?;
 
@@ -411,10 +502,13 @@ fn extract_actor_config(script_config: &NuScriptConfig) -> Result<ActorConfig, E
             None => Start::default(), // Default if not specified in script
         };
 
-    // Build and return the ActorConfig
-    Ok(ActorConfig {
-        start,
-        pulse: script_options.pulse,
-        return_options: script_options.return_options,
-    })
+    // Build and return the ActorConfig and initial state
+    Ok((
+        ActorConfig {
+            start,
+            pulse: script_options.pulse,
+            return_options: script_options.return_options,
+        },
+        script_options.initial,
+    ))
 }

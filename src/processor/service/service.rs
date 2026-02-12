@@ -458,7 +458,7 @@ fn spawn_thread(
     std::thread::spawn(move || {
         let res = match task.engine.run_closure_in_job(
             &task.run_closure,
-            None,
+            vec![],
             Some(input_pipeline),
             task.id.to_string(),
         ) {

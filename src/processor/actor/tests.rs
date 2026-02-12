@@ -98,7 +98,7 @@ macro_rules! validate_field {
 }
 
 #[tokio::test]
-async fn test_register_invalid_closure() {
+async fn test_register_invalid_closure_no_args() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options).await;
@@ -112,11 +112,44 @@ async fn test_register_invalid_closure() {
     let frame_actor = store
         .append(
             Frame::builder("invalid.register")
+                .hash(store.cas_insert(r#"{run: {|| 42}}"#).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "invalid.register".to_string()
+    );
+
+    validate_frame!(
+        recver.recv().await.unwrap(), {
+        topic: "invalid.unregistered",
+        handler: frame_actor,
+        error: "Closure must accept exactly 2 params",
+    });
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_register_invalid_closure_old_one_arg() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.threshold".to_string()
+    );
+
+    // Attempt to register old 1-arg closure shape (no state param)
+    let frame_actor = store
+        .append(
+            Frame::builder("invalid.register")
                 .hash(
                     store
-                        .cas_insert(
-                            r#"{run: {|| 42}}"#, // Invalid closure, expects at least one argument
-                        )
+                        .cas_insert(r#"{run: {|frame| $frame}}"#)
                         .await
                         .unwrap(),
                 )
@@ -124,18 +157,16 @@ async fn test_register_invalid_closure() {
         )
         .unwrap();
 
-    // Ensure the register frame is processed
     assert_eq!(
         recver.recv().await.unwrap().topic,
         "invalid.register".to_string()
     );
 
-    // Expect an inactive frame to be appended
     validate_frame!(
         recver.recv().await.unwrap(), {
         topic: "invalid.unregistered",
         handler: frame_actor,
-        error: "Closure must accept exactly one frame argument, found 0",
+        error: "Closure must accept exactly 2 params",
     });
 
     assert_no_more_frames(&mut recver).await;
@@ -161,7 +192,7 @@ async fn test_register_parse_error() {
                         .cas_insert(
                             r#"
                         {
-                          run: {|frame|
+                          run: {|frame, state = null|
                             .last index.html | .cas
                           }
                         }
@@ -209,7 +240,7 @@ async fn test_no_self_loop() {
             Frame::builder("echo.register")
                 .hash(
                     store
-                        .cas_insert(r#"{run: {|frame| $frame}}"#)
+                        .cas_insert(r#"{run: {|frame, state = null| {out: $frame, next: $state}}}"#)
                         .await
                         .unwrap(),
                 )
@@ -264,9 +295,12 @@ async fn test_essentials() {
                 .cas_insert(
                     r#"
                     {
-                      run: {|frame|
-                        if $frame.topic != "pew" { return }
-                        "processed"
+                      run: {|frame, state = null|
+                        if $frame.topic == "pew" {
+                          {out: "processed", next: $state}
+                        } else {
+                          {next: $state}
+                        }
                       }
 
                       start: (.last "action.out" | get meta.frame_id)
@@ -360,7 +394,7 @@ async fn test_unregister_on_error() {
                     store
                         .cas_insert(
                             r#"{
-                          run: {|frame|
+                          run: {|frame, state = null|
                             let x = {"foo": null}
                             $x.foo.bar  # Will error at runtime - null access
                           }
@@ -408,9 +442,12 @@ async fn test_return_options() {
                         ttl: "last:1"
                       }
 
-                      run: {|frame|
-                        if $frame.topic != "ping" { return }
-                        "pong"
+                      run: {|frame, state = null|
+                        if $frame.topic == "ping" {
+                          {out: "pong", next: $state}
+                        } else {
+                          {next: $state}
+                        }
                       }
                     }"#,
                 )
@@ -475,9 +512,12 @@ async fn test_binary_return_value() {
             store
                 .cas_insert(
                     r#"{
-                      run: {|frame|
-                        if $frame.topic != "trigger" { return }
-                        'test' | to msgpackz
+                      run: {|frame, state = null|
+                        if $frame.topic == "trigger" {
+                          {out: ('test' | to msgpackz), next: $state}
+                        } else {
+                          {next: $state}
+                        }
                       }
                     }"#,
                 )
@@ -538,11 +578,12 @@ async fn test_custom_append() {
             store
                 .cas_insert(
                     r#"{
-                      run: {|frame|
-                       if $frame.topic != "trigger" { return }
-                       "1" | .append topic1 --meta {"t": "1"}
-                       "2" | .append topic2 --meta {"t": "2"}
-                       "out"
+                      run: {|frame, state = null|
+                       if $frame.topic != "trigger" { {next: $state} } else {
+                         "1" | .append topic1 --meta {"t": "1"}
+                         "2" | .append topic2 --meta {"t": "2"}
+                         {out: "out", next: $state}
+                       }
                        }
                     }"#,
                 )
@@ -586,9 +627,12 @@ async fn test_actor_replacement() {
                 .hash(
                     store
                         .cas_insert(
-                            r#"{run: {|frame|
-                        if $frame.topic != "trigger" { return }
-                        "handler1"
+                            r#"{run: {|frame, state = null|
+                        if $frame.topic == "trigger" {
+                          {out: "handler1", next: $state}
+                        } else {
+                          {next: $state}
+                        }
                     }}"#,
                         )
                         .await
@@ -608,9 +652,12 @@ async fn test_actor_replacement() {
                 .hash(
                     store
                         .cas_insert(
-                            r#"{run: {|frame|
-                        if $frame.topic != "trigger" { return }
-                        "handler2"
+                            r#"{run: {|frame, state = null|
+                        if $frame.topic == "trigger" {
+                          {out: "handler2", next: $state}
+                        } else {
+                          {next: $state}
+                        }
                     }}"#,
                         )
                         .await
@@ -680,10 +727,13 @@ async fn test_actor_with_module() -> Result<(), Error> {
 
     // Create actor that uses the VFS module
     let actor_script = r#"{
-            run: {|frame|
-                if $frame.topic != "trigger" { return }
-                use xs/mymod
-                mymod add_nums 40 2
+            run: {|frame, state = null|
+                if $frame.topic == "trigger" {
+                  use xs/mymod
+                  {out: (mymod add_nums 40 2), next: $state}
+                } else {
+                  {next: $state}
+                }
             }
         }"#;
     let frame_actor = store
@@ -753,9 +803,12 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
                     }
 
                     {
-                        run: {|frame|
-                            if $frame.topic != "trigger" { return }
-                            inc-abc
+                        run: {|frame, state = null|
+                            if $frame.topic == "trigger" {
+                              {out: (inc-abc), next: $state}
+                            } else {
+                              {next: $state}
+                            }
                         }
                     }
                     "#,
@@ -796,6 +849,470 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
+}
+
+#[tokio::test]
+async fn test_state_threading() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor with counter state: emits current state on trigger, increments
+    let frame_actor = store
+        .append(
+            Frame::builder("counter.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          run: {|frame, state = 0|
+                            if $frame.topic == "trigger" {
+                              {out: $state, next: ($state + 1)}
+                            } else {
+                              {next: $state}
+                            }
+                          }
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.active");
+
+    // First trigger: state=0 emitted, state becomes 1
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "0");
+
+    // Send a non-trigger frame -- should be skipped (no output), state preserved
+    store.append(Frame::builder("noise").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "noise");
+
+    assert_no_more_frames(&mut recver).await;
+
+    // Second trigger: state=1 emitted, state becomes 2
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "1");
+
+    // Third trigger: state=2 emitted, state becomes 3
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let meta = output.meta.as_ref().unwrap();
+    assert_eq!(meta["actor_id"], frame_actor.id.to_string());
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "2");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_out_only_stops() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor returns {out: "goodbye"} -- emits output then self-terminates
+    let frame_actor = store
+        .append(
+            Frame::builder("stopper.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          run: {|frame, state = null|
+                            {out: "goodbye"}
+                          }
+                          start: "first"
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    // Append a trigger before the actor starts processing (start: "first")
+    let trigger = store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "stopper.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().topic, "stopper.active");
+
+    // Should see output, then unregistered
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "stopper.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), r#""goodbye""#);
+
+    validate_frame!(recver.recv().await.unwrap(), {
+        topic: "stopper.unregistered",
+        handler: &frame_actor,
+        trigger: &trigger,
+    });
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_nothing_stops() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor returns null -- self-terminates with no output
+    let frame_actor = store
+        .append(
+            Frame::builder("stopper.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          run: {|frame, state = null|
+                            null
+                          }
+                          start: "first"
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    let trigger = store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "stopper.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().topic, "stopper.active");
+
+    // Should see unregistered (no output frame)
+    validate_frame!(recver.recv().await.unwrap(), {
+        topic: "stopper.unregistered",
+        handler: &frame_actor,
+        trigger: &trigger,
+    });
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_extra_keys_error() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor returns record with extra keys -- should error
+    let frame_actor = store
+        .append(
+            Frame::builder("bad.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          run: {|frame, state = null|
+                            {out: 1, next: 2, bad: 3}
+                          }
+                          start: "first"
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    let trigger = store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "bad.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().topic, "bad.active");
+
+    validate_frame!(recver.recv().await.unwrap(), {
+        topic: "bad.unregistered",
+        handler: &frame_actor,
+        trigger: &trigger,
+        error: "Unexpected key 'bad'",
+    });
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_initial_config() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor with initial: 10, closure default state = 0
+    // initial overrides the default
+    store
+        .append(
+            Frame::builder("counter.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          initial: 10
+                          run: {|frame, state = 0|
+                            if $frame.topic == "trigger" {
+                              {out: $state, next: ($state + 1)}
+                            } else {
+                              {next: $state}
+                            }
+                          }
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.active");
+
+    // First trigger: should emit 10 (from initial), not 0 (from default)
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "10");
+
+    // Second trigger: should emit 11
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "11");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_initial_config_required_state() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor with 2 required params and initial provided
+    store
+        .append(
+            Frame::builder("counter.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          initial: 100
+                          run: {|frame, state|
+                            if $frame.topic == "trigger" {
+                              {out: $state, next: ($state + 1)}
+                            } else {
+                              {next: $state}
+                            }
+                          }
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.active");
+
+    // First trigger: should emit 100
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "100");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_required_state_defaults_to_null() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor with 2 required params but no initial -- state defaults to null
+    store
+        .append(
+            Frame::builder("test.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          run: {|frame, state|
+                            if $frame.topic == "trigger" {
+                              {out: ($state == null), next: 42}
+                            } else {
+                              {next: $state}
+                            }
+                          }
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "test.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "test.active");
+
+    // First trigger: state is null, emits true
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "test.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "true");
+
+    // Second trigger: state is 42, emits false
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "test.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "false");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_default_param_value() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor with no initial config, closure default state = 42
+    store
+        .append(
+            Frame::builder("counter.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          run: {|frame, state = 42|
+                            if $frame.topic == "trigger" {
+                              {out: $state, next: ($state + 1)}
+                            } else {
+                              {next: $state}
+                            }
+                          }
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "counter.active");
+
+    // First trigger: should emit 42 (from closure default)
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "42");
+
+    // Second trigger: should emit 43
+    store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+
+    let output = recver.recv().await.unwrap();
+    assert_eq!(output.topic, "counter.out");
+    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
+    assert_eq!(std::str::from_utf8(&content).unwrap(), "43");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_non_record_return_error() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Actor returns a bare string -- not a valid return shape
+    let frame_actor = store
+        .append(
+            Frame::builder("bad.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                          run: {|frame, state = null|
+                            "bare string"
+                          }
+                          start: "first"
+                        }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    let trigger = store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "bad.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().topic, "bad.active");
+
+    validate_frame!(recver.recv().await.unwrap(), {
+        topic: "bad.unregistered",
+        handler: &frame_actor,
+        trigger: &trigger,
+        error: "Closure must return a record",
+    });
+
+    assert_no_more_frames(&mut recver).await;
 }
 
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
