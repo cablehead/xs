@@ -15,20 +15,24 @@ to process and act on incoming frames as they are appended to the store.
 
 ```nushell
 {
-  run: {|frame|
+  run: {|frame, state|
     if $frame.topic == "ping" {
-      "pong" # Will be appended to actor.out
+      {out: "pong", next: $state}
+    } else {
+      {next: $state}
     }
   }
 }
 ```
 
-The actor closure receives each new frame and can:
+The actor closure receives each new frame and the current state value. It returns a record that controls output and state:
 
-- Process the frame's content
-- Return a value (which gets automatically appended to `<actor-name>.out`)
-- Explicitly append new frames using the `.append` command
-- Filter which frames to process using conditionals
+- `{out: value, next: state}` -- emit `value`, continue with new `state`
+- `{next: state}` -- no output, continue with new `state`
+- `{out: value}` -- emit `value`, then self-terminate
+- `null` / nothing -- self-terminate, no output
+
+The `out` value gets automatically appended to `<actor-name>.out`. The closure can also explicitly append frames using the `.append` command.
 
 ## Registering
 
@@ -38,10 +42,12 @@ actor's behavior:
 
 ```nushell
 r###'{
-  # Required: Actor closure
-  run: {|frame|
+  # Required: Actor closure (frame, state) -> {out?, next?}
+  run: {|frame, state|
     if $frame.topic == "ping" {
-      "pong" # Will be appended to actor.out
+      {out: "pong", next: $state}
+    } else {
+      {next: $state}
     }
   }
 
@@ -60,8 +66,8 @@ r###'{
 }'### | .append echo.register
 ```
 
-The `run` closure must accept **exactly one positional argument** which is the
-incoming frame.
+The `run` closure must accept **exactly two positional arguments**: the incoming
+frame and the current state value.
 
 The registration script is stored in CAS and evaluated to obtain the actor's
 configuration.
@@ -77,7 +83,8 @@ with metadata:
 
 | Field            | Description                                                                |
 | ---------------- | -------------------------------------------------------------------------- |
-| `run`            | Required actor closure that processes each frame                           |
+| `run`            | Required actor closure `{|frame, state| -> {out?, next?}}`                |
+| `initial`        | Initial state value (default: null, or the closure param default)          |
 | `start`          | "new" (default), "first", or scru128 ID to control where processing starts |
 | `pulse`          | Interval in milliseconds to send synthetic xs.pulse events                 |
 | `return_options` | Controls output frames: see Return Options                                 |
@@ -99,40 +106,49 @@ Actors can use modules registered via `*.nu` topics. An actor sees the modules a
 
 ```nushell
 r###'{
-  run: {|frame|
+  run: {|frame, state|
     use xs/my-math
-    my-math double 8
+    {out: (my-math double 8), next: $state}
   }
 }'### | .append processor.register
 ```
 
-## State and Environment
+## State
 
-Actors can maintain state using environment variables which persist between
-calls:
+Actors thread state explicitly through the `next` key in the return record. The
+second closure parameter receives the current state, and `next` sets the state
+for the next invocation:
 
 ```nushell
 r#'{
-  run: {|frame|
-    # Initialize or increment counter
-    let env.count = ($env | get -i count | default 0) + 1
-    $"Processed ($env.count) frames"
+  run: {|frame, state|
+    let count = $state + 1
+    {out: $"Processed ($count) frames", next: $count}
   }
+  initial: 0
 }'# | .append counter.register
 ```
+
+The initial state is resolved in order:
+
+1. The `initial` field in the config record
+2. The default value on the closure's second parameter (e.g. `state = 0`)
+3. `null` if neither is provided
 
 ## Output
 
 Actors can produce output in two ways:
 
-1. **Return Values**: Any non-null return value is automatically appended to the
-   actor's output topic (`<actor-name>.out` by default unless modified by
-   return_options.suffix)
+1. **Return Values**: The `out` key in the return record is automatically
+   appended to the actor's output topic (`<actor-name>.out` by default unless
+   modified by return_options.suffix)
 
 ```nushell
-{|frame|
+{|frame, state|
   if $frame.topic == "ping" {
-    "pong" # Automatically appended to actor.out
+    {out: "pong", next: $state}
+  } else {
+    {next: $state}
   }
 }
 ```
@@ -140,10 +156,13 @@ Actors can produce output in two ways:
 2. **Explicit Appends**: Use the `.append` command to create frames on any topic
 
 ```nushell
-{|frame|
+{|frame, state|
   if $frame.topic == "ping" {
     "pong" | .append response.topic --meta { "type": "response" }
     "logged" | .append audit.topic
+    {next: $state}
+  } else {
+    {next: $state}
   }
 }
 ```
@@ -176,6 +195,7 @@ stateDiagram-v2
         should_run --> [*]: .unregister event
 
         process_event --> [*]: error encountered
+        process_event --> [*]: self-terminated (no next key)
         process_event --> events.recv(): OK
     }
 
@@ -188,6 +208,7 @@ An actor can be unregistered by:
 
 - Appending `<actor-name>.unregister`
 - Registering a new actor with the same name
+- Self-termination: returning `{out: value}`, `{}`, or `null` (no `next` key)
 - Runtime errors in the actor closure
 
 When unregistered, the actor appends a confirmation frame

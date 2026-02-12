@@ -33,15 +33,15 @@ def run-dice [options: record] {
    $content
 }
 
-{|frame|
-    if $frame.topic != "discord.ws.recv" { return }
+{|frame, state|
+    if $frame.topic != "discord.ws.recv" { return {next: $state} }
 
     let message = $frame | .cas $in.hash | from json
-    if $message.op != 0 { return }
-    if $message.t != "INTERACTION_CREATE" { return }
+    if $message.op != 0 { return {next: $state} }
+    if $message.t != "INTERACTION_CREATE" { return {next: $state} }
 
     let command = $message.d.data
-    if $command.name != "dice" { return }
+    if $command.name != "dice" { return {next: $state} }
 
     let options = (
         $command.options |
@@ -52,4 +52,5 @@ def run-dice [options: record] {
     let content = run-dice $options
 
     $message.d | interaction response $in.id $in.token $content
+    {next: $state}
 }

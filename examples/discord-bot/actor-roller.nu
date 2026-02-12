@@ -32,15 +32,15 @@ def run-roll [] {
 $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
 
 {
-  run: {|frame|
+  run: {|frame, state|
     use xs/discord
-    if $frame.topic != "discord.ws.recv" { return }
+    if $frame.topic != "discord.ws.recv" { return {next: $state} }
 
     # TODO: .cas should also be able to take a record, to match xs2.nu's usage
     let message = $frame | .cas $in.hash | from json
 
-    if $message.op != 0 { return }
-    if $message.t != "MESSAGE_CREATE" { return }
+    if $message.op != 0 { return {next: $state} }
+    if $message.t != "MESSAGE_CREATE" { return {next: $state} }
 
     $message.d.content | parse-roller | & {
       {
@@ -48,5 +48,7 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
         message_reference: { message_id: $message.d.id }
       } | discord channel message create $message.d.channel_id
     }
+
+    {next: $state}
   }
 }
