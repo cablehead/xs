@@ -65,7 +65,7 @@ Spawn Discord websocket connection:
 
 ```nushell
 r#'{
-  run: {|| websocat "wss://gateway.discord.gg/?v=10&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines },
+  run: {|| websocat "wss://gateway.discord.gg/?v=10&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines | each { from json } },
   duplex: true
 }'# | .append discord.ws.spawn
 ```

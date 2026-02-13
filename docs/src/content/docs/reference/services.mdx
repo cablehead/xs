@@ -61,6 +61,7 @@ The `return_options` record allows you to customize the output frames produced b
 | -------- | ------ | --------- | ----------------------------------------------------- |
 | `suffix` | string | ".recv"   | Custom suffix for output frames (e.g., ".output")    |
 | `ttl`    | string | `"forever"` | Time-to-live for output frames                      |
+| `target` | string | `"meta"`  | Output must be a record, stored as frame metadata. Set to `"cas"` to store in CAS; any type is accepted. |
 
 ### TTL Options
 

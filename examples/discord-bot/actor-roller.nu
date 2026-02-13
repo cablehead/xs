@@ -36,8 +36,7 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
     use xs/discord
     if $frame.topic != "discord.ws.recv" { return {next: $state} }
 
-    # TODO: .cas should also be able to take a record, to match xs2.nu's usage
-    let message = $frame | .cas $in.hash | from json
+    let message = $frame.meta
 
     if $message.op != 0 { return {next: $state} }
     if $message.t != "MESSAGE_CREATE" { return {next: $state} }

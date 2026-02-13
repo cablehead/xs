@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 
 use crate::nu;
-use crate::nu::ReturnOptions;
+use crate::nu::{value_to_json, ReturnOptions};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use serde_json::json;
 
@@ -37,10 +37,15 @@ pub struct Task {
 #[derive(Debug, Clone)]
 pub enum ServiceEventKind {
     Running,
-    /// output frame flushed; payload is raw bytes
+    /// output frame flushed; payload is raw bytes stored in CAS
     Recv {
         suffix: String,
         data: Vec<u8>,
+    },
+    /// output frame flushed; payload is a JSON record stored as frame metadata
+    RecvMeta {
+        suffix: String,
+        meta: serde_json::Value,
     },
     Stopped(StopReason),
     ParseError {
@@ -91,6 +96,21 @@ pub(crate) fn emit_event(
                 .hash(hash)
                 .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
                 .meta(json!({ "source_id": source_id.to_string() }))
+                .build(),
+            )?
+        }
+
+        ServiceEventKind::RecvMeta { suffix, meta } => {
+            let mut merged = meta.clone();
+            merged["source_id"] = json!(source_id.to_string());
+            store.append(
+                Frame::builder(format!(
+                    "{topic}.{suffix}",
+                    topic = loop_ctx.topic,
+                    suffix = suffix
+                ))
+                .maybe_ttl(return_opts.and_then(|o| o.ttl.clone()))
+                .meta(merged)
                 .build(),
             )?
         }
@@ -456,99 +476,115 @@ fn spawn_thread(
 ) {
     let handle = tokio::runtime::Handle::current();
     std::thread::spawn(move || {
-        let res = match task.engine.run_closure_in_job(
+        let res = run_pipeline(&handle, &store, &loop_ctx, &mut task, input_pipeline);
+        let _ = done_tx.send(res);
+    });
+}
+
+fn run_pipeline(
+    handle: &tokio::runtime::Handle,
+    store: &Store,
+    loop_ctx: &ServiceLoop,
+    task: &mut Task,
+    input_pipeline: PipelineData,
+) -> Result<(), String> {
+    let pipeline = task
+        .engine
+        .run_closure_in_job(
             &task.run_closure,
             vec![],
             Some(input_pipeline),
             task.id.to_string(),
-        ) {
-            Ok(pipeline) => {
-                match pipeline {
-                    PipelineData::Empty => {}
-                    PipelineData::Value(value, _) => {
-                        if let Value::String { val, .. } = value {
-                            let suffix = task
-                                .return_options
-                                .as_ref()
-                                .and_then(|o| o.suffix.clone())
-                                .unwrap_or_else(|| "recv".into());
-                            handle.block_on(async {
-                                let _ = emit_event(
-                                    &store,
-                                    &loop_ctx,
-                                    task.id,
-                                    task.return_options.as_ref(),
-                                    ServiceEventKind::Recv {
-                                        suffix: suffix.clone(),
-                                        data: val.into_bytes(),
-                                    },
-                                );
+        )
+        .map_err(|e| {
+            let working_set = nu_protocol::engine::StateWorkingSet::new(&task.engine.state);
+            nu_protocol::format_cli_error(None, &working_set, &*e, None)
+        })?;
+
+    let suffix = task
+        .return_options
+        .as_ref()
+        .and_then(|o| o.suffix.clone())
+        .unwrap_or_else(|| "recv".into());
+    let use_cas = task
+        .return_options
+        .as_ref()
+        .and_then(|o| o.target.as_deref())
+        .is_some_and(|t| t == "cas");
+
+    let emit = |event| {
+        handle.block_on(async {
+            let _ = emit_event(
+                store,
+                loop_ctx,
+                task.id,
+                task.return_options.as_ref(),
+                event,
+            );
+        });
+    };
+
+    match pipeline {
+        PipelineData::Empty => {}
+        PipelineData::Value(value, _) => {
+            if let Some(event) = value_to_event(&value, &suffix, use_cas)? {
+                emit(event);
+            }
+        }
+        PipelineData::ListStream(mut stream, _) => {
+            while let Some(value) = stream.next_value() {
+                if let Some(event) = value_to_event(&value, &suffix, use_cas)? {
+                    emit(event);
+                }
+            }
+        }
+        PipelineData::ByteStream(stream, _) => {
+            if let Some(mut reader) = stream.reader() {
+                let mut buf = [0u8; 8192];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            emit(ServiceEventKind::Recv {
+                                suffix: suffix.clone(),
+                                data: buf[..n].to_vec(),
                             });
                         }
-                    }
-                    PipelineData::ListStream(mut stream, _) => {
-                        while let Some(value) = stream.next_value() {
-                            if let Value::String { val, .. } = value {
-                                let suffix = task
-                                    .return_options
-                                    .as_ref()
-                                    .and_then(|o| o.suffix.clone())
-                                    .unwrap_or_else(|| "recv".into());
-                                handle.block_on(async {
-                                    let _ = emit_event(
-                                        &store,
-                                        &loop_ctx,
-                                        task.id,
-                                        task.return_options.as_ref(),
-                                        ServiceEventKind::Recv {
-                                            suffix: suffix.clone(),
-                                            data: val.into_bytes(),
-                                        },
-                                    );
-                                });
-                            }
-                        }
-                    }
-                    PipelineData::ByteStream(stream, _) => {
-                        if let Some(mut reader) = stream.reader() {
-                            let suffix = task
-                                .return_options
-                                .as_ref()
-                                .and_then(|o| o.suffix.clone())
-                                .unwrap_or_else(|| "recv".into());
-                            let mut buf = [0u8; 8192];
-                            loop {
-                                match reader.read(&mut buf) {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        let chunk = &buf[..n];
-                                        handle.block_on(async {
-                                            let _ = emit_event(
-                                                &store,
-                                                &loop_ctx,
-                                                task.id,
-                                                task.return_options.as_ref(),
-                                                ServiceEventKind::Recv {
-                                                    suffix: suffix.clone(),
-                                                    data: chunk.to_vec(),
-                                                },
-                                            );
-                                        });
-                                    }
-                                    Err(_) => break,
-                                }
-                            }
-                        }
+                        Err(_) => break,
                     }
                 }
-                Ok(())
             }
-            Err(e) => {
-                let working_set = nu_protocol::engine::StateWorkingSet::new(&task.engine.state);
-                Err(nu_protocol::format_cli_error(None, &working_set, &*e, None))
-            }
-        };
+        }
+    }
+    Ok(())
+}
 
-        let _ = done_tx.send(res);
-    });
+fn value_to_event(
+    value: &Value,
+    suffix: &str,
+    use_cas: bool,
+) -> Result<Option<ServiceEventKind>, String> {
+    match value {
+        Value::Nothing { .. } => Ok(None),
+        Value::Record { .. } if !use_cas => Ok(Some(ServiceEventKind::RecvMeta {
+            suffix: suffix.to_string(),
+            meta: value_to_json(value),
+        })),
+        _ if use_cas => {
+            let data = match value {
+                Value::String { val, .. } => val.as_bytes().to_vec(),
+                Value::Binary { val, .. } => val.clone(),
+                _ => value_to_json(value).to_string().into_bytes(),
+            };
+            Ok(Some(ServiceEventKind::Recv {
+                suffix: suffix.to_string(),
+                data,
+            }))
+        }
+        _ => Err(format!(
+            "Service output must be a record when target is not \"cas\"; got {}. \
+             Set return_options.target to \"cas\" for non-record output.",
+            value.get_type()
+        )),
+    }
 }

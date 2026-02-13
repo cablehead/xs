@@ -2,7 +2,7 @@
   run: {|frame, state|
     if $frame.topic != "discord.ws.recv" { return {next: $state} }
 
-    let message = ($frame | .cas $in.hash | from json)
+    let message = $frame.meta
     if $message.op != 0 { return {next: $state} }
 
     match $message.t {

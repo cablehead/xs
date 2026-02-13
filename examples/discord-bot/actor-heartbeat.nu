@@ -103,7 +103,7 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
         return {next: $state}
     }
 
-    let message = $frame | .cas $in.hash | from json
+    let message = $frame.meta
 
     match $message {
         # hello

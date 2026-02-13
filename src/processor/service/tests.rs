@@ -25,7 +25,8 @@ async fn test_serve_basic() {
         }));
     }
 
-    let script = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
+    let script =
+        r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines }, return_options: { target: "cas" } }"#;
     let frame_service = store
         .append(
             Frame::builder("toml.spawn")
@@ -72,7 +73,7 @@ async fn test_serve_duplex() {
         }));
     }
 
-    let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true }"#;
+    let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true, return_options: { target: "cas" } }"#;
     let frame_service = store
         .append(
             Frame::builder("greeter.spawn".to_string())
@@ -115,7 +116,8 @@ async fn test_serve_duplex() {
 async fn test_serve_compact() {
     let store = setup_test_env();
 
-    let script1 = r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines } }"#;
+    let script1 =
+        r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines }, return_options: { target: "cas" } }"#;
     let _ = store
         .append(
             Frame::builder("toml.spawn")
@@ -125,7 +127,8 @@ async fn test_serve_compact() {
         .unwrap();
 
     // replaces the previous service
-    let script2 = r#"{ run: {|| ^tail -n +2 -F Cargo.toml | lines } }"#;
+    let script2 =
+        r#"{ run: {|| ^tail -n +2 -F Cargo.toml | lines }, return_options: { target: "cas" } }"#;
     let frame_service = store
         .append(
             Frame::builder("toml.spawn")
@@ -232,7 +235,7 @@ async fn test_serve_restart_until_terminated() {
         });
     }
 
-    let script = r#"{ run: {|| "hi" } }"#;
+    let script = r#"{ run: {|| "hi" }, return_options: { target: "cas" } }"#;
     let hash = store.cas_insert(script).await.unwrap();
 
     store
@@ -287,7 +290,7 @@ async fn test_duplex_terminate_stops() {
         });
     }
 
-    let script = r#"{ run: {|| each { |x| $"echo: ($x)" } }, duplex: true }"#;
+    let script = r#"{ run: {|| each { |x| $"echo: ($x)" } }, duplex: true, return_options: { target: "cas" } }"#;
     let hash = store.cas_insert(script).await.unwrap();
 
     store
@@ -363,7 +366,7 @@ async fn test_parse_error_eviction() {
     // Allow the dispatcher to process the parse.error and evict the service
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let good_script = r#"{ run: {|| "ok" } }"#;
+    let good_script = r#"{ run: {|| "ok" }, return_options: { target: "cas" } }"#;
     store
         .append(
             Frame::builder("oops.spawn")
@@ -413,7 +416,7 @@ async fn test_refresh_on_new_spawn() {
     assert_eq!(recver.recv().await.unwrap().topic, "reload.running");
 
     // Send a new spawn to refresh the service while it's running
-    let script2 = r#"{ run: {|| "v2" } }"#;
+    let script2 = r#"{ run: {|| "v2" }, return_options: { target: "cas" } }"#;
     let spawn2 = store
         .append(
             Frame::builder("reload.spawn")
@@ -460,7 +463,7 @@ async fn test_terminate_one_of_two_services() {
         .build();
     let mut recver = store.read(options).await;
 
-    let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true }"#;
+    let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true, return_options: { target: "cas" } }"#;
     let hash = store.cas_insert(script).await.unwrap();
 
     store
@@ -641,6 +644,83 @@ fn test_emit_event_helper() {
     )
     .unwrap();
     assert_eq!(ev.frame.topic, "helper.shutdown");
+}
+
+#[tokio::test]
+async fn test_record_output_goes_to_meta() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| {status: "ok", count: 42} } }"#;
+    let frame_service = store
+        .append(
+            Frame::builder("rec.spawn")
+                .maybe_hash(store.cas_insert(script).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "rec.running");
+
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "rec.recv");
+    // Record output should have no CAS hash
+    assert!(frame.hash.is_none(), "record output should not use CAS");
+    // Record fields should be in meta alongside source_id
+    let meta = frame.meta.unwrap();
+    assert_eq!(meta["source_id"], frame_service.id.to_string());
+    assert_eq!(meta["status"], "ok");
+    assert_eq!(meta["count"], 42);
+}
+
+#[tokio::test]
+async fn test_record_output_with_cas_target() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| {status: "ok", count: 42} }, return_options: { target: "cas" } }"#;
+    store
+        .append(
+            Frame::builder("reccas.spawn")
+                .maybe_hash(store.cas_insert(script).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "reccas.running");
+
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "reccas.recv");
+    // With target: "cas", the record should be stored in CAS as JSON
+    assert!(frame.hash.is_some(), "cas target should produce a hash");
+    let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&content).unwrap();
+    assert_eq!(parsed["status"], "ok");
+    assert_eq!(parsed["count"], 42);
 }
 
 #[tokio::test]
