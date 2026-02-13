@@ -175,7 +175,13 @@ one frame per line, while <code dir="auto">ByteStream</code> pipelines send bina
 
 
 
-<table><thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">suffix</code></td><td>string</td><td>”.recv”</td><td>Custom suffix for output frames (e.g., “.output”)</td></tr><tr><td><code dir="auto">ttl</code></td><td>string</td><td><code dir="auto">"forever"</code></td><td>Time-to-live for output frames</td></tr></tbody></table>
+
+
+
+
+
+
+<table><thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">suffix</code></td><td>string</td><td>”.recv”</td><td>Custom suffix for output frames (e.g., “.output”)</td></tr><tr><td><code dir="auto">ttl</code></td><td>string</td><td><code dir="auto">"forever"</code></td><td>Time-to-live for output frames</td></tr><tr><td><code dir="auto">target</code></td><td>string</td><td><code dir="auto">"meta"</code></td><td>Output must be a record, stored as frame metadata. Set to <code dir="auto">"cas"</code> to store in CAS; any type is accepted.</td></tr></tbody></table>
 <h3 id="ttl-options">TTL Options</h3>
 <ul>
 <li><code dir="auto">"forever"</code> - Frames never expire (default)</li>
