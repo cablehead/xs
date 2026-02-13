@@ -1,4 +1,4 @@
-import { css, html, LitElement } from "https://cdn.skypack.dev/lit";
+import { css, html, LitElement } from "https://esm.sh/lit";
 
 export class TerminalLine extends LitElement {
   static properties = {
