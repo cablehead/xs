@@ -1,0 +1,202 @@
+---
+title: Actor State
+description: Learn the streaming form of Nushell's generate command, then use the same closure shape to build a stateful actor on cross.stream.
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import { Link } from '../../../utils/links';
+
+cross.stream actors use the same closure shape as the streaming form of
+Nushell's [`generate`](https://www.nushell.sh/commands/docs/generate.html)
+command. This tutorial teaches that shape in plain Nushell first, then applies
+it on the stream to build a materialized aggregate: a bread and butter of
+stream processing.
+
+<Aside type="note" title="Did you know?">
+The streaming form of `generate`, where input is piped in and the closure
+receives both the element and carried state, was added to Nushell in January
+2025 by [bahex](https://github.com/bahex)
+([nushell#14804](https://github.com/nushell/nushell/pull/14804)).
+</Aside>
+
+## Prerequisites
+
+- <Link to="nu" /> installed
+
+## Part 1: generate with input
+
+When you pipe a stream into `generate`, the closure receives two arguments: the
+current element and the carried state. It returns a record that controls what
+to emit and what state to carry forward.
+
+### Running sum
+
+```nushell
+[3, 1, 4, 1, 5] | generate {|n, sum = 0|
+  let sum = $sum + $n
+  {out: $sum, next: $sum}
+}
+```
+
+```
+ 0 |  3
+ 1 |  4
+ 2 |  8
+ 3 |  9
+ 4 | 14
+```
+
+Each element flows through the closure. `out` is the value emitted downstream.
+`next` is the state passed to the next invocation. The default parameter
+`sum = 0` sets the initial state.
+
+### Skipping output
+
+Not every element needs to produce output. Return `{next: $state}` without an
+`out` key to carry state forward silently:
+
+```nushell
+[1, 2, 3, 4, 5, 6] | generate {|n, sum = 0|
+  let sum = $sum + $n
+  if $n mod 2 == 0 {
+    {out: $"sum at ($n): ($sum)", next: $sum}
+  } else {
+    {next: $sum}
+  }
+}
+```
+
+```
+ 0 | sum at 2: 3
+ 1 | sum at 4: 10
+ 2 | sum at 6: 21
+```
+
+Odd numbers contribute to the sum but produce no output.
+
+### Stopping early
+
+Omit the `next` key (or return nothing) to stop generation:
+
+```nushell
+[1, 2, 3, 4, 5] | generate {|n, sum = 0|
+  let sum = $sum + $n
+  if $sum > 6 {
+    {out: $"stopped at ($sum)"}
+  } else {
+    {out: $sum, next: $sum}
+  }
+}
+```
+
+```
+ 0 |            1
+ 1 |            3
+ 2 |            6
+ 3 | stopped at 10
+```
+
+The final record has `out` but no `next`, so the stream ends.
+
+### The contract
+
+| Return               | Effect                               |
+| -------------------- | ------------------------------------ |
+| `{out: v, next: s}`  | Emit `v`, continue with state `s`    |
+| `{next: s}`          | No output, continue with state `s`   |
+| `{out: v}`           | Emit `v`, then stop                  |
+| nothing              | Stop                                 |
+
+cross.stream actors use this exact contract. Instead of a list, the input stream
+is frames from the store.
+
+## Prerequisites for Part 2
+
+- xs installed and on your PATH (see <Link to="/getting-started/installation/">Installation</Link>)
+- Two terminal windows, both running <Link to="nu" /> with `use xs.nu *`
+
+## Part 2: Running sum on the stream
+
+### Start a store
+
+In terminal 1:
+
+```bash withOutput
+xs serve ./store
+```
+
+### Monitor
+
+In terminal 2, start a live monitor:
+
+```nushell
+.cat -f | each {
+  if $in.hash != null { insert content { .cas $in.hash } } else { } | print ($in | table -e)
+}
+```
+
+Keep this running.
+
+### Register the actor
+
+Same running sum, now as an actor. The closure receives a frame instead of a
+plain number, so it pulls the amount from the frame's metadata:
+
+```nushell
+r#'{
+  run: {|frame, sum = 0|
+    if $frame.topic != "sale" { return {next: $sum} }
+    let sum = $sum + ($frame.meta.amount | into float)
+    {out: $sum, next: $sum}
+  }
+  return_options: { suffix: ".total", ttl: "last:1" }
+}'# | .append revenue.register
+```
+
+The monitor shows `revenue.active`. The actor is live.
+
+### Append some data
+
+```nushell
+.append sale --meta {amount: 49.99}
+.append sale --meta {amount: 12.50}
+.append sale --meta {amount: 7.99}
+```
+
+Three `revenue.total` frames appear. Check the latest:
+
+```bash withOutput
+> .last revenue.total | .cas $in.hash
+70.48
+```
+
+The actor maintains a running total across frames. The `last:1` TTL keeps only
+the most recent total, giving you a materialized view that's always queryable.
+
+### Frames the actor ignores
+
+Append something on a different topic:
+
+```nushell
+.append heartbeat
+```
+
+No `revenue.total` frame appears. The actor returned `{next: $sum}` for the
+non-`sale` frame: state carried forward, no output emitted.
+
+## Recap
+
+| `generate` with input                    | cross.stream actor                           |
+| ---------------------------------------- | -------------------------------------------- |
+| `[data] \| generate {|el, state| ...}`   | Frames flow through `{|frame, state| ...}`   |
+| `{out: v, next: s}` emits downstream     | `out` appended to `<name>.out`               |
+| `{next: s}` skips                        | No frame emitted, state carried forward      |
+| Omit `next` to stop                      | Actor self-terminates, emits `.unregistered`  |
+| Default param sets initial state          | Default param or `initial` config field       |
+
+<Aside type="tip">
+See the <Link to="/reference/actors/">Actors reference</Link> for all
+configuration options including `pulse`, `return_options`, and lifecycle details.
+</Aside>
