@@ -132,9 +132,7 @@ xs serve ./store
 In terminal 2, start a live monitor:
 
 ```nushell
-.cat -f | each {
-  if $in.hash != null { insert content { .cas $in.hash } } else { } | print ($in | table -e)
-}
+.cat -f | each { print ($in | table -e) }
 ```
 
 Keep this running.
