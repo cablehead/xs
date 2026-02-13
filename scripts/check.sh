@@ -7,4 +7,4 @@ cargo clippy -- -D warnings
 cargo t
 
 # Check documentation
-(cd docs && npx astro check)
+(cd docs && npx astro check && npm run build)
