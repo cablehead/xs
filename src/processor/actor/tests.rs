@@ -297,7 +297,7 @@ async fn test_essentials() {
                     {
                       run: {|frame, state = null|
                         if $frame.topic == "pew" {
-                          {out: "processed", next: $state}
+                          {out: {status: "processed"}, next: $state}
                         } else {
                           {next: $state}
                         }
@@ -444,7 +444,7 @@ async fn test_return_options() {
 
                       run: {|frame, state = null|
                         if $frame.topic == "ping" {
-                          {out: "pong", next: $state}
+                          {out: {reply: "pong"}, next: $state}
                         } else {
                           {next: $state}
                         }
@@ -512,6 +512,7 @@ async fn test_binary_return_value() {
             store
                 .cas_insert(
                     r#"{
+                      return_options: { target: "cas" }
                       run: {|frame, state = null|
                         if $frame.topic == "trigger" {
                           {out: ('test' | to msgpackz), next: $state}
@@ -582,7 +583,7 @@ async fn test_custom_append() {
                        if $frame.topic != "trigger" { {next: $state} } else {
                          "1" | .append topic1 --meta {"t": "1"}
                          "2" | .append topic2 --meta {"t": "2"}
-                         {out: "out", next: $state}
+                         {out: {value: "out"}, next: $state}
                        }
                        }
                     }"#,
@@ -629,7 +630,7 @@ async fn test_actor_replacement() {
                         .cas_insert(
                             r#"{run: {|frame, state = null|
                         if $frame.topic == "trigger" {
-                          {out: "handler1", next: $state}
+                          {out: {handler: "handler1"}, next: $state}
                         } else {
                           {next: $state}
                         }
@@ -654,7 +655,7 @@ async fn test_actor_replacement() {
                         .cas_insert(
                             r#"{run: {|frame, state = null|
                         if $frame.topic == "trigger" {
-                          {out: "handler2", next: $state}
+                          {out: {handler: "handler2"}, next: $state}
                         } else {
                           {next: $state}
                         }
@@ -686,13 +687,10 @@ async fn test_actor_replacement() {
     // Verify actor2 processed it
     let response = recver.recv().await.unwrap();
     assert_eq!(response.topic, "h.out");
-    let meta = response.meta.unwrap();
+    let meta = response.meta.as_ref().unwrap();
     assert_eq!(meta["actor_id"], actor2.id.to_string());
     assert_eq!(meta["frame_id"], trigger.id.to_string());
-
-    // Verify content shows it was handler2
-    let content = store.cas_read(&response.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), r#""handler2""#);
+    assert_eq!(meta["handler"], "handler2");
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -730,7 +728,7 @@ async fn test_actor_with_module() -> Result<(), Error> {
             run: {|frame, state = null|
                 if $frame.topic == "trigger" {
                   use xs/mymod
-                  {out: (mymod add_nums 40 2), next: $state}
+                  {out: {result: (mymod add_nums 40 2)}, next: $state}
                 } else {
                   {next: $state}
                 }
@@ -757,9 +755,7 @@ async fn test_actor_with_module() -> Result<(), Error> {
     validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content
-    let content = store.cas_read(&output.hash.unwrap()).await?;
-    let result = String::from_utf8(content)?;
-    assert_eq!(result, r#""sum is 42""#);
+    assert_eq!(output.meta.as_ref().unwrap()["result"], "sum is 42");
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -805,7 +801,7 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
                     {
                         run: {|frame, state = null|
                             if $frame.topic == "trigger" {
-                              {out: (inc-abc), next: $state}
+                              {out: {value: (inc-abc)}, next: $state}
                             } else {
                               {next: $state}
                             }
@@ -830,9 +826,7 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
     validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content shows the env var value
-    let content = store.cas_read(&output.hash.unwrap()).await?;
-    let result = String::from_utf8(content)?;
-    assert_eq!(result, "44");
+    assert_eq!(output.meta.as_ref().unwrap()["value"], 44);
 
     // Send trigger frame
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
@@ -843,9 +837,7 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
     validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content shows the env var value
-    let content = store.cas_read(&output.hash.unwrap()).await?;
-    let result = String::from_utf8(content)?;
-    assert_eq!(result, "46");
+    assert_eq!(output.meta.as_ref().unwrap()["value"], 46);
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -868,7 +860,7 @@ async fn test_state_threading() {
                             r#"{
                           run: {|frame, state = 0|
                             if $frame.topic == "trigger" {
-                              {out: $state, next: ($state + 1)}
+                              {out: {count: $state}, next: ($state + 1)}
                             } else {
                               {next: $state}
                             }
@@ -891,8 +883,7 @@ async fn test_state_threading() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "counter.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "0");
+    assert_eq!(output.meta.as_ref().unwrap()["count"], 0);
 
     // Send a non-trigger frame -- should be skipped (no output), state preserved
     store.append(Frame::builder("noise").build()).unwrap();
@@ -906,8 +897,7 @@ async fn test_state_threading() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "counter.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "1");
+    assert_eq!(output.meta.as_ref().unwrap()["count"], 1);
 
     // Third trigger: state=2 emitted, state becomes 3
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -917,8 +907,7 @@ async fn test_state_threading() {
     assert_eq!(output.topic, "counter.out");
     let meta = output.meta.as_ref().unwrap();
     assert_eq!(meta["actor_id"], frame_actor.id.to_string());
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "2");
+    assert_eq!(meta["count"], 2);
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -939,7 +928,7 @@ async fn test_out_only_stops() {
                         .cas_insert(
                             r#"{
                           run: {|frame, state = null|
-                            {out: "goodbye"}
+                            {out: {msg: "goodbye"}}
                           }
                           start: "first"
                         }"#,
@@ -960,8 +949,7 @@ async fn test_out_only_stops() {
     // Should see output, then unregistered
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "stopper.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), r#""goodbye""#);
+    assert_eq!(output.meta.as_ref().unwrap()["msg"], "goodbye");
 
     validate_frame!(recver.recv().await.unwrap(), {
         topic: "stopper.unregistered",
@@ -1077,7 +1065,7 @@ async fn test_initial_config() {
                           initial: 10
                           run: {|frame, state = 0|
                             if $frame.topic == "trigger" {
-                              {out: $state, next: ($state + 1)}
+                              {out: {count: $state}, next: ($state + 1)}
                             } else {
                               {next: $state}
                             }
@@ -1100,8 +1088,7 @@ async fn test_initial_config() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "counter.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "10");
+    assert_eq!(output.meta.as_ref().unwrap()["count"], 10);
 
     // Second trigger: should emit 11
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -1109,8 +1096,7 @@ async fn test_initial_config() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "counter.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "11");
+    assert_eq!(output.meta.as_ref().unwrap()["count"], 11);
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -1133,7 +1119,7 @@ async fn test_initial_config_required_state() {
                           initial: 100
                           run: {|frame, state|
                             if $frame.topic == "trigger" {
-                              {out: $state, next: ($state + 1)}
+                              {out: {count: $state}, next: ($state + 1)}
                             } else {
                               {next: $state}
                             }
@@ -1156,8 +1142,7 @@ async fn test_initial_config_required_state() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "counter.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "100");
+    assert_eq!(output.meta.as_ref().unwrap()["count"], 100);
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -1179,7 +1164,7 @@ async fn test_required_state_defaults_to_null() {
                             r#"{
                           run: {|frame, state|
                             if $frame.topic == "trigger" {
-                              {out: ($state == null), next: 42}
+                              {out: {is_null: ($state == null)}, next: 42}
                             } else {
                               {next: $state}
                             }
@@ -1202,8 +1187,7 @@ async fn test_required_state_defaults_to_null() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "test.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "true");
+    assert_eq!(output.meta.as_ref().unwrap()["is_null"], true);
 
     // Second trigger: state is 42, emits false
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -1211,8 +1195,7 @@ async fn test_required_state_defaults_to_null() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "test.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "false");
+    assert_eq!(output.meta.as_ref().unwrap()["is_null"], false);
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -1234,7 +1217,7 @@ async fn test_default_param_value() {
                             r#"{
                           run: {|frame, state = 42|
                             if $frame.topic == "trigger" {
-                              {out: $state, next: ($state + 1)}
+                              {out: {count: $state}, next: ($state + 1)}
                             } else {
                               {next: $state}
                             }
@@ -1257,8 +1240,7 @@ async fn test_default_param_value() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "counter.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "42");
+    assert_eq!(output.meta.as_ref().unwrap()["count"], 42);
 
     // Second trigger: should emit 43
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -1266,8 +1248,7 @@ async fn test_default_param_value() {
 
     let output = recver.recv().await.unwrap();
     assert_eq!(output.topic, "counter.out");
-    let content = store.cas_read(&output.hash.unwrap()).await.unwrap();
-    assert_eq!(std::str::from_utf8(&content).unwrap(), "43");
+    assert_eq!(output.meta.as_ref().unwrap()["count"], 43);
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -1326,6 +1307,163 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
             // Success - no additional frames were processed
         }
     }
+}
+
+#[tokio::test]
+async fn test_record_out_goes_to_meta() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Register actor that returns a record as out
+    store
+        .append(
+            Frame::builder("metaout.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = 0|
+                                if $frame.topic == "sale" {
+                                  let total = $state + $frame.meta.amount
+                                  {out: {total: $total}, next: $total}
+                                } else {
+                                  {next: $state}
+                                }
+                              }
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "metaout.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "metaout.active");
+
+    // Send a sale frame with amount in meta
+    store
+        .append(
+            Frame::builder("sale")
+                .meta(serde_json::json!({"amount": 42}))
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "sale");
+
+    // The output frame should have the record in meta, not in CAS
+    let out_frame = recver.recv().await.unwrap();
+    assert_eq!(out_frame.topic, "metaout.out");
+    assert!(
+        out_frame.hash.is_none(),
+        "Record output should not be stored in CAS"
+    );
+    let meta = out_frame.meta.as_ref().unwrap();
+    assert_eq!(meta["total"], 42);
+    // actor_id and frame_id should still be present
+    assert!(meta.get("actor_id").is_some());
+    assert!(meta.get("frame_id").is_some());
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_non_record_out_errors_without_cas_target() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Register actor that returns a string as out (non-record, no target: "cas")
+    store
+        .append(
+            Frame::builder("strerr.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = null|
+                                {out: "a plain string", next: $state}
+                              }
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "strerr.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "strerr.active");
+
+    // Trigger the actor
+    store.append(Frame::builder("ping").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+
+    // Should unregister with an error because non-record out needs target: "cas"
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "strerr.unregistered");
+    let meta = frame.meta.as_ref().unwrap();
+    let error = meta["error"].as_str().unwrap();
+    assert!(
+        error.contains("record") || error.contains("target"),
+        "Expected error about non-record output, got: {error}"
+    );
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_cas_target_allows_non_record_out() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Register actor with target: "cas" that returns a string
+    store
+        .append(
+            Frame::builder("cascfg.register")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = null|
+                                {out: "stored in cas", next: $state}
+                              }
+                              return_options: { target: "cas" }
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "cascfg.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "cascfg.active");
+
+    // Trigger the actor
+    store.append(Frame::builder("ping").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+
+    // Output should be in CAS
+    let out_frame = recver.recv().await.unwrap();
+    assert_eq!(out_frame.topic, "cascfg.out");
+    assert!(out_frame.hash.is_some(), "CAS target should store in CAS");
+    let content = store.cas_read(&out_frame.hash.unwrap()).await.unwrap();
+    let content_str = std::str::from_utf8(&content).unwrap();
+    assert!(content_str.contains("stored in cas"));
+
+    assert_no_more_frames(&mut recver).await;
 }
 
 async fn setup_test_environment() -> (Store, TempDir) {

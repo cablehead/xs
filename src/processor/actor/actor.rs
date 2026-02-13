@@ -167,27 +167,41 @@ impl Actor {
                 let suffix = return_options
                     .and_then(|ro| ro.suffix.as_deref())
                     .unwrap_or(".out");
+                let use_cas = return_options
+                    .and_then(|ro| ro.target.as_deref())
+                    .is_some_and(|t| t == "cas");
 
-                let hash = match value {
-                    Value::Binary { val, .. } => {
-                        // Store binary data directly
-                        store.cas_insert(val).await?
+                let topic = format!("{topic}{suffix}", topic = self.topic, suffix = suffix);
+                let ttl = return_options.and_then(|ro| ro.ttl.clone());
+
+                if use_cas {
+                    let hash = match value {
+                        Value::Binary { val, .. } => store.cas_insert(val).await?,
+                        _ => store.cas_insert(&value_to_json(value).to_string()).await?,
+                    };
+                    Some(
+                        Frame::builder(topic)
+                            .maybe_ttl(ttl)
+                            .maybe_hash(Some(hash))
+                            .build(),
+                    )
+                } else {
+                    // Default: records go to meta, non-records are an error
+                    match value {
+                        Value::Record { .. } => {
+                            let json = value_to_json(value);
+                            Some(Frame::builder(topic).maybe_ttl(ttl).meta(json).build())
+                        }
+                        _ => {
+                            return Err(format!(
+                                "Actor output must be a record when target is not \"cas\"; got {}. \
+                                 Set return_options.target to \"cas\" for non-record output.",
+                                value.get_type()
+                            )
+                            .into());
+                        }
                     }
-                    _ => {
-                        // Store as JSON string (existing path)
-                        store.cas_insert(&value_to_json(value).to_string()).await?
-                    }
-                };
-                Some(
-                    Frame::builder(format!(
-                        "{topic}{suffix}",
-                        topic = self.topic,
-                        suffix = suffix
-                    ))
-                    .maybe_ttl(return_options.and_then(|ro| ro.ttl.clone()))
-                    .maybe_hash(Some(hash))
-                    .build(),
-                )
+                }
             }
             _ => None,
         };

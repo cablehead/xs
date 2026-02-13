@@ -203,7 +203,7 @@ r#'{
     if ($frame.topic == "mcp.recv") {
       let content = .cas $frame.hash | from json | get -i result.content.0.text
       if ($content != null and "42" in $content) {
-        {out: "meaning of life detected!", next: $state}
+        {out: {message: "meaning of life detected!"}, next: $state}
       } else {
         {next: $state}
       }

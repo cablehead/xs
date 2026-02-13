@@ -1,4 +1,5 @@
-{|frame, state|
+{
+  run: {|frame, state|
     if $frame.topic != "discord.ws.recv" { return {next: $state} }
 
     let message = ($frame | .cas $in.hash | from json)
@@ -40,4 +41,5 @@
     }
 
     {out: $message, next: $state}
+  }
 }

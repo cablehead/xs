@@ -33,7 +33,8 @@ def run-dice [options: record] {
    $content
 }
 
-{|frame, state|
+{
+  run: {|frame, state|
     if $frame.topic != "discord.ws.recv" { return {next: $state} }
 
     let message = $frame | .cas $in.hash | from json
@@ -53,4 +54,5 @@ def run-dice [options: record] {
 
     $message.d | interaction response $in.id $in.token $content
     {next: $state}
+  }
 }

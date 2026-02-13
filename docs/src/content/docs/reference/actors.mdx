@@ -17,7 +17,7 @@ to process and act on incoming frames as they are appended to the store.
 {
   run: {|frame, state|
     if $frame.topic == "ping" {
-      {out: "pong", next: $state}
+      {out: {reply: "pong"}, next: $state}
     } else {
       {next: $state}
     }
@@ -32,7 +32,10 @@ The actor closure receives each new frame and the current state value. It return
 - `{out: value}` -- emit `value`, then self-terminate
 - `null` / nothing -- self-terminate, no output
 
-The `out` value gets automatically appended to `<actor-name>.out`. The closure can also explicitly append frames using the `.append` command.
+The `out` value must be a record. It is stored as the output frame's metadata,
+alongside `actor_id` and `frame_id`. The output frame is appended to
+`<actor-name>.out` by default. The closure can also explicitly append frames
+using the `.append` command.
 
 ## Registering
 
@@ -45,7 +48,7 @@ r###'{
   # Required: Actor closure (frame, state) -> {out?, next?}
   run: {|frame, state|
     if $frame.topic == "ping" {
-      {out: "pong", next: $state}
+      {out: {reply: "pong"}, next: $state}
     } else {
       {next: $state}
     }
@@ -94,11 +97,14 @@ with metadata:
 The `return_options` field controls how return values are handled:
 
 - `suffix`: String appended to actor's name for output topic (default: ".out")
-- `ttl`: Time-to-live for output frames
+- `ttl`: Time-to-live for output frames (default: "forever")
   - `"forever"`: Never expire
   - `"ephemeral"`: Not stored; only active subscribers receive it
   - `"time:<milliseconds>"`: Expire after duration
   - `"last:<n>"`: Keep only N most recent frames
+- `target`: Storage target for output values
+  - Default (omitted): `out` must be a record; stored as frame metadata
+  - `"cas"`: `out` is stored in CAS; any type is accepted including binary
 
 #### Modules
 
@@ -108,7 +114,7 @@ Actors can use modules registered via `*.nu` topics. An actor sees the modules a
 r###'{
   run: {|frame, state|
     use xs/my-math
-    {out: (my-math double 8), next: $state}
+    {out: {result: (my-math double 8)}, next: $state}
   }
 }'### | .append processor.register
 ```
@@ -123,7 +129,7 @@ for the next invocation:
 r#'{
   run: {|frame, state|
     let count = $state + 1
-    {out: $"Processed ($count) frames", next: $count}
+    {out: {count: $count}, next: $count}
   }
   initial: 0
 }'# | .append counter.register
@@ -139,14 +145,14 @@ The initial state is resolved in order:
 
 Actors can produce output in two ways:
 
-1. **Return Values**: The `out` key in the return record is automatically
+1. **Return Values**: The `out` record is stored as frame metadata and
    appended to the actor's output topic (`<actor-name>.out` by default unless
    modified by return_options.suffix)
 
 ```nushell
 {|frame, state|
   if $frame.topic == "ping" {
-    {out: "pong", next: $state}
+    {out: {reply: "pong"}, next: $state}
   } else {
     {next: $state}
   }

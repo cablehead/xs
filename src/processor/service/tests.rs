@@ -590,6 +590,7 @@ fn test_emit_event_helper() {
         return_options: Some(ReturnOptions {
             suffix: Some("data".into()),
             ttl: None,
+            target: None,
         }),
         duplex: false,
         engine,

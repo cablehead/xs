@@ -148,7 +148,7 @@ r#'{
   run: {|frame, sum = 0|
     if $frame.topic != "sale" { return {next: $sum} }
     let sum = $sum + ($frame.meta.amount | into float)
-    {out: $sum, next: $sum}
+    {out: {total: $sum}, next: $sum}
   }
   return_options: { suffix: ".total", ttl: "last:1" }
 }'# | .append revenue.register
@@ -167,12 +167,13 @@ The monitor shows `revenue.active`. The actor is live.
 Three `revenue.total` frames appear. Check the latest:
 
 ```bash withOutput
-> .last revenue.total | .cas $in.hash
+> .last revenue.total | get meta.total
 70.48
 ```
 
-The actor maintains a running total across frames. The `last:1` TTL keeps only
-the most recent total, giving you a materialized view that's always queryable.
+The `out` record is stored directly in the frame's metadata, so reading the
+total requires no CAS lookup. The `last:1` TTL keeps only the most recent
+total, giving you a materialized view that's always queryable.
 
 ### Frames the actor ignores
 
@@ -190,7 +191,7 @@ non-`sale` frame: state carried forward, no output emitted.
 | `generate` with input                    | cross.stream actor                           |
 | ---------------------------------------- | -------------------------------------------- |
 | `[data] \| generate {\|el, state\| ...}` | Frames flow through `{\|frame, state\| ...}` |
-| `{out: v, next: s}` emits downstream     | `out` appended to `<name>.out`               |
+| `{out: v, next: s}` emits downstream     | `out` record stored as frame metadata        |
 | `{next: s}` skips                        | No frame emitted, state carried forward      |
 | Omit `next` to stop                      | Actor self-terminates, emits `.unregistered`  |
 | Default param sets initial state          | Default param or `initial` config field       |

@@ -196,7 +196,7 @@ async fn test_module_registered_in_vfs() {
     let actor_script = r#"{
             run: {|frame, state = null|
                 use xs/testmod
-                {out: (testmod greet "world"), next: $state}
+                {out: {greeting: (testmod greet "world")}, next: $state}
             }
         }"#;
 
@@ -224,12 +224,7 @@ async fn test_module_registered_in_vfs() {
     // Handler should output the greeting
     let out_frame = recver.recv().await.unwrap();
     assert_eq!(out_frame.topic, "vfstest.out");
-    let content = store.cas_read(&out_frame.hash.unwrap()).await.unwrap();
-    let content_str = std::str::from_utf8(&content).unwrap();
-    assert!(
-        content_str.contains("hello world"),
-        "expected 'hello world' in output, got: {content_str}"
-    );
+    assert_eq!(out_frame.meta.as_ref().unwrap()["greeting"], "hello world");
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -258,7 +253,7 @@ async fn test_module_dot_path_maps_to_directory() {
     let actor_script = r#"{
             run: {|frame, state = null|
                 use xs/mylib/utils
-                {out: (utils add 3 4), next: $state}
+                {out: {result: (utils add 3 4)}, next: $state}
             }
         }"#;
 
@@ -279,12 +274,7 @@ async fn test_module_dot_path_maps_to_directory() {
 
     let out_frame = recver.recv().await.unwrap();
     assert_eq!(out_frame.topic, "dotpath.out");
-    let content = store.cas_read(&out_frame.hash.unwrap()).await.unwrap();
-    let content_str = std::str::from_utf8(&content).unwrap();
-    assert!(
-        content_str.contains("7"),
-        "expected '7' in output, got: {content_str}"
-    );
+    assert_eq!(out_frame.meta.as_ref().unwrap()["result"], 7);
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -313,7 +303,7 @@ async fn test_live_module_registration() {
     let actor_script = r#"{
             run: {|frame, state = null|
                 use xs/mathlib
-                {out: (mathlib double 21), next: $state}
+                {out: {result: (mathlib double 21)}, next: $state}
             }
         }"#;
 
@@ -334,12 +324,7 @@ async fn test_live_module_registration() {
 
     let out_frame = recver.recv().await.unwrap();
     assert_eq!(out_frame.topic, "livemod.out");
-    let content = store.cas_read(&out_frame.hash.unwrap()).await.unwrap();
-    let content_str = std::str::from_utf8(&content).unwrap();
-    assert!(
-        content_str.contains("42"),
-        "expected '42' in output, got: {content_str}"
-    );
+    assert_eq!(out_frame.meta.as_ref().unwrap()["result"], 42);
 
     assert_no_more_frames(&mut recver).await;
 }

@@ -73,7 +73,7 @@ Scripts reference modules by their stable VFS path. Re-appending a module topic 
 r#'{
   run: {|frame, state|
     use xs/mymod
-    {out: (mymod greet "world"), next: $state}
+    {out: {greeting: (mymod greet "world")}, next: $state}
   }
 }'# | .append greeter.register
 ```

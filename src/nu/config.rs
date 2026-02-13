@@ -42,6 +42,8 @@ pub struct ReturnOptions {
     pub suffix: Option<String>,
     /// Optional time-to-live for the output frames
     pub ttl: Option<TTL>,
+    /// Storage target for output: "cas" forces CAS storage, default stores records as meta
+    pub target: Option<String>,
 }
 
 /// Parse a script into a NuScriptConfig struct.
