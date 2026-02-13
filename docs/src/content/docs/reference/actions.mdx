@@ -97,7 +97,7 @@ Actions can use modules registered via `*.nu` topics. An action sees the modules
 ```nushell
 r#'{
   run: {|frame|
-    use xs/my-math
+    use my-math
     my-math double ($frame.meta.args.number)
   }
 }'# | .append calculator.define

@@ -113,7 +113,7 @@ Actors can use modules registered via `*.nu` topics. An actor sees the modules a
 ```nushell
 r###'{
   run: {|frame, state|
-    use xs/my-math
+    use my-math
     {out: {result: (my-math double 8)}, next: $state}
   }
 }'### | .append processor.register

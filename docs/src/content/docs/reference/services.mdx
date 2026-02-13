@@ -91,7 +91,7 @@ Services can use modules registered via `*.nu` topics. A service sees the module
 ```nushell
 r#'{
   run: {||
-    use xs/my-parser
+    use my-parser
     ^tail -F data.log | lines | each {|line| my-parser parse $line }
   }
 }'# | .append log.spawn

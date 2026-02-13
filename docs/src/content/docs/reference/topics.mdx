@@ -64,15 +64,15 @@ The topic name (minus the `.nu` suffix) maps to a directory path -- dots become 
 
 | Topic | VFS Path |
 | ----- | -------- |
-| `mymod.nu` | `xs/mymod/mod.nu` |
-| `discord.api.nu` | `xs/discord/api/mod.nu` |
+| `mymod.nu` | `mymod/mod.nu` |
+| `discord.api.nu` | `discord/api/mod.nu` |
 
 Scripts reference modules by their stable VFS path. Re-appending a module topic shadows the previous version:
 
 ```nushell
 r#'{
   run: {|frame, state|
-    use xs/mymod
+    use mymod
     {out: {greeting: (mymod greet "world")}, next: $state}
   }
 }'# | .append greeter.register

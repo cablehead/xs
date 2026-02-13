@@ -727,7 +727,7 @@ async fn test_actor_with_module() -> Result<(), Error> {
     let actor_script = r#"{
             run: {|frame, state = null|
                 if $frame.topic == "trigger" {
-                  use xs/mymod
+                  use mymod
                   {out: {result: (mymod add_nums 40 2)}, next: $state}
                 } else {
                   {next: $state}

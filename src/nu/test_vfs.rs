@@ -77,8 +77,8 @@ async fn test_load_modules_registers_vfs_paths() {
     let modules = store.nu_modules_at(&frame.id);
     load_modules(&mut engine.state, &store, &modules).unwrap();
 
-    assert!(has_virtual_file(&engine, "xs/mymod/mod.nu"));
-    assert!(has_virtual_dir(&engine, "xs/mymod"));
+    assert!(has_virtual_file(&engine, "mymod/mod.nu"));
+    assert!(has_virtual_dir(&engine, "mymod"));
 }
 
 #[tokio::test]
@@ -93,7 +93,7 @@ async fn test_load_modules_ignores_non_nu_frames() {
 
     let modules = store.nu_modules_at(&frame.id);
     load_modules(&mut engine.state, &store, &modules).unwrap();
-    assert!(!has_virtual_path(&engine, "xs/other/topic/mod.nu"));
+    assert!(!has_virtual_path(&engine, "other/topic/mod.nu"));
 }
 
 #[tokio::test]
@@ -105,7 +105,7 @@ async fn test_load_modules_ignores_frames_without_hash() {
 
     let modules = store.nu_modules_at(&frame.id);
     load_modules(&mut engine.state, &store, &modules).unwrap();
-    assert!(!has_virtual_path(&engine, "xs/mymod/mod.nu"));
+    assert!(!has_virtual_path(&engine, "mymod/mod.nu"));
 }
 
 #[tokio::test]
@@ -119,7 +119,7 @@ async fn test_load_modules_ignores_bare_nu_suffix() {
     modules.insert(".nu".to_string(), hash);
 
     load_modules(&mut engine.state, &store, &modules).unwrap();
-    assert!(!has_virtual_path(&engine, "xs/mod.nu"));
+    assert!(!has_virtual_path(&engine, "mod.nu"));
 }
 
 #[tokio::test]
@@ -146,7 +146,7 @@ async fn test_load_modules_latest_version_wins() {
     assert_eq!(modules.len(), 1);
 
     load_modules(&mut engine.state, &store, &modules).unwrap();
-    assert!(has_virtual_file(&engine, "xs/mymod/mod.nu"));
+    assert!(has_virtual_file(&engine, "mymod/mod.nu"));
 }
 
 #[tokio::test]
@@ -165,9 +165,9 @@ async fn test_load_modules_dot_separated_name() {
     let modules = store.nu_modules_at(&frame.id);
     load_modules(&mut engine.state, &store, &modules).unwrap();
 
-    assert!(has_virtual_file(&engine, "xs/discord/api/mod.nu"));
-    assert!(has_virtual_dir(&engine, "xs/discord/api"));
-    assert!(has_virtual_dir(&engine, "xs/discord"));
+    assert!(has_virtual_file(&engine, "discord/api/mod.nu"));
+    assert!(has_virtual_dir(&engine, "discord/api"));
+    assert!(has_virtual_dir(&engine, "discord"));
 }
 
 // --- Integration tests: VFS registration via processors ---
@@ -195,7 +195,7 @@ async fn test_module_registered_in_vfs() {
     // Register an actor that uses the module
     let actor_script = r#"{
             run: {|frame, state = null|
-                use xs/testmod
+                use testmod
                 {out: {greeting: (testmod greet "world")}, next: $state}
             }
         }"#;
@@ -252,7 +252,7 @@ async fn test_module_dot_path_maps_to_directory() {
     // Actor uses xs/mylib/utils (dots become slashes)
     let actor_script = r#"{
             run: {|frame, state = null|
-                use xs/mylib/utils
+                use mylib/utils
                 {out: {result: (utils add 3 4)}, next: $state}
             }
         }"#;
@@ -302,7 +302,7 @@ async fn test_live_module_registration() {
     // Now register an actor that uses the live-registered module
     let actor_script = r#"{
             run: {|frame, state = null|
-                use xs/mathlib
+                use mathlib
                 {out: {result: (mathlib double 21)}, next: $state}
             }
         }"#;
@@ -361,7 +361,7 @@ async fn test_multiple_modules_shared_parent() {
     // Use a COMMAND (.define) that references the first module.
     let cmd_script = r#"{
             run: {|frame|
-                use xs/myapp/utils
+                use myapp/utils
                 utils add 10 20
             }
             return_options: { target: "cas" }

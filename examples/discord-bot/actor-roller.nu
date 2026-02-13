@@ -33,7 +33,7 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
 
 {
   run: {|frame, state|
-    use xs/discord
+    use discord
     if $frame.topic != "discord.ws.recv" { return {next: $state} }
 
     let message = $frame.meta
