@@ -186,7 +186,7 @@ fn run_action(
     let mut engine_clone = engine.clone();
     engine_clone.run_closure_in_job(
         &closure,
-        Some(arg_val),
+        vec![arg_val],
         None,
         format!("action {topic}", topic = frame.topic),
     )

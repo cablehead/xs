@@ -54,10 +54,16 @@ def "scru128-since" [$id1, $id2] {
 }
 
 def .send [] {
-    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl head:5
+    to json -r | $"($in)\n" | .append "discord.ws.send" --ttl last:5
 }
 
-$env.state = {
+$env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
+
+{
+  start: (.last discord.ws.running | get -i id | default "first")
+  pulse: 1000
+
+  initial: {
     s: null,
     heartbeat_interval: 0,
     last_sent: null,
@@ -67,43 +73,34 @@ $env.state = {
     resume_gateway_url: null
   }
 
-$env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
-
-{
-  start: (.last discord.ws.running | get -i id | default "first")
-  pulse: 1000
-
-  run: {|frame|
+  run: {|frame, state|
     # https://discord.com/developers/docs/topics/gateway#list-of-intents
     # GUILDS, GUILD_MEMBERS, GUILD_MESSAGES, GUILD_MESSAGE_REACTIONS, MESSAGE_CONTENT
     let IDENTIFY_INTENTS = 34307
 
     if $frame.topic == "xs.pulse" {
         # we're not online
-        if $env.state.heartbeat_interval == 0 {
-            return
+        if $state.heartbeat_interval == 0 {
+            return {next: $state}
         }
 
         # online, but not authed, attempt to auth
-        if (($env.state.heartbeat_interval != 0) and ($env.state.authing | is-empty)) {
+        if (($state.heartbeat_interval != 0) and ($state.authing | is-empty)) {
             op identify $env.BOT_TOKEN $IDENTIFY_INTENTS | .send
-            $env.state.authing = "identify"
-            return
+            return {next: ($state | merge {authing: "identify"})}
         }
 
-        let since = (scru128-since $frame.id $env.state.last_sent)
-        let interval = (($env.state.heartbeat_interval * 0.9) * 1ms)
+        let since = (scru128-since $frame.id $state.last_sent)
+        let interval = (($state.heartbeat_interval * 0.9) * 1ms)
         if ($since > $interval) {
             op heartbeat | .send
-            $env.state.last_ack = null
-            $env.state.last_sent = $frame.id
-            return
+            return {next: ($state | merge {last_ack: null, last_sent: $frame.id})}
         }
-        return
+        return {next: $state}
     }
 
     if $frame.topic != "discord.ws.recv" {
-        return
+        return {next: $state}
     }
 
     let message = $frame | .cas $in.hash | from json
@@ -111,21 +108,23 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
     match $message {
         # hello
         {op: 10} => {
-            $env.state.heartbeat_interval = $message.d.heartbeat_interval
-            $env.state.last_ack = $frame.id
-            $env.state.last_sent = $frame.id
-            $env.state.authing = null
+            {next: ($state | merge {
+                heartbeat_interval: $message.d.heartbeat_interval,
+                last_ack: $frame.id,
+                last_sent: $frame.id,
+                authing: null
+            })}
         }
 
         # heartbeat_ack
         {op: 11} => {
-            $env.state.last_ack = $frame.id
             .rm $frame.id
+            {next: ($state | merge {last_ack: $frame.id})}
         }
 
         # resume
         {op: 6} => {
-            $env.state.authing = "resume"
+            {next: ($state | merge {authing: "resume"})}
         }
 
         # invalid_session
@@ -133,28 +132,39 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
             # The inner d key is a boolean that indicates whether the session may be resumable.
             # if we get an invalid session while trying to resume, also clear
             # out the session
-            if not $message.d or $env.state.authing == "resume" {
-                $env.state.resume_gateway_url = null
-                $env.state.session_id = null
+            if not $message.d or $state.authing == "resume" {
+                {next: ($state | merge {
+                    resume_gateway_url: null,
+                    session_id: null,
+                    authing: null
+                })}
+            } else {
+                {next: ($state | merge {authing: null})}
             }
-            $env.state.authing = null
         }
 
         # dispatch:: READY
         {op: 0, t: "READY"} => {
-            $env.state.session_id = $message.d.session_id
-            $env.state.resume_gateway_url = $message.d.resume_gateway_url
-            $env.state.authing = "authed"
+            {next: ($state | merge {
+                session_id: $message.d.session_id,
+                resume_gateway_url: $message.d.resume_gateway_url,
+                authing: "authed"
+            })}
         }
 
         # dispatch:: RESUMED
         {op: 0, t: "RESUMED"} => {
-            $env.state.authing = "authed"
+            {next: ($state | merge {authing: "authed"})}
         }
 
         # dispatch:: GUILD_CREATE
         {op: 0, t: "GUILD_CREATE"} => {
             # ignore
+            {next: $state}
+        }
+
+        _ => {
+            {next: $state}
         }
     }
   }

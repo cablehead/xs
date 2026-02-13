@@ -194,9 +194,9 @@ async fn test_module_registered_in_vfs() {
 
     // Register an actor that uses the module
     let actor_script = r#"{
-            run: {|frame|
+            run: {|frame, state = null|
                 use xs/testmod
-                testmod greet "world"
+                {out: (testmod greet "world"), next: $state}
             }
         }"#;
 
@@ -256,9 +256,9 @@ async fn test_module_dot_path_maps_to_directory() {
 
     // Actor uses xs/mylib/utils (dots become slashes)
     let actor_script = r#"{
-            run: {|frame|
+            run: {|frame, state = null|
                 use xs/mylib/utils
-                utils add 3 4
+                {out: (utils add 3 4), next: $state}
             }
         }"#;
 
@@ -311,9 +311,9 @@ async fn test_live_module_registration() {
 
     // Now register an actor that uses the live-registered module
     let actor_script = r#"{
-            run: {|frame|
+            run: {|frame, state = null|
                 use xs/mathlib
-                mathlib double 21
+                {out: (mathlib double 21), next: $state}
             }
         }"#;
 

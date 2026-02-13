@@ -199,12 +199,16 @@ This interactive exploration helps you understand the data structure before writ
 
 ```nushell
 r#'{
-  run: {|frame|
+  run: {|frame, state|
     if ($frame.topic == "mcp.recv") {
       let content = .cas $frame.hash | from json | get -i result.content.0.text
       if ($content != null and "42" in $content) {
-        "meaning of life detected!"
+        {out: "meaning of life detected!", next: $state}
+      } else {
+        {next: $state}
       }
+    } else {
+      {next: $state}
     }
   }
 }'# | .append meaning.detector.register

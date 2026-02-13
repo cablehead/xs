@@ -76,15 +76,15 @@ Add your Discord bot token:
 "<token>" | .append discord.ws.token
 ```
 
-Register heartbeat handler for authentication:
+Register heartbeat actor for authentication:
 
 ```nushell
-open examples/discord-bot/handler-heartbeat.nu | .append "discord.heartbeat.register"
+open examples/discord-bot/actor-heartbeat.nu | .append "discord.heartbeat.register"
 ```
 
 At this point, all messages sent to the Discord server will be available on the
-event stream. You can build from there, creating handlers that take action for
-specific messages. For example, we could register a handler that looks for
+event stream. You can build from there, creating actors that take action for
+specific messages. For example, we could register an actor that looks for
 messages in the form `./roll 1d4` and responds with a dice roll.
 
 Load Discord REST API module:
@@ -93,10 +93,10 @@ Load Discord REST API module:
 http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu | .append discord.nu
 ```
 
-Register dice roll handler:
+Register dice roll actor:
 
 ```nushell
-open examples/discord-bot/handler-roller.nu | .append "discord.roller.register"
+open examples/discord-bot/actor-roller.nu | .append "discord.roller.register"
 ```
 
 #### Slash commands
@@ -112,6 +112,6 @@ discord app command create 1227338584814649364 dice "make a dice roll" --options
        (discord app command option int modifier "modifier")
    ]
 
-# enable the command handler
-open examples/discord-bot/handler-slash-dice.nu | .append "discord.slash-dice.register"
+# enable the command actor
+open examples/discord-bot/actor-slash-dice.nu | .append "discord.slash-dice.register"
 ```
