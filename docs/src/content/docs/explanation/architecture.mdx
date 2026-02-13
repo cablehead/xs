@@ -56,6 +56,18 @@ Content is stored separately in a Content-Addressable Storage (CAS) system imple
 - Multiple frames can reference the same content
 - Content is stored once, regardless of how many frames reference it
 
+### When to Use Meta vs CAS
+
+Prefer metadata for structured data (records, numbers, small strings). Metadata
+is inline on the frame, so reading 50 frames gives you 50 values with no extra
+lookups.
+
+Use CAS for blobs: images, large text, binary content. CAS gives you
+deduplication and streaming reads, but each value requires a separate lookup.
+
+Rule of thumb: if the value is something you'd put in a JSON field, it belongs
+in meta. If it's something you'd serve as a file, it belongs in CAS.
+
 ### Server Process
 
 A server process sits between clients and the store, enabling:
