@@ -139,8 +139,9 @@ Keep this running.
 
 ### Register the actor
 
-Same running sum, now as an actor. The closure receives a frame instead of a
-plain number, so it pulls the amount from the frame's metadata:
+Same running sum, now as an actor. The actor sees every frame on the stream, so
+it guards on topic first: non-`sale` frames carry state forward with no output.
+Sale frames pull the amount from metadata and add it to the sum:
 
 ```nushell
 r#'{
