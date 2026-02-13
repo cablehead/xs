@@ -33,13 +33,15 @@ r#'{
   return_options: {
     suffix: ".output" # Output topic suffix (default: ".response")
     ttl: "last:1" # Keep only most recent frame
+    target: "cas" # Default: "meta" (record output stored as frame metadata)
   }
 }'# | .append repeat.define
 ```
 
-The `return_options` field controls the suffix and TTL for the `.response` frame
-produced by the action. TTL only applies to this `.response` frame---`.error`
-events never expire.
+The `return_options` field controls the suffix, TTL, and storage target for the
+`.response` frame produced by the action. By default, record output goes to
+frame metadata. Set `target: "cas"` to store in CAS; any type is accepted. TTL
+only applies to this `.response` frame -- `.error` events never expire.
 
 The action definition requires:
 
@@ -48,8 +50,8 @@ The action definition requires:
 
 Upon successful definition, the action emits a `<action>.ready` frame indicating it's ready to accept calls.
 
-All values produced by the closure's output pipeline are collected into a single
-`.response` event automatically.
+The closure's output is collected into a single `.response` event. Record output
+goes to frame metadata by default; set `target: "cas"` for non-record output.
 
 ## Calling Actions
 

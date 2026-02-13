@@ -5,7 +5,7 @@ use tracing::instrument;
 use crate::error::Error;
 use crate::nu;
 use crate::nu::commands;
-use crate::nu::ReturnOptions;
+use crate::nu::{value_to_json, ReturnOptions};
 use crate::processor::{Lifecycle, LifecycleReader};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 
@@ -126,29 +126,70 @@ async fn execute_action(action: Action, frame: &Frame, store: &Store) -> Result<
                     .return_options
                     .as_ref()
                     .and_then(|opts| opts.ttl.clone());
+                let use_cas = action
+                    .return_options
+                    .as_ref()
+                    .and_then(|o| o.target.as_deref())
+                    .is_some_and(|t| t == "cas");
 
-                let hash = if pipeline_data.is_nothing() {
-                    store.cas_insert_sync("[]")?
+                let topic = format!(
+                    "{topic}{suffix}",
+                    topic = frame.topic.strip_suffix(".call").unwrap(),
+                    suffix = resp_suffix
+                );
+
+                let mut base_meta = serde_json::json!({
+                    "action_id": action.id.to_string(),
+                    "frame_id": frame.id.to_string(),
+                });
+
+                if pipeline_data.is_nothing() {
+                    let _ = store.append(
+                        Frame::builder(topic)
+                            .maybe_ttl(ttl)
+                            .meta(base_meta)
+                            .build(),
+                    );
                 } else {
                     let value = pipeline_data.into_value(nu_protocol::Span::unknown())?;
-                    let json_value = nu::value_to_json(&value);
-                    store.cas_insert_sync(serde_json::to_string(&json_value)?)?
-                };
+                    if use_cas {
+                        let json_value = value_to_json(&value);
+                        let hash =
+                            store.cas_insert_sync(serde_json::to_string(&json_value)?)?;
+                        let _ = store.append(
+                            Frame::builder(topic)
+                                .maybe_ttl(ttl)
+                                .hash(hash)
+                                .meta(base_meta)
+                                .build(),
+                        );
+                    } else {
+                        match &value {
+                            nu_protocol::Value::Record { .. } => {
+                                let json = value_to_json(&value);
+                                if let serde_json::Value::Object(map) = json {
+                                    for (k, v) in map {
+                                        base_meta[k] = v;
+                                    }
+                                }
+                                let _ = store.append(
+                                    Frame::builder(topic)
+                                        .maybe_ttl(ttl)
+                                        .meta(base_meta)
+                                        .build(),
+                                );
+                            }
+                            _ => {
+                                return Err(format!(
+                                    "Action output must be a record when target is not \"cas\"; got {}. \
+                                     Set return_options.target to \"cas\" for non-record output.",
+                                    value.get_type()
+                                ).into());
+                            }
+                        }
+                    }
+                }
 
-                let _ = store.append(
-                    Frame::builder(format!(
-                        "{topic}{suffix}",
-                        topic = frame.topic.strip_suffix(".call").unwrap(),
-                        suffix = resp_suffix
-                    ))
-                    .maybe_ttl(ttl.clone())
-                    .hash(hash)
-                    .meta(serde_json::json!({
-                        "action_id": action.id.to_string(),
-                        "frame_id": frame.id.to_string(),
-                    }))
-                    .build(),
-                );
                 Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
             }
             Err(err) => {

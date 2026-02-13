@@ -24,6 +24,7 @@ async fn test_action_with_pipeline() -> Result<(), Error> {
                                 let n = $frame.meta.args.n
                                 1..($n) | each {$"($in): ($input)"}
                             }
+                            return_options: { target: "cas" }
                         }"#,
                     )
                     .await?,
@@ -125,6 +126,7 @@ async fn test_action_single_value() -> Result<(), Error> {
                     .cas_insert(
                         r#"{
                             run: {|frame| "single value output"}
+                            return_options: { target: "cas" }
                         }"#,
                     )
                     .await?,
@@ -183,14 +185,13 @@ async fn test_action_empty_output() -> Result<(), Error> {
     let frame_call = store.append(Frame::builder("empty.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "empty.call");
 
-    // Expect single response event with empty array
+    // Expect single response event with no hash
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "empty.response");
     let meta = frame.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta["action_id"], frame_action.id.to_string());
     assert_eq!(meta["frame_id"], frame_call.id.to_string());
-    let content = store.cas_read(frame.hash.as_ref().unwrap()).await?;
-    assert_eq!(String::from_utf8(content)?, "[]");
+    assert!(frame.hash.is_none(), "empty output should have no hash");
 
     assert_no_more_frames(&mut recver).await;
     Ok(())
@@ -213,6 +214,7 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
                             run: {|frame|
                                 [1 2 3] | tee { collect { math sum } | to json -r | .append sum }
                             }
+                            return_options: { target: "cas" }
                         }"#,
                     )
                     .await?,
@@ -244,6 +246,45 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
     let content_str = String::from_utf8(content)?;
     let values: Vec<i64> = serde_json::from_str(&content_str)?;
     assert_eq!(values, vec![1, 2, 3]);
+
+    assert_no_more_frames(&mut recver).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_action_record_output_goes_to_meta() -> Result<(), Error> {
+    let (_dir, store) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    let frame_action = store.append(
+        Frame::builder("rec.define")
+            .hash(
+                store
+                    .cas_insert(
+                        r#"{
+                            run: {|frame| {status: "ok", count: 42} }
+                        }"#,
+                    )
+                    .await?,
+            )
+            .build(),
+    )?;
+    assert_eq!(recver.recv().await.unwrap().topic, "rec.define");
+    assert_eq!(recver.recv().await.unwrap().topic, "rec.ready");
+
+    let frame_call = store.append(Frame::builder("rec.call").build())?;
+    assert_eq!(recver.recv().await.unwrap().topic, "rec.call");
+
+    let frame = recver.recv().await.unwrap();
+    assert_eq!(frame.topic, "rec.response");
+    assert!(frame.hash.is_none(), "record output should not use CAS");
+    let meta = frame.meta.unwrap();
+    assert_eq!(meta["action_id"], frame_action.id.to_string());
+    assert_eq!(meta["frame_id"], frame_call.id.to_string());
+    assert_eq!(meta["status"], "ok");
+    assert_eq!(meta["count"], 42);
 
     assert_no_more_frames(&mut recver).await;
     Ok(())

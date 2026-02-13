@@ -364,6 +364,7 @@ async fn test_multiple_modules_shared_parent() {
                 use xs/myapp/utils
                 utils add 10 20
             }
+            return_options: { target: "cas" }
         }"#;
 
     store
