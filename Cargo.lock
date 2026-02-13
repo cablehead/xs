@@ -1045,7 +1045,7 @@ checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "cross-stream"
-version = "0.9.4"
+version = "0.10.0"
 dependencies = [
  "assert_cmd",
  "base64 0.22.1",
