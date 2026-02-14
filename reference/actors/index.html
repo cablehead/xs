@@ -108,8 +108,7 @@ configuration.</p>
 with metadata:</p>
 <ul>
 <li><code dir="auto">actor_id</code> — the ID of the actor instance</li>
-<li><code dir="auto">new</code> — whether processing started from the end of the topic (new items only)</li>
-<li><code dir="auto">after</code> — the frame ID that processing resumed after (if any)</li>
+<li><code dir="auto">start</code> — the start configuration: <code dir="auto">"new"</code>, <code dir="auto">"first"</code>, or <code dir="auto">{"after": "&#x3C;frame-id>"}</code></li>
 </ul>
 <h3 id="configuration-record-fields">Configuration Record Fields</h3>
 
@@ -196,7 +195,7 @@ reacting to the actor’s own output</li>
 </ul>
 <h2 id="lifecycle">Lifecycle</h2>
 <p>See  for all processor suffixes.</p>
-<figure class="beoe mermaid"><div><img src="/xs/beoe/7ozb79.svg" loading="lazy" decoding="async" width="1240.9820556640625" height="582" class="beoe-light"><img src="/xs/beoe/1vkif8m.svg" loading="lazy" decoding="async" width="1240.9820556640625" height="582" class="beoe-dark"></div></figure>
+<figure class="beoe mermaid"><div><img src="/xs/beoe/au2uev.svg" loading="lazy" decoding="async" width="1240.9820556640625" height="582" class="beoe-light"><img src="/xs/beoe/1wtg1jj.svg" loading="lazy" decoding="async" width="1240.9820556640625" height="582" class="beoe-dark"></div></figure>
 <h3 id="unregistering">Unregistering</h3>
 <p>An actor can be unregistered by:</p>
 <ul>
