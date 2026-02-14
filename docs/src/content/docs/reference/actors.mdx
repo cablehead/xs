@@ -79,8 +79,7 @@ Upon a successful start the actor appends a `<actor-name>.active` frame
 with metadata:
 
 - `actor_id` -- the ID of the actor instance
-- `new` -- whether processing started from the end of the topic (new items only)
-- `after` -- the frame ID that processing resumed after (if any)
+- `start` -- the start configuration: `"new"`, `"first"`, or `{"after": "<frame-id>"}`
 
 ### Configuration Record Fields
 

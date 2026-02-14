@@ -322,8 +322,7 @@ impl Actor {
             Frame::builder(format!("{topic}.active", topic = &self.topic))
                 .meta(serde_json::json!({
                     "actor_id": self.id.to_string(),
-                    "new": options.new,
-                    "after": options.after.map(|id| id.to_string()),
+                    "start": self.config.start,
                 }))
                 .build(),
         );
