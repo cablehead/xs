@@ -19,7 +19,7 @@ Example good commit messages from this project:
 
 ## Tone and Communication
 
-- ASCII only. No em dashes, smart quotes, or other unicode punctuation.
+- ASCII only. No em dashes, smart quotes, or other unicode punctuation. Use "--" only in code contexts, not as prose punctuation.
 - No wasted words. No fluff. Each word should add value to the reader.
 - Human readable and clear.
 - Calm, matter-of-fact technical tone.

@@ -72,14 +72,14 @@ OK! Let's append our first event:
 <TabItem label="nushell">
 
 ```nushell withOutput
-> "a quick note" | .append notes
-───────┬─────────────────────────────────────────────────────
+> null | .append notes --meta {text: "a quick note"}
+───────┬─────────────────────────────
  topic │ notes
  id    │ 03d4q1qhbiv09ovtuhokw5yxv
- hash  │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY=
- meta  │
+ hash  │
+ meta  │ {text: "a quick note"}
  ttl   │ forever
-───────┴─────────────────────────────────────────────────────
+───────┴─────────────────────────────
 ```
 
 </TabItem>
@@ -87,15 +87,15 @@ OK! Let's append our first event:
 <TabItem label="bash">
 
 ```bash withOutput
-> echo "a quick note" | xs append ./store notes
-{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":"sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=","meta":null,"ttl":"forever"}
+> echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
+{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
 ```
 
 </TabItem>
 
 </Tabs>
 
-### `cat` and `cas` commands
+### `cat` command
 
 and then `cat` the stream:
 
@@ -105,36 +105,18 @@ and then `cat` the stream:
 
 ```nushell withOutput
 > .cat
-─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬─meta─┬───ttl───
- 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │                                                     │      │
- 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
-───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
+─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────meta──────────┬───ttl───
+ 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │                        │
+ 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"} │ forever
+───┴──────────┴───────────────────────────┴──────┴────────────────────────┴─────────
 ```
 
-These are the raw `frames` on the stream. The actually content is stored
-separately in the `Content-Addressable Storage` (CAS). You can read more about
-that [here](../../explanation/architecture/).
-
-We have the full expressiveness of Nushell available to us—for example, we can
-get the content hash of the last frame on the stream using:
+These are the raw `frames` on the stream. Structured data lives inline in the
+`meta` field. We have the full expressiveness of Nushell available to us --
+for example, we can read the note text directly:
 
 ```nushell withOutput
-> .cat | last | $in.hash
-sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY=
-```
-
-and then use the `.cas` command to retrieve the content:
-
-```nushell withOutput
-> .cat | last | .cas $in.hash
-a quick note
-```
-
-We can also retrieve the content for a frame by piping it in its entirety
-directly to `.cas`:
-
-```nushell withOutput
-> .cat | last | .cas
+> .cat | last | $in.meta.text
 a quick note
 ```
 
@@ -145,22 +127,14 @@ a quick note
 ```bash withOutput
 > xs cat ./store
 {"topic":"xs.start","id":"03d4qiab9g5vagrlrvxa2vjw0","hash":null,"meta":null,"ttl":null}
-{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":"sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=","meta":null,"ttl":"forever"}
+{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
 ```
 
-These are the raw `frames` on the stream. The actually content is stored
-separately in the `Content-Addressable Storage` (CAS). You can read more about
-that [here](../../explanation/architecture/).
-
-We can retrieve the content for a frame using its content hash:
+These are the raw `frames` on the stream. Structured data lives inline in the
+`meta` field:
 
 ```bash withOutput
-> xs cat ./store | tail -n1 | jq -r .hash
-sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=
-```
-
-```bash withOutput
-> xs cas ./store sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=
+> xs cat ./store | tail -n1 | jq -r .meta.text
 a quick note
 ```
 
@@ -168,7 +142,14 @@ a quick note
 
 </Tabs>
 
-### `head` command
+<Aside type="tip" title="When to use CAS">
+For binary content or large blobs, `xs` provides Content-Addressable Storage
+(CAS). Pipe content directly to `.append` and it gets stored in CAS,
+referenced by a content hash. For structured data, prefer `--meta`. Read more
+about the [architecture](../../explanation/architecture/).
+</Aside>
+
+### `.last` command
 
 Let's submit another note:
 
@@ -177,30 +158,30 @@ Let's submit another note:
 <TabItem label="nushell">
 
 ```nushell withOutput
-> "submit TPS report" | .append notes
+> null | .append notes --meta {text: "submit TPS report"}
 > .cat
-─#─┬──topic───┬────────────id─────────────┬────────────────────────hash─────────────────────────┬─meta─┬───ttl───
- 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │                                                     │      │
- 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │ sha256-wIcRiyKpOjA1Z8O+wZvoiMXYgGEzPQOhlA8AOptOhBY= │      │ forever
- 2 │ notes    │ 03d4qbrxizqgav09m7hicksb0 │ sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c= │      │ forever
-───┴──────────┴───────────────────────────┴─────────────────────────────────────────────────────┴──────┴─────────
+─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────────meta──────────────┬───ttl───
+ 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │                                │
+ 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"}         │ forever
+ 2 │ notes    │ 03d4qbrxizqgav09m7hicksb0 │      │ {text: "submit TPS report"}    │ forever
+───┴──────────┴───────────────────────────┴──────┴────────────────────────────────┴─────────
 ```
 
 We can get the most recent note on the stream using the `.last` command:
 
 ```nushell withOutput
 > .last notes
-───────┬─────────────────────────────────────────────────────
+───────┬─────────────────────────────────
  topic │ notes
  id    │ 03d4qbrxizqgav09m7hicksb0
- hash  │ sha256-KDyb7pypM+8aLiq5obfpCqbMmb6LvvPnCu2+y9eWd0c=
- meta  │
+ hash  │
+ meta  │ {text: "submit TPS report"}
  ttl   │ forever
-───────┴─────────────────────────────────────────────────────
+───────┴─────────────────────────────────
 ```
 
 ```nushell withOutput
-> .last notes | .cas
+> .last notes | $in.meta.text
 submit TPS report
 ```
 
@@ -209,22 +190,22 @@ submit TPS report
 <TabItem label="bash">
 
 ```bash withOutput
-> echo "submit TPS report" | xs append ./store notes
+> echo -n | xs append ./store notes --meta '{"text":"submit TPS report"}'
 > xs cat ./store
 {"topic":"xs.start","id":"03d4qiab9g5vagrlrvxa2vjw0","hash":null,"meta":null,"ttl":null}
-{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":"sha256-24yYvzQ4Zd3Go/WevV9ol+KzkdTgQvlyNN2NVSGMjFE=","meta":null,"ttl":"forever"}
-{"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":"sha256-pwB4w9N1v99Uu/96KsKKaIgDMm18QDMOZJsEwCxBtsA=","meta":null,"ttl":"forever"}
+{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
+{"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":null,"meta":{"text":"submit TPS report"},"ttl":"forever"}
 ```
 
 We can get the most recent note on the stream using the `last` command:
 
 ```bash withOutput
 > xs last ./store notes
-{"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":"sha256-pwB4w9N1v99Uu/96KsKKaIgDMm18QDMOZJsEwCxBtsA=","meta":null,"ttl":"forever"}
+{"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":null,"meta":{"text":"submit TPS report"},"ttl":"forever"}
 ```
 
 ```bash withOutput
-> xs last ./store notes | jq -r .hash | xargs xs cas ./store
+> xs last ./store notes | jq -r .meta.text
 submit TPS report
 ```
 
@@ -240,37 +221,30 @@ Finally, let's pull a list of all our notes.
 
 <TabItem label="nushell">
 
-We can filter directly by topic using `--topic` and then use the `each` command to pull out the content of each note:
+We can filter by topic and then pull out the text of each note:
 
 ```nushell withOutput
-> .cat | where topic == "notes" | each { .cas $in.hash }
+> .cat | where topic == "notes" | each { $in.meta.text }
 ───┬───────────────────
 0 │ a quick note
 1 │ submit TPS report
 ───┴───────────────────
 ```
 
-Fun! 🎉
+Fun!
 
 </TabItem>
 
 <TabItem label="bash">
 
 ```bash withOutput
-> xs cat ./store --topic notes | jq -r .hash | xargs -I{} xs cas ./store {}
+> xs cat ./store | jq -r 'select(.topic == "notes") | .meta.text'
 a quick note
 submit TPS report
 ```
 
-Fun! 🎉
-
-<Aside type="tip">
-
-About now, I'd encourage you to checkout the <Link to="nu" /> version of this
-tutorial, the tab over. You might be reconsidering a bunch of life choices. 🤣
-No stress though: check out the <Link to="nu" /> site and give it a try!
-
-</Aside>
+Fun! If you haven't already, check out the <Link to="nu" /> tab. `xs` pairs
+well with Nushell's structured data pipeline.
 
 </TabItem>
 
