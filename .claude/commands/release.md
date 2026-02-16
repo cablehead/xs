@@ -38,6 +38,7 @@ Last few releases: !`git tag --sort=-version:refname | grep -v dev | head -5`
 - Check that all important changes are highlighted appropriately
 - Edit the highlights section to focus on user-facing improvements
 - Ensure the changelog is accurate and complete
+- **No soft line breaks** -- paragraphs should be single long lines, not wrapped at 80 columns. GitHub renders markdown with soft wraps, so hard breaks mid-paragraph show up as unwanted newlines in the release notes.
 
 **Do not proceed to the next step until you are satisfied with the release
 notes.**
