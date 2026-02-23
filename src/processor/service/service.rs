@@ -757,7 +757,7 @@ async fn run_pty_loop(
                                     ws_ypixel: 0,
                                 };
                                 unsafe {
-                                    libc::ioctl(master_fd, libc::TIOCSWINSZ as libc::c_ulong, &ws);
+                                    libc::ioctl(master_fd, libc::TIOCSWINSZ as _, &ws);
                                 }
                                 let _ = kill(child_pid, Signal::SIGWINCH);
                             }
