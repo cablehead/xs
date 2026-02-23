@@ -13,9 +13,10 @@ use crate::nu::{value_to_json, ReturnOptions};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use serde_json::json;
 
+use super::pty::PtyChild;
+
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct PtyOptions {
-    pub cmd: String,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
 }
@@ -240,12 +241,7 @@ async fn run(store: Store, spawn_frame: Frame) {
         }
     };
 
-    if let Some(pty_opts) = opts.pty {
-        run_pty_loop(store, loop_ctx, spawn_frame.id, pty_opts).await;
-        return;
-    }
-
-    // Closure-based service: extract the run closure
+    // Extract the run field -- required for both closure and PTY services
     let run_val = match config_value.get_data_by_key("run") {
         Some(v) => v,
         None => {
@@ -255,12 +251,35 @@ async fn run(store: Store, spawn_frame: Frame) {
                 spawn_frame.id,
                 None,
                 ServiceEventKind::ParseError {
-                    message: "Script must define a 'run' closure or 'pty' options.".into(),
+                    message: "Script must define a 'run' field.".into(),
                 },
             );
             return;
         }
     };
+
+    // PTY mode: run is a command string, pty provides dimensions
+    if let Some(pty_opts) = opts.pty {
+        let cmd = match run_val.as_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => {
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    spawn_frame.id,
+                    None,
+                    ServiceEventKind::ParseError {
+                        message: "With pty enabled, 'run' must be a command string.".into(),
+                    },
+                );
+                return;
+            }
+        };
+        run_pty_loop(store, loop_ctx, spawn_frame.id, cmd, pty_opts).await;
+        return;
+    }
+
+    // Closure-based service: run is a closure
     let run_closure = match run_val.as_closure() {
         Ok(c) => c.clone(),
         Err(e) => {
@@ -489,80 +508,13 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
     }
 }
 
-#[cfg(unix)]
 async fn run_pty_loop(
     store: Store,
     loop_ctx: ServiceLoop,
     source_id: Scru128Id,
+    initial_cmd: String,
     initial_pty_opts: PtyOptions,
 ) {
-    use nix::libc;
-    use nix::pty::openpty;
-    use nix::sys::signal::{kill, Signal};
-    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-    use nix::unistd::{close, dup2, execvp, fork, setsid, ForkResult, Pid};
-    use std::ffi::CString;
-    use std::os::unix::io::{FromRawFd, IntoRawFd};
-
-    fn spawn_pty_child(opts: &PtyOptions) -> Result<(std::os::unix::io::RawFd, Pid), String> {
-        let cols = opts.cols.unwrap_or(80);
-        let rows = opts.rows.unwrap_or(24);
-
-        let ws = libc::winsize {
-            ws_row: rows,
-            ws_col: cols,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-
-        let pty = openpty(Some(&ws), None).map_err(|e| format!("openpty: {e}"))?;
-
-        // Convert OwnedFd to raw fds before fork. After fork both processes
-        // need to close fds manually, so raw fds are simpler and safer.
-        let master_fd = pty.master.into_raw_fd();
-        let slave_fd = pty.slave.into_raw_fd();
-
-        match unsafe { fork() } {
-            Ok(ForkResult::Child) => {
-                let _ = close(master_fd);
-                let _ = setsid();
-
-                // Set controlling terminal
-                unsafe {
-                    libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0);
-                }
-
-                let _ = dup2(slave_fd, 0);
-                let _ = dup2(slave_fd, 1);
-                let _ = dup2(slave_fd, 2);
-                if slave_fd > 2 {
-                    let _ = close(slave_fd);
-                }
-
-                let cmd =
-                    CString::new(opts.cmd.as_str()).unwrap_or_else(|_| CString::new("sh").unwrap());
-                let args = [cmd.clone()];
-                let _ = execvp(&cmd, &args);
-                std::process::exit(1);
-            }
-            Ok(ForkResult::Parent { child }) => {
-                let _ = close(slave_fd);
-                Ok((master_fd, child))
-            }
-            Err(e) => Err(format!("fork: {e}")),
-        }
-    }
-
-    fn kill_child(pid: Pid) {
-        let _ = kill(pid, Signal::SIGTERM);
-        // Give the child a moment to exit, then force kill
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        if let Ok(WaitStatus::StillAlive) = waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
-            let _ = kill(pid, Signal::SIGKILL);
-            let _ = waitpid(pid, None);
-        }
-    }
-
     let start_event = emit_event(
         &store,
         &loop_ctx,
@@ -580,10 +532,18 @@ async fn run_pty_loop(
     let mut control_rx = store.read(control_rx_options).await;
 
     let mut current_id = source_id;
+    let mut cmd = initial_cmd;
     let mut pty_opts = initial_pty_opts;
 
     loop {
-        let (master_fd, child_pid) = match spawn_pty_child(&pty_opts) {
+        let cols = pty_opts.cols.unwrap_or(80);
+        let rows = pty_opts.rows.unwrap_or(24);
+
+        let PtyChild {
+            reader,
+            writer,
+            mut handle,
+        } = match PtyChild::spawn(&cmd, cols, rows) {
             Ok(v) => v,
             Err(e) => {
                 let _ = emit_event(
@@ -604,18 +564,16 @@ async fn run_pty_loop(
             }
         };
 
-        // Safety: we own master_fd after fork, the child closed its copy
-        let master_file = unsafe { std::fs::File::from_raw_fd(master_fd) };
-        let master_read = tokio::fs::File::from_std(master_file.try_clone().unwrap());
-        let master_write = tokio::fs::File::from_std(master_file);
+        let async_reader = tokio::fs::File::from_std(reader);
+        let async_writer = tokio::fs::File::from_std(writer);
 
-        // Spawn task: read master fd -> emit recv frames
+        // Read PTY output -> emit recv frames
         let recv_store = store.clone();
         let recv_ctx = loop_ctx.clone();
         let recv_id = current_id;
         let (child_done_tx, child_done_rx) = tokio::sync::oneshot::channel::<()>();
         let recv_handle = tokio::spawn(async move {
-            let mut reader = master_read;
+            let mut reader = async_reader;
             let mut buf = [0u8; 8192];
             loop {
                 match reader.read(&mut buf).await {
@@ -638,7 +596,7 @@ async fn run_pty_loop(
             let _ = child_done_tx.send(());
         });
 
-        // Spawn task: read send frames -> write to master fd
+        // Read send frames -> write to PTY input
         let send_store = store.clone();
         let send_topic = format!("{}.send", loop_ctx.topic);
         let send_options = ReadOptions::builder()
@@ -649,7 +607,7 @@ async fn run_pty_loop(
 
         use tokio::io::AsyncWriteExt;
         let send_handle = tokio::spawn(async move {
-            let mut writer = master_write;
+            let mut writer = async_writer;
             let mut rx = send_rx;
             while let Some(frame) = rx.recv().await {
                 if frame.topic != send_topic {
@@ -677,7 +635,7 @@ async fn run_pty_loop(
             ChildExited,
             Terminate,
             Shutdown,
-            Update(Scru128Id, PtyOptions),
+            Update(Scru128Id, String, PtyOptions),
             Error(String),
         }
 
@@ -687,12 +645,12 @@ async fn run_pty_loop(
                 maybe = control_rx.recv() => {
                     match maybe {
                         Some(frame) if frame.topic == terminate_topic => {
-                            kill_child(child_pid);
+                            handle.kill();
                             let _ = (&mut child_done_rx).await;
                             break 'pty_ctrl PtyOutcome::Terminate;
                         }
                         Some(frame) if frame.topic == "xs.stopping" => {
-                            kill_child(child_pid);
+                            handle.kill();
                             let _ = (&mut child_done_rx).await;
                             break 'pty_ctrl PtyOutcome::Shutdown;
                         }
@@ -721,14 +679,28 @@ async fn run_pty_loop(
                                                         }
                                                     };
                                                 if let Some(new_pty) = new_opts.pty {
-                                                    kill_child(child_pid);
+                                                    let new_cmd = match val.get_data_by_key("run").and_then(|v| v.as_str().ok().map(String::from)) {
+                                                        Some(c) => c,
+                                                        None => {
+                                                            let _ = emit_event(
+                                                                &store,
+                                                                &loop_ctx,
+                                                                frame.id,
+                                                                None,
+                                                                ServiceEventKind::ParseError {
+                                                                    message: "With pty enabled, 'run' must be a command string.".into(),
+                                                                },
+                                                            );
+                                                            continue;
+                                                        }
+                                                    };
+                                                    handle.kill();
                                                     let _ = (&mut child_done_rx).await;
-                                                    break 'pty_ctrl PtyOutcome::Update(frame.id, new_pty);
+                                                    break 'pty_ctrl PtyOutcome::Update(frame.id, new_cmd, new_pty);
                                                 }
-                                                // New config is not PTY -- treat as terminate
-                                                // so serve.rs can restart with the new config type.
-                                                // This is an edge case (switching PTY -> closure).
-                                                kill_child(child_pid);
+                                                // New config dropped pty -- terminate so
+                                                // serve.rs can restart with the new config.
+                                                handle.kill();
                                                 let _ = (&mut child_done_rx).await;
                                                 break 'pty_ctrl PtyOutcome::Terminate;
                                             }
@@ -750,16 +722,7 @@ async fn run_pty_loop(
                             if let Some(ref meta) = frame.meta {
                                 let cols = meta.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                                 let rows = meta.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-                                let ws = libc::winsize {
-                                    ws_row: rows,
-                                    ws_col: cols,
-                                    ws_xpixel: 0,
-                                    ws_ypixel: 0,
-                                };
-                                unsafe {
-                                    libc::ioctl(master_fd, libc::TIOCSWINSZ as _, &ws);
-                                }
-                                let _ = kill(child_pid, Signal::SIGWINCH);
+                                let _ = handle.resize(cols, rows);
                             }
                         }
                         Some(_) => {}
@@ -779,7 +742,7 @@ async fn run_pty_loop(
             PtyOutcome::ChildExited => StopReason::Finished,
             PtyOutcome::Terminate => StopReason::Terminate,
             PtyOutcome::Shutdown => StopReason::Shutdown,
-            PtyOutcome::Update(update_id, _) => StopReason::Update {
+            PtyOutcome::Update(update_id, _, _) => StopReason::Update {
                 update_id: *update_id,
             },
             PtyOutcome::Error(e) => StopReason::Error { message: e.clone() },
@@ -795,7 +758,6 @@ async fn run_pty_loop(
 
         match outcome {
             PtyOutcome::ChildExited => {
-                // Restart after delay, like closure services
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 if let Ok(event) = emit_event(
                     &store,
@@ -807,8 +769,9 @@ async fn run_pty_loop(
                     start_id = event.frame.id;
                 }
             }
-            PtyOutcome::Update(new_id, new_pty) => {
+            PtyOutcome::Update(new_id, new_cmd, new_pty) => {
                 current_id = new_id;
+                cmd = new_cmd;
                 pty_opts = new_pty;
                 if let Ok(event) = emit_event(
                     &store,
