@@ -139,6 +139,10 @@ pub struct PtyHandle {
     closed: bool,
 }
 
+// HPCON and HANDLE are process-wide values safe to send between threads.
+#[cfg(windows)]
+unsafe impl Send for PtyHandle {}
+
 #[cfg(windows)]
 mod platform {
     use super::*;
@@ -220,7 +224,7 @@ mod platform {
 
         CreateProcessW(
             None,
-            windows::core::PWSTR(cmd_wide.as_mut_ptr()),
+            Some(windows::core::PWSTR(cmd_wide.as_mut_ptr())),
             None,
             None,
             false,
