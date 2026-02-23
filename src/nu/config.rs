@@ -46,12 +46,13 @@ pub struct ReturnOptions {
     pub target: Option<String>,
 }
 
-/// Parse a script into a NuScriptConfig struct.
+/// Evaluate a nushell script and return the resulting Value.
 ///
-/// Parses and evaluates the script, then extracts the `run` closure and the full
-/// configuration value. VFS modules (registered via `*.nu` topics) are already
-/// available on the engine state before this function is called.
-pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuScriptConfig, Error> {
+/// Handles parsing, error reporting, and evaluation. Does not extract any
+/// specific fields from the result. Useful when the caller needs to inspect
+/// the config value before deciding how to use it (e.g. checking for a `pty`
+/// field vs a `run` closure).
+pub fn eval_script(engine: &mut crate::nu::Engine, script: &str) -> Result<Value, Error> {
     let mut working_set = StateWorkingSet::new(&engine.state);
     let block = parse(&mut working_set, None, script.as_bytes(), false);
 
@@ -107,6 +108,17 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     })?;
 
     let config_value = eval_result.body.into_value(Span::unknown())?;
+    engine.state.merge_env(&mut stack)?;
+    Ok(config_value)
+}
+
+/// Parse a script into a NuScriptConfig struct.
+///
+/// Parses and evaluates the script, then extracts the `run` closure and the full
+/// configuration value. VFS modules (registered via `*.nu` topics) are already
+/// available on the engine state before this function is called.
+pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuScriptConfig, Error> {
+    let config_value = eval_script(engine, script)?;
 
     let run_val = config_value
         .get_data_by_key("run")
@@ -114,8 +126,6 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     let run_closure = run_val
         .as_closure()
         .map_err(|e| -> Error { format!("'run' field must be a closure: {e}").into() })?;
-
-    engine.state.merge_env(&mut stack)?;
 
     Ok(NuScriptConfig {
         run_closure: run_closure.clone(),

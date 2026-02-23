@@ -79,7 +79,7 @@ rand = "0.8"
 data-encoding = "2.6"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", default-features = false, features = ["poll", "fs"] }
+nix = { version = "0.29", default-features = false, features = ["poll", "fs", "process", "signal", "term"] }
 
 [target.'cfg(windows)'.dependencies]
 win_uds = { version = "=0.2.1", features = ["async"] }
