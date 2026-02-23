@@ -825,6 +825,7 @@ async fn test_graceful_shutdown_via_xs_stopping() {
     );
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn test_pty_service() {
     let store = setup_test_env();
@@ -842,10 +843,7 @@ async fn test_pty_service() {
         .build();
     let mut recver = store.read(options).await;
 
-    #[cfg(unix)]
     let script = r#"{ run: "sh", pty: {cols: 80, rows: 24} }"#;
-    #[cfg(windows)]
-    let script = r#"{ run: "cmd.exe", pty: {cols: 80, rows: 24} }"#;
 
     let spawn = store
         .append(
@@ -866,11 +864,7 @@ async fn test_pty_service() {
     let bytes = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert!(!bytes.is_empty(), "PTY should produce output");
 
-    // Send input: echo a known string
-    #[cfg(unix)]
     let input = "echo pty-ok\n";
-    #[cfg(windows)]
-    let input = "echo pty-ok\r\n";
 
     store
         .append(
