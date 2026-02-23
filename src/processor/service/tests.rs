@@ -948,3 +948,76 @@ async fn test_pty_service() {
         .expect("channel closed");
     assert_eq!(shutdown.topic, "ptytest.shutdown");
 }
+
+/// Direct test of PTY pipe I/O, bypassing the service machinery.
+#[test]
+fn test_pty_raw_io() {
+    use super::pty::PtyChild;
+    use std::io::{Read, Write};
+
+    #[cfg(unix)]
+    let cmd = "sh";
+    #[cfg(windows)]
+    let cmd = "cmd.exe";
+
+    let PtyChild {
+        reader,
+        writer,
+        mut handle,
+    } = PtyChild::spawn(cmd, 80, 24).expect("PtyChild::spawn failed");
+
+    // Write input on a thread (pipe write can block)
+    let mut w = writer;
+    let write_thread = std::thread::spawn(move || {
+        #[cfg(unix)]
+        let input = b"echo pty-raw-ok\n";
+        #[cfg(windows)]
+        let input = b"echo pty-raw-ok\r\n";
+        w.write_all(input).expect("write_all failed");
+        w.flush().expect("flush failed");
+    });
+
+    // Read output on a thread with a join timeout
+    let mut r = reader;
+    let read_thread = std::thread::spawn(move || {
+        let mut all = Vec::new();
+        let mut buf = [0u8; 4096];
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if Instant::now() > deadline {
+                break;
+            }
+            match r.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    all.extend_from_slice(&buf[..n]);
+                    let s = String::from_utf8_lossy(&all);
+                    eprintln!("pty_raw_io read ({n} bytes): {:?}", &s[s.len().saturating_sub(200)..]);
+                    if s.contains("pty-raw-ok") {
+                        return all;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("pty_raw_io read error: {e}");
+                    break;
+                }
+            }
+        }
+        all
+    });
+
+    write_thread.join().expect("write thread panicked");
+    let output = read_thread
+        .join()
+        .expect("read thread panicked");
+    let output_str = String::from_utf8_lossy(&output);
+    eprintln!("pty_raw_io total output ({} bytes): {:?}", output.len(), output_str);
+
+    handle.kill();
+
+    assert!(
+        output_str.contains("pty-raw-ok"),
+        "expected 'pty-raw-ok' in PTY output, got: {:?}",
+        output_str
+    );
+}
