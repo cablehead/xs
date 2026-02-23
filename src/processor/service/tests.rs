@@ -825,10 +825,6 @@ async fn test_graceful_shutdown_via_xs_stopping() {
     );
 }
 
-// ConPTY on headless Windows CI does not flush output to pipes, so PTY
-// integration tests only run on Unix. The Windows code is still compiled
-// and checked via the build step.
-#[cfg(unix)]
 #[tokio::test]
 async fn test_pty_service() {
     let store = setup_test_env();
@@ -846,7 +842,10 @@ async fn test_pty_service() {
         .build();
     let mut recver = store.read(options).await;
 
+    #[cfg(unix)]
     let script = r#"{ run: "sh", pty: {cols: 80, rows: 24} }"#;
+    #[cfg(windows)]
+    let script = r#"{ run: "cmd.exe", pty: {cols: 80, rows: 24} }"#;
 
     let spawn = store
         .append(
@@ -860,7 +859,10 @@ async fn test_pty_service() {
     assert_eq!(recver.recv().await.unwrap().topic, "ptytest.running");
 
     // The shell should produce some initial output (prompt or banner)
-    let frame = recver.recv().await.unwrap();
+    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for initial PTY output")
+        .unwrap();
     assert_eq!(frame.topic, "ptytest.recv");
     let meta = frame.meta.as_ref().unwrap();
     assert_eq!(meta["source_id"], spawn.id.to_string());
@@ -868,19 +870,24 @@ async fn test_pty_service() {
     assert!(!bytes.is_empty(), "PTY should produce output");
 
     // Send input
+    #[cfg(unix)]
+    let input = "echo pty-ok\n";
+    #[cfg(windows)]
+    let input = "echo pty-ok\r\n";
+
     store
         .append(
             Frame::builder("ptytest.send")
-                .hash(store.cas_insert("echo pty-ok\n").await.unwrap())
+                .hash(store.cas_insert(input).await.unwrap())
                 .build(),
         )
         .unwrap();
 
     // Read recv frames until we see "pty-ok" in the output
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut found = false;
     while Instant::now() < deadline {
-        let timeout = tokio::time::timeout(Duration::from_secs(2), recver.recv()).await;
+        let timeout = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await;
         match timeout {
             Ok(Some(frame)) => {
                 if frame.topic == "ptytest.recv" {
@@ -904,11 +911,18 @@ async fn test_pty_service() {
         .unwrap();
 
     let stop = loop {
-        let frame = recver.recv().await.unwrap();
+        let timeout = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await;
+        let frame = timeout
+            .expect("timed out waiting for ptytest.stopped")
+            .unwrap();
         if frame.topic == "ptytest.stopped" {
             break frame;
         }
     };
     assert_eq!(stop.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "ptytest.shutdown");
+    let shutdown = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for ptytest.shutdown")
+        .unwrap();
+    assert_eq!(shutdown.topic, "ptytest.shutdown");
 }
