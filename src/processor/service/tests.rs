@@ -825,7 +825,6 @@ async fn test_graceful_shutdown_via_xs_stopping() {
     );
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn test_pty_service() {
     let store = setup_test_env();
@@ -843,7 +842,20 @@ async fn test_pty_service() {
         .build();
     let mut recver = store.read(options).await;
 
+    // Helper: recv with a timeout so the test fails instead of hanging.
+    async fn recv_timeout(
+        rx: &mut tokio::sync::mpsc::Receiver<Frame>,
+    ) -> Frame {
+        tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("timed out waiting for frame")
+            .expect("channel closed")
+    }
+
+    #[cfg(unix)]
     let script = r#"{ run: "sh", pty: {cols: 80, rows: 24} }"#;
+    #[cfg(windows)]
+    let script = r#"{ run: "cmd.exe", pty: {cols: 80, rows: 24} }"#;
 
     let spawn = store
         .append(
@@ -853,18 +865,22 @@ async fn test_pty_service() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "ptytest.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "ptytest.running");
+    assert_eq!(recv_timeout(&mut recver).await.topic, "ptytest.spawn");
+    assert_eq!(recv_timeout(&mut recver).await.topic, "ptytest.running");
 
     // The shell should produce some initial output (prompt or banner)
-    let frame = recver.recv().await.unwrap();
+    let frame = recv_timeout(&mut recver).await;
     assert_eq!(frame.topic, "ptytest.recv");
     let meta = frame.meta.as_ref().unwrap();
     assert_eq!(meta["source_id"], spawn.id.to_string());
     let bytes = store.cas_read(&frame.hash.unwrap()).await.unwrap();
     assert!(!bytes.is_empty(), "PTY should produce output");
 
+    // Send input: echo a known string
+    #[cfg(unix)]
     let input = "echo pty-ok\n";
+    #[cfg(windows)]
+    let input = "echo pty-ok\r\n";
 
     store
         .append(
@@ -875,10 +891,10 @@ async fn test_pty_service() {
         .unwrap();
 
     // Read recv frames until we see "pty-ok" in the output
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut found = false;
     while Instant::now() < deadline {
-        let timeout = tokio::time::timeout(Duration::from_secs(2), recver.recv()).await;
+        let timeout = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await;
         match timeout {
             Ok(Some(frame)) => {
                 if frame.topic == "ptytest.recv" {
@@ -901,12 +917,16 @@ async fn test_pty_service() {
         .append(Frame::builder("ptytest.terminate").build())
         .unwrap();
 
-    let stop = loop {
-        let frame = recver.recv().await.unwrap();
-        if frame.topic == "ptytest.stopped" {
-            break frame;
+    let stop = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let frame = recver.recv().await.unwrap();
+            if frame.topic == "ptytest.stopped" {
+                break frame;
+            }
         }
-    };
+    })
+    .await
+    .expect("timed out waiting for ptytest.stopped");
     assert_eq!(stop.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "ptytest.shutdown");
+    assert_eq!(recv_timeout(&mut recver).await.topic, "ptytest.shutdown");
 }
