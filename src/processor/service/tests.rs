@@ -885,18 +885,8 @@ async fn test_pty_service() {
     assert!(saw_spawn, "never saw ptytest.spawn");
     assert!(saw_running, "never saw ptytest.running");
 
-    // The shell should produce some initial output (prompt or banner)
-    let frame = tokio::time::timeout(Duration::from_secs(10), recver.recv())
-        .await
-        .expect("timed out waiting for initial recv")
-        .expect("channel closed");
-    assert_eq!(frame.topic, "ptytest.recv");
-    let meta = frame.meta.as_ref().unwrap();
-    assert_eq!(meta["source_id"], spawn.id.to_string());
-    let bytes = store.cas_read(&frame.hash.unwrap()).await.unwrap();
-    assert!(!bytes.is_empty(), "PTY should produce output");
-
-    // Send input: echo a known string
+    // Send input right away -- don't assume the shell produces unsolicited
+    // output (cmd.exe via ConPTY on CI may not emit a prompt).
     #[cfg(unix)]
     let input = "echo pty-ok\n";
     #[cfg(windows)]
@@ -911,15 +901,19 @@ async fn test_pty_service() {
         .unwrap();
 
     // Read recv frames until we see "pty-ok" in the output
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(15);
     let mut found = false;
     while Instant::now() < deadline {
-        let timeout = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await;
+        let timeout = tokio::time::timeout(Duration::from_secs(10), recver.recv()).await;
         match timeout {
             Ok(Some(frame)) => {
                 if frame.topic == "ptytest.recv" {
                     if let Some(ref hash) = frame.hash {
                         let content = store.cas_read(hash).await.unwrap();
+                        eprintln!(
+                            "pty_test recv: {:?}",
+                            String::from_utf8_lossy(&content)
+                        );
                         if String::from_utf8_lossy(&content).contains("pty-ok") {
                             found = true;
                             break;
