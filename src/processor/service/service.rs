@@ -564,19 +564,16 @@ async fn run_pty_loop(
             }
         };
 
-        let async_reader = tokio::fs::File::from_std(reader);
-        let async_writer = tokio::fs::File::from_std(writer);
-
-        // Read PTY output -> emit recv frames
+        // Read PTY output -> emit recv frames (blocking thread for pipe I/O)
         let recv_store = store.clone();
         let recv_ctx = loop_ctx.clone();
         let recv_id = current_id;
         let (child_done_tx, child_done_rx) = tokio::sync::oneshot::channel::<()>();
-        let recv_handle = tokio::spawn(async move {
-            let mut reader = async_reader;
+        let recv_handle = std::thread::spawn(move || {
+            let mut reader = reader;
             let mut buf = [0u8; 8192];
             loop {
-                match reader.read(&mut buf).await {
+                match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
                         let _ = emit_event(
@@ -596,7 +593,7 @@ async fn run_pty_loop(
             let _ = child_done_tx.send(());
         });
 
-        // Read send frames -> write to PTY input
+        // Write to PTY input (blocking thread for pipe I/O)
         let send_store = store.clone();
         let send_topic = format!("{}.send", loop_ctx.topic);
         let send_options = ReadOptions::builder()
@@ -605,20 +602,21 @@ async fn run_pty_loop(
             .build();
         let send_rx = send_store.read(send_options).await;
 
-        use tokio::io::AsyncWriteExt;
-        let send_handle = tokio::spawn(async move {
-            let mut writer = async_writer;
+        use std::io::Write;
+        let rt = tokio::runtime::Handle::current();
+        let _send_handle = std::thread::spawn(move || {
+            let mut writer = writer;
             let mut rx = send_rx;
-            while let Some(frame) = rx.recv().await {
+            while let Some(frame) = rt.block_on(rx.recv()) {
                 if frame.topic != send_topic {
                     continue;
                 }
                 if let Some(hash) = frame.hash {
-                    if let Ok(bytes) = send_store.cas_read(&hash).await {
-                        if writer.write_all(&bytes).await.is_err() {
+                    if let Ok(bytes) = rt.block_on(send_store.cas_read(&hash)) {
+                        if writer.write_all(&bytes).is_err() {
                             break;
                         }
-                        if writer.flush().await.is_err() {
+                        if writer.flush().is_err() {
                             break;
                         }
                     }
@@ -735,8 +733,9 @@ async fn run_pty_loop(
             }
         };
 
-        recv_handle.abort();
-        send_handle.abort();
+        // The reader thread exits when the pipe gets EOF (after kill).
+        // The sender thread exits when the store channel closes.
+        let _ = recv_handle.join();
 
         let stop_reason = match &outcome {
             PtyOutcome::ChildExited => StopReason::Finished,
