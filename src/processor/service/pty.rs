@@ -203,7 +203,7 @@ mod platform {
             attr_list,
             0,
             PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize,
-            Some(&hpcon as *const HPCON as *const c_void),
+            Some(hpcon.0 as *const c_void),
             mem::size_of::<HPCON>(),
             None,
             None,
