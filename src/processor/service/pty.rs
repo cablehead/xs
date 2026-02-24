@@ -149,7 +149,6 @@ mod platform {
     use std::ffi::c_void;
     use std::mem;
     use std::os::windows::io::{FromRawHandle, RawHandle};
-    use std::sync::atomic::{AtomicU64, Ordering};
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
     use windows::Win32::Storage::FileSystem::{
@@ -167,8 +166,6 @@ mod platform {
         STARTUPINFOEXW, STARTUPINFOW,
     };
 
-    static PIPE_SEQ: AtomicU64 = AtomicU64::new(0);
-
     // PIPE_ACCESS_INBOUND / OUTBOUND as FILE_FLAGS_AND_ATTRIBUTES for CreateNamedPipeW
     const PIPE_INBOUND: FILE_FLAGS_AND_ATTRIBUTES = FILE_FLAGS_AND_ATTRIBUTES(0x00000001);
     const PIPE_OUTBOUND: FILE_FLAGS_AND_ATTRIBUTES = FILE_FLAGS_AND_ATTRIBUTES(0x00000002);
@@ -178,11 +175,10 @@ mod platform {
     }
 
     unsafe fn spawn_inner(cmd: &str, cols: u16, rows: u16) -> Result<PtyChild, String> {
-        let seq = PIPE_SEQ.fetch_add(1, Ordering::Relaxed);
-        let pid = std::process::id();
+        let id: u128 = rand::random();
 
         // -- Output pipe: ConPTY writes terminal output, we read it --
-        let out_name: Vec<u16> = format!("\\\\.\\pipe\\xs-pty-{pid}-{seq}-out")
+        let out_name: Vec<u16> = format!("\\\\.\\pipe\\xs-pty-{id:032x}-out")
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
@@ -215,7 +211,7 @@ mod platform {
         .map_err(|e| format!("CreateFileW (output): {e}"))?;
 
         // -- Input pipe: we write keystrokes, ConPTY reads them --
-        let in_name: Vec<u16> = format!("\\\\.\\pipe\\xs-pty-{pid}-{seq}-in")
+        let in_name: Vec<u16> = format!("\\\\.\\pipe\\xs-pty-{id:032x}-in")
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
