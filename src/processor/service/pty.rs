@@ -163,7 +163,7 @@ mod platform {
         CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
         TerminateProcess, UpdateProcThreadAttribute, EXTENDED_STARTUPINFO_PRESENT,
         LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-        STARTUPINFOEXW, STARTUPINFOW,
+        STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW,
     };
 
     // PIPE_ACCESS_INBOUND / OUTBOUND as FILE_FLAGS_AND_ATTRIBUTES for CreateNamedPipeW
@@ -279,9 +279,13 @@ mod platform {
         )
         .map_err(|e| format!("UpdateProcThreadAttribute: {e}"))?;
 
+        // STARTF_USESTDHANDLES with null handles prevents the kernel from
+        // duplicating the parent's redirected stdout/stderr to the child,
+        // which would bypass the pseudoconsole pipes entirely.
         let startup_info = STARTUPINFOEXW {
             StartupInfo: STARTUPINFOW {
                 cb: mem::size_of::<STARTUPINFOEXW>() as u32,
+                dwFlags: STARTF_USESTDHANDLES,
                 ..Default::default()
             },
             lpAttributeList: attr_list,
