@@ -149,16 +149,11 @@ mod platform {
     use std::ffi::c_void;
     use std::mem;
     use std::os::windows::io::{FromRawHandle, RawHandle};
-    use windows::core::PCWSTR;
-    use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-    use windows::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_FLAG_OVERLAPPED, FILE_SHARE_MODE,
-        OPEN_EXISTING,
-    };
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, ResizePseudoConsole, COORD, HPCON,
     };
-    use windows::Win32::System::Pipes::{CreateNamedPipeW, PIPE_TYPE_BYTE};
+    use windows::Win32::System::Pipes::CreatePipe;
     use windows::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
         TerminateProcess, UpdateProcThreadAttribute, EXTENDED_STARTUPINFO_PRESENT,
@@ -166,91 +161,27 @@ mod platform {
         STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW,
     };
 
-    // PIPE_ACCESS_INBOUND / OUTBOUND as FILE_FLAGS_AND_ATTRIBUTES for CreateNamedPipeW
-    const PIPE_INBOUND: FILE_FLAGS_AND_ATTRIBUTES = FILE_FLAGS_AND_ATTRIBUTES(0x00000001);
-    const PIPE_OUTBOUND: FILE_FLAGS_AND_ATTRIBUTES = FILE_FLAGS_AND_ATTRIBUTES(0x00000002);
-
     pub fn spawn(cmd: &str, cols: u16, rows: u16) -> Result<PtyChild, String> {
         unsafe { spawn_inner(cmd, cols, rows) }
     }
 
     unsafe fn spawn_inner(cmd: &str, cols: u16, rows: u16) -> Result<PtyChild, String> {
-        let id: u128 = rand::random();
+        // Create anonymous pipes for ConPTY I/O
+        let mut input_read = HANDLE::default();
+        let mut input_write = HANDLE::default();
+        CreatePipe(&mut input_read, &mut input_write, None, 0)
+            .map_err(|e| format!("CreatePipe (input): {e}"))?;
 
-        // -- Output pipe: ConPTY writes terminal output, we read it --
-        let out_name: Vec<u16> = format!("\\\\.\\pipe\\xs-pty-{id:032x}-out")
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-
-        // Server end (our synchronous read handle)
-        let output_read = CreateNamedPipeW(
-            PCWSTR(out_name.as_ptr()),
-            PIPE_INBOUND,
-            PIPE_TYPE_BYTE,
-            1,
-            4096,
-            4096,
-            0,
-            None,
-        );
-        if output_read == INVALID_HANDLE_VALUE {
-            return Err("CreateNamedPipeW (output): failed".into());
-        }
-
-        // Client end (ConPTY's overlapped write handle)
-        let output_write = CreateFileW(
-            PCWSTR(out_name.as_ptr()),
-            0x40000000, // GENERIC_WRITE
-            FILE_SHARE_MODE(0),
-            None,
-            OPEN_EXISTING,
-            FILE_FLAG_OVERLAPPED,
-            None,
-        )
-        .map_err(|e| format!("CreateFileW (output): {e}"))?;
-
-        // -- Input pipe: we write keystrokes, ConPTY reads them --
-        let in_name: Vec<u16> = format!("\\\\.\\pipe\\xs-pty-{id:032x}-in")
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-
-        // Server end (our synchronous write handle)
-        let input_write = CreateNamedPipeW(
-            PCWSTR(in_name.as_ptr()),
-            PIPE_OUTBOUND,
-            PIPE_TYPE_BYTE,
-            1,
-            4096,
-            4096,
-            0,
-            None,
-        );
-        if input_write == INVALID_HANDLE_VALUE {
-            let _ = CloseHandle(output_read);
-            let _ = CloseHandle(output_write);
-            return Err("CreateNamedPipeW (input): failed".into());
-        }
-
-        // Client end (ConPTY's overlapped read handle)
-        let input_read = CreateFileW(
-            PCWSTR(in_name.as_ptr()),
-            0x80000000, // GENERIC_READ
-            FILE_SHARE_MODE(0),
-            None,
-            OPEN_EXISTING,
-            FILE_FLAG_OVERLAPPED,
-            None,
-        )
-        .map_err(|e| format!("CreateFileW (input): {e}"))?;
+        let mut output_read = HANDLE::default();
+        let mut output_write = HANDLE::default();
+        CreatePipe(&mut output_read, &mut output_write, None, 0)
+            .map_err(|e| format!("CreatePipe (output): {e}"))?;
 
         let size = COORD {
             X: cols as i16,
             Y: rows as i16,
         };
 
-        // ConPTY reads from input_read, writes to output_write
         let hpcon = CreatePseudoConsole(size, input_read, output_write, 0)
             .map_err(|e| format!("CreatePseudoConsole: {e}"))?;
 
@@ -310,7 +241,6 @@ mod platform {
 
         DeleteProcThreadAttributeList(attr_list);
 
-        // Wrap our synchronous pipe handles as std::fs::File
         let reader = std::fs::File::from(std::os::windows::io::OwnedHandle::from_raw_handle(
             output_read.0 as RawHandle,
         ));
