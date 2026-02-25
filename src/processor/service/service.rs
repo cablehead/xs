@@ -601,25 +601,35 @@ async fn run_pty_loop(
             .after(start_id)
             .build();
         let send_rx = send_store.read(send_options).await;
+        let (send_stop_tx, mut send_stop_rx) = tokio::sync::oneshot::channel::<()>();
 
         use std::io::Write;
         let rt = tokio::runtime::Handle::current();
-        let _send_handle = std::thread::spawn(move || {
+        let send_handle = std::thread::spawn(move || {
             let mut writer = writer;
             let mut rx = send_rx;
-            while let Some(frame) = rt.block_on(rx.recv()) {
-                if frame.topic != send_topic {
-                    continue;
-                }
-                if let Some(hash) = frame.hash {
-                    if let Ok(bytes) = rt.block_on(send_store.cas_read(&hash)) {
-                        if writer.write_all(&bytes).is_err() {
-                            break;
-                        }
-                        if writer.flush().is_err() {
-                            break;
+            loop {
+                let frame = rt.block_on(async {
+                    tokio::select! {
+                        f = rx.recv() => f,
+                        _ = &mut send_stop_rx => None,
+                    }
+                });
+                match frame {
+                    Some(frame) if frame.topic == send_topic => {
+                        if let Some(hash) = frame.hash {
+                            if let Ok(bytes) = rt.block_on(send_store.cas_read(&hash)) {
+                                if writer.write_all(&bytes).is_err() {
+                                    break;
+                                }
+                                if writer.flush().is_err() {
+                                    break;
+                                }
+                            }
                         }
                     }
+                    Some(_) => continue,
+                    None => break,
                 }
             }
         });
@@ -734,8 +744,10 @@ async fn run_pty_loop(
         };
 
         // The reader thread exits when the pipe gets EOF (after kill).
-        // The sender thread exits when the store channel closes.
         let _ = recv_handle.join();
+        // Signal the writer thread to stop and wait for it.
+        drop(send_stop_tx);
+        let _ = send_handle.join();
 
         let stop_reason = match &outcome {
             PtyOutcome::ChildExited => StopReason::Finished,

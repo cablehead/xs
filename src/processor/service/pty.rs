@@ -129,6 +129,15 @@ mod platform {
     }
 }
 
+#[cfg(unix)]
+impl Drop for PtyHandle {
+    fn drop(&mut self) {
+        // Reap the child to avoid zombies. Safe to call after kill() already
+        // reaped -- waitpid returns ECHILD which we ignore.
+        let _ = nix::sys::wait::waitpid(self.pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG));
+    }
+}
+
 // ---- Windows ----
 
 #[cfg(windows)]
