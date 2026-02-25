@@ -28,7 +28,7 @@ graph LR
     end
 
     Browser -- "POST /pty/create<br/>{cols, rows}" --> HttpNu
-    HttpNu -- ".append pty.sid.spawn<br/>pty: {cmd: nu}" --> XS
+    HttpNu -- ".append pty.sid.spawn<br/>{ run: nu, pty: {cols, rows} }" --> XS
     XS -- "spawn service" --> PTY
     PTY -- "exec" --> Nu
 
@@ -71,10 +71,7 @@ A normal xs service uses `run` with a closure. For PTY mode, `run` is a command
 string and `pty` provides the terminal dimensions:
 
 ```nushell
-r#'{
-  run: "/usr/local/bin/nu"
-  pty: {cols: 131, rows: 50}
-}'# | .append my-shell.spawn
+{ run: "nu", pty: {cols: 80, rows: 24} } | .append my-shell.spawn
 ```
 
 When xs sees a `pty` field in the spawn config, it:
@@ -128,7 +125,7 @@ use http-nu/router *
       let sid = (random uuid)
 
       # Spawn the PTY service
-      $"{ run: \"/usr/local/bin/nu\", pty: {cols: ($cols), rows: ($rows)} }"
+      { run: "nu", pty: {cols: $cols, rows: $rows} }
       | .append $"pty.($sid).spawn"
 
       {sid: $sid} | to json
