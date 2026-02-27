@@ -83,9 +83,11 @@ open examples/discord-bot/actor-heartbeat.nu | .append "discord.heartbeat.regist
 ```
 
 At this point, all messages sent to the Discord server will be available on the
-event stream. You can build from there, creating actors that take action for
-specific messages. For example, we could register an actor that looks for
-messages in the form `./roll 1d4` and responds with a dice roll.
+event stream. I like to say the Discord gateway is now "composed on the stream."
+
+You can build from there, creating actors that act on specific messages. For
+example, you could register an actor that looks for messages in the form
+`./roll 1d4` and responds with a dice roll.
 
 Load Discord REST API module:
 
