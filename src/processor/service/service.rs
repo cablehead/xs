@@ -13,10 +13,19 @@ use crate::nu::{value_to_json, ReturnOptions};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use serde_json::json;
 
+use super::pty::PtyChild;
+
+#[derive(Clone, Debug, serde::Deserialize, Default)]
+pub struct PtyOptions {
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct ServiceScriptOptions {
     pub duplex: Option<bool>,
     pub return_options: Option<ReturnOptions>,
+    pub pty: Option<PtyOptions>,
 }
 
 #[derive(Clone)]
@@ -166,35 +175,41 @@ pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
     tokio::spawn(async move { run(store, spawn_frame).await })
 }
 
-async fn run(store: Store, spawn_frame: Frame) {
-    let mut engine = match crate::processor::build_engine(&store, &spawn_frame.id) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    let hash = match spawn_frame.hash.clone() {
-        Some(h) => h,
-        None => return,
-    };
-    let mut reader = match store.cas_reader(hash).await {
-        Ok(r) => r,
-        Err(_) => return,
-    };
+async fn read_spawn_script(store: &Store, spawn_frame: &Frame) -> Option<String> {
+    let hash = spawn_frame.hash.clone()?;
+    let mut reader = store.cas_reader(hash).await.ok()?;
     let mut script = String::new();
-    if reader.read_to_string(&mut script).await.is_err() {
-        return;
-    }
+    reader.read_to_string(&mut script).await.ok()?;
+    Some(script)
+}
 
-    let loop_ctx = ServiceLoop {
+fn make_loop_ctx(spawn_frame: &Frame) -> ServiceLoop {
+    ServiceLoop {
         topic: spawn_frame
             .topic
             .strip_suffix(".spawn")
             .unwrap_or(&spawn_frame.topic)
             .to_string(),
+    }
+}
+
+async fn run(store: Store, spawn_frame: Frame) {
+    let script = match read_spawn_script(&store, &spawn_frame).await {
+        Some(s) => s,
+        None => return,
     };
 
-    let nu_config = match nu::parse_config(&mut engine, &script) {
-        Ok(cfg) => cfg,
+    let loop_ctx = make_loop_ctx(&spawn_frame);
+
+    // Evaluate the script to get the config value. Use eval_script so we can
+    // inspect the value before deciding whether this is a PTY or closure service.
+    let mut engine = match crate::processor::build_engine(&store, &spawn_frame.id) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let config_value = match nu::eval_script(&mut engine, &script) {
+        Ok(v) => v,
         Err(e) => {
             let _ = emit_event(
                 &store,
@@ -208,7 +223,78 @@ async fn run(store: Store, spawn_frame: Frame) {
             return;
         }
     };
-    let opts: ServiceScriptOptions = nu_config.deserialize_options().unwrap_or_default();
+
+    let opts: ServiceScriptOptions = match serde_json::from_value(nu::value_to_json(&config_value))
+    {
+        Ok(o) => o,
+        Err(e) => {
+            let _ = emit_event(
+                &store,
+                &loop_ctx,
+                spawn_frame.id,
+                None,
+                ServiceEventKind::ParseError {
+                    message: e.to_string(),
+                },
+            );
+            return;
+        }
+    };
+
+    // Extract the run field -- required for both closure and PTY services
+    let run_val = match config_value.get_data_by_key("run") {
+        Some(v) => v,
+        None => {
+            let _ = emit_event(
+                &store,
+                &loop_ctx,
+                spawn_frame.id,
+                None,
+                ServiceEventKind::ParseError {
+                    message: "Script must define a 'run' field.".into(),
+                },
+            );
+            return;
+        }
+    };
+
+    // PTY mode: run is a command string, pty provides dimensions
+    if let Some(pty_opts) = opts.pty {
+        let cmd = match run_val.as_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => {
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    spawn_frame.id,
+                    None,
+                    ServiceEventKind::ParseError {
+                        message: "With pty enabled, 'run' must be a command string.".into(),
+                    },
+                );
+                return;
+            }
+        };
+        run_pty_loop(store, loop_ctx, spawn_frame.id, cmd, pty_opts).await;
+        return;
+    }
+
+    // Closure-based service: run is a closure
+    let run_closure = match run_val.as_closure() {
+        Ok(c) => c.clone(),
+        Err(e) => {
+            let _ = emit_event(
+                &store,
+                &loop_ctx,
+                spawn_frame.id,
+                None,
+                ServiceEventKind::ParseError {
+                    message: format!("'run' field must be a closure: {e}"),
+                },
+            );
+            return;
+        }
+    };
 
     // Create and set the interrupt signal on the engine state
     let interrupt = Arc::new(AtomicBool::new(false));
@@ -216,7 +302,7 @@ async fn run(store: Store, spawn_frame: Frame) {
 
     let task = Task {
         id: spawn_frame.id,
-        run_closure: nu_config.run_closure,
+        run_closure,
         return_options: opts.return_options,
         duplex: opts.duplex.unwrap_or(false),
         engine,
@@ -414,6 +500,306 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                     &loop_ctx,
                     task.id,
                     task.return_options.as_ref(),
+                    ServiceEventKind::Shutdown,
+                );
+                break;
+            }
+        }
+    }
+}
+
+async fn run_pty_loop(
+    store: Store,
+    loop_ctx: ServiceLoop,
+    source_id: Scru128Id,
+    initial_cmd: String,
+    initial_pty_opts: PtyOptions,
+) {
+    let start_event = emit_event(
+        &store,
+        &loop_ctx,
+        source_id,
+        None,
+        ServiceEventKind::Running,
+    )
+    .expect("failed to emit running event");
+    let mut start_id = start_event.frame.id;
+
+    let control_rx_options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .after(start_id)
+        .build();
+    let mut control_rx = store.read(control_rx_options).await;
+
+    let mut current_id = source_id;
+    let mut cmd = initial_cmd;
+    let mut pty_opts = initial_pty_opts;
+
+    loop {
+        let cols = pty_opts.cols.unwrap_or(80);
+        let rows = pty_opts.rows.unwrap_or(24);
+
+        let PtyChild {
+            reader,
+            writer,
+            mut handle,
+        } = match PtyChild::spawn(&cmd, cols, rows) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    current_id,
+                    None,
+                    ServiceEventKind::Stopped(StopReason::Error { message: e }),
+                );
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    current_id,
+                    None,
+                    ServiceEventKind::Shutdown,
+                );
+                return;
+            }
+        };
+
+        // Read PTY output -> emit recv frames (blocking thread for pipe I/O)
+        let recv_store = store.clone();
+        let recv_ctx = loop_ctx.clone();
+        let recv_id = current_id;
+        let (child_done_tx, child_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let recv_handle = std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut buf = [0u8; 8192];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let _ = emit_event(
+                            &recv_store,
+                            &recv_ctx,
+                            recv_id,
+                            None,
+                            ServiceEventKind::Recv {
+                                suffix: "recv".into(),
+                                data: buf[..n].to_vec(),
+                            },
+                        );
+                    }
+                    Err(_) => break,
+                }
+            }
+            let _ = child_done_tx.send(());
+        });
+
+        // Write to PTY input (blocking thread for pipe I/O)
+        let send_store = store.clone();
+        let send_topic = format!("{}.send", loop_ctx.topic);
+        let send_options = ReadOptions::builder()
+            .follow(FollowOption::On)
+            .after(start_id)
+            .build();
+        let send_rx = send_store.read(send_options).await;
+        let (send_stop_tx, mut send_stop_rx) = tokio::sync::oneshot::channel::<()>();
+
+        use std::io::Write;
+        let rt = tokio::runtime::Handle::current();
+        let send_handle = std::thread::spawn(move || {
+            let mut writer = writer;
+            let mut rx = send_rx;
+            loop {
+                let frame = rt.block_on(async {
+                    tokio::select! {
+                        f = rx.recv() => f,
+                        _ = &mut send_stop_rx => None,
+                    }
+                });
+                match frame {
+                    Some(frame) if frame.topic == send_topic => {
+                        if let Some(hash) = frame.hash {
+                            if let Ok(bytes) = rt.block_on(send_store.cas_read(&hash)) {
+                                if writer.write_all(&bytes).is_err() {
+                                    break;
+                                }
+                                if writer.flush().is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Some(_) => continue,
+                    None => break,
+                }
+            }
+        });
+
+        let terminate_topic = format!("{}.terminate", loop_ctx.topic);
+        let spawn_topic = format!("{}.spawn", loop_ctx.topic);
+        let resize_topic = format!("{}.resize", loop_ctx.topic);
+        tokio::pin!(child_done_rx);
+
+        enum PtyOutcome {
+            ChildExited,
+            Terminate,
+            Shutdown,
+            Update(Scru128Id, String, PtyOptions),
+            Error(String),
+        }
+
+        let outcome = 'pty_ctrl: loop {
+            tokio::select! {
+                biased;
+                maybe = control_rx.recv() => {
+                    match maybe {
+                        Some(frame) if frame.topic == terminate_topic => {
+                            handle.kill();
+                            let _ = (&mut child_done_rx).await;
+                            break 'pty_ctrl PtyOutcome::Terminate;
+                        }
+                        Some(frame) if frame.topic == "xs.stopping" => {
+                            handle.kill();
+                            let _ = (&mut child_done_rx).await;
+                            break 'pty_ctrl PtyOutcome::Shutdown;
+                        }
+                        Some(frame) if frame.topic == spawn_topic => {
+                            if let Some(hash) = frame.hash.clone() {
+                                if let Ok(bytes) = store.cas_read(&hash).await {
+                                    if let Ok(script) = String::from_utf8(bytes) {
+                                        let mut new_engine = match crate::processor::build_engine(&store, &frame.id) {
+                                            Ok(e) => e,
+                                            Err(_) => continue,
+                                        };
+                                        match nu::eval_script(&mut new_engine, &script) {
+                                            Ok(val) => {
+                                                let new_opts: ServiceScriptOptions =
+                                                    match serde_json::from_value(nu::value_to_json(&val)) {
+                                                        Ok(o) => o,
+                                                        Err(e) => {
+                                                            let _ = emit_event(
+                                                                &store,
+                                                                &loop_ctx,
+                                                                frame.id,
+                                                                None,
+                                                                ServiceEventKind::ParseError { message: e.to_string() },
+                                                            );
+                                                            continue;
+                                                        }
+                                                    };
+                                                if let Some(new_pty) = new_opts.pty {
+                                                    let new_cmd = match val.get_data_by_key("run").and_then(|v| v.as_str().ok().map(String::from)) {
+                                                        Some(c) => c,
+                                                        None => {
+                                                            let _ = emit_event(
+                                                                &store,
+                                                                &loop_ctx,
+                                                                frame.id,
+                                                                None,
+                                                                ServiceEventKind::ParseError {
+                                                                    message: "With pty enabled, 'run' must be a command string.".into(),
+                                                                },
+                                                            );
+                                                            continue;
+                                                        }
+                                                    };
+                                                    handle.kill();
+                                                    let _ = (&mut child_done_rx).await;
+                                                    break 'pty_ctrl PtyOutcome::Update(frame.id, new_cmd, new_pty);
+                                                }
+                                                // New config dropped pty -- terminate so
+                                                // serve.rs can restart with the new config.
+                                                handle.kill();
+                                                let _ = (&mut child_done_rx).await;
+                                                break 'pty_ctrl PtyOutcome::Terminate;
+                                            }
+                                            Err(e) => {
+                                                let _ = emit_event(
+                                                    &store,
+                                                    &loop_ctx,
+                                                    frame.id,
+                                                    None,
+                                                    ServiceEventKind::ParseError { message: e.to_string() },
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Some(frame) if frame.topic == resize_topic => {
+                            if let Some(ref meta) = frame.meta {
+                                let cols = meta.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                                let rows = meta.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                                let _ = handle.resize(cols, rows);
+                            }
+                        }
+                        Some(_) => {}
+                        None => break 'pty_ctrl PtyOutcome::Error("control channel closed".into()),
+                    }
+                }
+                _ = &mut child_done_rx => {
+                    break 'pty_ctrl PtyOutcome::ChildExited;
+                }
+            }
+        };
+
+        // The reader thread exits when the pipe gets EOF (after kill).
+        let _ = recv_handle.join();
+        // Signal the writer thread to stop and wait for it.
+        drop(send_stop_tx);
+        let _ = send_handle.join();
+
+        let stop_reason = match &outcome {
+            PtyOutcome::ChildExited => StopReason::Finished,
+            PtyOutcome::Terminate => StopReason::Terminate,
+            PtyOutcome::Shutdown => StopReason::Shutdown,
+            PtyOutcome::Update(update_id, _, _) => StopReason::Update {
+                update_id: *update_id,
+            },
+            PtyOutcome::Error(e) => StopReason::Error { message: e.clone() },
+        };
+
+        let _ = emit_event(
+            &store,
+            &loop_ctx,
+            current_id,
+            None,
+            ServiceEventKind::Stopped(stop_reason),
+        );
+
+        match outcome {
+            PtyOutcome::ChildExited => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                if let Ok(event) = emit_event(
+                    &store,
+                    &loop_ctx,
+                    current_id,
+                    None,
+                    ServiceEventKind::Running,
+                ) {
+                    start_id = event.frame.id;
+                }
+            }
+            PtyOutcome::Update(new_id, new_cmd, new_pty) => {
+                current_id = new_id;
+                cmd = new_cmd;
+                pty_opts = new_pty;
+                if let Ok(event) = emit_event(
+                    &store,
+                    &loop_ctx,
+                    current_id,
+                    None,
+                    ServiceEventKind::Running,
+                ) {
+                    start_id = event.frame.id;
+                }
+            }
+            PtyOutcome::Terminate | PtyOutcome::Shutdown | PtyOutcome::Error(_) => {
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    current_id,
+                    None,
                     ServiceEventKind::Shutdown,
                 );
                 break;

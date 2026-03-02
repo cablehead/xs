@@ -824,3 +824,105 @@ async fn test_graceful_shutdown_via_xs_stopping() {
         "service handle should complete after xs.stopping"
     );
 }
+
+#[tokio::test]
+async fn test_pty_service() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        });
+    }
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    #[cfg(unix)]
+    let script = r#"{ run: "sh", pty: {cols: 80, rows: 24} }"#;
+    #[cfg(windows)]
+    let script = r#"{ run: "cmd.exe", pty: {cols: 80, rows: 24} }"#;
+
+    let spawn = store
+        .append(
+            Frame::builder("ptytest.spawn")
+                .hash(store.cas_insert(script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    assert_eq!(recver.recv().await.unwrap().topic, "ptytest.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "ptytest.running");
+
+    // The shell should produce some initial output (prompt or banner)
+    let frame = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for initial PTY output")
+        .unwrap();
+    assert_eq!(frame.topic, "ptytest.recv");
+    let meta = frame.meta.as_ref().unwrap();
+    assert_eq!(meta["source_id"], spawn.id.to_string());
+    let bytes = store.cas_read(&frame.hash.unwrap()).await.unwrap();
+    assert!(!bytes.is_empty(), "PTY should produce output");
+
+    // Send input
+    #[cfg(unix)]
+    let input = "echo pty-ok\n";
+    #[cfg(windows)]
+    let input = "echo pty-ok\r\n";
+
+    store
+        .append(
+            Frame::builder("ptytest.send")
+                .hash(store.cas_insert(input).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    // Read recv frames until we see "pty-ok" in the output
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut found = false;
+    while Instant::now() < deadline {
+        let timeout = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await;
+        match timeout {
+            Ok(Some(frame)) => {
+                if frame.topic == "ptytest.recv" {
+                    if let Some(ref hash) = frame.hash {
+                        let content = store.cas_read(hash).await.unwrap();
+                        if String::from_utf8_lossy(&content).contains("pty-ok") {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    assert!(found, "expected to find 'pty-ok' in PTY output");
+
+    // Terminate
+    store
+        .append(Frame::builder("ptytest.terminate").build())
+        .unwrap();
+
+    let stop = loop {
+        let timeout = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await;
+        let frame = timeout
+            .expect("timed out waiting for ptytest.stopped")
+            .unwrap();
+        if frame.topic == "ptytest.stopped" {
+            break frame;
+        }
+    };
+    assert_eq!(stop.meta.unwrap()["reason"], "terminate");
+    let shutdown = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for ptytest.shutdown")
+        .unwrap();
+    assert_eq!(shutdown.topic, "ptytest.shutdown");
+}
