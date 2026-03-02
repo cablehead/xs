@@ -60,7 +60,7 @@ notes.**
 - Pre-stage website update in `../www.cross.stream/www/index.html`:
   - Update `version` attribute to `v$ARGUMENTS`
   - Update `release-url` to `https://github.com/cablehead/xs/releases/tag/v$ARGUMENTS`
-  - Update `release-date` once available from `gh release view v$ARGUMENTS --json publishedAt --jq '.publishedAt'`
+  - Leave `release-date` for now -- it needs the full ISO timestamp from `publishedAt`, which isn't available until the GitHub release is created
   - **Do not commit or push yet**
 
 ### 6. Wait for CI Completion
@@ -111,7 +111,14 @@ xs --version  # should show v$ARGUMENTS
 
 **Only after cargo publish succeeds:**
 
-- Commit and push pre-staged website changes from step 5 to make the release publicly visible
+- Update `release-date` with the full ISO timestamp: `gh release view v$ARGUMENTS --json publishedAt --jq '.publishedAt'` -- must be the full timestamp (e.g. `2026-03-02T19:15:14Z`), not just a date, or the relative time display will be wrong
+- Commit and push website changes to make the release publicly visible
+
+### 11. Bump to Dev Version
+
+- Update version in Cargo.toml to the next patch with `-dev` suffix (e.g. `0.11.0` -> `0.11.1-dev`)
+- Run `cargo check` to update Cargo.lock
+- Commit with message: `chore: bump to <version>-dev`
 
 ## Release Complete
 
