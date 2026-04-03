@@ -109,9 +109,10 @@ export def .last [
     (if $with_timestamp { ["--with-timestamp"] })
   ] | compact | flatten
 
-  xs last (xs-addr) ...$args | lines | each {|x|
+  let result = xs last (xs-addr) ...$args | lines | each {|x|
     $x | from json | if $with_timestamp { into datetime timestamp } else { }
   }
+  if ($count | default 1) <= 1 { $result | first } else { $result }
 }
 
 # Append an event to the stream
