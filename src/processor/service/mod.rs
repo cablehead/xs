@@ -1,3 +1,4 @@
+pub(crate) mod pty;
 mod serve;
 #[allow(clippy::module_inception)]
 pub(crate) mod service;
