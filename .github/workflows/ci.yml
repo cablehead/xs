@@ -42,7 +42,9 @@ jobs:
         Expand-Archive nu.zip -DestinationPath .
         echo "$PWD\nu-0.112.1-x86_64-pc-windows-msvc" | Out-File -Append -FilePath $env:GITHUB_PATH
     - name: Run xs.nu tests
-      run: nu tests/test_xs_nu.nu
+      run: |
+        export PATH="$PWD/target/debug:$PATH"
+        nu tests/test_xs_nu.nu
 
   nix-flake:
     if: (github.event_name == 'push' || github.event.pull_request.draft == false)

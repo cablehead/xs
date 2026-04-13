@@ -10,7 +10,7 @@ def assert-eq [expected: any, msg: string = "assertion failed"] {
   }
 }
 
-use xs.nu *
+use ../xs.nu *
 
 .tmp-spawn {
   # test .append, .cat, .cas
