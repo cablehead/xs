@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 use crate::nu::util::value_to_json;
@@ -63,16 +64,10 @@ impl Command for AppendCommand {
         let ttl = ttl_str
             .map(|s| TTL::from_query(Some(&format!("ttl={s}"))))
             .transpose()
-            .map_err(|e| ShellError::GenericError {
-                error: "Invalid TTL format".into(),
-                msg: e.to_string(),
-                span: Some(span),
-                help: Some(
-                    "TTL must be one of: 'forever', 'ephemeral', 'time:<milliseconds>', or 'last:<n>'"
-                        .into(),
-                ),
-                inner: vec![],
-            })?;
+            .map_err(|e| ShellError::Generic(
+                GenericError::new("Invalid TTL format", e.to_string(), span)
+                    .with_help("TTL must be one of: 'forever', 'ephemeral', 'time:<milliseconds>', or 'last:<n>'"),
+            ))?;
 
         let input_value = input.into_value(span)?;
 

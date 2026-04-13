@@ -2,6 +2,7 @@ use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Stack, StateWorkingSet};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{PipelineData, ShellError, Span, Value};
 
 use serde::{Deserialize, Serialize};
@@ -56,13 +57,11 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     let block = parse(&mut working_set, None, script.as_bytes(), false);
 
     if let Some(err) = working_set.parse_errors.first() {
-        let shell_error = ShellError::GenericError {
-            error: "Parse error in script".into(),
-            msg: format!("{err:?}"),
-            span: Some(err.span()),
-            help: None,
-            inner: vec![],
-        };
+        let shell_error = ShellError::Generic(GenericError::new(
+            "Parse error in script",
+            format!("{err:?}"),
+            err.span(),
+        ));
         return Err(Error::from(nu_protocol::format_cli_error(
             None,
             &working_set,
@@ -72,13 +71,10 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
     }
 
     if let Some(err) = working_set.compile_errors.first() {
-        let shell_error = ShellError::GenericError {
-            error: "Compile error in script".into(),
-            msg: format!("{err:?}"),
-            span: None,
-            help: None,
-            inner: vec![],
-        };
+        let shell_error = ShellError::Generic(GenericError::new_internal(
+            "Compile error in script",
+            format!("{err:?}"),
+        ));
         return Err(Error::from(nu_protocol::format_cli_error(
             None,
             &working_set,

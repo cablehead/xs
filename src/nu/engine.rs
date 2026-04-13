@@ -6,6 +6,7 @@ use nu_parser::parse;
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Command, EngineState, Redirection, Stack, StateWorkingSet};
 use nu_protocol::engine::{Job, ThreadJob};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{OutDest, PipelineData, ShellError, Span, Value};
 
 use crate::error::Error;
@@ -114,23 +115,17 @@ impl Engine {
 
         // Create temporary file with .nu extension that will be cleaned up when temp_dir is dropped
         let temp_dir = tempfile::TempDir::new().map_err(|e| {
-            Box::new(ShellError::GenericError {
-                error: "I/O Error".into(),
-                msg: format!("Failed to create temporary directory for module '{name}': {e}"),
-                span: Some(Span::unknown()),
-                help: None,
-                inner: vec![],
-            })
+            Box::new(ShellError::Generic(GenericError::new_internal(
+                "I/O Error",
+                format!("Failed to create temporary directory for module '{name}': {e}"),
+            )))
         })?;
         let module_path = temp_dir.path().join(format!("{name}.nu"));
         std::fs::write(&module_path, content).map_err(|e| {
-            Box::new(ShellError::GenericError {
-                error: "I/O Error".into(),
-                msg: e.to_string(),
-                span: Some(Span::unknown()),
-                help: None,
-                inner: vec![],
-            })
+            Box::new(ShellError::Generic(GenericError::new_internal(
+                "I/O Error",
+                e.to_string(),
+            )))
         })?;
 
         // Parse the use statement
@@ -140,13 +135,11 @@ impl Engine {
         // Check for parse errors
         if !working_set.parse_errors.is_empty() {
             let first_error = &working_set.parse_errors[0];
-            return Err(Box::new(ShellError::GenericError {
-                error: "Parse error".into(),
-                msg: first_error.to_string(),
-                span: Some(first_error.span()),
-                help: None,
-                inner: vec![],
-            }));
+            return Err(Box::new(ShellError::Generic(GenericError::new(
+                "Parse error",
+                first_error.to_string(),
+                first_error.span(),
+            ))));
         }
 
         // Merge changes into engine state
@@ -218,29 +211,25 @@ impl Engine {
         let total_positional = num_required + num_optional;
 
         if args.len() > total_positional {
-            return Err(Box::new(ShellError::GenericError {
-                error: format!(
+            return Err(Box::new(ShellError::Generic(GenericError::new(
+                format!(
                     "Too many arguments for job '{job_display_name}': got {}, closure accepts at most {total_positional}.",
                     args.len()
                 ),
-                msg: format!("Closure signature: {name}", name = block.signature.name),
-                span: Some(block.span.unwrap_or_else(Span::unknown)),
-                help: None,
-                inner: vec![],
-            }));
+                format!("Closure signature: {name}", name = block.signature.name),
+                block.span.unwrap_or_else(Span::unknown),
+            ))));
         }
 
         if args.len() < num_required {
-            return Err(Box::new(ShellError::GenericError {
-                error: format!(
+            return Err(Box::new(ShellError::Generic(GenericError::new(
+                format!(
                     "Job '{job_display_name}' run closure expects {num_required} required argument(s), but {} were provided.",
                     args.len()
                 ),
-                msg: format!("Closure signature: {name}", name = block.signature.name),
-                span: Some(block.span.unwrap_or_else(Span::unknown)),
-                help: None,
-                inner: vec![],
-            }));
+                format!("Closure signature: {name}", name = block.signature.name),
+                block.span.unwrap_or_else(Span::unknown),
+            ))));
         }
 
         // Inject provided positional args
@@ -299,8 +288,8 @@ impl Engine {
         if let Ok(mut jobs) = self.state.jobs.lock() {
             let job_id = {
                 jobs.iter().find_map(|(jid, job)| {
-                    job.tag()
-                        .and_then(|tag| if tag == name { Some(jid) } else { None })
+                    job.description()
+                        .and_then(|desc| if desc == name { Some(jid) } else { None })
                 })
             };
             if let Some(job_id) = job_id {

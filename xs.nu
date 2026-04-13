@@ -245,7 +245,7 @@ export def .tmp-spawn [
     mkdir $store_path
 
     # Spawn xs serve in the background
-    let job_id = job spawn --tag "xs-test-server" {
+    let job_id = job spawn --description "xs-test-server" {
       xs serve $store_path
     }
     print $"Started xs serve with job ID: ($job_id)"

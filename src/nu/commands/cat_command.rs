@@ -1,5 +1,6 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type};
 
 use crate::store::{ReadOptions, Store};
@@ -76,12 +77,12 @@ impl Command for CatCommand {
 
         // Helper to parse Scru128Id
         let parse_id = |s: &str, name: &str| -> Result<scru128::Scru128Id, ShellError> {
-            s.parse().map_err(|e| ShellError::GenericError {
-                error: format!("Invalid {name}"),
-                msg: format!("Failed to parse Scru128Id: {e}"),
-                span: Some(call.head),
-                help: None,
-                inner: vec![],
+            s.parse().map_err(|e| {
+                ShellError::Generic(GenericError::new(
+                    format!("Invalid {name}"),
+                    format!("Failed to parse Scru128Id: {e}"),
+                    call.head,
+                ))
             })
         };
 

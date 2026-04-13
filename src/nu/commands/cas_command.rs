@@ -2,6 +2,7 @@ use std::io::Read;
 
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
 
 use crate::store::Store;
@@ -46,35 +47,22 @@ impl Command for CasCommand {
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
         let hash: String = call.req(engine_state, stack, 0)?;
-        let hash: ssri::Integrity = hash.parse().map_err(|e| ShellError::GenericError {
-            error: "I/O Error".into(),
-            msg: format!("Malformed ssri::Integrity:: {e}"),
-            span: Some(span),
-            help: None,
-            inner: vec![],
+        let hash: ssri::Integrity = hash.parse().map_err(|e| {
+            ShellError::Generic(GenericError::new(
+                "I/O Error",
+                format!("Malformed ssri::Integrity:: {e}"),
+                span,
+            ))
         })?;
 
-        let mut reader =
-            self.store
-                .cas_reader_sync(hash)
-                .map_err(|e| ShellError::GenericError {
-                    error: "I/O Error".into(),
-                    msg: e.to_string(),
-                    span: Some(span),
-                    help: None,
-                    inner: vec![],
-                })?;
+        let mut reader = self.store.cas_reader_sync(hash).map_err(|e| {
+            ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
+        })?;
 
         let mut contents = Vec::new();
-        reader
-            .read_to_end(&mut contents)
-            .map_err(|e| ShellError::GenericError {
-                error: "I/O Error".into(),
-                msg: e.to_string(),
-                span: Some(span),
-                help: None,
-                inner: vec![],
-            })?;
+        reader.read_to_end(&mut contents).map_err(|e| {
+            ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
+        })?;
 
         // Try to convert to string if valid UTF-8, otherwise return as binary
         let value = match String::from_utf8(contents.clone()) {

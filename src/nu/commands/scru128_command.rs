@@ -1,5 +1,6 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{
     Category, PipelineData, Record, ShellError, Signature, SyntaxShape, Type, Value,
 };
@@ -9,13 +10,7 @@ use crate::nu::util;
 
 // Helper function to create consistent SCRU128 errors
 fn scru128_error(msg: String, span: nu_protocol::Span) -> ShellError {
-    ShellError::GenericError {
-        error: "SCRU128 Error".into(),
-        msg,
-        span: Some(span),
-        help: None,
-        inner: vec![],
-    }
+    ShellError::Generic(GenericError::new("SCRU128 Error", msg, span))
 }
 
 // Helper function to get input from argument or pipeline
@@ -32,13 +27,10 @@ fn get_string_input(
     } else {
         match input {
             PipelineData::Value(Value::String { val, .. }, _) => Ok(val),
-            _ => Err(ShellError::GenericError {
-                error: "Missing input".into(),
-                msg: "String required".into(),
-                span: Some(span),
-                help: Some("Provide string as argument or via pipeline".into()),
-                inner: vec![],
-            }),
+            _ => Err(ShellError::Generic(
+                GenericError::new("Missing input", "String required", span)
+                    .with_help("Provide string as argument or via pipeline"),
+            )),
         }
     }
 }
@@ -57,13 +49,10 @@ fn get_record_input(
     } else {
         match input {
             PipelineData::Value(val @ Value::Record { .. }, _) => Ok(val),
-            _ => Err(ShellError::GenericError {
-                error: "Missing input".into(),
-                msg: "Record required".into(),
-                span: Some(span),
-                help: Some("Provide record as argument or via pipeline".into()),
-                inner: vec![],
-            }),
+            _ => Err(ShellError::Generic(
+                GenericError::new("Missing input", "Record required", span)
+                    .with_help("Provide record as argument or via pipeline"),
+            )),
         }
     }
 }
@@ -196,13 +185,14 @@ impl Command for Scru128Command {
 
                 Ok(PipelineData::Value(Value::string(result, span), None))
             }
-            Some(unknown) => Err(ShellError::GenericError {
-                error: "Invalid subcommand".into(),
-                msg: format!("Unknown subcommand: {unknown}"),
-                span: Some(span),
-                help: Some("Available subcommands: unpack, pack".into()),
-                inner: vec![],
-            }),
+            Some(unknown) => Err(ShellError::Generic(
+                GenericError::new(
+                    "Invalid subcommand",
+                    format!("Unknown subcommand: {unknown}"),
+                    span,
+                )
+                .with_help("Available subcommands: unpack, pack"),
+            )),
             None => {
                 let result = crate::scru128::generate()
                     .map_err(|e| scru128_error(format!("Failed to generate ID: {e}"), span))?;

@@ -1,5 +1,6 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type};
 
 use crate::nu::util;
@@ -59,13 +60,11 @@ impl Command for GetCommand {
                 None,
             ))
         } else {
-            Err(ShellError::GenericError {
-                error: "Frame not found".into(),
-                msg: format!("No frame found with ID: {id_str}"),
-                span: Some(call.head),
-                help: None,
-                inner: vec![],
-            })
+            Err(ShellError::Generic(GenericError::new(
+                "Frame not found",
+                format!("No frame found with ID: {id_str}"),
+                call.head,
+            )))
         }
     }
 }

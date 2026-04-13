@@ -2,6 +2,7 @@ use std::io::Read;
 use std::io::Write;
 
 use chrono::{DateTime, Utc};
+use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{PipelineData, Record, ShellError, Span, Value};
 
 use crate::store::Frame;
@@ -104,13 +105,11 @@ pub fn write_pipeline_to_cas(
     span: Span,
 ) -> Result<Option<ssri::Integrity>, Box<ShellError>> {
     let mut writer = store.cas_writer_sync().map_err(|e| {
-        Box::new(ShellError::GenericError {
-            error: "I/O Error".into(),
-            msg: e.to_string(),
-            span: Some(span),
-            help: None,
-            inner: vec![],
-        })
+        Box::new(ShellError::Generic(GenericError::new(
+            "I/O Error",
+            e.to_string(),
+            span,
+        )))
     })?;
 
     match input {
@@ -118,46 +117,38 @@ pub fn write_pipeline_to_cas(
             Value::Nothing { .. } => Ok(None),
             Value::String { val, .. } => {
                 writer.write_all(val.as_bytes()).map_err(|e| {
-                    Box::new(ShellError::GenericError {
-                        error: "I/O Error".into(),
-                        msg: e.to_string(),
-                        span: Some(span),
-                        help: None,
-                        inner: vec![],
-                    })
+                    Box::new(ShellError::Generic(GenericError::new(
+                        "I/O Error",
+                        e.to_string(),
+                        span,
+                    )))
                 })?;
 
                 let hash = writer.commit().map_err(|e| {
-                    Box::new(ShellError::GenericError {
-                        error: "I/O Error".into(),
-                        msg: e.to_string(),
-                        span: Some(span),
-                        help: None,
-                        inner: vec![],
-                    })
+                    Box::new(ShellError::Generic(GenericError::new(
+                        "I/O Error",
+                        e.to_string(),
+                        span,
+                    )))
                 })?;
 
                 Ok(Some(hash))
             }
             Value::Binary { val, .. } => {
                 writer.write_all(&val).map_err(|e| {
-                    Box::new(ShellError::GenericError {
-                        error: "I/O Error".into(),
-                        msg: e.to_string(),
-                        span: Some(span),
-                        help: None,
-                        inner: vec![],
-                    })
+                    Box::new(ShellError::Generic(GenericError::new(
+                        "I/O Error",
+                        e.to_string(),
+                        span,
+                    )))
                 })?;
 
                 let hash = writer.commit().map_err(|e| {
-                    Box::new(ShellError::GenericError {
-                        error: "I/O Error".into(),
-                        msg: e.to_string(),
-                        span: Some(span),
-                        help: None,
-                        inner: vec![],
-                    })
+                    Box::new(ShellError::Generic(GenericError::new(
+                        "I/O Error",
+                        e.to_string(),
+                        span,
+                    )))
                 })?;
 
                 Ok(Some(hash))
@@ -165,33 +156,27 @@ pub fn write_pipeline_to_cas(
             Value::Record { .. } => {
                 let json = value_to_json(&value);
                 let json_string = serde_json::to_string(&json).map_err(|e| {
-                    Box::new(ShellError::GenericError {
-                        error: "I/O Error".into(),
-                        msg: e.to_string(),
-                        span: Some(span),
-                        help: None,
-                        inner: vec![],
-                    })
+                    Box::new(ShellError::Generic(GenericError::new(
+                        "I/O Error",
+                        e.to_string(),
+                        span,
+                    )))
                 })?;
 
                 writer.write_all(json_string.as_bytes()).map_err(|e| {
-                    Box::new(ShellError::GenericError {
-                        error: "I/O Error".into(),
-                        msg: e.to_string(),
-                        span: Some(span),
-                        help: None,
-                        inner: vec![],
-                    })
+                    Box::new(ShellError::Generic(GenericError::new(
+                        "I/O Error",
+                        e.to_string(),
+                        span,
+                    )))
                 })?;
 
                 let hash = writer.commit().map_err(|e| {
-                    Box::new(ShellError::GenericError {
-                        error: "I/O Error".into(),
-                        msg: e.to_string(),
-                        span: Some(span),
-                        help: None,
-                        inner: vec![],
-                    })
+                    Box::new(ShellError::Generic(GenericError::new(
+                        "I/O Error",
+                        e.to_string(),
+                        span,
+                    )))
                 })?;
 
                 Ok(Some(hash))
@@ -213,13 +198,11 @@ pub fn write_pipeline_to_cas(
                 let mut buffer = [0; 8192];
                 loop {
                     let bytes_read = reader.read(&mut buffer).map_err(|e| {
-                        Box::new(ShellError::GenericError {
-                            error: "I/O Error".into(),
-                            msg: e.to_string(),
-                            span: Some(span),
-                            help: None,
-                            inner: vec![],
-                        })
+                        Box::new(ShellError::Generic(GenericError::new(
+                            "I/O Error",
+                            e.to_string(),
+                            span,
+                        )))
                     })?;
 
                     if bytes_read == 0 {
@@ -227,25 +210,21 @@ pub fn write_pipeline_to_cas(
                     }
 
                     writer.write_all(&buffer[..bytes_read]).map_err(|e| {
-                        Box::new(ShellError::GenericError {
-                            error: "I/O Error".into(),
-                            msg: e.to_string(),
-                            span: Some(span),
-                            help: None,
-                            inner: vec![],
-                        })
+                        Box::new(ShellError::Generic(GenericError::new(
+                            "I/O Error",
+                            e.to_string(),
+                            span,
+                        )))
                     })?;
                 }
             }
 
             let hash = writer.commit().map_err(|e| {
-                Box::new(ShellError::GenericError {
-                    error: "I/O Error".into(),
-                    msg: e.to_string(),
-                    span: Some(span),
-                    help: None,
-                    inner: vec![],
-                })
+                Box::new(ShellError::Generic(GenericError::new(
+                    "I/O Error",
+                    e.to_string(),
+                    span,
+                )))
             })?;
 
             Ok(Some(hash))
