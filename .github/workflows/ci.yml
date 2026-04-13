@@ -40,7 +40,8 @@ jobs:
       run: |
         Invoke-WebRequest -Uri "https://github.com/nushell/nushell/releases/download/0.112.1/nu-0.112.1-x86_64-pc-windows-msvc.zip" -OutFile nu.zip
         Expand-Archive nu.zip -DestinationPath nu-install -Force
-        echo "$PWD\nu-install\nu-0.112.1-x86_64-pc-windows-msvc" | Out-File -Append -FilePath $env:GITHUB_PATH
+        $nuDir = Get-ChildItem nu-install -Recurse -Filter nu.exe | Select-Object -First 1 -ExpandProperty DirectoryName
+        echo $nuDir | Out-File -Append -FilePath $env:GITHUB_PATH
     - name: Add xs to PATH (Unix)
       if: runner.os != 'Windows'
       run: echo "$PWD/target/debug" >> $GITHUB_PATH
