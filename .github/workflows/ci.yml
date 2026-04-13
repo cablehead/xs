@@ -39,12 +39,17 @@ jobs:
       shell: pwsh
       run: |
         Invoke-WebRequest -Uri "https://github.com/nushell/nushell/releases/download/0.112.1/nu-0.112.1-x86_64-pc-windows-msvc.zip" -OutFile nu.zip
-        Expand-Archive nu.zip -DestinationPath .
-        echo "$PWD\nu-0.112.1-x86_64-pc-windows-msvc" | Out-File -Append -FilePath $env:GITHUB_PATH
+        Expand-Archive nu.zip -DestinationPath nu-install -Force
+        echo "$PWD\nu-install" | Out-File -Append -FilePath $env:GITHUB_PATH
+    - name: Add xs to PATH (Unix)
+      if: runner.os != 'Windows'
+      run: echo "$PWD/target/debug" >> $GITHUB_PATH
+    - name: Add xs to PATH (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: echo "$PWD\target\debug" | Out-File -Append -FilePath $env:GITHUB_PATH
     - name: Run xs.nu tests
-      run: |
-        export PATH="$PWD/target/debug:$PATH"
-        nu tests/test_xs_nu.nu
+      run: nu tests/test_xs_nu.nu
 
   nix-flake:
     if: (github.event_name == 'push' || github.event.pull_request.draft == false)
