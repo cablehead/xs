@@ -97,22 +97,31 @@ export def .get [
 }
 
 export def .last [
-  topic?: string
-  count?: int  # Number of frames to return (default: 1)
+  ...args  # [topic] [count] - topic to filter by and/or number of frames to return
   --follow (-f)
   --with-timestamp # include RFC3339 timestamp extracted from frame ID
 ] {
-  let args = [
+  mut topic = null
+  mut count = 1
+  for arg in $args {
+    if ($arg | describe) == "int" {
+      $count = $arg
+    } else {
+      $topic = ($arg | into string)
+    }
+  }
+
+  let cli_args = [
     (if $topic != null { [$topic] })
-    (if $count != null { [$count] })
+    (if $count != 1 { [$count] })
     (if $follow { ["--follow"] })
     (if $with_timestamp { ["--with-timestamp"] })
   ] | compact | flatten
 
-  let result = xs last (xs-addr) ...$args | lines | each {|x|
+  let result = xs last (xs-addr) ...$cli_args | lines | each {|x|
     $x | from json | if $with_timestamp { into datetime timestamp } else { }
   }
-  if ($count | default 1) <= 1 { $result | first } else { $result }
+  if $count <= 1 { $result | first } else { $result }
 }
 
 # Append an event to the stream

@@ -21,8 +21,23 @@ use ../xs.nu *
   let id = (.cat --last 1 | first | get id)
   .get $id | get topic | assert-eq "test-topic" ".get topic"
 
-  # test .last
+  # test .last (bare) returns a record
+  .last | describe | str replace --regex '<.*' '' | assert-eq "record" ".last returns record"
+
+  # test .last <topic> returns a record
   .last test-topic | .cas | assert-eq "hello world" ".last content"
+
+  # add more frames for multi-result tests
+  "second" | .append test-topic
+  "third" | .append test-topic
+
+  # test .last <n> returns a table
+  .last 3 | describe | str replace --regex '<.*' '' | assert-eq "table" ".last <n> returns table"
+
+  # test .last <topic> <n> returns a table
+  let results = .last test-topic 3
+  $results | describe | str replace --regex '<.*' '' | assert-eq "table" ".last <topic> <n> returns table"
+  $results | length | assert-eq 3 ".last <topic> <n> count"
 
   # test .id roundtrip
   let new_id = (.id)
