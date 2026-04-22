@@ -123,7 +123,7 @@ export def .append [
   #   - "forever": The event is kept indefinitely.
   #   - "ephemeral": The event is not stored; only active subscribers can see it.
   #   - "time:<milliseconds>": The event is kept for a custom duration in milliseconds.
-  #   - "head:<n>": Retains only the last n events for the topic (n must be >= 1).
+  #   - "last:<n>": Retains only the last n events for the topic (n must be >= 1).
   --with-timestamp # include RFC3339 timestamp extracted from frame ID
 ] {
   xs append (xs-addr) $topic ...(

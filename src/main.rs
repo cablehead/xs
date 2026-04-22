@@ -132,7 +132,7 @@ struct CommandAppend {
     #[clap(long, value_parser)]
     meta: Option<String>,
 
-    /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<milliseconds>, head:<n>
+    /// Time-to-live for the event. Allowed values: forever, ephemeral, time:<milliseconds>, last:<n>
     #[clap(long)]
     ttl: Option<String>,
 
