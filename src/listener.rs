@@ -3,8 +3,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use iroh::endpoint::{RecvStream, SendStream};
-use iroh::{Endpoint, RelayMode, SecretKey, Watcher};
+use iroh::{Endpoint, SecretKey, Watcher};
 use iroh_base::ticket::NodeTicket;
+
+use crate::relay::relay_mode_from_env;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 
@@ -300,7 +302,7 @@ impl Listener {
             let secret_key = get_or_create_secret()?;
             let endpoint = Endpoint::builder()
                 .alpns(vec![ALPN.to_vec()])
-                .relay_mode(RelayMode::Default)
+                .relay_mode(relay_mode_from_env())
                 .secret_key(secret_key)
                 .bind()
                 .await
@@ -371,7 +373,7 @@ impl Listener {
                 // Create a client endpoint
                 let client_endpoint = Endpoint::builder()
                     .alpns(vec![])
-                    .relay_mode(RelayMode::Default)
+                    .relay_mode(relay_mode_from_env())
                     .secret_key(secret_key)
                     .bind()
                     .await

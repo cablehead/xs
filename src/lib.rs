@@ -4,6 +4,7 @@ pub mod error;
 pub mod listener;
 pub mod nu;
 pub mod processor;
+pub mod relay;
 pub mod scru128;
 pub mod store;
 pub mod trace;

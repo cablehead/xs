@@ -1,5 +1,6 @@
 use crate::listener::{AsyncReadWriteBox, IrohStream, ALPN, HANDSHAKE};
-use iroh::{Endpoint, RelayMode, SecretKey};
+use crate::relay::relay_mode_from_env;
+use iroh::{Endpoint, SecretKey};
 use iroh_base::ticket::NodeTicket;
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
@@ -71,7 +72,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
             // Create an iroh endpoint for connecting
             let endpoint = Endpoint::builder()
                 .alpns(vec![])
-                .relay_mode(RelayMode::Default)
+                .relay_mode(relay_mode_from_env())
                 .secret_key(secret_key)
                 .bind()
                 .await
