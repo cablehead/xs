@@ -31,3 +31,7 @@ Always run `./scripts/check.sh` before committing. Use `cargo fmt` to fix format
 ## Release Process
 
 Use `/release [version]` command to execute the automated release workflow. See `.claude/commands/release.md` for details.
+
+## Nushell version
+
+When bumping the embedded Nushell (the `nu-*` crate versions in `Cargo.toml`), update the standalone `nu` it is tested and shipped against to match: the install version in `.github/workflows/ci.yml` (Linux, macOS, Windows steps) and `NU_VERSION` in `.github/workflows/Dockerfile.release-docker`.
