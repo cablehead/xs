@@ -147,6 +147,28 @@ curl --unix-socket ./store/sock \
 
 Response: Imported frame JSON
 
+### `POST /eval`
+
+Evaluate a Nushell script against the store. The request body is the script
+(UTF-8). The script runs with the store commands available (`.cat`, `.last`,
+`.append`, plus the core commands), so it can read from and write to the stream.
+
+```sh
+curl --unix-socket ./store/sock \
+    -X POST --data '.cat | where topic == "notes" | length' \
+    http://localhost/eval
+```
+
+Response: depends on the type the pipeline returns:
+
+- single string/int/float/bool - `text/plain`
+- any other single value (record, etc.) - `application/json`
+- a list stream - `application/x-ndjson` (one JSON value per line, streamed)
+- a byte stream - `application/octet-stream` (streamed)
+- nothing - 204 No Content
+
+A script that fails to evaluate returns 500 with the error text.
+
 ### `GET /version`
 
 Get version info
