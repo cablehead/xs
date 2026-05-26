@@ -222,14 +222,14 @@ cat dump.jsonl | xs import ./store
 Evaluate a Nushell script with store helper commands available.
 
 ```sh
-xs eval <addr> [file] [-c <commands>]
+xs eval <addr> [file] [-c, --commands <commands>]
 ```
 
 | Option       | Description                                                    |
 | ------------ | -------------------------------------------------------------- |
 | `<addr>`     | Address to connect to ([HOST]:PORT, `<PATH>`, or `iroh://...`) |
 | `[file]`     | Script file to evaluate, or "-" to read from stdin             |
-| `-c <commands>` | Evaluate script from command line                           |
+| `-c, --commands <commands>` | Evaluate script from command line               |
 
 The eval command runs a Nushell script with access to store helper commands like `.cat`, `.append`, `.last`, `.get`, `.cas`, and `.remove`.
 

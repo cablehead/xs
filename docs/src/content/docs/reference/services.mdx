@@ -38,7 +38,7 @@ Services emit lifecycle events to track their state. See <Link to="/reference/to
 | --------------------- | --------------------------------------- |
 | `<topic>.running`     | Service has started processing        |
 | `<topic>.recv`        | Output value from the service         |
-| `<topic>.stopped` | Service pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate` and `update`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the service loop will shut down. `update` indicates the service reloaded due to a new `.spawn` frame. |
+| `<topic>.stopped` | Service pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate`, `update` and `shutdown`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the service loop will shut down. `update` indicates the service reloaded due to a new `.spawn` frame; `shutdown` means the service stopped because the supervisor is shutting down. |
 | `<topic>.parse.error` | Script failed to parse |
 | `<topic>.shutdown` | Service loop has fully exited; the dispatcher evicts it |
 
@@ -61,7 +61,7 @@ The `return_options` record allows you to customize the output frames produced b
 | -------- | ------ | --------- | ----------------------------------------------------- |
 | `suffix` | string | `".recv"` | Suffix appended to the service topic for output frames. Include the leading `.` (e.g., `".output"` produces `<topic>.output`) |
 | `ttl`    | string | `"forever"` | Time-to-live for output frames                      |
-| `target` | string | `"meta"`  | Output must be a record, stored as frame metadata. Set to `"cas"` to store in CAS; any type is accepted. |
+| `target` | string | omitted   | Default (omitted): output must be a record, stored as frame metadata. Set to `"cas"` to store in CAS; any type is accepted. |
 
 ### TTL Options
 
