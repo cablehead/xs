@@ -43,7 +43,7 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                         "register" => {
                             compacted.insert(topic.to_string(), frame);
                         }
-                        "unregister" | "inactive" => {
+                        "unregistered" => {
                             if let Some(meta) = &frame.meta {
                                 if let Some(actor_id) =
                                     meta.get("actor_id").and_then(|v| v.as_str())

@@ -1462,6 +1462,52 @@ async fn test_cas_target_allows_non_record_out() {
     assert_no_more_frames(&mut recver).await;
 }
 
+// An actor that was registered and then stopped emits `<topic>.unregistered`
+// carrying meta.actor_id equal to its `.register` frame id. On restart the
+// dispatcher must compact that pair away and not resurrect the actor.
+#[tokio::test]
+async fn test_unregistered_actor_not_restarted_on_replay() {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+    let register = store
+        .append(
+            Frame::builder("greeter.register")
+                .hash(
+                    store
+                        .cas_insert(r#"{run: {|frame, state = null| $frame}}"#)
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    store
+        .append(
+            Frame::builder("greeter.unregistered")
+                .meta(serde_json::json!({ "actor_id": register.id.to_string() }))
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    {
+        let store = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::actor::run(store).await.unwrap();
+        }));
+    }
+
+    // History replays, then the threshold. The actor must not start again, so
+    // no `greeter.active` frame should follow.
+    assert_eq!(recver.recv().await.unwrap().topic, "greeter.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "greeter.unregistered");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_no_more_frames(&mut recver).await;
+}
+
 async fn setup_test_environment() -> (Store, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
