@@ -283,13 +283,15 @@ xs version <addr>
 Manage the embedded `xs.nu` module.
 
 ```sh
-xs nu [--install] [--clean]
+xs nu [--install] [--clean] [--lib-path <PATH>] [--autoload-path <PATH>]
 ```
 
-| Option      | Description                              |
-| ----------- | ---------------------------------------- |
-| `--install` | Install `xs.nu` into your Nushell config |
-| `--clean`   | Remove previously installed files        |
+| Option              | Description                                                  |
+| ------------------- | ----------------------------------------------------------- |
+| `--install`         | Install `xs.nu` into your Nushell config                    |
+| `--clean`           | Remove previously installed files                           |
+| `--lib-path <PATH>` | Explicit path for the `xs.nu` library file (requires `--install`)        |
+| `--autoload-path <PATH>` | Explicit path for the `xs-use.nu` autoload stub (requires `--install`) |
 
 Without options the command prints the module contents so it can be redirected or piped.
 
