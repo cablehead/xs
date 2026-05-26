@@ -591,7 +591,7 @@ fn test_emit_event_helper() {
             captures: vec![],
         },
         return_options: Some(ReturnOptions {
-            suffix: Some("data".into()),
+            suffix: Some(".data".into()),
             ttl: None,
             target: None,
         }),
@@ -615,7 +615,7 @@ fn test_emit_event_helper() {
         task.id,
         task.return_options.as_ref(),
         ServiceEventKind::Recv {
-            suffix: "data".into(),
+            suffix: ".data".into(),
             data: b"hi".to_vec(),
         },
     )

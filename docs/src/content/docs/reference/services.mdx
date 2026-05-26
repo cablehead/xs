@@ -59,7 +59,7 @@ The `return_options` record allows you to customize the output frames produced b
 
 | Option   | Type   | Default   | Description                                           |
 | -------- | ------ | --------- | ----------------------------------------------------- |
-| `suffix` | string | ".recv"   | Custom suffix for output frames (e.g., ".output")    |
+| `suffix` | string | `".recv"` | Suffix appended to the service topic for output frames. Include the leading `.` (e.g., `".output"` produces `<topic>.output`) |
 | `ttl`    | string | `"forever"` | Time-to-live for output frames                      |
 | `target` | string | `"meta"`  | Output must be a record, stored as frame metadata. Set to `"cas"` to store in CAS; any type is accepted. |
 

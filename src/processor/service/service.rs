@@ -89,7 +89,7 @@ pub(crate) fn emit_event(
             let hash = store.cas_insert_bytes_sync(data)?;
             store.append(
                 Frame::builder(format!(
-                    "{topic}.{suffix}",
+                    "{topic}{suffix}",
                     topic = loop_ctx.topic,
                     suffix = suffix
                 ))
@@ -105,7 +105,7 @@ pub(crate) fn emit_event(
             merged["source_id"] = json!(source_id.to_string());
             store.append(
                 Frame::builder(format!(
-                    "{topic}.{suffix}",
+                    "{topic}{suffix}",
                     topic = loop_ctx.topic,
                     suffix = suffix
                 ))
@@ -505,7 +505,7 @@ fn run_pipeline(
         .return_options
         .as_ref()
         .and_then(|o| o.suffix.clone())
-        .unwrap_or_else(|| "recv".into());
+        .unwrap_or_else(|| ".recv".into());
     let use_cas = task
         .return_options
         .as_ref()
