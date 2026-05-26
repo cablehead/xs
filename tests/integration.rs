@@ -874,10 +874,12 @@ async fn test_iroh_networking() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    // Wait for iroh ticket to be ready - poll for xs.start frame with expose metadata
+    // Wait for iroh ticket to be ready - poll for xs.start frame with expose metadata.
+    // Must outlast the server's relay-wait fallback (see Listener::bind), which mints a
+    // direct-addresses-only ticket after ~5s on networks where no relay is reachable.
     let mut ticket_ready = false;
     let start_time = std::time::Instant::now();
-    while !ticket_ready && start_time.elapsed() < Duration::from_secs(5) {
+    while !ticket_ready && start_time.elapsed() < Duration::from_secs(15) {
         if let Ok(output) = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path).read() {
             if let Ok(frame) = serde_json::from_str::<Frame>(&output) {
                 if frame.topic == "xs.start" {

@@ -311,8 +311,19 @@ impl Listener {
 
             tracing::debug!("Iroh endpoint bound successfully");
 
-            // Wait for the endpoint to be fully ready before creating ticket
-            endpoint.home_relay().initialized().await;
+            // Wait for a home relay so the ticket can carry it, but don't block
+            // startup forever: on a network where no relay is reachable, fall
+            // back to a direct-addresses-only ticket instead of hanging.
+            let relay_wait = std::time::Duration::from_secs(5);
+            if tokio::time::timeout(relay_wait, endpoint.home_relay().initialized())
+                .await
+                .is_err()
+            {
+                tracing::warn!(
+                    "No iroh home relay after {relay_wait:?}; \
+                     issuing a direct-addresses-only ticket"
+                );
+            }
             let node_addr = endpoint.node_addr().initialized().await;
 
             // Create a proper NodeTicket
