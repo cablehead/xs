@@ -421,7 +421,7 @@ starlight-tabs:where(.astro-esqgolmp){display:block}.tablist-wrapper:where(.astr
 <table><thead><tr><th>Option</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">&#x3C;addr></code></td><td>Address to connect to</td></tr></tbody></table>
 <h3 id="nu"><code dir="auto">nu</code></h3>
 <p>Manage the embedded <code dir="auto">xs.nu</code> module.</p>
-<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">nu</span><span style="--0:#F8F8F2;--1:#575279"> [--install] </span><span style="--0:#F8F8F2;--1:#625F77">[</span><span style="--0:#F8F8F2;--1:#575279">--clean</span><span style="--0:#F8F8F2;--1:#625F77">]</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs nu [--install] [--clean]"><div></div></button></div></figure></div>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">nu</span><span style="--0:#F8F8F2;--1:#575279"> [--install] </span><span style="--0:#F8F8F2;--1:#625F77">[</span><span style="--0:#F8F8F2;--1:#575279">--clean</span><span style="--0:#F8F8F2;--1:#625F77">]</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F8F8F2;--1:#625F77">[</span><span style="--0:#F8F8F2;--1:#575279">--lib-path &#x3C;PATH></span><span style="--0:#F8F8F2;--1:#625F77">]</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F8F8F2;--1:#625F77">[</span><span style="--0:#F8F8F2;--1:#575279">--autoload-path &#x3C;PATH></span><span style="--0:#F8F8F2;--1:#625F77">]</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs nu [--install] [--clean] [--lib-path <PATH>] [--autoload-path <PATH>]"><div></div></button></div></figure></div>
 
 
 
@@ -439,7 +439,15 @@ starlight-tabs:where(.astro-esqgolmp){display:block}.tablist-wrapper:where(.astr
 
 
 
-<table><thead><tr><th>Option</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">--install</code></td><td>Install <code dir="auto">xs.nu</code> into your Nushell config</td></tr><tr><td><code dir="auto">--clean</code></td><td>Remove previously installed files</td></tr></tbody></table>
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Option</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">--install</code></td><td>Install <code dir="auto">xs.nu</code> into your Nushell config</td></tr><tr><td><code dir="auto">--clean</code></td><td>Remove previously installed files</td></tr><tr><td><code dir="auto">--lib-path &#x3C;PATH></code></td><td>Explicit path for the <code dir="auto">xs.nu</code> library file (requires <code dir="auto">--install</code>)</td></tr><tr><td><code dir="auto">--autoload-path &#x3C;PATH></code></td><td>Explicit path for the <code dir="auto">xs-use.nu</code> autoload stub (requires <code dir="auto">--install</code>)</td></tr></tbody></table>
 <p>Without options the command prints the module contents so it can be redirected or piped.</p>
 <p>Example:</p>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">nu</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--install</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs nu --install"><div></div></button></div></figure></div>
