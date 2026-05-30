@@ -1,3 +1,4 @@
+pub mod migrations;
 mod ttl;
 pub use ttl::*;
 
@@ -26,6 +27,7 @@ use fjall::{
 pub enum StoreError {
     Locked,
     Other(FjallError),
+    Migration(String),
 }
 
 impl std::fmt::Display for StoreError {
@@ -33,6 +35,7 @@ impl std::fmt::Display for StoreError {
         match self {
             StoreError::Locked => write!(f, "Store is locked by another process"),
             StoreError::Other(e) => write!(f, "{e}"),
+            StoreError::Migration(e) => write!(f, "schema migration failed: {e}"),
         }
     }
 }
@@ -245,6 +248,13 @@ impl Store {
             gc_tx,
             append_lock: Arc::new(Mutex::new(())),
         };
+
+        // Run any pending schema migrations before exposing the store. See
+        // ADR 0005 for the topic-rename this performs on first open of a
+        // pre-namespace store.
+        if let Err(e) = migrations::migrate(&store) {
+            return Err(StoreError::Migration(e.to_string()));
+        }
 
         // Spawn gc worker thread
         spawn_gc_worker(gc_rx, store.clone());
@@ -903,7 +913,7 @@ pub fn validate_topic_query(topic: &str) -> Result<(), crate::error::Error> {
 
 /// Generate prefix index keys for hierarchical topic queries.
 /// For topic "user.id1.messages", returns keys for prefixes "user." and "user.id1."
-fn idx_topic_prefix_keys(topic: &str, frame_id: &scru128::Scru128Id) -> Vec<Vec<u8>> {
+pub(crate) fn idx_topic_prefix_keys(topic: &str, frame_id: &scru128::Scru128Id) -> Vec<Vec<u8>> {
     let mut keys = Vec::new();
     let mut pos = 0;
     while let Some(dot_pos) = topic[pos..].find('.') {

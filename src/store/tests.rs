@@ -47,6 +47,11 @@ mod tests_read_options {
             .idx_topic
             .iter()
             .filter_map(|guard| guard.key().ok())
+            // Skip the reserved schema-version key (see store::migrations).
+            .filter(|k| {
+                !k.as_ref()
+                    .starts_with(crate::store::migrations::SCHEMA_VERSION_KEY)
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(
