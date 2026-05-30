@@ -67,7 +67,7 @@ Spawn Discord websocket connection:
 r#'{
   run: {|| websocat "wss://gateway.discord.gg/?v=10&encoding=json" --ping-interval 5 --ping-timeout 10 -E -t | lines | each { from json } },
   duplex: true
-}'# | .append discord.ws.spawn
+}'# | .append xs.service.discord.ws.create
 ```
 
 Add your Discord bot token:
@@ -79,7 +79,7 @@ Add your Discord bot token:
 Register heartbeat actor for authentication:
 
 ```nushell
-open examples/discord-bot/actor-heartbeat.nu | .append "discord.heartbeat.register"
+open examples/discord-bot/actor-heartbeat.nu | .append "xs.actor.discord.heartbeat.create"
 ```
 
 At this point, all messages sent to the Discord server will be available on the
@@ -98,7 +98,7 @@ http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu 
 Register dice roll actor:
 
 ```nushell
-open examples/discord-bot/actor-roller.nu | .append "discord.roller.register"
+open examples/discord-bot/actor-roller.nu | .append "xs.actor.discord.roller.create"
 ```
 
 #### Slash commands
@@ -115,5 +115,5 @@ discord app command create 1227338584814649364 dice "make a dice roll" --options
    ]
 
 # enable the command actor
-open examples/discord-bot/actor-slash-dice.nu | .append "discord.slash-dice.register"
+open examples/discord-bot/actor-slash-dice.nu | .append "xs.actor.discord.slash-dice.create"
 ```
