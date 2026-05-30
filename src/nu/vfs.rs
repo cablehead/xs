@@ -4,23 +4,25 @@ use nu_protocol::engine::{EngineState, StateWorkingSet, VirtualPath};
 
 use crate::store::Store;
 
-/// Load modules from a topic->hash map into the engine's VFS.
+/// Load modules from a name->hash map into the engine's VFS.
 ///
-/// Each entry with topic `X.Y.Z.nu` is registered as:
+/// Each entry with name `X.Y.Z` is registered as:
 ///   X/Y/Z/mod.nu
 ///
 /// This allows scripts to write:
 ///   use X/Y/Z
+///
+/// The map keys are the module names (after `xs.module.` was stripped by
+/// `Store::nu_modules_at`), not the full topic.
 pub fn load_modules(
     engine_state: &mut EngineState,
     store: &Store,
     modules: &HashMap<String, ssri::Integrity>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    for (topic, hash) in modules {
-        let name = match topic.strip_suffix(".nu") {
-            Some(n) if !n.is_empty() => n,
-            _ => continue,
-        };
+    for (name, hash) in modules {
+        if name.is_empty() {
+            continue;
+        }
         let content_bytes = store.cas_read_sync(hash)?;
         let content = String::from_utf8(content_bytes)?;
         register_module(engine_state, name, &content)?;

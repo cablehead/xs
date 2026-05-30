@@ -701,7 +701,7 @@ async fn test_actor_with_module() -> Result<(), Error> {
     // Register a VFS module via *.nu topic
     store
         .append(
-            Frame::builder("mymod.nu")
+            Frame::builder("xs.module.mymod")
                 .hash(
                     store
                         .cas_insert(
@@ -717,7 +717,7 @@ async fn test_actor_with_module() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "mymod.nu");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.mymod");
 
     // Create actor that uses the VFS module
     let actor_script = r#"{
