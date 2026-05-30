@@ -23,7 +23,7 @@ async fn try_start(
         });
 
         if let Err(e) = store.append(
-            Frame::builder(format!("{topic}.parse.error"))
+            Frame::builder(format!("xs.service.{topic}.invalid"))
                 .meta(meta)
                 .build(),
         ) {
@@ -55,28 +55,45 @@ async fn handle_spawn_event(
     Ok(())
 }
 
-/// Translate today's service topic vocabulary into a lifecycle event for the
-/// historical compaction state machine.
-///
-/// Today the service dispatcher only consumes `.spawn` / `.parse.error` /
-/// `.terminate` historically. `.stopped` (any reason) and `.shutdown` are
-/// not in the historical compaction, which is what drives deficiency #1.
-/// Preserving that behaviour for now means returning `None` for those.
+/// Translate `xs.service.<name>.<event>` topics into a lifecycle event.
 fn event_from_frame(frame: &Frame) -> Option<(String, Event)> {
-    if let Some(topic) = frame.topic.strip_suffix(".parse.error") {
-        // .parse.error references its source via meta.source_id.
-        let meta = frame.meta.as_ref()?;
-        let source_str = meta.get("source_id").and_then(|v| v.as_str())?;
-        let source = Scru128Id::from_str(source_str).ok()?;
-        return Some((topic.to_string(), Event::Invalid { source }));
+    let rest = frame.topic.strip_prefix("xs.service.")?;
+    let (name, ev_tag) = split_service_event(rest)?;
+    let event = match ev_tag {
+        "create" => Event::Create { id: frame.id },
+        "term" => Event::Term,
+        "active" => Event::Active {
+            source: source_id(frame)?,
+        },
+        "invalid" => Event::Invalid {
+            source: source_id(frame)?,
+        },
+        "fin.ok" | "fin.error" | "fin.term" => Event::Fin,
+        "replaced" => Event::Replaced,
+        "stopped" => Event::Stopped,
+        _ => return None,
+    };
+    Some((name.to_string(), event))
+}
+
+fn split_service_event(rest: &str) -> Option<(&str, &str)> {
+    for tag in ["fin.ok", "fin.error", "fin.term"] {
+        if let Some(name) = rest.strip_suffix(&format!(".{tag}")) {
+            return Some((name, tag));
+        }
     }
-    if let Some(topic) = frame.topic.strip_suffix(".spawn") {
-        return Some((topic.to_string(), Event::Create { id: frame.id }));
-    }
-    if let Some(topic) = frame.topic.strip_suffix(".terminate") {
-        return Some((topic.to_string(), Event::Term));
+    for tag in ["create", "term", "active", "invalid", "replaced", "stopped"] {
+        if let Some(name) = rest.strip_suffix(&format!(".{tag}")) {
+            return Some((name, tag));
+        }
     }
     None
+}
+
+fn source_id(frame: &Frame) -> Option<Scru128Id> {
+    let meta = frame.meta.as_ref()?;
+    let s = meta.get("source_id").and_then(|v| v.as_str())?;
+    Scru128Id::from_str(s).ok()
 }
 
 #[derive(Default)]
@@ -135,16 +152,19 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                     break;
                 }
                 if let Some((topic, ev)) = event_from_frame(&frame) {
+                    let is_create = matches!(ev, Event::Create { .. });
+                    let removes_active =
+                        matches!(ev, Event::Fin | Event::Stopped);
                     let state = states.entry(topic.clone()).or_default();
                     if let Event::Create { id } = &ev {
                         state.frames.insert(*id, frame.clone());
                     }
                     state.slots.apply(ev);
-                }
-                if let Some(prefix) = frame.topic.strip_suffix(".spawn") {
-                    try_start(prefix, &frame, &mut active, &store).await;
-                } else if let Some(prefix) = frame.topic.strip_suffix(".shutdown") {
-                    active.remove(prefix);
+                    if is_create {
+                        try_start(&topic, &frame, &mut active, &store).await;
+                    } else if removes_active {
+                        active.remove(&topic);
+                    }
                 }
             }
         }

@@ -80,12 +80,13 @@ pub(crate) fn emit_event(
 ) -> Result<ServiceEvent, Box<dyn std::error::Error + Send + Sync>> {
     let frame = match &kind {
         ServiceEventKind::Running => store.append(
-            Frame::builder(format!("{topic}.running", topic = loop_ctx.topic))
+            Frame::builder(format!("xs.service.{}.active", loop_ctx.topic))
                 .meta(json!({ "source_id": source_id.to_string() }))
                 .build(),
         )?,
 
         ServiceEventKind::Recv { suffix, data } => {
+            // Data topic: app namespace, unchanged.
             let hash = store.cas_insert_bytes_sync(data)?;
             store.append(
                 Frame::builder(format!(
@@ -101,6 +102,7 @@ pub(crate) fn emit_event(
         }
 
         ServiceEventKind::RecvMeta { suffix, meta } => {
+            // Data topic: app namespace, unchanged.
             let mut merged = meta.clone();
             merged["source_id"] = json!(source_id.to_string());
             store.append(
@@ -116,9 +118,28 @@ pub(crate) fn emit_event(
         }
 
         ServiceEventKind::Stopped(reason) => {
+            // Per ADR 0005:
+            //   Finished  -> .fin.ok       (terminal, won't restart)
+            //   Error     -> .fin.error    (terminal)
+            //   Terminate -> .fin.term     (terminal)
+            //   Update    -> .replaced     (transient; successor coming)
+            //   Shutdown  -> not a lifecycle frame on its own; the server-
+            //                shutdown ack is the separate ServiceEventKind::
+            //                Shutdown emission below. Skip here.
+            let event_suffix = match reason {
+                StopReason::Finished => "fin.ok",
+                StopReason::Error { .. } => "fin.error",
+                StopReason::Terminate => "fin.term",
+                StopReason::Update { .. } => "replaced",
+                StopReason::Shutdown => {
+                    // No frame: the run_loop emits ServiceEventKind::Shutdown
+                    // (which becomes the .stopped frame) for the xs-stopping
+                    // path; emitting here would double up.
+                    return Ok(ServiceEvent { kind, frame: Frame::builder("").build() });
+                }
+            };
             let mut meta = json!({
                 "source_id": source_id.to_string(),
-                "reason": stop_reason_str(reason),
             });
             if let StopReason::Update { update_id } = reason {
                 meta["update_id"] = json!(update_id.to_string());
@@ -127,14 +148,17 @@ pub(crate) fn emit_event(
                 meta["message"] = json!(message);
             }
             store.append(
-                Frame::builder(format!("{topic}.stopped", topic = loop_ctx.topic))
-                    .meta(meta)
-                    .build(),
+                Frame::builder(format!(
+                    "xs.service.{}.{event_suffix}",
+                    loop_ctx.topic
+                ))
+                .meta(meta)
+                .build(),
             )?
         }
 
         ServiceEventKind::ParseError { message } => store.append(
-            Frame::builder(format!("{topic}.parse.error", topic = loop_ctx.topic))
+            Frame::builder(format!("xs.service.{}.invalid", loop_ctx.topic))
                 .meta(json!({
                     "source_id": source_id.to_string(),
                     "reason": message,
@@ -143,7 +167,7 @@ pub(crate) fn emit_event(
         )?,
 
         ServiceEventKind::Shutdown => store.append(
-            Frame::builder(format!("{topic}.shutdown", topic = loop_ctx.topic))
+            Frame::builder(format!("xs.service.{}.stopped", loop_ctx.topic))
                 .meta(json!({ "source_id": source_id.to_string() }))
                 .build(),
         )?,
@@ -152,15 +176,6 @@ pub(crate) fn emit_event(
     Ok(ServiceEvent { kind, frame })
 }
 
-fn stop_reason_str(r: &StopReason) -> &'static str {
-    match r {
-        StopReason::Finished => "finished",
-        StopReason::Error { .. } => "error",
-        StopReason::Terminate => "terminate",
-        StopReason::Shutdown => "shutdown",
-        StopReason::Update { .. } => "update",
-    }
-}
 
 pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
     tokio::spawn(async move { run(store, spawn_frame).await })
@@ -186,9 +201,11 @@ async fn run(store: Store, spawn_frame: Frame) {
     }
 
     let loop_ctx = ServiceLoop {
+        // Topic is `xs.service.<name>.create`; strip both ends to get <name>.
         topic: spawn_frame
             .topic
-            .strip_suffix(".spawn")
+            .strip_prefix("xs.service.")
+            .and_then(|rest| rest.strip_suffix(".create"))
             .unwrap_or(&spawn_frame.topic)
             .to_string(),
     };
@@ -297,8 +314,8 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
             done_tx,
         );
 
-        let terminate_topic = format!("{topic}.terminate", topic = loop_ctx.topic);
-        let spawn_topic = format!("{topic}.spawn", topic = loop_ctx.topic);
+        let terminate_topic = format!("xs.service.{}.term", loop_ctx.topic);
+        let spawn_topic = format!("xs.service.{}.create", loop_ctx.topic);
         tokio::pin!(done_rx);
 
         let outcome = 'ctrl: loop {
@@ -375,13 +392,28 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
         };
 
         let reason: StopReason = (&outcome).into();
-        let _ = emit_event(
-            &store,
-            &loop_ctx,
-            task.id,
-            task.return_options.as_ref(),
-            ServiceEventKind::Stopped(reason.clone()),
-        );
+        // Pre-emit a Stopped frame only when it maps to a real lifecycle
+        // topic:
+        //   Update    -> .replaced (transient, successor coming)
+        //   Terminate -> .fin.term
+        //   Error     -> .fin.error
+        //   Finished  -> no frame: Continue auto-restarts, this isn't a
+        //                terminal stop.
+        //   Shutdown  -> no frame: the post-loop ServiceEventKind::Shutdown
+        //                emits the single .stopped frame for the xs-stopping
+        //                path.
+        match &reason {
+            StopReason::Finished | StopReason::Shutdown => {}
+            _ => {
+                let _ = emit_event(
+                    &store,
+                    &loop_ctx,
+                    task.id,
+                    task.return_options.as_ref(),
+                    ServiceEventKind::Stopped(reason.clone()),
+                );
+            }
+        }
 
         match outcome {
             LoopOutcome::Continue => {
@@ -408,7 +440,10 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                     start_id = event.frame.id;
                 }
             }
-            LoopOutcome::Terminate | LoopOutcome::Shutdown | LoopOutcome::Error(_) => {
+            LoopOutcome::Terminate | LoopOutcome::Error(_) => {
+                break;
+            }
+            LoopOutcome::Shutdown => {
                 let _ = emit_event(
                     &store,
                     &loop_ctx,

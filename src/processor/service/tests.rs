@@ -29,7 +29,7 @@ async fn test_serve_basic() {
         r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines }, return_options: { target: "cas" } }"#;
     let frame_service = store
         .append(
-            Frame::builder("toml.spawn")
+            Frame::builder("xs.service.toml.create")
                 .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
@@ -42,7 +42,7 @@ async fn test_serve_basic() {
     let mut recver = store.read(options).await;
 
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "toml.running".to_string());
+    assert_eq!(frame.topic, "xs.service.toml.active".to_string());
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "toml.recv".to_string());
@@ -76,7 +76,7 @@ async fn test_serve_duplex() {
     let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true, return_options: { target: "cas" } }"#;
     let frame_service = store
         .append(
-            Frame::builder("greeter.spawn".to_string())
+            Frame::builder("xs.service.greeter.create".to_string())
                 .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
@@ -89,7 +89,7 @@ async fn test_serve_duplex() {
     let mut recver = store.read(options).await;
 
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "greeter.running".to_string());
+    assert_eq!(frame.topic, "xs.service.greeter.active".to_string());
 
     let _ = store
         .append(
@@ -120,7 +120,7 @@ async fn test_serve_compact() {
         r#"{ run: {|| ^tail -n+0 -F Cargo.toml | lines }, return_options: { target: "cas" } }"#;
     let _ = store
         .append(
-            Frame::builder("toml.spawn")
+            Frame::builder("xs.service.toml.create")
                 .maybe_hash(store.cas_insert(script1).await.ok())
                 .build(),
         )
@@ -131,7 +131,7 @@ async fn test_serve_compact() {
         r#"{ run: {|| ^tail -n +2 -F Cargo.toml | lines }, return_options: { target: "cas" } }"#;
     let frame_service = store
         .append(
-            Frame::builder("toml.spawn")
+            Frame::builder("xs.service.toml.create")
                 .maybe_hash(store.cas_insert(script2).await.ok())
                 .build(),
         )
@@ -151,7 +151,7 @@ async fn test_serve_compact() {
     }
 
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "toml.running".to_string());
+    assert_eq!(frame.topic, "xs.service.toml.active".to_string());
     let meta = frame.meta.unwrap();
     assert_eq!(meta["source_id"], frame_service.id.to_string());
 
@@ -197,31 +197,29 @@ async fn test_respawn_after_terminate() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("sleeper.spawn").hash(hash.clone()).build())
+        .append(Frame::builder("xs.service.sleeper.create").hash(hash.clone()).build())
         .unwrap();
 
     // expect running
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.active");
     assert_no_more_frames(&mut recver).await;
 
     store
-        .append(Frame::builder("sleeper.terminate").build())
+        .append(Frame::builder("xs.service.sleeper.term").build())
         .unwrap();
     // first see the terminate event itself
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.terminate");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.term");
 
     let stop = recver.recv().await.unwrap();
-    assert_eq!(stop.topic, "sleeper.stopped");
-    assert_eq!(stop.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.shutdown");
+    assert_eq!(stop.topic, "xs.service.sleeper.fin.term");
 
     store
-        .append(Frame::builder("sleeper.spawn").hash(hash).build())
+        .append(Frame::builder("xs.service.sleeper.create").hash(hash).build())
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleeper.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.active");
 }
 
 #[tokio::test]
@@ -239,7 +237,7 @@ async fn test_serve_restart_until_terminated() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("restarter.spawn").hash(hash).build())
+        .append(Frame::builder("xs.service.restarter.create").hash(hash).build())
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -249,31 +247,27 @@ async fn test_serve_restart_until_terminated() {
     let mut recver = store.read(options).await;
 
     // first iteration
-    assert_eq!(recver.recv().await.unwrap().topic, "restarter.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.restarter.active");
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
     let t_before_stop = Instant::now();
-    let stop1 = recver.recv().await.unwrap();
-    assert_eq!(stop1.topic, "restarter.stopped");
-    assert_eq!(stop1.meta.unwrap()["reason"], "finished");
 
-    // second iteration should happen automatically
+    // Auto-restart after natural completion: no fin frame is emitted; the
+    // next .active appears after the 1s gap.
     tokio::time::sleep(Duration::from_millis(1100)).await;
     let start2 = recver.recv().await.unwrap();
     let t_after_start = Instant::now();
-    assert_eq!(start2.topic, "restarter.running");
+    assert_eq!(start2.topic, "xs.service.restarter.active");
     assert!(t_after_start.duration_since(t_before_stop) >= Duration::from_secs(1));
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
 
     store
-        .append(Frame::builder("restarter.terminate").build())
+        .append(Frame::builder("xs.service.restarter.term").build())
         .unwrap();
 
-    // Wait until we receive a stopped frame with reason "terminate"
+    // Wait until we see the user-term ack.
     loop {
         let frame = recver.recv().await.unwrap();
-        if frame.topic == "restarter.stopped"
-            && frame.meta.as_ref().unwrap()["reason"] == "terminate"
-        {
+        if frame.topic == "xs.service.restarter.fin.term" {
             break;
         }
     }
@@ -294,7 +288,7 @@ async fn test_duplex_terminate_stops() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("echo.spawn").hash(hash).build())
+        .append(Frame::builder("xs.service.echo.create").hash(hash).build())
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -305,20 +299,18 @@ async fn test_duplex_terminate_stops() {
 
     // expect running
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.running");
+    assert_eq!(frame.topic, "xs.service.echo.active");
 
     // terminate while service waits for input
     store
-        .append(Frame::builder("echo.terminate").build())
+        .append(Frame::builder("xs.service.echo.term").build())
         .unwrap();
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.terminate");
+    assert_eq!(frame.topic, "xs.service.echo.term");
 
-    // expect stopped frame with reason terminate
+    // expect fin.term frame for the user-initiated stop
     let frame = recver.recv().await.unwrap();
-    assert_eq!(frame.topic, "echo.stopped");
-    assert_eq!(frame.meta.unwrap()["reason"], "terminate");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.shutdown");
+    assert_eq!(frame.topic, "xs.service.echo.fin.term");
 
     store.append(Frame::builder("echo.send").build()).unwrap();
     let frame = recver.recv().await.unwrap();
@@ -342,7 +334,7 @@ async fn test_parse_error_eviction() {
     let bad_script = "{}";
     store
         .append(
-            Frame::builder("oops.spawn")
+            Frame::builder("xs.service.oops.create")
                 .hash(store.cas_insert(bad_script).await.unwrap())
                 .build(),
         )
@@ -355,7 +347,7 @@ async fn test_parse_error_eviction() {
     let mut recver = store.read(options).await;
 
     let err_frame = recver.recv().await.unwrap();
-    assert_eq!(err_frame.topic, "oops.parse.error");
+    assert_eq!(err_frame.topic, "xs.service.oops.invalid");
     println!(
         "first error reason: {}",
         err_frame.meta.as_ref().unwrap()["reason"]
@@ -369,7 +361,7 @@ async fn test_parse_error_eviction() {
     let good_script = r#"{ run: {|| "ok" }, return_options: { target: "cas" } }"#;
     store
         .append(
-            Frame::builder("oops.spawn")
+            Frame::builder("xs.service.oops.create")
                 .hash(store.cas_insert(good_script).await.unwrap())
                 .build(),
         )
@@ -377,11 +369,11 @@ async fn test_parse_error_eviction() {
 
     let frame = recver.recv().await.unwrap();
     println!("after respawn got: {}", frame.topic);
-    if frame.topic == "oops.parse.error" {
+    if frame.topic == "xs.service.oops.invalid" {
         println!("respawn error reason: {}", frame.meta.unwrap()["reason"]);
     }
-    assert_eq!(frame.topic, "oops.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "oops.running");
+    assert_eq!(frame.topic, "xs.service.oops.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.oops.active");
 }
 
 #[tokio::test]
@@ -400,7 +392,7 @@ async fn test_refresh_on_new_spawn() {
     let script1 = r#"{ run: {|| ^sleep 1000 } }"#;
     let spawn1 = store
         .append(
-            Frame::builder("reload.spawn")
+            Frame::builder("xs.service.reload.create")
                 .hash(store.cas_insert(script1).await.unwrap())
                 .build(),
         )
@@ -413,26 +405,26 @@ async fn test_refresh_on_new_spawn() {
     let mut recver = store.read(options).await;
 
     // Expect the first running
-    assert_eq!(recver.recv().await.unwrap().topic, "reload.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reload.active");
 
     // Send a new spawn to refresh the service while it's running
     let script2 = r#"{ run: {|| "v2" }, return_options: { target: "cas" } }"#;
     let spawn2 = store
         .append(
-            Frame::builder("reload.spawn")
+            Frame::builder("xs.service.reload.create")
                 .hash(store.cas_insert(script2).await.unwrap())
                 .build(),
         )
         .unwrap();
 
     // The new spawn event arrives first
-    assert_eq!(recver.recv().await.unwrap().topic, "reload.spawn");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reload.create");
 
-    // We should then see a stopped with reason "update" referencing the new spawn
+    // We should then see a .replaced frame referencing the new spawn.
     let mut stop;
     loop {
         stop = recver.recv().await.unwrap();
-        if stop.topic == "reload.stopped" && stop.meta.as_ref().unwrap()["reason"] == "update" {
+        if stop.topic == "xs.service.reload.replaced" {
             break;
         }
     }
@@ -441,7 +433,7 @@ async fn test_refresh_on_new_spawn() {
     assert_eq!(meta["update_id"], spawn2.id.to_string());
 
     // And the service should restart with the new script
-    assert_eq!(recver.recv().await.unwrap().topic, "reload.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reload.active");
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "reload.recv");
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
@@ -467,29 +459,26 @@ async fn test_terminate_one_of_two_services() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("gen1.spawn").hash(hash.clone()).build())
+        .append(Frame::builder("xs.service.gen1.create").hash(hash.clone()).build())
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "gen1.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "gen1.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.gen1.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.gen1.active");
 
     store
-        .append(Frame::builder("gen2.spawn").hash(hash).build())
+        .append(Frame::builder("xs.service.gen2.create").hash(hash).build())
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "gen2.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "gen2.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.gen2.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.gen2.active");
 
     store
-        .append(Frame::builder("gen1.terminate").build())
+        .append(Frame::builder("xs.service.gen1.term").build())
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "gen1.terminate");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.gen1.term");
     let stop1 = recver.recv().await.unwrap();
-    assert_eq!(stop1.topic, "gen1.stopped");
-    assert_eq!(stop1.meta.unwrap()["reason"], "terminate");
-    let shutdown1 = recver.recv().await.unwrap();
-    assert_eq!(shutdown1.topic, "gen1.shutdown");
+    assert_eq!(stop1.topic, "xs.service.gen1.fin.term");
 
     let msg_hash = store.cas_insert("ping").await.unwrap();
     store
@@ -524,14 +513,14 @@ async fn test_bytestream_ping() {
     let script = r#"{ run: {|| ^ping -i 0.1 127.0.0.1 } }"#;
     let spawn = store
         .append(
-            Frame::builder("pinger.spawn")
+            Frame::builder("xs.service.pinger.create")
                 .hash(store.cas_insert(script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "pinger.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "pinger.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.pinger.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.pinger.active");
 
     for _ in 0..2 {
         let frame = recver.recv().await.unwrap();
@@ -543,16 +532,15 @@ async fn test_bytestream_ping() {
     }
 
     store
-        .append(Frame::builder("pinger.terminate").build())
+        .append(Frame::builder("xs.service.pinger.term").build())
         .unwrap();
 
-    let stop = loop {
+    let _stop = loop {
         let frame = recver.recv().await.unwrap();
-        if frame.topic == "pinger.stopped" {
+        if frame.topic == "xs.service.pinger.fin.term" {
             break frame;
         }
     };
-    assert_eq!(stop.meta.unwrap()["reason"], "terminate");
 }
 
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
@@ -643,7 +631,7 @@ fn test_emit_event_helper() {
         ServiceEventKind::Shutdown,
     )
     .unwrap();
-    assert_eq!(ev.frame.topic, "helper.shutdown");
+    assert_eq!(ev.frame.topic, "xs.service.helper.stopped");
 }
 
 #[tokio::test]
@@ -660,7 +648,7 @@ async fn test_record_output_goes_to_meta() {
     let script = r#"{ run: {|| {status: "ok", count: 42} } }"#;
     let frame_service = store
         .append(
-            Frame::builder("rec.spawn")
+            Frame::builder("xs.service.rec.create")
                 .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
@@ -672,7 +660,7 @@ async fn test_record_output_goes_to_meta() {
         .build();
     let mut recver = store.read(options).await;
 
-    assert_eq!(recver.recv().await.unwrap().topic, "rec.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.rec.active");
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "rec.recv");
@@ -699,7 +687,7 @@ async fn test_record_output_with_cas_target() {
     let script = r#"{ run: {|| {status: "ok", count: 42} }, return_options: { target: "cas" } }"#;
     store
         .append(
-            Frame::builder("reccas.spawn")
+            Frame::builder("xs.service.reccas.create")
                 .maybe_hash(store.cas_insert(script).await.ok())
                 .build(),
         )
@@ -711,7 +699,7 @@ async fn test_record_output_with_cas_target() {
         .build();
     let mut recver = store.read(options).await;
 
-    assert_eq!(recver.recv().await.unwrap().topic, "reccas.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reccas.active");
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "reccas.recv");
@@ -738,7 +726,7 @@ async fn test_external_command_error_message() {
     let script = r#"{ run: {|| ^nonexistent-command-that-will-fail } }"#;
     let spawn_frame = store
         .append(
-            Frame::builder("error-test.spawn")
+            Frame::builder("xs.service.error-test.create")
                 .hash(store.cas_insert(script).await.unwrap())
                 .build(),
         )
@@ -750,17 +738,16 @@ async fn test_external_command_error_message() {
         .build();
     let mut recver = store.read(options).await;
 
-    // Find the stopped frame (skip spawn/running events)
+    // Find the fin.error frame (skip spawn/active events).
     let mut stop_frame;
     loop {
         stop_frame = recver.recv().await.unwrap();
-        if stop_frame.topic == "error-test.stopped" {
+        if stop_frame.topic == "xs.service.error-test.fin.error" {
             break;
         }
     }
 
     let meta = stop_frame.meta.unwrap();
-    assert_eq!(meta["reason"], "error");
     assert_eq!(meta["source_id"], spawn_frame.id.to_string());
 
     // The key assertion: verify that the full detailed error message is captured
@@ -775,9 +762,6 @@ async fn test_external_command_error_message() {
         "Should contain detailed reason"
     );
     assert!(error_msg.contains("help:"), "Should include help text");
-
-    // Expect shutdown event
-    assert_eq!(recver.recv().await.unwrap().topic, "error-test.shutdown");
 }
 
 #[tokio::test]
@@ -801,21 +785,19 @@ async fn test_graceful_shutdown_via_xs_stopping() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("sleepy.spawn").hash(hash).build())
+        .append(Frame::builder("xs.service.sleepy.create").hash(hash).build())
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "sleepy.spawn");
-    assert_eq!(recver.recv().await.unwrap().topic, "sleepy.running");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.active");
 
     // Emit xs.stopping to trigger graceful shutdown
     store.append(Frame::builder("xs.stopping").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "xs.stopping");
 
+    // xs.stopping path emits .stopped (no per-reason fin frame).
     let stop = recver.recv().await.unwrap();
-    assert_eq!(stop.topic, "sleepy.stopped");
-    assert_eq!(stop.meta.unwrap()["reason"], "shutdown");
-
-    assert_eq!(recver.recv().await.unwrap().topic, "sleepy.shutdown");
+    assert_eq!(stop.topic, "xs.service.sleepy.stopped");
 
     // The service processor handle should complete
     let result = tokio::time::timeout(Duration::from_secs(5), service_handle).await;
