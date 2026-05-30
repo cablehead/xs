@@ -40,7 +40,7 @@ using the `.append` command.
 ## Registering
 
 To register an actor, append a registration script with the topic
-`<actor-name>.register`. The script must return a record that configures the
+`xs.actor.<name>.create`. The script must return a record that configures the
 actor's behavior:
 
 ```nushell
@@ -66,7 +66,7 @@ r###'{
     suffix: ".response" # Output topic suffix
     ttl: "last:1" # Keep only most recent frame
   }
-}'### | .append echo.register
+}'### | .append xs.actor.echo.create
 ```
 
 The `run` closure must accept **exactly two positional arguments**: the incoming
@@ -75,10 +75,10 @@ frame and the current state value.
 The registration script is stored in CAS and evaluated to obtain the actor's
 configuration.
 
-Upon a successful start the actor appends a `<actor-name>.active` frame
+Upon a successful start the actor appends an `xs.actor.<name>.active` frame
 with metadata:
 
-- `actor_id` -- the ID of the actor instance
+- `actor_id` -- the ID of the actor instance (the `create` frame's id)
 - `start` -- the start configuration: `"new"`, `"first"`, or `{"after": "<frame-id>"}`
 
 ### Configuration Record Fields
@@ -107,7 +107,9 @@ The `return_options` field controls how return values are handled:
 
 #### Modules
 
-Actors can use modules registered via `*.nu` topics. An actor sees the modules as they existed when it was registered. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Actors can use modules registered via `xs.module.<name>` topics. An actor sees
+the modules as they existed when it was registered. See
+<Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r###'{
@@ -115,7 +117,7 @@ r###'{
     use my-math
     {out: {result: (my-math double 8)}, next: $state}
   }
-}'### | .append processor.register
+}'### | .append xs.actor.processor.create
 ```
 
 ## State
@@ -131,7 +133,7 @@ r#'{
     {out: {count: $count}, next: $count}
   }
   initial: 0
-}'# | .append counter.register
+}'# | .append xs.actor.counter.create
 ```
 
 The initial state is resolved in order:
@@ -146,7 +148,7 @@ Actors can produce output in two ways:
 
 1. **Return Values**: The `out` record is stored as frame metadata and
    appended to the actor's output topic (`<actor-name>.out` by default unless
-   modified by return_options.suffix)
+   modified by `return_options.suffix`).
 
 ```nushell
 {|frame, state|
@@ -158,7 +160,7 @@ Actors can produce output in two ways:
 }
 ```
 
-2. **Explicit Appends**: Use the `.append` command to create frames on any topic
+2. **Explicit Appends**: Use the `.append` command to create frames on any topic.
 
 ```nushell
 {|frame, state|
@@ -177,54 +179,23 @@ All output frames automatically include:
 - `actor_id`: ID of the actor that created the frame
 - `frame_id`: ID of the frame that triggered the actor
 - Frames with `meta.actor_id` equal to the actor's ID are ignored to avoid
-  reacting to the actor's own output
+  reacting to the actor's own output.
 
 ## Lifecycle
 
-See <Link to="/reference/topics/">Topics</Link> for all processor suffixes.
+Actors share the unified lifecycle vocabulary documented in
+<Link to="/reference/lifecycle/" />. In summary:
 
-```mermaid
-stateDiagram-v2
-    [*] --> Activating: .register event
-    Activating --> Unregistered: nushell parse error
-    Activating --> Active : parse OK
-    Unregistered --> [*]
+| User input | Runtime ack on success | Runtime ack on failure |
+| --- | --- | --- |
+| `xs.actor.<name>.create` | `xs.actor.<name>.active` | `xs.actor.<name>.invalid` |
+| `xs.actor.<name>.term` | `xs.actor.<name>.fin.term` | -- |
 
-    state Active {
-        direction LR
-        [*] --> events.recv()
-        events.recv() --> should_run: event received
+Plus the runtime emits:
 
-        should_run --> events.recv(): skip
-        should_run --> process_event: yep
-        should_run --> [*]: .unregister event
+- `xs.actor.<name>.fin.ok` when the actor self-terminates (returns no `next`).
+- `xs.actor.<name>.fin.error` on a runtime crash.
+- `xs.actor.<name>.replaced` when a newer `xs.actor.<name>.create` displaces it.
 
-        process_event --> [*]: error encountered
-        process_event --> [*]: self-terminated (no next key)
-        process_event --> events.recv(): OK
-    }
-
-    Active --> Unregistered
-```
-
-### Unregistering
-
-An actor can be unregistered by:
-
-- Appending `<actor-name>.unregister`
-- Registering a new actor with the same name
-- Self-termination: returning `{out: value}`, `{}`, or `null` (no `next` key)
-- Runtime errors in the actor closure
-
-When unregistered, the actor appends a confirmation frame
-`<actor-name>.unregistered`. If unregistered due to an error, the frame
-includes an `error` field in its metadata.
-
-### Error Handling
-
-If an actor encounters an error during execution:
-
-1. The actor is automatically unregistered
-2. A frame is appended to `<actor-name>.unregistered` with:
-   - The error message in metadata
-   - Reference to the triggering frame
+See <Link to="/reference/lifecycle/" /> for the full event list, the
+compaction algorithm, and the invariants the dispatcher honors.

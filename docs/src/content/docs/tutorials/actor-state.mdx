@@ -151,7 +151,7 @@ r#'{
     {out: {total: $sum}, next: $sum}
   }
   return_options: { suffix: ".total", ttl: "last:1" }
-}'# | .append revenue.register
+}'# | .append xs.actor.revenue.create
 ```
 
 The monitor shows `revenue.active`. The actor is live.
@@ -193,7 +193,7 @@ non-`sale` frame: state carried forward, no output emitted.
 | `[data] \| generate {\|el, state\| ...}` | Frames flow through `{\|frame, state\| ...}` |
 | `{out: v, next: s}` emits downstream     | `out` record stored as frame metadata        |
 | `{next: s}` skips                        | No frame emitted, state carried forward      |
-| Omit `next` to stop                      | Actor self-terminates, emits `.unregistered`  |
+| Omit `next` to stop                      | Actor self-terminates, emits `fin.ok` (the actor self-terminates without a `next`)  |
 | Default param sets initial state          | Default param or `initial` config field       |
 
 <Aside type="tip">

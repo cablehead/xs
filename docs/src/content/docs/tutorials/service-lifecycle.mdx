@@ -1,6 +1,6 @@
 ---
 title: Service Lifecycle
-description: Walk through the lifecycle of a cross.stream service -- spawn, auto-restart, hot reload, terminate, and graceful shutdown.
+description: Walk through the lifecycle of a cross.stream service -- create, auto-restart, hot reload, terminate, and graceful shutdown.
 sidebar:
   order: 4
 ---
@@ -8,12 +8,14 @@ sidebar:
 import { Aside } from '@astrojs/starlight/components';
 import { Link } from '../../../utils/links';
 
-This tutorial walks through every stage of a <Link to="/reference/services/">service</Link> lifecycle
-so you can build intuition for what happens under the hood.
+This tutorial walks through every stage of a <Link to="/reference/services/">service</Link>
+lifecycle so you can build intuition for what happens under the hood.
 
 <Aside type="tip">
 See the <Link to="/reference/services/">Services reference</Link> for configuration
-options, duplex communication, and return options.
+options, duplex communication, and return options. See
+<Link to="/reference/lifecycle/" /> for the full event vocabulary that
+applies to actors, services, and actions alike.
 </Aside>
 
 ## Prerequisites
@@ -31,7 +33,8 @@ xs serve ./store
 
 ## Monitor the stream
 
-In terminal 2, start a live monitor so we can watch lifecycle frames as they appear:
+In terminal 2, start a live monitor so we can watch lifecycle frames as they
+appear:
 
 ```nushell
 .cat -f | each {
@@ -41,7 +44,7 @@ In terminal 2, start a live monitor so we can watch lifecycle frames as they app
 
 Keep this running -- every frame we discuss will show up here.
 
-## Spawn a service
+## Create a service
 
 Create a temporary file for the service to watch:
 
@@ -49,27 +52,24 @@ Create a temporary file for the service to watch:
 touch /tmp/log.txt
 ```
 
-Now spawn a service that tails the file:
+Now create a service that tails the file:
 
 ```nushell
 r#'{
   run: {|| ^tail -F /tmp/log.txt | lines }
-}'# | .append log.spawn
+}'# | .append xs.service.log.create
 ```
 
 Your monitor shows two frames:
 
-```bash withOutput
-> .cat | where { $in.topic | str starts-with "log." }
--#-+---topic-----+------------id-------------+-hash-+----------meta----------
- 0 | log.spawn   | 03abc0000000000000000000a | ...  |
- 1 | log.running | 03abc0000000000000000000b |      | -------------+---------
-   |             |                           |      |  source_id   | 03ab...
-   |             |                           |      | -------------+---------
--#-+---topic-----+------------id-------------+-hash-+----------meta----------
+```
+-#-+-----------------topic----------------+---id---+-hash-+-----meta-----
+ 0 | xs.service.log.create                | 03ab.. | ...  |
+ 1 | xs.service.log.active                | 03ab.. |      | source_id: 03ab..
 ```
 
-`log.spawn` carries the script in CAS. `log.running` signals the pipeline is live.
+`xs.service.log.create` carries the script in CAS. `xs.service.log.active`
+signals the pipeline is live; `meta.source_id` points back at the `create`.
 
 ## See output
 
@@ -79,15 +79,13 @@ Write some lines to the file:
 "hello\nworld\n" | save -a /tmp/log.txt
 ```
 
-Two `log.recv` frames appear -- one per line. Read the content back:
+Two `log.recv` frames appear -- one per line. (Note: `recv`/`send` are
+app-namespace data topics, not under `xs.`.) Read the content back:
 
 ```bash withOutput
 > .last log.recv | .cas $in.hash
 world
 ```
-
-Each line the service produces is stored as a separate `log.recv` frame with its
-content in CAS.
 
 ## Auto-restart
 
@@ -97,18 +95,9 @@ Remove the file so `tail` exits:
 rm /tmp/log.txt
 ```
 
-The monitor shows the service stop and restart:
-
-```bash withOutput
-> .cat | where topic == "log.stopped" | last | get meta
------------+--------------------------
- reason    | finished
- source_id | 03ab...
------------+--------------------------
-```
-
-The reason is `finished` -- the pipeline exited on its own. After a 1-second
-pause, a new `log.running` frame appears and the service is alive again.
+No lifecycle frame is emitted -- the service's run-loop treats a natural
+completion as an internal hiccup and quietly restarts after 1 second. A new
+`xs.service.log.active` frame appears.
 
 Recreate the file and write to it:
 
@@ -121,30 +110,19 @@ A fresh `log.recv` frame appears. The service recovered automatically.
 
 ## Hot reload
 
-Append a new script to `log.spawn` while the service is running:
+Append a new `xs.service.log.create` while the service is running:
 
 ```nushell
 r#'{
   run: {|| ^tail -F /tmp/log.txt | lines | each {|line| $"[LOG] ($line)" } }
-}'# | .append log.spawn
+}'# | .append xs.service.log.create
 ```
 
-The running service picks up the new spawn, stops the old pipeline, and starts
-the new one:
+The running service picks up the new create, stops the old pipeline, emits
+`xs.service.log.replaced` (with `meta.update_id` pointing at the new
+`create`), and a new `xs.service.log.active` follows for the reloaded task.
 
-```bash withOutput
-> .cat | where topic == "log.stopped" | last | get meta
------------+--------------------------
- reason    | update
- source_id | 03ab...
- update_id | 03ab...
------------+--------------------------
-```
-
-The reason is `update` and `update_id` points to the new spawn frame. A
-`log.running` frame follows immediately.
-
-Verify the new behavior:
+Verify the new behaviour:
 
 ```nushell
 "reloaded\n" | save -a /tmp/log.txt
@@ -155,83 +133,78 @@ Verify the new behavior:
 [LOG] reloaded
 ```
 
-The output now includes the `[LOG]` prefix from the updated script.
+The output now includes the `[LOG]` prefix.
+
+### What if the new script is broken?
+
+If the replacement create has a parse error, the runtime emits
+`xs.service.log.invalid` and the previous service keeps running. On the next
+restart of xs, compaction also keeps the previous (good) `create` as the
+fallback. The system never lands in an empty state because of a typo. See
+<Link to="/reference/lifecycle/#compaction-algorithm" /> for the rules.
 
 ## Terminate
 
 Stop the service explicitly:
 
 ```nushell
-.append log.terminate
+.append xs.service.log.term
 ```
 
-The monitor shows three frames in sequence:
+The monitor shows two frames:
 
-1. `log.terminate` -- your request
-2. `log.stopped` with `meta.reason` set to `terminate`
-3. `log.shutdown` -- the service loop has fully exited
+1. `xs.service.log.term` -- your request
+2. `xs.service.log.fin.term` -- the runtime ack confirming the stop
 
-```bash withOutput
-> .cat | where topic == "log.stopped" | last | get meta
------------+--------------------------
- reason    | terminate
- source_id | 03ab...
------------+--------------------------
-```
-
-After `log.shutdown`, the dispatcher evicts the service. It will not restart.
+After `fin.term`, the service stays down. On the next restart of xs, it
+will not be started: compaction sees the `fin.*` and clears its slots.
 
 ## Graceful shutdown
 
 When xs itself stops (e.g. Ctrl+C), it emits an `xs.stopping` frame. Every
-running service sees this frame, interrupts its pipeline, and emits the usual
-`.stopped` / `.shutdown` sequence -- just like a terminate, but with a distinct
-reason.
+running service sees this frame, interrupts its pipeline, and emits
+`xs.service.<name>.stopped` as its ack.
 
 Restart the service so we can see this in action:
 
 ```nushell
 r#'{
   run: {|| ^tail -F /tmp/log.txt | lines }
-}'# | .append log.spawn
+}'# | .append xs.service.log.create
 ```
 
-Wait for `log.running` to appear in the monitor, then press **Ctrl+C** in
+Wait for `xs.service.log.active` to appear, then press **Ctrl+C** in
 terminal 1 (where `xs serve` is running).
 
 The monitor shows:
 
 1. `xs.stopping` -- emitted by xs before exit
-2. `log.stopped` with `meta.reason` set to `shutdown`
-3. `log.shutdown` -- the service loop has fully exited
-
-```bash withOutput
-> .cat | where topic == "log.stopped" | last | get meta
------------+--------------------------
- reason    | shutdown
- source_id | 03ab...
------------+--------------------------
-```
+2. `xs.service.log.stopped` -- the service acknowledging the shutdown
 
 xs waits up to a few seconds for all services to finish before exiting. This
 gives services a chance to flush output and clean up resources.
 
+Crucially, `stopped` is distinct from `fin.*`: compaction does **not** treat
+it as terminal. On the next start of xs, the service resumes (its `create` is
+still the latest known-good entry).
+
 ## Recap
 
-| Suffix      | Emitted when                                              |
-| ----------- | --------------------------------------------------------- |
-| `.spawn`    | You append a script to start (or reload) the service      |
-| `.running`  | The pipeline is live and producing output                  |
-| `.recv`     | Each line or chunk of output from the pipeline             |
-| `.stopped`  | The pipeline exited -- check `meta.reason` for why         |
-| `.shutdown` | The service loop has fully exited (terminate or shutdown)  |
+User inputs and runtime acks for a service:
 
-Stopped reasons:
+| Event | Direction | When |
+| ----- | --------- | ---- |
+| `xs.service.<name>.create` | user -> stream | You start (or reload) the service |
+| `xs.service.<name>.term` | user -> stream | You ask the service to stop |
+| `xs.service.<name>.active` | runtime -> stream | Pipeline is live |
+| `xs.service.<name>.invalid` | runtime -> stream | The create's script failed to parse |
+| `xs.service.<name>.fin.error` | runtime -> stream | Runtime crash; service stays down |
+| `xs.service.<name>.fin.term` | runtime -> stream | Stop ack for `.term` |
+| `xs.service.<name>.replaced` | runtime -> stream | Hot-reloaded by a newer `.create` |
+| `xs.service.<name>.stopped` | runtime -> stream | Stopped because of `xs.stopping` |
 
-| Reason      | What happened                     | What follows          |
-| ----------- | --------------------------------- | --------------------- |
-| `finished`  | Pipeline exited on its own        | Auto-restart after 1s |
-| `error`     | Pipeline failed                   | Auto-restart after 1s |
-| `update`    | New `.spawn` frame arrived        | Immediate restart     |
-| `terminate` | `.terminate` frame arrived        | `.shutdown`, no restart |
-| `shutdown`  | `xs.stopping` frame arrived       | `.shutdown`, no restart |
+Plus the app-namespace data channels: `<name>.recv` (output, one frame per
+line), `<name>.send` (input, duplex services only).
+
+For the full event vocabulary, the compaction algorithm, and the invariants
+the dispatcher honors, see <Link to="/reference/lifecycle/" />.
