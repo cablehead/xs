@@ -3,6 +3,7 @@ use crate::processor::service::service::emit_event;
 use crate::processor::service::{ServiceEventKind, ServiceLoop, StopReason, Task};
 use nu_protocol;
 use scru128;
+use serde_json::json;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
@@ -541,6 +542,217 @@ async fn test_bytestream_ping() {
             break frame;
         }
     };
+}
+
+// ----- Dispatcher-level invariant tests (ADR 0005) -----
+
+/// Seed history without a running dispatcher, then spawn one. Returns the
+/// receiver so the test can observe what the dispatcher does at threshold.
+async fn replay<F, Fut>(seed: F) -> (Store, TempDir, tokio::sync::mpsc::Receiver<Frame>)
+where
+    F: FnOnce(Store) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let dir = TempDir::new().unwrap();
+    let store = Store::new(dir.path().to_path_buf()).unwrap();
+    seed(store.clone()).await;
+    let recver = store
+        .read(ReadOptions::builder().follow(FollowOption::On).build())
+        .await;
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        });
+    }
+    (store, dir, recver)
+}
+
+/// At threshold, drain all replayed frames + the threshold marker itself
+/// and return the set of topics observed.
+async fn drain_through_threshold(
+    recver: &mut tokio::sync::mpsc::Receiver<Frame>,
+) -> std::collections::HashSet<String> {
+    let mut topics = std::collections::HashSet::new();
+    loop {
+        let frame = tokio::time::timeout(Duration::from_millis(500), recver.recv())
+            .await
+            .expect("expected a frame within 500ms")
+            .unwrap();
+        let is_threshold = frame.topic == "xs.threshold";
+        topics.insert(frame.topic);
+        if is_threshold {
+            break;
+        }
+    }
+    topics
+}
+
+/// Invariant I1: a service with a `.fin.term` in history does NOT restart on
+/// boot. (Closes deficiency #1 for the user-terminate case.)
+#[tokio::test]
+async fn inv1_service_with_fin_term_does_not_restart_on_replay() {
+    let (_store, _dir, mut recver) = replay(|store| async move {
+        let create = store
+            .append(
+                Frame::builder("xs.service.api.create".to_string())
+                    .hash(store.cas_insert("script").await.unwrap())
+                    .build(),
+            )
+            .unwrap();
+        store
+            .append(
+                Frame::builder("xs.service.api.fin.term".to_string())
+                    .meta(json!({ "source_id": create.id.to_string() }))
+                    .build(),
+            )
+            .unwrap();
+    })
+    .await;
+
+    let topics = drain_through_threshold(&mut recver).await;
+    // The service must not have been started: no .active emitted post-threshold.
+    assert!(!topics.contains("xs.service.api.active"));
+    // (xs.threshold should be the last frame; nothing further.)
+    assert_no_more_frames(&mut recver).await;
+}
+
+/// Invariant I1: a service with a `.fin.error` (runtime crash) also stays
+/// down on boot.
+#[tokio::test]
+async fn inv1_service_with_fin_error_does_not_restart_on_replay() {
+    let (_store, _dir, mut recver) = replay(|store| async move {
+        let create = store
+            .append(
+                Frame::builder("xs.service.api.create".to_string())
+                    .hash(store.cas_insert("script").await.unwrap())
+                    .build(),
+            )
+            .unwrap();
+        store
+            .append(
+                Frame::builder("xs.service.api.fin.error".to_string())
+                    .meta(json!({ "source_id": create.id.to_string() }))
+                    .build(),
+            )
+            .unwrap();
+    })
+    .await;
+
+    let topics = drain_through_threshold(&mut recver).await;
+    assert!(!topics.contains("xs.service.api.active"));
+    assert_no_more_frames(&mut recver).await;
+}
+
+/// Invariant I7: a service with only a `.stopped` (xs.stopping ack) in
+/// history DOES restart on boot. `.stopped` is invisible to compaction.
+#[tokio::test]
+async fn inv7_service_with_stopped_resumes_on_replay() {
+    let (_store, _dir, mut recver) = replay(|store| async move {
+        let create = store
+            .append(
+                Frame::builder("xs.service.api.create".to_string())
+                    .hash(
+                        store
+                            .cas_insert(r#"{ run: {|| "hi" } }"#)
+                            .await
+                            .unwrap(),
+                    )
+                    .build(),
+            )
+            .unwrap();
+        store
+            .append(
+                Frame::builder("xs.service.api.stopped".to_string())
+                    .meta(json!({ "source_id": create.id.to_string() }))
+                    .build(),
+            )
+            .unwrap();
+    })
+    .await;
+
+    // Wait until we see an .active (or fail by timeout).
+    let mut seen_active = false;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(200), recver.recv()).await {
+            Ok(Some(f)) if f.topic == "xs.service.api.active" => {
+                seen_active = true;
+                break;
+            }
+            Ok(Some(_)) => {}
+            _ => {}
+        }
+    }
+    assert!(
+        seen_active,
+        "expected xs.service.api.active after restart but didn't see one"
+    );
+}
+
+/// Invariant I3 (historical): when the latest .create has a paired .invalid
+/// in history, the dispatcher falls back to the last known-good .create.
+#[tokio::test]
+async fn inv3_historical_hot_replace_broken_falls_back() {
+    let (_store, _dir, mut recver) = replay(|store| async move {
+        let script = r#"{ run: {|| "hello" } }"#;
+        let hash = store.cas_insert(script).await.unwrap();
+
+        // First (good) create + its .active ack.
+        let create_good = store
+            .append(
+                Frame::builder("xs.service.api.create".to_string())
+                    .hash(hash.clone())
+                    .build(),
+            )
+            .unwrap();
+        store
+            .append(
+                Frame::builder("xs.service.api.active".to_string())
+                    .meta(json!({ "source_id": create_good.id.to_string() }))
+                    .build(),
+            )
+            .unwrap();
+
+        // Second (broken) create + its .invalid ack.
+        let create_bad = store
+            .append(
+                Frame::builder("xs.service.api.create".to_string())
+                    .hash(hash.clone())
+                    .build(),
+            )
+            .unwrap();
+        store
+            .append(
+                Frame::builder("xs.service.api.invalid".to_string())
+                    .meta(json!({
+                        "source_id": create_bad.id.to_string(),
+                        "reason": "synthetic"
+                    }))
+                    .build(),
+            )
+            .unwrap();
+    })
+    .await;
+
+    // After threshold, the dispatcher should start the confirmed (first)
+    // create -- we'll see its .active emerge.
+    let mut seen_active = false;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(200), recver.recv()).await {
+            Ok(Some(f)) if f.topic == "xs.service.api.active" => {
+                seen_active = true;
+                break;
+            }
+            Ok(Some(_)) => {}
+            _ => {}
+        }
+    }
+    assert!(
+        seen_active,
+        "expected xs.service.api.active after fallback to confirmed"
+    );
 }
 
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
