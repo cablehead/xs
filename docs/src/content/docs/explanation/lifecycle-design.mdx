@@ -103,20 +103,13 @@ The same logic explains why `replaced` and `stopped` sit *outside* the
 A scheme that compacted on any "stop" would silently take services down on
 every xs restart -- which was a real bug in the pre-rename codebase.
 
-## Why migration is mandatory
+## A breaking change, no migration
 
-The pre-rename store has frames like `api.spawn` and `snapshot-actor.register`.
-The new dispatcher only recognises `xs.service.api.create` and
-`xs.actor.snapshot-actor.create`. A store with mixed shapes would have the
-runtime silently ignoring half its lifecycle frames.
-
-The first time a new xs binary opens a pre-rename store, it runs a
-one-shot schema migration that walks every frame and rewrites the
-lifecycle topics in place. After that, the store is at schema v1 and
-subsequent opens are a no-op. There is no in-between operating mode.
-
-The migration is documented in the ADR's "Migration" section; the runner
-lives at `src/store/migrations/`.
+xs is pre-1.0. Rather than carry an in-binary conversion path for
+pre-rename stores, the new code only knows the new vocabulary. Existing
+stores written by pre-rename xs binaries are not readable. Users either
+start fresh, stay on an older release, or write their own conversion
+using the topic mapping documented in the ADR.
 
 ## Further reading
 

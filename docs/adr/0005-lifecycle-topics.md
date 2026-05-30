@@ -243,12 +243,20 @@ Actions don't run long-lived tasks. The events they use:
   per-call response topic, not in the action's lifecycle stream), no
   `stopped` (actions don't run during `xs.stopping`).
 
-## Migration
+## Breaking change
 
-One-shot rewrite. No compatibility shim, no double-writes.
+This is a breaking change. xs is pre-1.0; there is no migration path
+and the runtime does not attempt to read pre-rename frames. Stores
+written by pre-rename xs binaries are not supported. Users with
+existing data should either:
 
-A schema-version migration walks the stream once and rewrites every
-lifecycle frame's topic to its new namespaced form, in place:
+- Start fresh.
+- Stay on a pre-rename release of xs.
+- Roll their own conversion (the topic-name mapping is documented
+  below for that purpose).
+
+The mapping between old and new topic shapes, for anyone writing a
+custom conversion:
 
 ```
 snapshot-actor.register      -> xs.actor.snapshot-actor.create
@@ -266,14 +274,6 @@ greet.error                  -> xs.action.greet.invalid  (parse cases only)
 game.nu                      -> xs.module.game
 ```
 
-Same `idx_topic` entries get rewritten alongside. CAS bytes are
-untouched.
-
-After migration, the runtime only knows the new vocabulary; any
-remaining old-shape frames in a partially-migrated store would be
-ignored as app data, which is incorrect, so the migration is mandatory
-and atomic with the version bump.
-
 ## Consequences
 
 - Three dispatchers share one compaction algorithm template; only the
@@ -287,6 +287,5 @@ and atomic with the version bump.
 - Action gains an undefine (`term`) and a real lifecycle vocabulary,
   closing the gaps from the audit (broken `.define` retried every
   boot; `.error` overloading parse + runtime failure).
-- Migration is mandatory: stores with mixed-shape frames don't work.
-  Released versions of xs are pre/post the migration; there is no
-  in-between operating mode.
+- Pre-rename data is not readable. Users on existing stores must start
+  fresh or stay on an older xs release.
