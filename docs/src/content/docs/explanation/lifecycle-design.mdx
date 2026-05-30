@@ -1,40 +1,39 @@
----
+-
 title: Lifecycle design
 description: Why xs uses a unified xs.<kind>.<name>.<event> vocabulary and how the compaction algorithm preserves system state across restarts.
 sidebar:
   order: 2
----
+-
 
 import { Link } from '../../../utils/links';
 
-This page explains the *why* behind the lifecycle vocabulary. For the
+This page explains the design behind the lifecycle vocabulary. For the
 authoritative reference see <Link to="/reference/lifecycle/" />; for the
-exhaustive design discussion (including the deficiency analysis that drove
-each choice), see [ADR 0005](https://github.com/cablehead/xs/blob/main/docs/adr/0005-lifecycle-topics.md).
+exhaustive design record see [ADR 0005](https://github.com/cablehead/xs/blob/main/docs/adr/0005-lifecycle-topics.md).
 
-## A namespace for the runtime
+## The `xs.` namespace
 
 Topics that start with `xs.` are owned by the runtime; everything else is
-app data. This separation is what makes "find all actor lifecycle events"
-a fast prefix query (`xs.actor.`) against the existing topic index, rather
-than a full-stream scan. It also gives a one-glance rule for anyone reading
-a topic: starts with `xs.`? Runtime managed. Else? Your data.
+app data. This separation makes "find all actor lifecycle events" a fast
+prefix query (`xs.actor.`) against the existing topic index, rather than a
+full-stream scan. It also gives a one-glance rule for anyone reading a
+topic: starts with `xs.`, runtime managed; else, your data.
 
 The choice cascades:
 
 - Lifecycle events fit one shape: `xs.<kind>.<name>.<event>`.
 - Module registrations join the namespace: `xs.module.<name>`.
 - Per-call data (an action's `.call` or `.response`, a service's `.recv`
-  or `.send`) stays in the app's namespace. Those are the user's data;
-  the runtime is just routing.
+  or `.send`) stays in the app's namespace. That data is the user's;
+  the runtime is only routing.
 
-## One vocabulary, three kinds
+## Shared vocabulary across the three kinds
 
 Actors, services, and actions used to each have their own ad-hoc set of
 lifecycle topics: `.register`/`.unregistered` (actor), `.spawn`/`.stopped`
 with a meta reason (service), `.define`/`.ready`/`.error` (action). Three
-sets, three implementations of "compact this in history," three different
-ways for users to ask "did this thing stop?"
+sets, three separate implementations of historical compaction, three
+different ways for users to ask "did this thing stop?".
 
 The unified set is nine events:
 
@@ -42,16 +41,16 @@ The unified set is nine events:
 - Run marker: `active` (runtime ack on successful start).
 - Failure to init: `invalid`.
 - Terminal stops: `fin.ok`, `fin.error`, `fin.term`.
-- Transient stops: `replaced` (a successor is coming), `stopped` (xs is
-  coming back).
+- Transient stops: `replaced` (a successor is coming) and `stopped`
+  (xs is coming back).
 
 Actions use a subset (no `fin.ok`, no `fin.error`, no `stopped`) because
 actions don't run long-lived tasks. The shape is the same regardless.
 
-The big payoff: the dispatcher logic is the same for all three. One
-algorithm, three sets of topic strings plugged in.
+The dispatcher logic is the same for all three. Only the per-kind
+prefix in the topic string differs.
 
-## Two slots, not latest-wins
+## The two-slot compaction algorithm
 
 For every `<kind>.<name>`, the dispatcher keeps two slots: `confirmed`
 (the last `create` that emitted an `active`) and `pending` (the latest
@@ -69,10 +68,11 @@ version is broken? Three things can happen in order:
    now.
 
 A latest-wins scheme remembers only the broken create. The system goes
-down because of a typo. A two-slot scheme remembers the last *known-good*
-version separately. When `invalid` arrives, `pending` is cleared but
-`confirmed` survives. At threshold the dispatcher prefers `pending` and
-falls back to `confirmed` on parse failure. The system stays up.
+down because of a typo. The two-slot scheme remembers the last
+known-good version separately. When `invalid` arrives, `pending` is
+cleared but `confirmed` survives. At threshold the dispatcher prefers
+`pending` and falls back to `confirmed` on parse failure. The system
+stays up.
 
 The same two slots cover three related cases:
 
@@ -82,28 +82,29 @@ The same two slots cover three related cases:
 - Server shutdown (a `stopped` ack arrived): leave both slots untouched;
   resume on next start.
 
-## Why `fin.*` is split
+## Splitting `fin.*` into three topics
 
 `fin.ok`, `fin.error`, and `fin.term` could be one topic with a `reason`
-in meta. They aren't, because then "did this service stop because of an
-error vs because the user asked?" requires reading meta on every frame.
-Putting the distinction in the topic shape lets observers subscribe to
-just one stream (`xs.service.api.fin.error`) without filtering, and lets
-the compaction algorithm key off the topic suffix directly.
+field in meta. They aren't, because then "did this service stop because
+of an error or because the user asked?" requires reading meta on every
+frame. Putting the distinction in the topic shape lets observers
+subscribe to just one stream (`xs.service.api.fin.error`) without
+filtering, and lets the compaction algorithm key off the topic suffix
+directly.
 
-The same logic explains why `replaced` and `stopped` sit *outside* the
+The same reasoning explains why `replaced` and `stopped` sit outside the
 `fin.*` family. They look like ends but aren't terminal:
 
-- `replaced` says "a successor is coming." It deliberately doesn't clear
-  `confirmed` so the fallback survives the brief window before the new
-  instance's `active` lands.
-- `stopped` says "xs is going down but coming back." It must be invisible
-  to compaction so the next restart resumes the service.
+- `replaced` indicates a successor is coming. It deliberately doesn't
+  clear `confirmed` so the fallback survives the brief window before the
+  new instance's `active` lands.
+- `stopped` indicates xs is going down but coming back. It must be
+  invisible to compaction so the next restart resumes the service.
 
-A scheme that compacted on any "stop" would silently take services down on
-every xs restart -- which was a real bug in the pre-rename codebase.
+A scheme that compacted on any stop would silently take services down on
+every xs restart, which was a real bug in the pre-rename codebase.
 
-## A breaking change, no migration
+## Breaking change
 
 xs is pre-1.0. Rather than carry an in-binary conversion path for
 pre-rename stores, the new code only knows the new vocabulary. Existing
@@ -113,10 +114,10 @@ using the topic mapping documented in the ADR.
 
 ## Further reading
 
-- <Link to="/reference/lifecycle/" /> -- the authoritative event list,
+- <Link to="/reference/lifecycle/" />: the authoritative event list,
   state-transition table, threshold rule, and invariants.
-- <Link to="/reference/topics/" /> -- naming rules, hierarchy, the `xs.`
+- <Link to="/reference/topics/" />: naming rules, hierarchy, the `xs.`
   namespace, system topics.
-- [ADR 0005](https://github.com/cablehead/xs/blob/main/docs/adr/0005-lifecycle-topics.md)
-  -- the full design record, including the eight deficiencies that
-  drove the rewrite and the coverage check.
+- [ADR 0005](https://github.com/cablehead/xs/blob/main/docs/adr/0005-lifecycle-topics.md):
+  the full design record, including the eight deficiencies that drove
+  the rewrite and the coverage check.

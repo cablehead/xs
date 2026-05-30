@@ -169,10 +169,10 @@ fn threshold_pending_and_confirmed_tries_pending_with_confirmed_as_fallback() {
 // ----- invariant scenarios -----
 //
 // Names map to the invariants in ADR 0005:
-//   inv1_* -- I1 Stop persistence
-//   inv2_* -- I2 Run persistence
-//   inv3_* -- I3 Hot-replace fallback
-//   inv7_* -- I7 Server-shutdown invisibility
+//   inv1_*, I1 Stop persistence
+//   inv2_*, I2 Run persistence
+//   inv3_*, I3 Hot-replace fallback
+//   inv7_*, I7 Server-shutdown invisibility
 
 #[test]
 fn inv1_term_persists_across_replay_into_fresh_slots() {

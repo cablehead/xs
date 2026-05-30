@@ -1,9 +1,9 @@
----
+-
 title: Topics
 description: "Topic naming, hierarchy, wildcards, and the xs.* namespace"
 sidebar:
   order: 4
----
+-
 
 import { Link } from '../../../utils/links';
 
@@ -49,7 +49,7 @@ xs cat ./store --topic "user.*"
 ```
 
 The wildcard `user.*` matches `user.alice`, `user.alice.messages`, and
-`user.bob` -- but not `user` itself.
+`user.bob`, but not `user` itself.
 
 Use `*` alone to match all topics (equivalent to omitting `--topic`).
 
@@ -84,7 +84,7 @@ modules by their stable VFS path.
 r#'export def greet [name: string] { $"hello ($name)" }'# | .append xs.module.mymod
 ```
 
-The module name (after `xs.module.`) maps to a directory path -- dots become
+The module name (after `xs.module.`) maps to a directory path, dots become
 slashes:
 
 | Topic | VFS Path |

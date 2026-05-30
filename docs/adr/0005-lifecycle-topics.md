@@ -145,7 +145,7 @@ elif confirmed: start confirmed
 else:          nothing to start
 ```
 
-### What this gets right
+### Cases the algorithm handles
 
 - **Hot-replace race** (`create_1 -> active_1 -> create_2 -> ???` and xs
   dies): on restart, `confirmed=create_1`, `pending=create_2`. Try

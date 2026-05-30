@@ -736,7 +736,7 @@ async fn inv3_historical_hot_replace_broken_falls_back() {
     .await;
 
     // After threshold, the dispatcher should start the confirmed (first)
-    // create -- we'll see its .active emerge.
+    // create, we'll see its .active emerge.
     let mut seen_active = false;
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline {

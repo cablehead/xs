@@ -1,9 +1,9 @@
----
+-
 title: Actions
 description: Stateless, parallelizable operations that can be called on-demand
 sidebar:
   order: 4
----
+-
 
 import { Link } from '../../../utils/links';
 
@@ -41,7 +41,7 @@ r#'{
 The `return_options` field controls the suffix, TTL, and storage target for the
 `.response` frame produced by the action. By default, record output goes to
 frame metadata. Set `target: "cas"` to store in CAS; any type is accepted. TTL
-only applies to this `.response` frame -- `.error` events never expire.
+only applies to this `.response` frame, `.error` events never expire.
 
 The action definition requires:
 
@@ -121,13 +121,13 @@ r#'{
 When the `run` closure executes it can use several helper commands provided by
 cross.stream:
 
-- `.append` -- append a new frame. Metadata you provide is merged with
+- `.append`, append a new frame. Metadata you provide is merged with
   `action_id` and `frame_id`.
-- `.cat` -- read frames from the store.
-- `.last` -- fetch the most recent frame(s), optionally filtered by topic.
-- `.cas` -- read content from CAS by hash.
-- `.get` -- retrieve a frame by ID.
-- `.remove` -- delete a frame from the stream.
+- `.cat`, read frames from the store.
+- `.last`, fetch the most recent frame(s), optionally filtered by topic.
+- `.cas`, read content from CAS by hash.
+- `.get`, retrieve a frame by ID.
+- `.remove`, delete a frame from the stream.
 
 ## Lifecycle
 
@@ -137,7 +137,7 @@ Actions share the unified lifecycle vocabulary documented in
 | User input | Runtime ack on success | Runtime ack on failure |
 | --- | --- | --- |
 | `xs.action.<name>.create` | `xs.action.<name>.active` | `xs.action.<name>.invalid` |
-| `xs.action.<name>.term` | `xs.action.<name>.fin.term` | -- |
+| `xs.action.<name>.term` | `xs.action.<name>.fin.term` |, |
 
 Plus `xs.action.<name>.replaced` when a newer `.create` displaces an existing
 definition. Actions don't emit `fin.ok`, `fin.error`, or `stopped` (no

@@ -169,7 +169,7 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                     // applying this event, so a parse-fail on a hot-replace
                     // can fall back to it. After Event::Create, pending is
                     // updated but confirmed is unchanged, so this is also
-                    // safe to read post-apply -- doing it first just matches
+                    // safe to read post-apply, doing it first just matches
                     // the algorithm's intent.
                     let prior_confirmed = states.get(&topic).and_then(|s| s.slots.confirmed());
                     let state = states.entry(topic.clone()).or_default();

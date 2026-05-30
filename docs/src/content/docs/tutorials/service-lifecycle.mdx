@@ -1,9 +1,9 @@
----
+-
 title: Service Lifecycle
-description: Walk through the lifecycle of a cross.stream service -- create, auto-restart, hot reload, terminate, and graceful shutdown.
+description: Walk through the lifecycle of a cross.stream service, create, auto-restart, hot reload, terminate, and graceful shutdown.
 sidebar:
   order: 4
----
+-
 
 import { Aside } from '@astrojs/starlight/components';
 import { Link } from '../../../utils/links';
@@ -42,7 +42,7 @@ appear:
 }
 ```
 
-Keep this running -- every frame we discuss will show up here.
+Keep this running, every frame we discuss will show up here.
 
 ## Create a service
 
@@ -63,7 +63,7 @@ r#'{
 Your monitor shows two frames:
 
 ```
--#-+-----------------topic----------------+---id---+-hash-+-----meta-----
+-#-+-----------------topic----------------+---id---+-hash-+-----meta---
  0 | xs.service.log.create                | 03ab.. | ...  |
  1 | xs.service.log.active                | 03ab.. |      | source_id: 03ab..
 ```
@@ -79,7 +79,7 @@ Write some lines to the file:
 "hello\nworld\n" | save -a /tmp/log.txt
 ```
 
-Two `log.recv` frames appear -- one per line. (Note: `recv`/`send` are
+Two `log.recv` frames appear, one per line. (Note: `recv`/`send` are
 app-namespace data topics, not under `xs.`.) Read the content back:
 
 ```bash withOutput
@@ -95,7 +95,7 @@ Remove the file so `tail` exits:
 rm /tmp/log.txt
 ```
 
-No lifecycle frame is emitted -- the service's run-loop treats a natural
+No lifecycle frame is emitted, the service's run-loop treats a natural
 completion as an internal hiccup and quietly restarts after 1 second. A new
 `xs.service.log.active` frame appears.
 
@@ -153,8 +153,8 @@ Stop the service explicitly:
 
 The monitor shows two frames:
 
-1. `xs.service.log.term` -- your request
-2. `xs.service.log.fin.term` -- the runtime ack confirming the stop
+1. `xs.service.log.term`, your request
+2. `xs.service.log.fin.term`, the runtime ack confirming the stop
 
 After `fin.term`, the service stays down. On the next restart of xs, it
 will not be started: compaction sees the `fin.*` and clears its slots.
@@ -178,8 +178,8 @@ terminal 1 (where `xs serve` is running).
 
 The monitor shows:
 
-1. `xs.stopping` -- emitted by xs before exit
-2. `xs.service.log.stopped` -- the service acknowledging the shutdown
+1. `xs.stopping`, emitted by xs before exit
+2. `xs.service.log.stopped`, the service acknowledging the shutdown
 
 xs waits up to a few seconds for all services to finish before exiting. This
 gives services a chance to flush output and clean up resources.

@@ -102,7 +102,7 @@ impl Actor {
         let total_positional = num_required + num_optional;
         if total_positional != 2 {
             return Err(format!(
-                "Closure must accept exactly 2 params (frame, state) -- got {total_positional}"
+                "Closure must accept exactly 2 params (frame, state), got {total_positional}"
             )
             .into());
         }

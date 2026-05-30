@@ -946,7 +946,7 @@ async fn test_state_threading() {
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 0);
 
-    // Send a non-trigger frame -- should be skipped (no output), state preserved
+    // Send a non-trigger frame, should be skipped (no output), state preserved
     store.append(Frame::builder("noise").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "noise");
 
@@ -980,7 +980,7 @@ async fn test_out_only_stops() {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Actor returns {out: "goodbye"} -- emits output then self-terminates
+    // Actor returns {out: "goodbye"}, emits output then self-terminates
     let frame_actor = store
         .append(
             Frame::builder("xs.actor.stopper.create")
@@ -1028,7 +1028,7 @@ async fn test_nothing_stops() {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Actor returns null -- self-terminates with no output
+    // Actor returns null, self-terminates with no output
     let frame_actor = store
         .append(
             Frame::builder("xs.actor.stopper.create")
@@ -1071,7 +1071,7 @@ async fn test_extra_keys_error() {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Actor returns record with extra keys -- should error
+    // Actor returns record with extra keys, should error
     let frame_actor = store
         .append(
             Frame::builder("xs.actor.bad.create")
@@ -1215,7 +1215,7 @@ async fn test_required_state_defaults_to_null() {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Actor with 2 required params but no initial -- state defaults to null
+    // Actor with 2 required params but no initial, state defaults to null
     store
         .append(
             Frame::builder("xs.actor.test.create")
@@ -1321,7 +1321,7 @@ async fn test_non_record_return_error() {
     let mut recver = store.read(options).await;
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
-    // Actor returns a bare string -- not a valid return shape
+    // Actor returns a bare string, not a valid return shape
     let frame_actor = store
         .append(
             Frame::builder("xs.actor.bad.create")

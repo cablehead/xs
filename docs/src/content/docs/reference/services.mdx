@@ -1,9 +1,9 @@
----
+-
 title: Services
 description: "How to use Nushell closures to spawn external processes and stream their output into cross.stream, with optional duplex communication"
 sidebar:
   order: 2
----
+-
 
 import { Link } from '../../../utils/links';
 
@@ -49,7 +49,7 @@ lifecycle.
 | Option   | Type    | Default | Description                                                         |
 | -------- | ------- | ------- | ------------------------------------------------------------------- |
 | `duplex` | boolean | false   | Enable sending input to the service's pipeline via `<name>.send`    |
-| `return_options` | record | -- | Customize output frames (see Return Options) |
+| `return_options` | record |, | Customize output frames (see Return Options) |
 
 The `return_options` field controls the suffix and TTL for the `.recv` frames
 produced by the service.
@@ -64,10 +64,10 @@ produced by the service.
 
 #### TTL Options
 
-- `"forever"` -- Frames never expire (default)
-- `"ephemeral"` -- Frames are removed immediately after processing
-- `"time:<ms>"` -- Frames expire after specified milliseconds
-- `"last:<n>"` -- Keep only the N most recent frames
+- `"forever"`, Frames never expire (default)
+- `"ephemeral"`, Frames are removed immediately after processing
+- `"time:<ms>"`, Frames expire after specified milliseconds
+- `"last:<n>"`, Keep only the N most recent frames
 
 Example with custom return options:
 
@@ -125,7 +125,7 @@ When running this service:
 
 When the script's pipeline runs to completion without error, the service waits
 one second and restarts the pipeline. No lifecycle frame is emitted for this
-internal restart -- the service is still considered "running."
+internal restart, the service is still considered "running."
 
 Appending a new `xs.service.<name>.create` frame while the service is running
 reloads it with the new script:
@@ -146,16 +146,16 @@ Services share the unified lifecycle vocabulary documented in
 | User input | Runtime ack on success | Runtime ack on failure |
 | --- | --- | --- |
 | `xs.service.<name>.create` | `xs.service.<name>.active` | `xs.service.<name>.invalid` |
-| `xs.service.<name>.term` | `xs.service.<name>.fin.term` | -- |
+| `xs.service.<name>.term` | `xs.service.<name>.fin.term` |, |
 
 Plus the runtime emits:
 
-- `xs.service.<name>.fin.ok` -- the run loop exited because the script
+- `xs.service.<name>.fin.ok`, the run loop exited because the script
   returned with no auto-restart left to do (rare; today the loop always
   retries `Continue`).
-- `xs.service.<name>.fin.error` -- runtime crash in the script.
-- `xs.service.<name>.replaced` -- hot-reloaded by a newer `.create`.
-- `xs.service.<name>.stopped` -- xs is shutting down (`xs.stopping`). The
+- `xs.service.<name>.fin.error`, runtime crash in the script.
+- `xs.service.<name>.replaced`, hot-reloaded by a newer `.create`.
+- `xs.service.<name>.stopped`, xs is shutting down (`xs.stopping`). The
   service was alive; it will resume on the next start.
 
 See <Link to="/reference/lifecycle/" /> for the full event list, the
