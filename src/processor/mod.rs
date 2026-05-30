@@ -1,5 +1,6 @@
 pub mod action;
 pub mod actor;
+pub mod lifecycle;
 pub mod service;
 
 use crate::nu;
