@@ -690,6 +690,53 @@ async fn inv7_service_with_stopped_resumes_on_replay() {
     );
 }
 
+/// Invariant I2: a service with an .active and no subsequent terminal
+/// frame resumes on the next replay. Pre-seed history with the create +
+/// active pair (no fin/term/replaced), spawn a fresh dispatcher, see
+/// the new .active emerge.
+#[tokio::test]
+async fn inv2_service_with_active_resumes_on_replay() {
+    let (_store, _dir, mut recver) = replay(|store| async move {
+        let create = store
+            .append(
+                Frame::builder("xs.service.api.create".to_string())
+                    .hash(
+                        store
+                            .cas_insert(r#"{ run: {|| "hi" } }"#)
+                            .await
+                            .unwrap(),
+                    )
+                    .build(),
+            )
+            .unwrap();
+        store
+            .append(
+                Frame::builder("xs.service.api.active".to_string())
+                    .meta(json!({ "source_id": create.id.to_string() }))
+                    .build(),
+            )
+            .unwrap();
+    })
+    .await;
+
+    let mut seen_active = false;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(200), recver.recv()).await {
+            Ok(Some(f)) if f.topic == "xs.service.api.active" => {
+                seen_active = true;
+                break;
+            }
+            Ok(Some(_)) => {}
+            _ => {}
+        }
+    }
+    assert!(
+        seen_active,
+        "expected xs.service.api.active after replay of active-without-terminal history"
+    );
+}
+
 /// Invariant I3 (historical): when the latest .create has a paired .invalid
 /// in history, the dispatcher falls back to the last known-good .create.
 #[tokio::test]
@@ -753,6 +800,150 @@ async fn inv3_historical_hot_replace_broken_falls_back() {
         seen_active,
         "expected xs.service.api.active after fallback to confirmed"
     );
+}
+
+/// I4 Bidirectional lifecycle for services: xs.service.<name>.term stops
+/// a running service and emits xs.service.<name>.fin.term whose meta
+/// references the originating create (also touches I6).
+#[tokio::test]
+async fn inv4_service_term_emits_fin_term() {
+    let store = setup_test_env();
+    {
+        let store = store.clone();
+        tokio::spawn(async move { crate::processor::service::run(store).await.unwrap() });
+    }
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let create = store
+        .append(
+            Frame::builder("xs.service.sleepy.create")
+                .hash(
+                    store
+                        .cas_insert(r#"{ run: {|| ^sleep 1000 } }"#)
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.active");
+
+    store
+        .append(Frame::builder("xs.service.sleepy.term").build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.term");
+    let fin = recver.recv().await.unwrap();
+    assert_eq!(fin.topic, "xs.service.sleepy.fin.term");
+    assert_eq!(fin.meta.as_ref().unwrap()["source_id"], create.id.to_string());
+}
+
+/// I6 Ack traceability for services: every emitted lifecycle ack carries
+/// meta.source_id pointing at the originating create. Exercises .active and
+/// .fin.term.
+#[tokio::test]
+async fn inv6_service_acks_carry_source_pointer() {
+    let store = setup_test_env();
+    {
+        let store = store.clone();
+        tokio::spawn(async move { crate::processor::service::run(store).await.unwrap() });
+    }
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let create = store
+        .append(
+            Frame::builder("xs.service.tr.create")
+                .hash(
+                    store
+                        .cas_insert(r#"{ run: {|| ^sleep 1000 } }"#)
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.tr.create");
+    let active = recver.recv().await.unwrap();
+    assert_eq!(active.topic, "xs.service.tr.active");
+    assert_eq!(
+        active.meta.as_ref().unwrap()["source_id"],
+        create.id.to_string()
+    );
+
+    store
+        .append(Frame::builder("xs.service.tr.term").build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.tr.term");
+    let fin = recver.recv().await.unwrap();
+    assert_eq!(fin.topic, "xs.service.tr.fin.term");
+    assert_eq!(fin.meta.as_ref().unwrap()["source_id"], create.id.to_string());
+}
+
+/// I8 Single live instance for services: terminating one service of two
+/// running under different names leaves the other running. The dispatcher
+/// keeps services isolated by topic root.
+#[tokio::test]
+async fn inv8_service_single_live_instance_per_topic_root() {
+    let store = setup_test_env();
+    {
+        let store = store.clone();
+        tokio::spawn(async move { crate::processor::service::run(store).await.unwrap() });
+    }
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let script = r#"{ run: {|| ^sleep 1000 } }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+    store
+        .append(Frame::builder("xs.service.alpha.create").hash(hash.clone()).build())
+        .unwrap();
+    store
+        .append(Frame::builder("xs.service.bravo.create").hash(hash).build())
+        .unwrap();
+
+    let mut started = std::collections::HashSet::new();
+    while started.len() < 2 {
+        let f = recver.recv().await.unwrap();
+        if f.topic == "xs.service.alpha.active" || f.topic == "xs.service.bravo.active" {
+            started.insert(f.topic);
+        }
+    }
+    assert_eq!(started.len(), 2);
+
+    // Terminate one; the other should NOT get a fin.term.
+    store
+        .append(Frame::builder("xs.service.alpha.term").build())
+        .unwrap();
+
+    let mut alpha_fin = false;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(200), recver.recv()).await {
+            Ok(Some(f)) if f.topic == "xs.service.alpha.fin.term" => {
+                alpha_fin = true;
+                break;
+            }
+            Ok(Some(f)) if f.topic == "xs.service.bravo.fin.term" => {
+                panic!("bravo should not have been terminated");
+            }
+            Ok(Some(_)) => {}
+            _ => {}
+        }
+    }
+    assert!(alpha_fin, "expected xs.service.alpha.fin.term");
 }
 
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {

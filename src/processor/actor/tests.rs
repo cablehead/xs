@@ -1574,6 +1574,220 @@ async fn test_unregistered_actor_not_restarted_on_replay() {
     assert_no_more_frames(&mut recver).await;
 }
 
+// Invariant I2: an actor with an .active in history and no subsequent
+// terminal frame is restarted on replay. The fresh dispatcher should
+// emit a new .active for the same source create.
+#[tokio::test]
+async fn inv2_actor_with_active_resumes_on_replay() {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+    let create = store
+        .append(
+            Frame::builder("xs.actor.greeter.create")
+                .hash(
+                    store
+                        .cas_insert(r#"{run: {|frame, state = null| {next: $state}}}"#)
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    store
+        .append(
+            Frame::builder("xs.actor.greeter.active")
+                .meta(serde_json::json!({ "actor_id": create.id.to_string() }))
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    {
+        let store = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::actor::run(store).await.unwrap();
+        }));
+    }
+
+    // History replays the seeded .create and .active, threshold, then the
+    // dispatcher should restart the actor and emit a fresh .active.
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.greeter.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.greeter.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    // The fresh dispatcher emits a new .active for the restart.
+    let restart_active = recver.recv().await.unwrap();
+    assert_eq!(restart_active.topic, "xs.actor.greeter.active");
+    let meta = restart_active.meta.unwrap();
+    assert_eq!(meta["actor_id"], create.id.to_string());
+}
+
+// Invariant I4: an actor accepts xs.actor.<name>.term and emits .fin.term.
+#[tokio::test]
+async fn inv4_actor_term_emits_fin_term() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    let create = store
+        .append(
+            Frame::builder("xs.actor.tunable.create")
+                .hash(
+                    store
+                        .cas_insert(r#"{run: {|frame, state = null| {next: $state}}}"#)
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tunable.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tunable.active");
+
+    store
+        .append(Frame::builder("xs.actor.tunable.term").build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tunable.term");
+    let fin = recver.recv().await.unwrap();
+    assert_eq!(fin.topic, "xs.actor.tunable.fin.term");
+    let meta = fin.meta.as_ref().unwrap();
+    // I6: the ack points back to the originating create.
+    assert_eq!(meta["actor_id"], create.id.to_string());
+}
+
+// Invariant I6: every runtime-emitted ack frame carries meta.actor_id
+// pointing at the originating create. Touch every ack the actor can
+// emit and assert the pointer matches the create id.
+#[tokio::test]
+async fn inv6_actor_acks_carry_source_pointer() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // (1) .active: emitted on successful spawn.
+    let create = store
+        .append(
+            Frame::builder("xs.actor.tr.create")
+                .hash(
+                    store
+                        .cas_insert(r#"{run: {|frame, state = null| {next: $state}}}"#)
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tr.create");
+    let active = recver.recv().await.unwrap();
+    assert_eq!(active.topic, "xs.actor.tr.active");
+    assert_eq!(
+        active.meta.as_ref().unwrap()["actor_id"],
+        create.id.to_string()
+    );
+
+    // (2) .fin.term: emitted on user .term.
+    store
+        .append(Frame::builder("xs.actor.tr.term").build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tr.term");
+    let fin = recver.recv().await.unwrap();
+    assert_eq!(fin.topic, "xs.actor.tr.fin.term");
+    assert_eq!(fin.meta.as_ref().unwrap()["actor_id"], create.id.to_string());
+
+    // (3) .invalid: emitted when a create fails to parse.
+    let bad_create = store
+        .append(
+            Frame::builder("xs.actor.tr.create")
+                .hash(store.cas_insert(r#"{run: {|| 42}}"#).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tr.create");
+    let invalid = recver.recv().await.unwrap();
+    assert_eq!(invalid.topic, "xs.actor.tr.invalid");
+    assert_eq!(
+        invalid.meta.as_ref().unwrap()["actor_id"],
+        bad_create.id.to_string()
+    );
+}
+
+// Invariant I8: only one actor instance handles events for a given
+// <kind>.<name> at a time. After a replacement, the old instance no
+// longer processes triggers; only the new one does.
+#[tokio::test]
+async fn inv8_actor_single_live_instance_per_topic_root() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Two creates for the same topic root. Only the second should handle
+    // any post-replacement triggers.
+    let _first = store
+        .append(
+            Frame::builder("xs.actor.h.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{run: {|frame, state = null|
+                                if $frame.topic == "trigger" {
+                                  {out: {who: "first"}, next: $state}
+                                } else { {next: $state} }
+                            }}"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.active");
+
+    let second = store
+        .append(
+            Frame::builder("xs.actor.h.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{run: {|frame, state = null|
+                                if $frame.topic == "trigger" {
+                                  {out: {who: "second"}, next: $state}
+                                } else { {next: $state} }
+                            }}"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
+
+    // Old emits .replaced, new emits .active (order may interleave).
+    let mut acks = std::collections::HashSet::new();
+    acks.insert(recver.recv().await.unwrap().topic);
+    acks.insert(recver.recv().await.unwrap().topic);
+    assert!(acks.contains("xs.actor.h.replaced"));
+    assert!(acks.contains("xs.actor.h.active"));
+
+    // Trigger: only ONE response, from the second actor.
+    let trig = store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "h.out");
+    let meta = out.meta.unwrap();
+    assert_eq!(meta["actor_id"], second.id.to_string());
+    assert_eq!(meta["who"], "second");
+
+    // No second response from the old actor.
+    assert_no_more_frames(&mut recver).await;
+}
+
 async fn setup_test_environment() -> (Store, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();

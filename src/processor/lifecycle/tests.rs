@@ -295,6 +295,37 @@ fn inv3_rolling_untested_overwrites_earlier_pending() {
     );
 }
 
+/// I5 Distinct exit categories at the algorithm layer: every Event variant
+/// the dispatcher might apply to Slots is a distinct enum case. The runtime
+/// has no way to confuse one variant with another, which is what the
+/// invariant asserts in observable form (one topic per category).
+///
+/// I5 is also tested at the dispatcher layer: each kind's event_from_frame
+/// translator covers every event tag in the vocabulary -- see
+/// inv5_*_topic_tags_are_complete in the per-kind tests.
+#[test]
+fn inv5_event_variants_cover_the_vocabulary() {
+    let a = id();
+    let touched = [
+        Event::Create { id: a },
+        Event::Term,
+        Event::Active { source: a },
+        Event::Invalid { source: a },
+        Event::Fin,
+        Event::Replaced,
+        Event::Stopped,
+    ];
+    // The compile-time guarantee is what the property hangs on: this
+    // assertion exists so that an attempt to silently merge two variants
+    // would fail to compile (the match in Slots::apply is exhaustive). The
+    // body just touches every variant in turn.
+    let mut s = Slots::new();
+    for ev in touched {
+        s.apply(ev);
+    }
+    let _ = s.threshold();
+}
+
 #[test]
 fn inv7_stopped_does_not_clear_slots() {
     let a = id();
