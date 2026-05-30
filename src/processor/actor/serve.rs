@@ -16,7 +16,7 @@ enum StartOutcome {
 async fn try_start_actor(
     frame: &Frame,
     store: &Store,
-    topic: &str,
+    name: &str,
 ) -> Result<StartOutcome, Box<dyn std::error::Error + Send + Sync>> {
     match Actor::from_frame(frame, store).await {
         Ok(actor) => {
@@ -25,7 +25,7 @@ async fn try_start_actor(
         }
         Err(err) => {
             let _ = store.append(
-                Frame::builder(format!("{topic}.unregistered"))
+                Frame::builder(format!("xs.actor.{name}.invalid"))
                     .meta(serde_json::json!({
                         "actor_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -37,43 +37,62 @@ async fn try_start_actor(
     }
 }
 
-/// Translate today's actor topic vocabulary to a lifecycle event.
+/// Translate `xs.actor.<name>.<event>` topics into a lifecycle event.
 ///
-/// Returns `(topic_root, event)` if the frame is an actor lifecycle frame.
-/// Today's vocabulary maps:
-///   `<name>.register`      -> Event::Create  (frame's own id)
-///   `<name>.unregistered`  -> Event::Fin     (any stop reason; matched on meta.actor_id)
-///   `<name>.active`        -> Event::Active  (meta.actor_id is the register's id)
-///
-/// `.unregistered` overloads parse failure with graceful teardown (deficiency
-/// #8); both map to `Event::Fin` for now because the algorithm's effect is
-/// the same. The split will arrive with the new vocabulary.
+/// Returns `(name, event)` if the frame is an actor lifecycle frame.
+/// Maps:
+///   .create     -> Event::Create
+///   .term       -> Event::Term
+///   .active     -> Event::Active   (source from meta.actor_id)
+///   .invalid    -> Event::Invalid  (source from meta.actor_id)
+///   .fin.term   -> Event::Fin
+///   .fin.error  -> Event::Fin
+///   .fin.ok     -> Event::Fin
+///   .replaced   -> Event::Replaced
+///   .stopped    -> Event::Stopped
 fn event_from_frame(frame: &Frame) -> Option<(String, Event)> {
-    let (topic, suffix) = frame.topic.rsplit_once('.')?;
-    match suffix {
-        "register" => Some((topic.to_string(), Event::Create { id: frame.id })),
-        "unregistered" => {
-            // .unregistered must reference a specific actor_id; without it we
-            // can't pair it to a create, so we can't update slots correctly.
-            let meta = frame.meta.as_ref()?;
-            let actor_id_str = meta.get("actor_id").and_then(|v| v.as_str())?;
-            let _actor_id = Scru128Id::from_str(actor_id_str).ok()?;
-            // Today's `.unregistered` is fired on any stop reason. The
-            // algorithm treats Fin and parse-failure (Invalid) differently:
-            // Fin clears both slots, Invalid clears only pending. To preserve
-            // today's behaviour we map to Fin universally; the meta.error
-            // case is the only one that could conceivably be Invalid, and
-            // splitting it requires the new vocabulary.
-            Some((topic.to_string(), Event::Fin))
+    let rest = frame.topic.strip_prefix("xs.actor.")?;
+    // The event suffix is everything after the last segment before the
+    // event tokens. event tokens are `.<simple>` or `.fin.<simple>`. The
+    // name is everything before the first such token from the right.
+    let (name, ev_tag) = split_actor_event(rest)?;
+    let event = match ev_tag {
+        "create" => Event::Create { id: frame.id },
+        "term" => Event::Term,
+        "active" => Event::Active {
+            source: source_id(frame)?,
+        },
+        "invalid" => Event::Invalid {
+            source: source_id(frame)?,
+        },
+        "fin.term" | "fin.error" | "fin.ok" => Event::Fin,
+        "replaced" => Event::Replaced,
+        "stopped" => Event::Stopped,
+        _ => return None,
+    };
+    Some((name.to_string(), event))
+}
+
+/// Split `<name>.<event>` where `<event>` is one of the known actor event
+/// tags. `fin.*` is two segments; everything else is one.
+fn split_actor_event(rest: &str) -> Option<(&str, &str)> {
+    for tag in ["fin.term", "fin.error", "fin.ok"] {
+        if let Some(name) = rest.strip_suffix(&format!(".{tag}")) {
+            return Some((name, tag));
         }
-        "active" => {
-            let meta = frame.meta.as_ref()?;
-            let actor_id_str = meta.get("actor_id").and_then(|v| v.as_str())?;
-            let source = Scru128Id::from_str(actor_id_str).ok()?;
-            Some((topic.to_string(), Event::Active { source }))
-        }
-        _ => None,
     }
+    for tag in ["create", "term", "active", "invalid", "replaced", "stopped"] {
+        if let Some(name) = rest.strip_suffix(&format!(".{tag}")) {
+            return Some((name, tag));
+        }
+    }
+    None
+}
+
+fn source_id(frame: &Frame) -> Option<Scru128Id> {
+    let meta = frame.meta.as_ref()?;
+    let s = meta.get("actor_id").and_then(|v| v.as_str())?;
+    Scru128Id::from_str(s).ok()
 }
 
 #[derive(Default)]
@@ -145,16 +164,17 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
             }
             Lifecycle::Live(frame) => {
                 if let Some((topic, ev)) = event_from_frame(&frame) {
+                    let is_create = matches!(ev, Event::Create { .. });
                     let state = states.entry(topic.clone()).or_default();
                     if let Event::Create { id } = &ev {
                         state.frames.insert(*id, frame.clone());
                     }
                     state.slots.apply(ev);
-                    // Today's live behaviour: a .register frame starts the
-                    // actor immediately. Hot-replace fallback at the live
-                    // level (deficiency #5) is not addressed here; that
-                    // requires changes to the actor's own protocol.
-                    if frame.topic.ends_with(".register") {
+                    // Live behaviour: a new .create starts the actor
+                    // immediately. Hot-replace fallback at the live level
+                    // (deficiency #5) is not addressed here; that requires
+                    // further changes to the actor's own protocol.
+                    if is_create {
                         let _ = try_start_actor(&frame, &store, &topic).await?;
                     }
                 }
