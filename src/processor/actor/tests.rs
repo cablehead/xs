@@ -691,6 +691,71 @@ async fn test_actor_replacement() {
     assert_no_more_frames(&mut recver).await;
 }
 
+/// Invariant I3 at the live (dispatcher) level: when a hot-replace .create
+/// fails to parse, the previous known-good actor is re-spawned so the
+/// system isn't left empty. Closes deficiency #5.
+#[tokio::test]
+async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // First .create: a valid actor that echoes its trigger.
+    let good_hash = store
+        .cas_insert(
+            r#"{run: {|frame, state = null|
+                if $frame.topic == "trigger" {
+                  {out: {who: "good"}, next: $state}
+                } else {
+                  {next: $state}
+                }
+            }}"#,
+        )
+        .await
+        .unwrap();
+    let _create_good = store
+        .append(Frame::builder("xs.actor.h.create").hash(good_hash.clone()).build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.active");
+
+    // Second .create: a closure with the wrong signature, will parse-fail.
+    let bad_hash = store.cas_insert(r#"{run: {|| 42}}"#).await.unwrap();
+    let _create_bad = store
+        .append(Frame::builder("xs.actor.h.create").hash(bad_hash).build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
+
+    // Expected sequence (order between .replaced and .invalid can vary
+    // since they're emitted by different tasks): the running actor sees
+    // the new .create and exits with .replaced, the dispatcher's
+    // try_start_actor rejects the new one with .invalid, and the live
+    // fallback then re-spawns from the confirmed good frame, producing a
+    // new .active.
+    let mut topics = std::collections::HashSet::new();
+    for _ in 0..3 {
+        topics.insert(recver.recv().await.unwrap().topic);
+    }
+    assert!(topics.contains("xs.actor.h.replaced"));
+    assert!(topics.contains("xs.actor.h.invalid"));
+    assert!(topics.contains("xs.actor.h.active"));
+
+    // The fallback spawned a new instance running the good script, so a
+    // trigger should still be handled.
+    let trigger = store.append(Frame::builder("trigger").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    let resp = recver.recv().await.unwrap();
+    assert_eq!(resp.topic, "h.out");
+    let meta = resp.meta.as_ref().unwrap();
+    assert_eq!(meta["frame_id"], trigger.id.to_string());
+    assert_eq!(meta["who"], "good");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
 #[tokio::test]
 async fn test_actor_with_module() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
