@@ -15,7 +15,7 @@ You can use it as a [generator](https://cablehead.github.io/xs/reference/generat
 contents of your pasteboard to an event stream.
 
 ```nushell
-r#'{ run: {|| x-macos-pasteboard | lines } }'# | .append pb.spawn
+r#'{ run: {|| x-macos-pasteboard | lines } }'# | .append xs.service.pb.create
 ```
 
 You can then subscribe to new pasteboard events with:
