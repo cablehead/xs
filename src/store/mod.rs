@@ -527,10 +527,11 @@ impl Store {
         frames.into_iter()
     }
 
-    /// Returns the current `.nu` module state as of a given point in the stream.
+    /// Returns the current module state as of a given point in the stream.
     ///
     /// Scans all frames up to (and including) `as_of` and returns a mapping of
-    /// topic name to CAS hash for the latest frame on each `*.nu` topic.
+    /// module name to CAS hash for the latest frame on each `xs.module.<name>`
+    /// topic.
     pub fn nu_modules_at(
         &self,
         as_of: &Scru128Id,
@@ -542,8 +543,10 @@ impl Store {
                 break;
             }
             if let Some(hash) = frame.hash {
-                if frame.topic.ends_with(".nu") {
-                    modules.insert(frame.topic, hash);
+                if let Some(name) = frame.topic.strip_prefix("xs.module.") {
+                    if !name.is_empty() {
+                        modules.insert(name.to_string(), hash);
+                    }
                 }
             }
         }
