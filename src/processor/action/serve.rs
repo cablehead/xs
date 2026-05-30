@@ -233,30 +233,75 @@ fn run_action(
     )
 }
 
+/// Translate today's action topic vocabulary into a lifecycle event.
+///
+/// Action's historical compaction today only consumes `.define`. The
+/// dispatcher doesn't have a soft-fail signal yet (deficiency #4) so
+/// `.error` is not mapped: it's per-invocation, not lifecycle.
+fn event_from_frame(frame: &crate::store::Frame) -> Option<(String, crate::processor::lifecycle::Event)> {
+    if let Some(name) = frame.topic.strip_suffix(".define") {
+        return Some((
+            name.to_string(),
+            crate::processor::lifecycle::Event::Create { id: frame.id },
+        ));
+    }
+    None
+}
+
+#[derive(Default)]
+struct TopicState {
+    slots: crate::processor::lifecycle::Slots,
+    /// Stash of every `.define` frame so threshold can look up by id.
+    frames: HashMap<scru128::Scru128Id, crate::store::Frame>,
+}
+
 pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let rx = store
         .read(ReadOptions::builder().follow(FollowOption::On).build())
         .await;
     let mut lifecycle = LifecycleReader::new(rx);
-    let mut compacted: HashMap<String, Frame> = HashMap::new();
+    let mut states: HashMap<String, TopicState> = HashMap::new();
     let mut active: HashMap<String, Action> = HashMap::new();
 
     while let Some(event) = lifecycle.recv().await {
         match event {
             Lifecycle::Historical(frame) => {
-                if let Some(name) = frame.topic.strip_suffix(".define") {
-                    compacted.insert(name.to_string(), frame);
+                if let Some((name, ev)) = event_from_frame(&frame) {
+                    let state = states.entry(name).or_default();
+                    if let crate::processor::lifecycle::Event::Create { id } = &ev {
+                        state.frames.insert(*id, frame.clone());
+                    }
+                    state.slots.apply(ev);
                 }
             }
             Lifecycle::Threshold(_) => {
-                let mut ordered: Vec<_> = compacted.drain().collect();
-                ordered.sort_by_key(|(_, frame)| frame.id);
-
-                for (name, frame) in ordered {
-                    handle_define(&frame, &name, &store, &mut active).await;
+                use crate::processor::lifecycle::ThresholdPick;
+                let mut picks: Vec<(String, ThresholdPick)> = states
+                    .iter()
+                    .map(|(t, s)| (t.clone(), s.slots.threshold()))
+                    .collect();
+                picks.sort_by_key(|(_, p)| match p {
+                    ThresholdPick::Start { id, .. } => Some(*id),
+                    ThresholdPick::None => None,
+                });
+                for (name, pick) in picks {
+                    if let ThresholdPick::Start { id, .. } = pick {
+                        if let Some(state) = states.get(&name) {
+                            if let Some(frame) = state.frames.get(&id).cloned() {
+                                handle_define(&frame, &name, &store, &mut active).await;
+                            }
+                        }
+                    }
                 }
             }
             Lifecycle::Live(frame) => {
+                if let Some((name, ev)) = event_from_frame(&frame) {
+                    let state = states.entry(name.clone()).or_default();
+                    if let crate::processor::lifecycle::Event::Create { id } = &ev {
+                        state.frames.insert(*id, frame.clone());
+                    }
+                    state.slots.apply(ev);
+                }
                 if let Some(name) = frame.topic.strip_suffix(".define") {
                     handle_define(&frame, name, &store, &mut active).await;
                 } else if let Some(name) = frame.topic.strip_suffix(".call") {
