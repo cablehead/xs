@@ -14,7 +14,7 @@ async fn test_action_with_pipeline() -> Result<(), Error> {
 
     // Define the action
     let frame_action = store.append(
-        Frame::builder("echo.define")
+        Frame::builder("xs.action.echo.create")
             .hash(
                 store
                     .cas_insert(
@@ -31,8 +31,8 @@ async fn test_action_with_pipeline() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.define");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.ready");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.active");
 
     // Call the action
     let frame_call = store.append(
@@ -70,7 +70,7 @@ async fn test_action_error_handling() -> Result<(), Error> {
     // Define action that will error with invalid access
     let frame_action = store
         .append(
-            Frame::builder("will_error.define")
+            Frame::builder("xs.action.will_error.create")
                 .hash(
                     store
                         .cas_insert(
@@ -85,8 +85,8 @@ async fn test_action_error_handling() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "will_error.define");
-    assert_eq!(recver.recv().await.unwrap().topic, "will_error.ready");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.will_error.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.will_error.active");
 
     // Call the action
     let frame_call = store
@@ -120,7 +120,7 @@ async fn test_action_single_value() -> Result<(), Error> {
 
     // Define the action
     let frame_action = store.append(
-        Frame::builder("single.define")
+        Frame::builder("xs.action.single.create")
             .hash(
                 store
                     .cas_insert(
@@ -133,8 +133,8 @@ async fn test_action_single_value() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "single.define");
-    assert_eq!(recver.recv().await.unwrap().topic, "single.ready");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.single.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.single.active");
 
     // Call the action
     let frame_call = store.append(Frame::builder("single.call").build())?;
@@ -166,7 +166,7 @@ async fn test_action_empty_output() -> Result<(), Error> {
 
     // Define the action
     let frame_action = store.append(
-        Frame::builder("empty.define")
+        Frame::builder("xs.action.empty.create")
             .hash(
                 store
                     .cas_insert(
@@ -178,8 +178,8 @@ async fn test_action_empty_output() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "empty.define");
-    assert_eq!(recver.recv().await.unwrap().topic, "empty.ready");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.empty.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.empty.active");
 
     // Call the action
     let frame_call = store.append(Frame::builder("empty.call").build())?;
@@ -206,7 +206,7 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
 
     // Define the action that outputs a simple pipeline of 1, 2, 3
     let frame_action = store.append(
-        Frame::builder("numbers.define")
+        Frame::builder("xs.action.numbers.create")
             .hash(
                 store
                     .cas_insert(
@@ -221,8 +221,8 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "numbers.define");
-    assert_eq!(recver.recv().await.unwrap().topic, "numbers.ready");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.numbers.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.numbers.active");
 
     // Call the action
     let frame_call = store.append(Frame::builder("numbers.call").build())?;
@@ -259,7 +259,7 @@ async fn test_action_record_output_goes_to_meta() -> Result<(), Error> {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     let frame_action = store.append(
-        Frame::builder("rec.define")
+        Frame::builder("xs.action.rec.create")
             .hash(
                 store
                     .cas_insert(
@@ -271,8 +271,8 @@ async fn test_action_record_output_goes_to_meta() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "rec.define");
-    assert_eq!(recver.recv().await.unwrap().topic, "rec.ready");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.rec.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.rec.active");
 
     let frame_call = store.append(Frame::builder("rec.call").build())?;
     assert_eq!(recver.recv().await.unwrap().topic, "rec.call");
