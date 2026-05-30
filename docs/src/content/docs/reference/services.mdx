@@ -1,6 +1,6 @@
 ---
 title: Services
-description: "How to use Nushell closures to spawn external processes and stream their output into cross.stream, with optional duplex communication and lifecycle events"
+description: "How to use Nushell closures to spawn external processes and stream their output into cross.stream, with optional duplex communication"
 sidebar:
   order: 2
 ---
@@ -10,65 +10,64 @@ import { Link } from '../../../utils/links';
 cross.stream services use <Link to="nu" /> closures to create streams of data
 that are emitted as frames into the store.
 
-You can also compose external request-response servers, particularly CLI tools that read requests on stdin and write responses to stdout, using [duplex](#bi-directional-communication) services.
+You can also compose external request-response servers, particularly CLI tools
+that read requests on stdin and write responses to stdout, using
+[duplex](#bi-directional-communication) services.
 
 ## Basic Usage
 
 To create a service, append a Nushell script that evaluates to a configuration
-record with a `run` closure using the topic `<topic>.spawn`:
+record with a `run` closure using the topic `xs.service.<name>.create`:
 
 ```nushell
 r#'{
   run: {|| ^tail -F http.log | lines }
-}'# | .append log.spawn
+}'# | .append xs.service.log.create
 ```
 
 The service will:
 
-- Execute the provided Nushell expression
-- Output from the pipeline is streamed as `log.recv` frames. Text pipelines emit
-  one frame per line, while `ByteStream` pipelines send binary chunks.
-- Automatically restarts if it exits until a terminate frame is seen
+- Execute the provided Nushell expression.
+- Stream pipeline output as `log.recv` frames. Text pipelines emit one frame
+  per line, `ByteStream` pipelines send binary chunks.
+- Auto-restart on natural completion (the pipeline drained without error). The
+  service stays running until the user appends `xs.service.log.term` or it
+  crashes.
 
-## Lifecycle Events
+## Data channels
 
-Services emit lifecycle events to track their state. See <Link to="/reference/topics/">Topics</Link> for all processor suffixes.
+| Topic | Direction | Description |
+| ----- | --------- | ----------- |
+| `<name>.recv` | system -> stream | Output value emitted by the service |
+| `<name>.send` | user -> service stdin | Input fed to a duplex service |
 
-| Event                 | Description                             |
-| --------------------- | --------------------------------------- |
-| `<topic>.running`     | Service has started processing        |
-| `<topic>.recv`        | Output value from the service         |
-| `<topic>.stopped` | Service pipeline has stopped. The \`meta.reason\` field is a string enum with values `finished`, `error`, `terminate`, `update` and `shutdown`. When `finished` or `error`, the pipeline will be restarted automatically; `terminate` means it was stopped manually and the service loop will shut down. `update` indicates the service reloaded due to a new `.spawn` frame; `shutdown` means the service stopped because the supervisor is shutting down. |
-| `<topic>.parse.error` | Script failed to parse |
-| `<topic>.shutdown` | Service loop has fully exited; the dispatcher evicts it |
-
-All events include `source_id` which is the ID of the service instance. When a `.stopped` frame has `meta.reason` set to `update`, it also includes `update_id` referencing the spawn that triggered the reload. The dispatcher evicts a service when it receives a `<topic>.shutdown` frame.
+Both live in the user/app namespace, not under `xs.`. They are app data, not
+lifecycle.
 
 ## Configuration Options
 
 | Option   | Type    | Default | Description                                                         |
 | -------- | ------- | ------- | ------------------------------------------------------------------- |
-| `duplex` | boolean | false   | Enable sending input to the service's pipeline via `<topic>.send` |
-| `return_options` | record | — | Customize output frames (see Return Options) |
+| `duplex` | boolean | false   | Enable sending input to the service's pipeline via `<name>.send`    |
+| `return_options` | record | -- | Customize output frames (see Return Options) |
 
-The `return_options` field controls the suffix and TTL for the `.recv` frames produced by the service.
+The `return_options` field controls the suffix and TTL for the `.recv` frames
+produced by the service.
 
-## Return Options
-
-The `return_options` record allows you to customize the output frames produced by the service:
+### Return Options
 
 | Option   | Type   | Default   | Description                                           |
 | -------- | ------ | --------- | ----------------------------------------------------- |
-| `suffix` | string | `".recv"` | Suffix appended to the service topic for output frames. Include the leading `.` (e.g., `".output"` produces `<topic>.output`) |
+| `suffix` | string | `".recv"` | Suffix appended to the service name for output frames. Include the leading `.` (e.g., `".output"` produces `<name>.output`) |
 | `ttl`    | string | `"forever"` | Time-to-live for output frames                      |
 | `target` | string | omitted   | Default (omitted): output must be a record, stored as frame metadata. Set to `"cas"` to store in CAS; any type is accepted. |
 
-### TTL Options
+#### TTL Options
 
-- `"forever"` - Frames never expire (default)
-- `"ephemeral"` - Frames are removed immediately after processing
-- `"time:<ms>"` - Frames expire after specified milliseconds
-- `"last:<n>"` - Keep only the N most recent frames for each topic
+- `"forever"` -- Frames never expire (default)
+- `"ephemeral"` -- Frames are removed immediately after processing
+- `"time:<ms>"` -- Frames expire after specified milliseconds
+- `"last:<n>"` -- Keep only the N most recent frames
 
 Example with custom return options:
 
@@ -79,14 +78,17 @@ r#'{
     suffix: ".line",
     ttl: "last:100"  # Keep only last 100 log lines
   }
-}'# | .append logs.spawn
+}'# | .append xs.service.logs.create
 ```
 
-This service will emit frames with the topic `logs.line` and automatically maintain only the 100 most recent log entries.
+This service emits frames with the topic `logs.line` and automatically
+maintains only the 100 most recent log entries.
 
 ## Modules
 
-Services can use modules registered via `*.nu` topics. A service sees the modules as they existed when it was spawned. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Services can use modules registered via `xs.module.<name>` topics. A service
+sees the modules as they existed when it was created. See
+<Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r#'{
@@ -94,50 +96,67 @@ r#'{
     use my-parser
     ^tail -F data.log | lines | each {|line| my-parser parse $line }
   }
-}'# | .append log.spawn
+}'# | .append xs.service.log.create
 ```
 
 ## Bi-directional Communication
 
 When `duplex` is enabled, you can send data into the service's input pipeline
-via `<topic>.send` frames:
+via `<name>.send` frames:
 
 ```nushell
 # Create a websocket connection
 r#'{
   run: {|| websocat wss://echo.websocket.org | lines },
   duplex: true
-}'# | .append echo.spawn
+}'# | .append xs.service.echo.create
 
 # Send input to the websocket: note the "\n", wss://echo.websocket.org won't
-# reply until it sees a complete line
+# reply until it sees a complete line.
 "hello\n" | .append echo.send
 ```
 
 When running this service:
 
-- Lines received from the websocket server are emitted as `<topic>.recv` frames
-- Content from `<topic>.send` frames is sent to the websocket server
+- Lines received from the websocket server are emitted as `<name>.recv` frames.
+- Content from `<name>.send` frames is sent to the websocket server.
 
-## Error Handling
+## Auto-restart and hot-reload
 
-If a service encounters an error during spawning a `<topic>.parse.error` frame
-is emitted with:
+When the script's pipeline runs to completion without error, the service waits
+one second and restarts the pipeline. No lifecycle frame is emitted for this
+internal restart -- the service is still considered "running."
 
-- `source_id`: ID of the failed spawn attempt
-- `reason`: Error message describing what went wrong
+Appending a new `xs.service.<name>.create` frame while the service is running
+reloads it with the new script:
 
-The service does not start and no stop frame is produced.
+- If the new script parses, the old task is killed, an `xs.service.<name>.replaced`
+  frame is emitted, and a new `xs.service.<name>.active` follows for the
+  reloaded task.
+- If the new script fails to parse, an `xs.service.<name>.invalid` frame is
+  emitted and the previous service keeps running. The next restart of xs
+  also keeps the previous (good) version, because compaction holds the last
+  known-good `create` as a fallback.
 
-When a running service finishes or fails, it automatically restarts after a 1-second delay.
+## Lifecycle
 
-## Stopping Services
+Services share the unified lifecycle vocabulary documented in
+<Link to="/reference/lifecycle/" />. In summary:
 
-To stop a running service, append a frame with the topic `<topic>.terminate`.
-The service will stop and emit a `<topic>.stopped` frame with `meta.reason` set to
-`terminate`.
+| User input | Runtime ack on success | Runtime ack on failure |
+| --- | --- | --- |
+| `xs.service.<name>.create` | `xs.service.<name>.active` | `xs.service.<name>.invalid` |
+| `xs.service.<name>.term` | `xs.service.<name>.fin.term` | -- |
 
-Appending a new `<topic>.spawn` frame while a service of the same topic
-is running reloads it with the new script. If the reload fails to parse,
-you'll see a `<topic>.parse.error` frame, and the previous service continues
-running.
+Plus the runtime emits:
+
+- `xs.service.<name>.fin.ok` -- the run loop exited because the script
+  returned with no auto-restart left to do (rare; today the loop always
+  retries `Continue`).
+- `xs.service.<name>.fin.error` -- runtime crash in the script.
+- `xs.service.<name>.replaced` -- hot-reloaded by a newer `.create`.
+- `xs.service.<name>.stopped` -- xs is shutting down (`xs.stopping`). The
+  service was alive; it will resume on the next start.
+
+See <Link to="/reference/lifecycle/" /> for the full event list, the
+compaction algorithm, and the invariants the dispatcher honors.
