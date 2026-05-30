@@ -369,20 +369,23 @@ async fn test_multiple_modules_shared_parent() {
 
     store
         .append(
-            Frame::builder("sharedcmd.define")
+            Frame::builder("xs.action.sharedcmd.create")
                 .hash(store.cas_insert(&cmd_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "sharedcmd.define");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.sharedcmd.create"
+    );
 
     let next = recver.recv().await.unwrap();
-    if next.topic == "sharedcmd.error" {
+    if next.topic == "xs.action.sharedcmd.invalid" {
         let meta = next.meta.as_ref().unwrap();
-        panic!("command error: {}", meta["error"]);
+        panic!("command parse error: {}", meta["error"]);
     }
-    assert_eq!(next.topic, "sharedcmd.ready");
+    assert_eq!(next.topic, "xs.action.sharedcmd.active");
 
     // Call the command
     store
