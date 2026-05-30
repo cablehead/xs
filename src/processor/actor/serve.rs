@@ -165,17 +165,36 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
             Lifecycle::Live(frame) => {
                 if let Some((topic, ev)) = event_from_frame(&frame) {
                     let is_create = matches!(ev, Event::Create { .. });
+                    // Capture the confirmed (last known-good) create id BEFORE
+                    // applying this event, so a parse-fail on a hot-replace
+                    // can fall back to it. After Event::Create, pending is
+                    // updated but confirmed is unchanged, so this is also
+                    // safe to read post-apply -- doing it first just matches
+                    // the algorithm's intent.
+                    let prior_confirmed = states.get(&topic).and_then(|s| s.slots.confirmed());
                     let state = states.entry(topic.clone()).or_default();
                     if let Event::Create { id } = &ev {
                         state.frames.insert(*id, frame.clone());
                     }
                     state.slots.apply(ev);
-                    // Live behaviour: a new .create starts the actor
-                    // immediately. Hot-replace fallback at the live level
-                    // (deficiency #5) is not addressed here; that requires
-                    // further changes to the actor's own protocol.
                     if is_create {
-                        let _ = try_start_actor(&frame, &store, &topic).await?;
+                        let outcome = try_start_actor(&frame, &store, &topic).await?;
+                        if matches!(outcome, StartOutcome::Invalid) {
+                            // Live hot-replace fallback (closes deficiency
+                            // #5): the running instance has already exited
+                            // because it saw this .create on its stream. If
+                            // the replacement failed to parse, restart from
+                            // the last confirmed create so the system isn't
+                            // left empty.
+                            if let Some(fb_id) = prior_confirmed {
+                                if let Some(fb_frame) = states
+                                    .get(&topic)
+                                    .and_then(|s| s.frames.get(&fb_id).cloned())
+                                {
+                                    let _ = try_start_actor(&fb_frame, &store, &topic).await?;
+                                }
+                            }
+                        }
                     }
                 }
             }
