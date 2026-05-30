@@ -202,20 +202,20 @@ async fn test_module_registered_in_vfs() {
 
     store
         .append(
-            Frame::builder("vfstest.register")
+            Frame::builder("xs.actor.vfstest.create")
                 .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "vfstest.register");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.vfstest.create");
 
     let next = recver.recv().await.unwrap();
-    if next.topic == "vfstest.unregistered" {
+    if next.topic == "xs.actor.vfstest.invalid" {
         let meta = next.meta.as_ref().unwrap();
         panic!("actor unregistered with error: {}", meta["error"]);
     }
-    assert_eq!(next.topic, "vfstest.active");
+    assert_eq!(next.topic, "xs.actor.vfstest.active");
 
     // Trigger the actor
     store.append(Frame::builder("ping").build()).unwrap();
@@ -259,14 +259,14 @@ async fn test_module_dot_path_maps_to_directory() {
 
     store
         .append(
-            Frame::builder("dotpath.register")
+            Frame::builder("xs.actor.dotpath.create")
                 .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "dotpath.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "dotpath.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.dotpath.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.dotpath.active");
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
@@ -309,14 +309,14 @@ async fn test_live_module_registration() {
 
     store
         .append(
-            Frame::builder("livemod.register")
+            Frame::builder("xs.actor.livemod.create")
                 .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "livemod.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "livemod.active");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.livemod.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.livemod.active");
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
