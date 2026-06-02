@@ -1209,3 +1209,186 @@ async fn test_graceful_shutdown_via_xs_stopping() {
         "service handle should complete after xs.stopping"
     );
 }
+
+// Mirrors the stacks2099 git-diff watcher config: a run closure that yields one
+// whole multi-line string per change, with return_options { suffix, target:
+// "cas", ttl: "last:1" }. Verifies the service activates and lands the ENTIRE
+// multi-line string as ONE CAS frame (not split per line).
+#[tokio::test]
+async fn test_service_multiline_string_one_cas_frame() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        }));
+    }
+
+    // A ListStream of string values (like `watch | each {|e| git diff }`): each
+    // value is a whole multi-line patch. Not a single list literal -- that would
+    // be one Value and get JSON-stringified.
+    let script = r#"{ run: {|| [1] | each {|_| "a\nb\nc" } }, return_options: { suffix: ".diff", target: "cas", ttl: "last:1" } }"#;
+    let frame_service = store
+        .append(
+            Frame::builder("xs.service.diffsvc.create")
+                .maybe_hash(store.cas_insert(script).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let active = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for .active (service stuck at create?)")
+        .unwrap();
+    assert_eq!(active.topic, "xs.service.diffsvc.active".to_string());
+
+    let out = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for diffsvc.diff frame")
+        .unwrap();
+    assert_eq!(out.topic, "diffsvc.diff".to_string());
+    assert_eq!(
+        out.meta.as_ref().unwrap()["source_id"],
+        frame_service.id.to_string()
+    );
+    let content = store.cas_read(&out.hash.unwrap()).await.unwrap();
+    assert_eq!(
+        std::str::from_utf8(&content).unwrap(),
+        "a\nb\nc",
+        "whole multi-line value must land as ONE CAS frame, not split per line"
+    );
+}
+
+// Closest unit-level analog to the stacks2099 git-diff watcher: a service whose
+// run closure is a long-lived `watch <dir> | each {...}` stream. Verifies the
+// service activates and that a filesystem change drives a .recv frame (i.e. a
+// watch-based service does not stall at .create or wedge the processor).
+#[tokio::test]
+async fn test_service_watch_drives_frames() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        }));
+    }
+
+    // A dir to watch, separate from the store.
+    let watch_dir = TempDir::new().unwrap();
+    let watch_path = watch_dir.path().to_string_lossy().to_string();
+    let target_file = watch_dir.path().join("f.txt");
+
+    let script = format!(
+        r#"{{ run: {{|| watch "{dir}" --glob "**/*" --debounce 50ms | each {{|e| $e.path }} }}, return_options: {{ suffix: ".diff", target: "cas", ttl: "last:1" }} }}"#,
+        dir = watch_path
+    );
+    store
+        .append(
+            Frame::builder("xs.service.diffwatch.create")
+                .maybe_hash(store.cas_insert(&script).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let active = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for .active (watch service stuck at create?)")
+        .unwrap();
+    assert_eq!(active.topic, "xs.service.diffwatch.active".to_string());
+
+    // Give the watcher a beat to arm, then change a file.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    std::fs::write(&target_file, "hello").unwrap();
+
+    let out = tokio::time::timeout(Duration::from_secs(5), recver.recv())
+        .await
+        .expect("timed out waiting for diffwatch.diff frame after a file change")
+        .unwrap();
+    assert_eq!(out.topic, "diffwatch.diff".to_string());
+    let content = store.cas_read(&out.hash.unwrap()).await.unwrap();
+    assert!(
+        std::str::from_utf8(&content).unwrap().contains("f.txt"),
+        "frame should carry the changed path"
+    );
+}
+
+// Reproduces the stacks2099 hosting condition: actor + service + action
+// processors all running on the same store (as store.rs spawns them), plus some
+// prior boot frames, THEN a service.create appended later. In stacks2099 this
+// stalls at .create and never reaches .active.
+#[tokio::test]
+async fn test_service_activates_alongside_other_processors() {
+    let store = setup_test_env();
+
+    // All three processors, as stacks2099's store.rs spawns them.
+    {
+        let s = store.clone();
+        drop(tokio::spawn(
+            async move { crate::processor::actor::run(s).await },
+        ));
+    }
+    {
+        let s = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::service::run(s).await
+        }));
+    }
+    {
+        let s = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::action::run(s).await
+        }));
+    }
+
+    // Boot-ish frames before the create, like a running app.
+    store.append(Frame::builder("xs.start").build()).unwrap();
+    store.append(Frame::builder("stack.add").build()).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let script = r#"{ run: {|| [1] | each {|_| "x" } }, return_options: { suffix: ".diff", target: "cas", ttl: "last:1" } }"#;
+    store
+        .append(
+            Frame::builder("xs.service.git.create")
+                .maybe_hash(store.cas_insert(script).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    // Drain until we see .active or time out (the stacks2099 symptom is a stall).
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut saw_active = false;
+    while Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(1), recver.recv()).await {
+            Ok(Some(f)) if f.topic == "xs.service.git.active" => {
+                saw_active = true;
+                break;
+            }
+            Ok(Some(_)) => continue,
+            _ => continue,
+        }
+    }
+    assert!(
+        saw_active,
+        "service stuck at .create -- never reached .active with actor+service+action co-hosted"
+    );
+}
