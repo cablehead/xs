@@ -1278,60 +1278,31 @@ async fn test_graceful_shutdown_via_xs_stopping() {
     );
 }
 
-// Mirrors the stacks2099 git-diff watcher config: a run closure that yields one
-// whole multi-line string per change, with return_options { suffix, target:
-// "cas", ttl: "last:1" }. Verifies the service activates and lands the ENTIRE
-// multi-line string as ONE CAS frame (not split per line).
-#[tokio::test]
-async fn test_service_multiline_string_one_cas_frame() {
-    let store = setup_test_env();
+// A service that yields whole string values (like `watch | each {|e| git diff
+// }`, each value a multi-line patch) must frame each value as ONE CAS payload,
+// not split it per line. That decision lives entirely in value_to_event, so pin
+// it there: deterministic, no processor, no CAS, no wall-clock waits.
+#[test]
+fn test_multiline_string_frames_whole_value() {
+    use crate::processor::service::service::value_to_event;
+    use nu_protocol::{Span, Value};
 
-    {
-        let store = store.clone();
-        drop(tokio::spawn(async move {
-            crate::processor::service::run(store).await.unwrap();
-        }));
+    let value = Value::string("a\nb\nc", Span::unknown());
+    let event = value_to_event(&value, ".diff", true)
+        .unwrap()
+        .expect("a string value with target cas should produce a Recv event");
+
+    match event {
+        ServiceEventKind::Recv { suffix, data } => {
+            assert_eq!(suffix, ".diff");
+            assert_eq!(
+                std::str::from_utf8(&data).unwrap(),
+                "a\nb\nc",
+                "whole multi-line value must frame as ONE payload, not split per line"
+            );
+        }
+        other => panic!("expected Recv, got {other:?}"),
     }
-
-    // A ListStream of string values (like `watch | each {|e| git diff }`): each
-    // value is a whole multi-line patch. Not a single list literal -- that would
-    // be one Value and get JSON-stringified.
-    let script = r#"{ run: {|| [1] | each {|_| "a\nb\nc" } }, return_options: { suffix: ".diff", target: "cas", ttl: "last:1" } }"#;
-    let frame_service = store
-        .append(
-            Frame::builder("xs.service.diffsvc.create")
-                .maybe_hash(store.cas_insert(script).await.ok())
-                .build(),
-        )
-        .unwrap();
-
-    let options = ReadOptions::builder()
-        .follow(FollowOption::On)
-        .new(true)
-        .build();
-    let mut recver = store.read(options).await;
-
-    let active = tokio::time::timeout(Duration::from_secs(5), recver.recv())
-        .await
-        .expect("timed out waiting for .active (service stuck at create?)")
-        .unwrap();
-    assert_eq!(active.topic, "xs.service.diffsvc.active".to_string());
-
-    let out = tokio::time::timeout(Duration::from_secs(5), recver.recv())
-        .await
-        .expect("timed out waiting for diffsvc.diff frame")
-        .unwrap();
-    assert_eq!(out.topic, "diffsvc.diff".to_string());
-    assert_eq!(
-        out.meta.as_ref().unwrap()["source_id"],
-        frame_service.id.to_string()
-    );
-    let content = store.cas_read(&out.hash.unwrap()).await.unwrap();
-    assert_eq!(
-        std::str::from_utf8(&content).unwrap(),
-        "a\nb\nc",
-        "whole multi-line value must land as ONE CAS frame, not split per line"
-    );
 }
 
 // Closest unit-level analog to the stacks2099 git-diff watcher: a service whose

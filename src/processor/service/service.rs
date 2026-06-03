@@ -593,7 +593,7 @@ fn run_pipeline(
     Ok(())
 }
 
-fn value_to_event(
+pub(crate) fn value_to_event(
     value: &Value,
     suffix: &str,
     use_cas: bool,
