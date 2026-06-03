@@ -1325,8 +1325,11 @@ async fn test_service_watch_drives_frames() {
     let watch_path = watch_dir.path().to_string_lossy().to_string();
     let target_file = watch_dir.path().join("f.txt");
 
+    // `$e.path` is null for a rename-To event (macOS fsevents surfaces writes
+    // this way); fall back to `$e.new_path` so the closure yields the changed
+    // path regardless of how the platform classifies the event.
     let script = format!(
-        r#"{{ run: {{|| watch "{dir}" --glob "**/*" --debounce 50ms | each {{|e| $e.path }} }}, return_options: {{ suffix: ".diff", target: "cas", ttl: "last:1" }} }}"#,
+        r#"{{ run: {{|| watch "{dir}" --debounce 50ms | each {{|e| $e.path | default $e.new_path }} }}, return_options: {{ suffix: ".diff", target: "cas", ttl: "last:1" }} }}"#,
         dir = watch_path
     );
     store
