@@ -1378,15 +1378,30 @@ async fn test_service_watch_drives_frames() {
         .unwrap();
     assert_eq!(active.topic, "xs.service.diffwatch.active".to_string());
 
-    // Give the watcher a beat to arm, then change a file.
+    // Give the watcher a beat to arm, then change the file. fsevents arm latency
+    // varies (notably on macOS), so re-touch the file each poll iteration: if the
+    // watcher armed after our first write, a later write still drives a frame.
+    // Drain tolerantly to a deadline and ignore any interleaved frames -- we only
+    // care that the change eventually produces a diffwatch.diff carrying the path.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    std::fs::write(&target_file, "hello").unwrap();
 
-    let out = tokio::time::timeout(Duration::from_secs(5), recver.recv())
-        .await
-        .expect("timed out waiting for diffwatch.diff frame after a file change")
-        .unwrap();
-    assert_eq!(out.topic, "diffwatch.diff".to_string());
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut out = None;
+    let mut nonce = 0;
+    while Instant::now() < deadline {
+        nonce += 1;
+        std::fs::write(&target_file, format!("hello {nonce}")).unwrap();
+        match tokio::time::timeout(Duration::from_secs(1), recver.recv()).await {
+            Ok(Some(f)) if f.topic == "diffwatch.diff" => {
+                out = Some(f);
+                break;
+            }
+            Ok(Some(_)) => continue,
+            _ => continue,
+        }
+    }
+
+    let out = out.expect("timed out waiting for diffwatch.diff frame after a file change");
     let content = store.cas_read(&out.hash.unwrap()).await.unwrap();
     assert!(
         std::str::from_utf8(&content).unwrap().contains("f.txt"),
