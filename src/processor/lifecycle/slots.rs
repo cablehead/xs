@@ -92,10 +92,7 @@ impl Slots {
     /// * both empty: nothing to start.
     pub fn threshold(&self) -> ThresholdPick {
         match (self.pending, self.confirmed) {
-            (Some(p), c) => ThresholdPick::Start {
-                id: p,
-                fallback: c,
-            },
+            (Some(p), c) => ThresholdPick::Start { id: p, fallback: c },
             (None, Some(c)) => ThresholdPick::Start {
                 id: c,
                 fallback: None,

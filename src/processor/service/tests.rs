@@ -198,29 +198,52 @@ async fn test_respawn_after_terminate() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("xs.service.sleeper.create").hash(hash.clone()).build())
+        .append(
+            Frame::builder("xs.service.sleeper.create")
+                .hash(hash.clone())
+                .build(),
+        )
         .unwrap();
 
     // expect running
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleeper.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleeper.active"
+    );
     assert_no_more_frames(&mut recver).await;
 
     store
         .append(Frame::builder("xs.service.sleeper.term").build())
         .unwrap();
     // first see the terminate event itself
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.term");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleeper.term"
+    );
 
     let stop = recver.recv().await.unwrap();
     assert_eq!(stop.topic, "xs.service.sleeper.fin.term");
 
     store
-        .append(Frame::builder("xs.service.sleeper.create").hash(hash).build())
+        .append(
+            Frame::builder("xs.service.sleeper.create")
+                .hash(hash)
+                .build(),
+        )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleeper.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleeper.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleeper.active"
+    );
 }
 
 #[tokio::test]
@@ -238,7 +261,11 @@ async fn test_serve_restart_until_terminated() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("xs.service.restarter.create").hash(hash).build())
+        .append(
+            Frame::builder("xs.service.restarter.create")
+                .hash(hash)
+                .build(),
+        )
         .unwrap();
 
     let options = ReadOptions::builder()
@@ -248,7 +275,10 @@ async fn test_serve_restart_until_terminated() {
     let mut recver = store.read(options).await;
 
     // first iteration
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.restarter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.restarter.active"
+    );
     assert_eq!(recver.recv().await.unwrap().topic, "restarter.recv");
     let t_before_stop = Instant::now();
 
@@ -406,7 +436,10 @@ async fn test_refresh_on_new_spawn() {
     let mut recver = store.read(options).await;
 
     // Expect the first running
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reload.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.reload.active"
+    );
 
     // Send a new spawn to refresh the service while it's running
     let script2 = r#"{ run: {|| "v2" }, return_options: { target: "cas" } }"#;
@@ -419,7 +452,10 @@ async fn test_refresh_on_new_spawn() {
         .unwrap();
 
     // The new spawn event arrives first
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reload.create");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.reload.create"
+    );
 
     // We should then see a .replaced frame referencing the new spawn.
     let mut stop;
@@ -434,7 +470,10 @@ async fn test_refresh_on_new_spawn() {
     assert_eq!(meta["update_id"], spawn2.id.to_string());
 
     // And the service should restart with the new script
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reload.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.reload.active"
+    );
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "reload.recv");
     let content = store.cas_read(&frame.hash.unwrap()).await.unwrap();
@@ -460,7 +499,11 @@ async fn test_terminate_one_of_two_services() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("xs.service.gen1.create").hash(hash.clone()).build())
+        .append(
+            Frame::builder("xs.service.gen1.create")
+                .hash(hash.clone())
+                .build(),
+        )
         .unwrap();
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.service.gen1.create");
@@ -520,8 +563,14 @@ async fn test_bytestream_ping() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.pinger.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.pinger.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.pinger.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.pinger.active"
+    );
 
     for _ in 0..2 {
         let frame = recver.recv().await.unwrap();
@@ -652,12 +701,7 @@ async fn inv7_service_with_stopped_resumes_on_replay() {
         let create = store
             .append(
                 Frame::builder("xs.service.api.create".to_string())
-                    .hash(
-                        store
-                            .cas_insert(r#"{ run: {|| "hi" } }"#)
-                            .await
-                            .unwrap(),
-                    )
+                    .hash(store.cas_insert(r#"{ run: {|| "hi" } }"#).await.unwrap())
                     .build(),
             )
             .unwrap();
@@ -700,12 +744,7 @@ async fn inv2_service_with_active_resumes_on_replay() {
         let create = store
             .append(
                 Frame::builder("xs.service.api.create".to_string())
-                    .hash(
-                        store
-                            .cas_insert(r#"{ run: {|| "hi" } }"#)
-                            .await
-                            .unwrap(),
-                    )
+                    .hash(store.cas_insert(r#"{ run: {|| "hi" } }"#).await.unwrap())
                     .build(),
             )
             .unwrap();
@@ -831,8 +870,14 @@ async fn inv4_service_term_emits_fin_term() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleepy.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleepy.active"
+    );
 
     store
         .append(Frame::builder("xs.service.sleepy.term").build())
@@ -840,7 +885,10 @@ async fn inv4_service_term_emits_fin_term() {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.term");
     let fin = recver.recv().await.unwrap();
     assert_eq!(fin.topic, "xs.service.sleepy.fin.term");
-    assert_eq!(fin.meta.as_ref().unwrap()["source_id"], create.id.to_string());
+    assert_eq!(
+        fin.meta.as_ref().unwrap()["source_id"],
+        create.id.to_string()
+    );
 }
 
 /// I6 Ack traceability for services: every emitted lifecycle ack carries
@@ -885,7 +933,10 @@ async fn inv6_service_acks_carry_source_pointer() {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.service.tr.term");
     let fin = recver.recv().await.unwrap();
     assert_eq!(fin.topic, "xs.service.tr.fin.term");
-    assert_eq!(fin.meta.as_ref().unwrap()["source_id"], create.id.to_string());
+    assert_eq!(
+        fin.meta.as_ref().unwrap()["source_id"],
+        create.id.to_string()
+    );
 }
 
 /// I8 Single live instance for services: terminating one service of two
@@ -908,7 +959,11 @@ async fn inv8_service_single_live_instance_per_topic_root() {
     let script = r#"{ run: {|| ^sleep 1000 } }"#;
     let hash = store.cas_insert(script).await.unwrap();
     store
-        .append(Frame::builder("xs.service.alpha.create").hash(hash.clone()).build())
+        .append(
+            Frame::builder("xs.service.alpha.create")
+                .hash(hash.clone())
+                .build(),
+        )
         .unwrap();
     store
         .append(Frame::builder("xs.service.bravo.create").hash(hash).build())
@@ -1102,7 +1157,10 @@ async fn test_record_output_with_cas_target() {
         .build();
     let mut recver = store.read(options).await;
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.reccas.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.reccas.active"
+    );
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "reccas.recv");
@@ -1188,11 +1246,21 @@ async fn test_graceful_shutdown_via_xs_stopping() {
     let hash = store.cas_insert(script).await.unwrap();
 
     store
-        .append(Frame::builder("xs.service.sleepy.create").hash(hash).build())
+        .append(
+            Frame::builder("xs.service.sleepy.create")
+                .hash(hash)
+                .build(),
+        )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.service.sleepy.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleepy.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.sleepy.active"
+    );
 
     // Emit xs.stopping to trigger graceful shutdown
     store.append(Frame::builder("xs.stopping").build()).unwrap();
@@ -1337,9 +1405,9 @@ async fn test_service_activates_alongside_other_processors() {
     // All three processors, as stacks2099's store.rs spawns them.
     {
         let s = store.clone();
-        drop(tokio::spawn(
-            async move { crate::processor::actor::run(s).await },
-        ));
+        drop(tokio::spawn(async move {
+            crate::processor::actor::run(s).await
+        }));
     }
     {
         let s = store.clone();

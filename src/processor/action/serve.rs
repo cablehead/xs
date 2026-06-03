@@ -235,7 +235,9 @@ fn run_action(
 }
 
 /// Translate `xs.action.<name>.<event>` topics into a lifecycle event.
-fn event_from_frame(frame: &crate::store::Frame) -> Option<(String, crate::processor::lifecycle::Event)> {
+fn event_from_frame(
+    frame: &crate::store::Frame,
+) -> Option<(String, crate::processor::lifecycle::Event)> {
     use crate::processor::lifecycle::Event;
     let rest = frame.topic.strip_prefix("xs.action.")?;
     let (name, ev_tag) = split_action_event(rest)?;

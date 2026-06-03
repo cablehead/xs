@@ -153,8 +153,7 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
                 }
                 if let Some((topic, ev)) = event_from_frame(&frame) {
                     let is_create = matches!(ev, Event::Create { .. });
-                    let removes_active =
-                        matches!(ev, Event::Fin | Event::Stopped);
+                    let removes_active = matches!(ev, Event::Fin | Event::Stopped);
                     let state = states.entry(topic.clone()).or_default();
                     if let Event::Create { id } = &ev {
                         state.frames.insert(*id, frame.clone());

@@ -337,7 +337,10 @@ async fn test_essentials() {
         .append(Frame::builder("xs.actor.action.term").build())
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.action.term");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.action.fin.term");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.action.fin.term"
+    );
 
     assert_no_more_frames(&mut recver).await;
 
@@ -673,7 +676,10 @@ async fn test_actor_replacement() {
     .collect();
     assert_eq!(
         topics,
-        HashSet::from(["xs.actor.h.replaced".to_string(), "xs.actor.h.active".to_string(),])
+        HashSet::from([
+            "xs.actor.h.replaced".to_string(),
+            "xs.actor.h.active".to_string(),
+        ])
     );
 
     // Send trigger - should be handled by actor2
@@ -717,7 +723,11 @@ async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
         .await
         .unwrap();
     let _create_good = store
-        .append(Frame::builder("xs.actor.h.create").hash(good_hash.clone()).build())
+        .append(
+            Frame::builder("xs.actor.h.create")
+                .hash(good_hash.clone())
+                .build(),
+        )
         .unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
     assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.active");
@@ -935,8 +945,14 @@ async fn test_state_threading() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.active"
+    );
 
     // First trigger: state=0 emitted, state becomes 1
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -1003,9 +1019,15 @@ async fn test_out_only_stops() {
 
     // Append a trigger before the actor starts processing (start: "first")
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.stopper.create");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.stopper.create"
+    );
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.stopper.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.stopper.active"
+    );
 
     // Should see output, then unregistered
     let output = recver.recv().await.unwrap();
@@ -1050,9 +1072,15 @@ async fn test_nothing_stops() {
         .unwrap();
 
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.stopper.create");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.stopper.create"
+    );
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.stopper.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.stopper.active"
+    );
 
     // Should see unregistered (no output frame)
     validate_frame!(recver.recv().await.unwrap(), {
@@ -1140,8 +1168,14 @@ async fn test_initial_config() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.active"
+    );
 
     // First trigger: should emit 10 (from initial), not 0 (from default)
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -1194,8 +1228,14 @@ async fn test_initial_config_required_state() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.active"
+    );
 
     // First trigger: should emit 100
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -1292,8 +1332,14 @@ async fn test_default_param_value() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.counter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.counter.active"
+    );
 
     // First trigger: should emit 42 (from closure default)
     store.append(Frame::builder("trigger").build()).unwrap();
@@ -1403,8 +1449,14 @@ async fn test_record_out_goes_to_meta() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.metaout.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.metaout.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.metaout.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.metaout.active"
+    );
 
     // Send a sale frame with amount in meta
     store
@@ -1568,8 +1620,14 @@ async fn test_unregistered_actor_not_restarted_on_replay() {
 
     // History replays, then the threshold. The actor must not start again, so
     // no `greeter.active` frame should follow.
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.greeter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.greeter.fin.term");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.greeter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.greeter.fin.term"
+    );
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
     assert_no_more_frames(&mut recver).await;
 }
@@ -1614,8 +1672,14 @@ async fn inv2_actor_with_active_resumes_on_replay() {
 
     // History replays the seeded .create and .active, threshold, then the
     // dispatcher should restart the actor and emit a fresh .active.
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.greeter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.greeter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.greeter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.greeter.active"
+    );
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
     // The fresh dispatcher emits a new .active for the restart.
     let restart_active = recver.recv().await.unwrap();
@@ -1644,8 +1708,14 @@ async fn inv4_actor_term_emits_fin_term() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tunable.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tunable.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.tunable.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.tunable.active"
+    );
 
     store
         .append(Frame::builder("xs.actor.tunable.term").build())
@@ -1696,7 +1766,10 @@ async fn inv6_actor_acks_carry_source_pointer() {
     assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tr.term");
     let fin = recver.recv().await.unwrap();
     assert_eq!(fin.topic, "xs.actor.tr.fin.term");
-    assert_eq!(fin.meta.as_ref().unwrap()["actor_id"], create.id.to_string());
+    assert_eq!(
+        fin.meta.as_ref().unwrap()["actor_id"],
+        create.id.to_string()
+    );
 
     // (3) .invalid: emitted when a create fails to parse.
     let bad_create = store
@@ -1776,7 +1849,7 @@ async fn inv8_actor_single_live_instance_per_topic_root() {
     assert!(acks.contains("xs.actor.h.active"));
 
     // Trigger: only ONE response, from the second actor.
-    let trig = store.append(Frame::builder("trigger").build()).unwrap();
+    let _trig = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(recver.recv().await.unwrap().topic, "trigger");
     let out = recver.recv().await.unwrap();
     assert_eq!(out.topic, "h.out");

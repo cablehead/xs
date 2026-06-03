@@ -85,8 +85,14 @@ async fn test_action_error_handling() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.will_error.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.will_error.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.will_error.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.will_error.active"
+    );
 
     // Call the action
     let frame_call = store
@@ -133,8 +139,14 @@ async fn test_action_single_value() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.single.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.single.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.single.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.single.active"
+    );
 
     // Call the action
     let frame_call = store.append(Frame::builder("single.call").build())?;
@@ -221,8 +233,14 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.numbers.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.numbers.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.numbers.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.numbers.active"
+    );
 
     // Call the action
     let frame_call = store.append(Frame::builder("numbers.call").build())?;
@@ -315,7 +333,10 @@ async fn inv4_action_term_removes_action_and_blocks_calls() -> Result<(), Error>
     assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.create");
     let ready = recver.recv().await.unwrap();
     assert_eq!(ready.topic, "xs.action.echo.active");
-    assert_eq!(ready.meta.as_ref().unwrap()["action_id"], define.id.to_string());
+    assert_eq!(
+        ready.meta.as_ref().unwrap()["action_id"],
+        define.id.to_string()
+    );
 
     // A call before term works.
     let call = store.append(Frame::builder("echo.call").build()).unwrap();

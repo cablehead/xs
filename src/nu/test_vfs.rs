@@ -101,7 +101,9 @@ async fn test_load_modules_ignores_frames_without_hash() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
 
-    let frame = store.append(Frame::builder("xs.module.mymod").build()).unwrap();
+    let frame = store
+        .append(Frame::builder("xs.module.mymod").build())
+        .unwrap();
 
     let modules = store.nu_modules_at(&frame.id);
     load_modules(&mut engine.state, &store, &modules).unwrap();
@@ -208,7 +210,10 @@ async fn test_module_registered_in_vfs() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.vfstest.create");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.vfstest.create"
+    );
 
     let next = recver.recv().await.unwrap();
     if next.topic == "xs.actor.vfstest.invalid" {
@@ -265,8 +270,14 @@ async fn test_module_dot_path_maps_to_directory() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.dotpath.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.dotpath.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.dotpath.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.dotpath.active"
+    );
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
@@ -315,8 +326,14 @@ async fn test_live_module_registration() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.livemod.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.livemod.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.livemod.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.livemod.active"
+    );
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
@@ -356,7 +373,10 @@ async fn test_multiple_modules_shared_parent() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.myapp.helpers");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.module.myapp.helpers"
+    );
 
     // Use a COMMAND (.define) that references the first module.
     let cmd_script = r#"{

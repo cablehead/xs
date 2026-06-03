@@ -135,7 +135,10 @@ pub(crate) fn emit_event(
                     // No frame: the run_loop emits ServiceEventKind::Shutdown
                     // (which becomes the .stopped frame) for the xs-stopping
                     // path; emitting here would double up.
-                    return Ok(ServiceEvent { kind, frame: Frame::builder("").build() });
+                    return Ok(ServiceEvent {
+                        kind,
+                        frame: Frame::builder("").build(),
+                    });
                 }
             };
             let mut meta = json!({
@@ -148,12 +151,9 @@ pub(crate) fn emit_event(
                 meta["message"] = json!(message);
             }
             store.append(
-                Frame::builder(format!(
-                    "xs.service.{}.{event_suffix}",
-                    loop_ctx.topic
-                ))
-                .meta(meta)
-                .build(),
+                Frame::builder(format!("xs.service.{}.{event_suffix}", loop_ctx.topic))
+                    .meta(meta)
+                    .build(),
             )?
         }
 
@@ -175,7 +175,6 @@ pub(crate) fn emit_event(
 
     Ok(ServiceEvent { kind, frame })
 }
-
 
 pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
     tokio::spawn(async move { run(store, spawn_frame).await })
