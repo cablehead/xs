@@ -53,7 +53,7 @@ fn register_module(
 
     // Register <module_path>/mod.nu as a virtual file
     let virt_file_name = format!("{module_path}/mod.nu");
-    let file_id = working_set.add_file(virt_file_name.clone(), content.as_bytes());
+    let file_id = working_set.add_file(&virt_file_name, content.as_bytes());
     let virt_file_id = working_set.add_virtual_path(virt_file_name, VirtualPath::File(file_id));
 
     // Build directory chain from leaf to root:

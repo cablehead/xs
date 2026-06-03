@@ -2,7 +2,7 @@
 name = "cross-stream"
 edition = "2021"
 version = "0.12.1-dev"
-rust-version = "1.92.0"
+rust-version = "1.93.1"
 description = "An event stream store for personal, local-first use, specializing in event sourcing."
 license = "MIT"
 repository = "https://github.com/cablehead/xs"
@@ -51,12 +51,12 @@ chrono = "0.4.38"
 bon = "2.3"
 tempfile = "3.23"
 
-nu-cli = "0.112.1"
-nu-command = { version = "0.112.1", features = ["sqlite"] }
-nu-protocol = "0.112.1"
-nu-cmd-lang = "0.112.1"
-nu-engine = "0.112.1"
-nu-parser = "0.112.1"
+nu-cli = "0.113.1"
+nu-command = { version = "0.113.1", features = ["sqlite"] }
+nu-protocol = "0.113.1"
+nu-cmd-lang = "0.113.1"
+nu-engine = "0.113.1"
+nu-parser = "0.113.1"
 
 http = "1.1.0"
 http-body-util = "0.1"
