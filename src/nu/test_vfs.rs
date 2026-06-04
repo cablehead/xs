@@ -71,7 +71,7 @@ async fn test_load_modules_registers_vfs_paths() {
     let content = r#"export def hello [] { "hi" }"#;
     let hash = store.cas_insert(content).await.unwrap();
     let frame = store
-        .append(Frame::builder("mymod.nu").hash(hash).build())
+        .append(Frame::builder("xs.module.mymod").hash(hash).build())
         .unwrap();
 
     let modules = store.nu_modules_at(&frame.id);
@@ -101,7 +101,9 @@ async fn test_load_modules_ignores_frames_without_hash() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
 
-    let frame = store.append(Frame::builder("mymod.nu").build()).unwrap();
+    let frame = store
+        .append(Frame::builder("xs.module.mymod").build())
+        .unwrap();
 
     let modules = store.nu_modules_at(&frame.id);
     load_modules(&mut engine.state, &store, &modules).unwrap();
@@ -109,14 +111,14 @@ async fn test_load_modules_ignores_frames_without_hash() {
 }
 
 #[tokio::test]
-async fn test_load_modules_ignores_bare_nu_suffix() {
+async fn test_load_modules_ignores_empty_name() {
     let (store, _tmp) = unit_test_store().await;
     let mut engine = nu::Engine::new().unwrap();
 
     let hash = store.cas_insert("content").await.unwrap();
-    // ".nu" with nothing before should be ignored by load_modules
+    // An empty module name should be ignored by load_modules.
     let mut modules = std::collections::HashMap::new();
-    modules.insert(".nu".to_string(), hash);
+    modules.insert(String::new(), hash);
 
     load_modules(&mut engine.state, &store, &modules).unwrap();
     assert!(!has_virtual_path(&engine, "mod.nu"));
@@ -132,13 +134,13 @@ async fn test_load_modules_latest_version_wins() {
 
     let _f1 = store
         .append(
-            Frame::builder("mymod.nu")
+            Frame::builder("xs.module.mymod")
                 .hash(store.cas_insert(r#"export def v1 [] { 1 }"#).await.unwrap())
                 .build(),
         )
         .unwrap();
     let f2 = store
-        .append(Frame::builder("mymod.nu").hash(hash2).build())
+        .append(Frame::builder("xs.module.mymod").hash(hash2).build())
         .unwrap();
 
     // nu_modules_at compacts, so only latest hash is in the map
@@ -159,7 +161,7 @@ async fn test_load_modules_dot_separated_name() {
         .await
         .unwrap();
     let frame = store
-        .append(Frame::builder("discord.api.nu").hash(hash).build())
+        .append(Frame::builder("xs.module.discord.api").hash(hash).build())
         .unwrap();
 
     let modules = store.nu_modules_at(&frame.id);
@@ -184,13 +186,13 @@ async fn test_module_registered_in_vfs() {
     let module_content = r#"export def greet [name: string] { $"hello ($name)" }"#;
     store
         .append(
-            Frame::builder("testmod.nu")
+            Frame::builder("xs.module.testmod")
                 .hash(store.cas_insert(module_content).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "testmod.nu");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.testmod");
 
     // Register an actor that uses the module
     let actor_script = r#"{
@@ -202,20 +204,23 @@ async fn test_module_registered_in_vfs() {
 
     store
         .append(
-            Frame::builder("vfstest.register")
+            Frame::builder("xs.actor.vfstest.create")
                 .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "vfstest.register");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.vfstest.create"
+    );
 
     let next = recver.recv().await.unwrap();
-    if next.topic == "vfstest.unregistered" {
+    if next.topic == "xs.actor.vfstest.invalid" {
         let meta = next.meta.as_ref().unwrap();
         panic!("actor unregistered with error: {}", meta["error"]);
     }
-    assert_eq!(next.topic, "vfstest.active");
+    assert_eq!(next.topic, "xs.actor.vfstest.active");
 
     // Trigger the actor
     store.append(Frame::builder("ping").build()).unwrap();
@@ -241,13 +246,13 @@ async fn test_module_dot_path_maps_to_directory() {
     let module_content = r#"export def add [a: int, b: int] { $a + $b }"#;
     store
         .append(
-            Frame::builder("mylib.utils.nu")
+            Frame::builder("xs.module.mylib.utils")
                 .hash(store.cas_insert(module_content).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "mylib.utils.nu");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.mylib.utils");
 
     // Actor uses xs/mylib/utils (dots become slashes)
     let actor_script = r#"{
@@ -259,14 +264,20 @@ async fn test_module_dot_path_maps_to_directory() {
 
     store
         .append(
-            Frame::builder("dotpath.register")
+            Frame::builder("xs.actor.dotpath.create")
                 .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "dotpath.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "dotpath.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.dotpath.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.dotpath.active"
+    );
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
@@ -291,13 +302,13 @@ async fn test_live_module_registration() {
     let module_content = r#"export def double [x: int] { $x * 2 }"#;
     store
         .append(
-            Frame::builder("mathlib.nu")
+            Frame::builder("xs.module.mathlib")
                 .hash(store.cas_insert(module_content).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "mathlib.nu");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.mathlib");
 
     // Now register an actor that uses the live-registered module
     let actor_script = r#"{
@@ -309,14 +320,20 @@ async fn test_live_module_registration() {
 
     store
         .append(
-            Frame::builder("livemod.register")
+            Frame::builder("xs.actor.livemod.create")
                 .hash(store.cas_insert(&actor_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "livemod.register");
-    assert_eq!(recver.recv().await.unwrap().topic, "livemod.active");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.livemod.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.livemod.active"
+    );
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
@@ -341,22 +358,25 @@ async fn test_multiple_modules_shared_parent() {
     let utils_content = r#"export def add [a: int, b: int] { $a + $b }"#;
     store
         .append(
-            Frame::builder("myapp.utils.nu")
+            Frame::builder("xs.module.myapp.utils")
                 .hash(store.cas_insert(utils_content).await.unwrap())
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "myapp.utils.nu");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.myapp.utils");
 
     let helpers_content = r#"export def double [x: int] { $x * 2 }"#;
     store
         .append(
-            Frame::builder("myapp.helpers.nu")
+            Frame::builder("xs.module.myapp.helpers")
                 .hash(store.cas_insert(helpers_content).await.unwrap())
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "myapp.helpers.nu");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.module.myapp.helpers"
+    );
 
     // Use a COMMAND (.define) that references the first module.
     let cmd_script = r#"{
@@ -369,20 +389,23 @@ async fn test_multiple_modules_shared_parent() {
 
     store
         .append(
-            Frame::builder("sharedcmd.define")
+            Frame::builder("xs.action.sharedcmd.create")
                 .hash(store.cas_insert(&cmd_script).await.unwrap())
                 .build(),
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "sharedcmd.define");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.action.sharedcmd.create"
+    );
 
     let next = recver.recv().await.unwrap();
-    if next.topic == "sharedcmd.error" {
+    if next.topic == "xs.action.sharedcmd.invalid" {
         let meta = next.meta.as_ref().unwrap();
-        panic!("command error: {}", meta["error"]);
+        panic!("command parse error: {}", meta["error"]);
     }
-    assert_eq!(next.topic, "sharedcmd.ready");
+    assert_eq!(next.topic, "xs.action.sharedcmd.active");
 
     // Call the command
     store

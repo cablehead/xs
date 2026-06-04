@@ -5,6 +5,8 @@ sidebar:
   order: 3
 ---
 
+import { Link } from '../../../utils/links';
+
 cross.stream is built around four fundamental concepts that work together to
 create a powerful and flexible event streaming system: the event store,
 services, actors, and actions. Let's explore how these components interact
@@ -71,6 +73,31 @@ An action might:
 - Transform input data in a complex way
 - Interact with external services
 
+### Shared lifecycle, the `xs.<kind>` namespace
+
+Services, actors, and actions all live under a runtime-owned namespace:
+
+```
+xs.service.<name>.<event>
+xs.actor.<name>.<event>
+xs.action.<name>.<event>
+```
+
+A topic that starts with `xs.` is managed by the runtime; everything else is
+your data. You'll see `xs.service.log.create`, `xs.actor.echo.active`,
+`xs.action.repeat.fin.term` and so on as you work with each kind.
+
+All three share the same nine-event vocabulary: a user appends `create` to
+start a thing, the runtime acks with `active` once it's running, the user
+appends `term` to stop it, and the runtime emits a `fin.*` family of events
+when it ends. The per-kind differences are small and surface mostly in what
+the script *does* (a long-running pipeline for a service, an event-driven
+closure for an actor, a stateless call for an action), not in how its
+lifecycle is observed.
+
+See <Link to="/reference/lifecycle/" /> for the full event vocabulary, the
+compaction algorithm, and the invariants the dispatcher honors.
+
 ## Component Comparison
 
 | Aspect           | Services                              | Actors                        | Actions                      |
@@ -79,7 +106,7 @@ An action might:
 | Execution        | Continuous background process         | Event-driven                  | Called on-demand             |
 | State            | Stateless                             | Maintains state between calls | Stateless                    |
 | Output           | Immediate streaming                   | Buffered until completion     | Immediate streaming          |
-| Error Handling   | Auto-restarts (with a 1-second delay) | Unregisters                   | Per-invocation               |
+| Error Handling   | Auto-restarts (with a 1-second delay) | Emits `fin.error`, stays down | Per-invocation               |
 | Typical Use Case | Watch external sources                | Transform/react to events     | Reusable operations          |
 
 ## Incremental Adoption

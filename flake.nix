@@ -21,7 +21,7 @@
           overlays = [ (import inputs.rust-overlay) ];
         };
 
-        rustToolchain = pkgs.rust-bin.stable."1.92.0".default;
+        rustToolchain = pkgs.rust-bin.stable."1.93.1".default;
 
         craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
 

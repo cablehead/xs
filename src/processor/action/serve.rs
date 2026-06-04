@@ -27,7 +27,7 @@ async fn handle_define(
         Ok(action) => {
             active.insert(name.to_string(), action);
             let _ = store.append(
-                Frame::builder(format!("{name}.ready"))
+                Frame::builder(format!("xs.action.{name}.active"))
                     .meta(serde_json::json!({
                         "action_id": frame.id.to_string(),
                     }))
@@ -35,8 +35,9 @@ async fn handle_define(
             );
         }
         Err(err) => {
+            // Parse / build failure: lifecycle .invalid (not the per-call .error).
             let _ = store.append(
-                Frame::builder(format!("{name}.error"))
+                Frame::builder(format!("xs.action.{name}.invalid"))
                     .meta(serde_json::json!({
                         "action_id": frame.id.to_string(),
                         "error": err.to_string(),
@@ -233,50 +234,149 @@ fn run_action(
     )
 }
 
+/// Translate `xs.action.<name>.<event>` topics into a lifecycle event.
+fn event_from_frame(
+    frame: &crate::store::Frame,
+) -> Option<(String, crate::processor::lifecycle::Event)> {
+    use crate::processor::lifecycle::Event;
+    let rest = frame.topic.strip_prefix("xs.action.")?;
+    let (name, ev_tag) = split_action_event(rest)?;
+    let event = match ev_tag {
+        "create" => Event::Create { id: frame.id },
+        "term" => Event::Term,
+        "active" => Event::Active {
+            source: source_id(frame)?,
+        },
+        "invalid" => Event::Invalid {
+            source: source_id(frame)?,
+        },
+        "fin.term" | "fin.replaced" => Event::Fin,
+        "replaced" => Event::Replaced,
+        _ => return None,
+    };
+    Some((name.to_string(), event))
+}
+
+fn split_action_event(rest: &str) -> Option<(&str, &str)> {
+    for tag in ["fin.term", "fin.replaced"] {
+        if let Some(name) = rest.strip_suffix(&format!(".{tag}")) {
+            return Some((name, tag));
+        }
+    }
+    for tag in ["create", "term", "active", "invalid", "replaced"] {
+        if let Some(name) = rest.strip_suffix(&format!(".{tag}")) {
+            return Some((name, tag));
+        }
+    }
+    None
+}
+
+fn source_id(frame: &crate::store::Frame) -> Option<scru128::Scru128Id> {
+    use std::str::FromStr;
+    let meta = frame.meta.as_ref()?;
+    let s = meta.get("action_id").and_then(|v| v.as_str())?;
+    scru128::Scru128Id::from_str(s).ok()
+}
+
+#[derive(Default)]
+struct TopicState {
+    slots: crate::processor::lifecycle::Slots,
+    /// Stash of every `.define` frame so threshold can look up by id.
+    frames: HashMap<scru128::Scru128Id, crate::store::Frame>,
+}
+
 pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let rx = store
         .read(ReadOptions::builder().follow(FollowOption::On).build())
         .await;
     let mut lifecycle = LifecycleReader::new(rx);
-    let mut compacted: HashMap<String, Frame> = HashMap::new();
+    let mut states: HashMap<String, TopicState> = HashMap::new();
     let mut active: HashMap<String, Action> = HashMap::new();
 
     while let Some(event) = lifecycle.recv().await {
         match event {
             Lifecycle::Historical(frame) => {
-                if let Some(name) = frame.topic.strip_suffix(".define") {
-                    compacted.insert(name.to_string(), frame);
+                if let Some((name, ev)) = event_from_frame(&frame) {
+                    let state = states.entry(name).or_default();
+                    if let crate::processor::lifecycle::Event::Create { id } = &ev {
+                        state.frames.insert(*id, frame.clone());
+                    }
+                    state.slots.apply(ev);
                 }
             }
             Lifecycle::Threshold(_) => {
-                let mut ordered: Vec<_> = compacted.drain().collect();
-                ordered.sort_by_key(|(_, frame)| frame.id);
-
-                for (name, frame) in ordered {
-                    handle_define(&frame, &name, &store, &mut active).await;
+                use crate::processor::lifecycle::ThresholdPick;
+                let mut picks: Vec<(String, ThresholdPick)> = states
+                    .iter()
+                    .map(|(t, s)| (t.clone(), s.slots.threshold()))
+                    .collect();
+                picks.sort_by_key(|(_, p)| match p {
+                    ThresholdPick::Start { id, .. } => Some(*id),
+                    ThresholdPick::None => None,
+                });
+                for (name, pick) in picks {
+                    if let ThresholdPick::Start { id, .. } = pick {
+                        if let Some(state) = states.get(&name) {
+                            if let Some(frame) = state.frames.get(&id).cloned() {
+                                handle_define(&frame, &name, &store, &mut active).await;
+                            }
+                        }
+                    }
                 }
             }
             Lifecycle::Live(frame) => {
-                if let Some(name) = frame.topic.strip_suffix(".define") {
-                    handle_define(&frame, name, &store, &mut active).await;
-                } else if let Some(name) = frame.topic.strip_suffix(".call") {
-                    let name = name.to_owned();
-                    if let Some(action) = active.get(&name) {
-                        let store = store.clone();
-                        let frame = frame.clone();
-                        let action = action.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = execute_action(action, &frame, &store).await {
-                                tracing::error!("Failed to execute action '{}': {:?}", name, e);
-                                let _ = store.append(
-                                    Frame::builder(format!("{name}.error"))
-                                        .meta(serde_json::json!({
-                                            "error": e.to_string(),
-                                        }))
-                                        .build(),
-                                );
-                            }
-                        });
+                use crate::processor::lifecycle::Event;
+                let mut handled_as_lifecycle = false;
+                if let Some((name, ev)) = event_from_frame(&frame) {
+                    handled_as_lifecycle = true;
+                    let is_create = matches!(ev, Event::Create { .. });
+                    let is_term = matches!(ev, Event::Term);
+                    let state = states.entry(name.clone()).or_default();
+                    if let Event::Create { id } = &ev {
+                        state.frames.insert(*id, frame.clone());
+                    }
+                    state.slots.apply(ev);
+                    if is_create {
+                        handle_define(&frame, &name, &store, &mut active).await;
+                    } else if is_term {
+                        // User-driven undefine: drop the action and emit ack.
+                        if active.remove(&name).is_some() {
+                            let _ = store.append(
+                                Frame::builder(format!("xs.action.{name}.fin.term"))
+                                    .meta(serde_json::json!({
+                                        "frame_id": frame.id.to_string(),
+                                    }))
+                                    .build(),
+                            );
+                        }
+                    }
+                }
+                // Per-invocation `.call` lives in the user namespace; it's
+                // not a lifecycle event.
+                if !handled_as_lifecycle {
+                    if let Some(name) = frame.topic.strip_suffix(".call") {
+                        let name = name.to_owned();
+                        if let Some(action) = active.get(&name) {
+                            let store = store.clone();
+                            let frame = frame.clone();
+                            let action = action.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = execute_action(action, &frame, &store).await {
+                                    tracing::error!("Failed to execute action '{}': {:?}", name, e);
+                                    // Per-call runtime errors stay in the
+                                    // user namespace; lifecycle `.invalid` is
+                                    // reserved for init-time failures.
+                                    let _ = store.append(
+                                        Frame::builder(format!("{name}.error"))
+                                            .meta(serde_json::json!({
+                                                "error": e.to_string(),
+                                                "call_id": frame.id.to_string(),
+                                            }))
+                                            .build(),
+                                    );
+                                }
+                            });
+                        }
                     }
                 }
             }

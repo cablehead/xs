@@ -181,20 +181,31 @@ mod tests_store {
             .build();
         let mut recver = store.read(follow_options).await;
 
-        assert_eq!(f1, recver.recv().await.unwrap());
-        assert_eq!(f2, recver.recv().await.unwrap());
+        // Pulses are live frames and can interleave with real frames once we
+        // cross the threshold, so skip them when asserting on real frames.
+        async fn next_frame(recver: &mut tokio::sync::mpsc::Receiver<Frame>) -> Frame {
+            loop {
+                let frame = recver.recv().await.unwrap();
+                if frame.topic != "xs.pulse" {
+                    return frame;
+                }
+            }
+        }
+
+        assert_eq!(f1, next_frame(&mut recver).await);
+        assert_eq!(f2, next_frame(&mut recver).await);
 
         // crossing the threshold
         assert_eq!(
             "xs.threshold".to_string(),
-            recver.recv().await.unwrap().topic
+            next_frame(&mut recver).await.topic
         );
 
         // Append two more clips
         let f3 = store.append(Frame::builder("stream").build()).unwrap();
         let f4 = store.append(Frame::builder("stream").build()).unwrap();
-        assert_eq!(f3, recver.recv().await.unwrap());
-        assert_eq!(f4, recver.recv().await.unwrap());
+        assert_eq!(f3, next_frame(&mut recver).await);
+        assert_eq!(f4, next_frame(&mut recver).await);
 
         // Assert we see some heartbeats
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);

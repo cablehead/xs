@@ -1,0 +1,65 @@
+---
+title: Determine why a process stopped
+description: Decode the lifecycle frame an actor, service, or action emits when it stops, so you know whether it crashed, was terminated, was replaced, or is just waiting for xs to come back.
+sidebar:
+  order: 4
+---
+
+import { Link } from '../../../utils/links';
+
+Every exit emits a topic that names the reason. You don't need to inspect
+meta to know what happened:
+
+| Topic | What it means | Will it restart? |
+| ----- | ------------- | ---------------- |
+| `xs.<kind>.<name>.fin.term` | User appended `term` | No |
+| `xs.<kind>.<name>.fin.ok` | Self-terminated cleanly (actor returned no `next`; service script exited and isn't auto-restarting) | No |
+| `xs.<kind>.<name>.fin.error` | Runtime crash | No |
+| `xs.<kind>.<name>.invalid` | Script failed to parse at create time (never started) | No (and the previous good version is kept as the fallback) |
+| `xs.<kind>.<name>.replaced` | A newer `create` displaced it | A new instance is starting now |
+| `xs.<kind>.<name>.stopped` | xs is shutting down (`xs.stopping`) | Yes, when xs starts back up |
+
+## Quick recipes
+
+### "Did this service crash or did I stop it?"
+
+```nushell
+.cat -T xs.service.api.* | where topic =~ "fin\\." | last 1
+```
+
+If you see `fin.error`, the script crashed; the `meta.message` field has
+the error text.
+
+If you see `fin.term`, you (or some other appender) asked for the stop.
+
+### "Why isn't my service running after a restart?"
+
+```nushell
+.cat -T xs.service.api.* | last 5
+```
+
+Look for the most recent terminal frame:
+
+- An `invalid` means the latest `create` was broken; the fallback path
+  may have started a previous good version (look for a more recent
+  `active`).
+- A `fin.term` or `fin.error` means the service was deliberately taken
+  down and won't restart until you append a fresh `create`.
+- A `stopped` means xs shut down cleanly; the service *will* come back on
+  the next start.
+- No terminal frame at all (just `create` followed by no `active`) means
+  it's still trying to start, or xs hasn't replayed history yet.
+
+### "Was a process replaced, or did it crash and a successor was registered separately?"
+
+- `replaced` is the runtime telling you "the same `<kind>.<name>` got a
+  newer `create`; this old instance stepped aside." It's emitted by the
+  old instance.
+- A separate `create` with no `replaced` before it means there was no
+  prior version running for that name.
+
+## Related
+
+- <Link to="/reference/lifecycle/" />, full event vocabulary
+- <Link to="/explanation/lifecycle-design/" />, why the topics are split
+  this way instead of one frame with `meta.reason`

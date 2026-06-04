@@ -1,0 +1,30 @@
+---
+title: Undefine an action
+description: Remove an action so subsequent calls no longer execute it.
+sidebar:
+  order: 2
+---
+
+import { Link } from '../../../utils/links';
+
+Append `xs.action.<name>.term` to remove a previously defined action.
+
+```nushell
+null | .append xs.action.repeat.term
+```
+
+The runtime drops the action from its active set and emits an
+`xs.action.repeat.fin.term` ack. Subsequent `repeat.call` frames are
+ignored (no `.response`, no `.error`).
+
+A `term` in the log keeps the action down across restarts: compaction sees
+`term` and clears its slots, so the next start of xs doesn't try to
+register the action from history.
+
+To re-enable the action later, append a fresh `xs.action.repeat.create`
+with the definition again.
+
+## Related
+
+- <Link to="/reference/actions/" />, defining and calling actions
+- <Link to="/reference/lifecycle/" />, full event vocabulary

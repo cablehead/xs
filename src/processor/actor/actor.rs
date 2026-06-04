@@ -102,7 +102,7 @@ impl Actor {
         let total_positional = num_required + num_optional;
         if total_positional != 2 {
             return Err(format!(
-                "Closure must accept exactly 2 params (frame, state) -- got {total_positional}"
+                "Closure must accept exactly 2 params (frame, state), got {total_positional}"
             )
             .into());
         }
@@ -239,21 +239,33 @@ impl Actor {
 
     async fn serve(&mut self, store: &Store, options: ReadOptions) {
         let mut recver = store.read(options).await;
+        let create_topic = format!("xs.actor.{}.create", self.topic);
+        let term_topic = format!("xs.actor.{}.term", self.topic);
 
         while let Some(frame) = recver.recv().await {
-            // Skip registration activity that occurred before this actor was registered
-            if (frame.topic == format!("{topic}.register", topic = self.topic)
-                || frame.topic == format!("{topic}.unregister", topic = self.topic))
-                && frame.id <= self.id
-            {
+            // Skip lifecycle activity that occurred before this actor was registered
+            if (frame.topic == create_topic || frame.topic == term_topic) && frame.id <= self.id {
                 continue;
             }
 
-            if frame.topic == format!("{topic}.register", topic = &self.topic)
-                || frame.topic == format!("{topic}.unregister", topic = &self.topic)
-            {
+            // A newer .create wins: this actor steps aside. Emit .replaced
+            // (the successor's .active will be next).
+            if frame.topic == create_topic {
                 let _ = store.append(
-                    Frame::builder(format!("{topic}.unregistered", topic = &self.topic))
+                    Frame::builder(format!("xs.actor.{}.replaced", &self.topic))
+                        .meta(serde_json::json!({
+                            "actor_id": self.id.to_string(),
+                            "frame_id": frame.id.to_string(),
+                        }))
+                        .build(),
+                );
+                break;
+            }
+
+            // User-requested stop.
+            if frame.topic == term_topic {
+                let _ = store.append(
+                    Frame::builder(format!("xs.actor.{}.fin.term", &self.topic))
                         .meta(serde_json::json!({
                             "actor_id": self.id.to_string(),
                             "frame_id": frame.id.to_string(),
@@ -278,9 +290,9 @@ impl Actor {
             match self.process_frame(&frame, store).await {
                 Ok(true) => {}
                 Ok(false) => {
-                    // Actor self-terminated
+                    // Actor self-terminated (natural completion).
                     let _ = store.append(
-                        Frame::builder(format!("{topic}.unregistered", topic = self.topic))
+                        Frame::builder(format!("xs.actor.{}.fin.ok", &self.topic))
                             .meta(serde_json::json!({
                                 "actor_id": self.id.to_string(),
                                 "frame_id": frame.id.to_string(),
@@ -290,8 +302,9 @@ impl Actor {
                     break;
                 }
                 Err(err) => {
+                    // Runtime crash.
                     let _ = store.append(
-                        Frame::builder(format!("{topic}.unregistered", topic = self.topic))
+                        Frame::builder(format!("xs.actor.{}.fin.error", &self.topic))
                             .meta(serde_json::json!({
                                 "actor_id": self.id.to_string(),
                                 "frame_id": frame.id.to_string(),
@@ -319,7 +332,7 @@ impl Actor {
         }
 
         let _ = store.append(
-            Frame::builder(format!("{topic}.active", topic = &self.topic))
+            Frame::builder(format!("xs.actor.{}.active", &self.topic))
                 .meta(serde_json::json!({
                     "actor_id": self.id.to_string(),
                     "start": self.config.start,
@@ -333,8 +346,9 @@ impl Actor {
     pub async fn from_frame(frame: &Frame, store: &Store) -> Result<Self, Error> {
         let topic = frame
             .topic
-            .strip_suffix(".register")
-            .ok_or("Frame topic must end with .register")?;
+            .strip_prefix("xs.actor.")
+            .and_then(|rest| rest.strip_suffix(".create"))
+            .ok_or("Frame topic must be xs.actor.<name>.create")?;
 
         // Get hash and read expression
         let hash = frame.hash.as_ref().ok_or("Missing hash field")?;

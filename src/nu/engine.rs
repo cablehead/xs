@@ -23,6 +23,7 @@ impl Engine {
         let mut engine_state = create_default_context();
         engine_state = add_shell_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
+        nu_std::load_standard_library(&mut engine_state)?;
 
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());

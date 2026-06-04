@@ -1,11 +1,14 @@
 ---
 title: Topics
-description: "Topic naming, hierarchy, wildcards, and system suffixes"
+description: "Topic naming, hierarchy, wildcards, and the xs.* namespace"
 sidebar:
   order: 4
 ---
 
-Topics organize frames in the event stream. The `.` character creates hierarchy, enabling wildcard queries.
+import { Link } from '../../../utils/links';
+
+Topics organize frames in the event stream. The `.` character creates
+hierarchy, enabling wildcard queries.
 
 ## Naming Rules
 
@@ -45,29 +48,52 @@ xs cat ./store --topic "user.alice.*"
 xs cat ./store --topic "user.*"
 ```
 
-The wildcard `user.*` matches `user.alice`, `user.alice.messages`, and `user.bob`—but not `user` itself.
+The wildcard `user.*` matches `user.alice`, `user.alice.messages`, and
+`user.bob`, but not `user` itself.
 
 Use `*` alone to match all topics (equivalent to omitting `--topic`).
 
-Topic queries return frames in chronological order (by frame ID), not grouped by topic. Both historical reads and live follows maintain this ordering.
+Topic queries return frames in chronological order (by frame ID), not grouped
+by topic. Both historical reads and live follows maintain this ordering.
+
+## The `xs.` namespace
+
+Topics that begin with `xs.` are owned by the runtime. Everything else is app
+data:
+
+```
+xs.actor.<name>.<event>         actor lifecycle
+xs.service.<name>.<event>       service lifecycle
+xs.action.<name>.<event>        action lifecycle
+xs.module.<name>                module registration
+xs.threshold, xs.stopping       system markers
+```
+
+A topic that starts with `xs.` is runtime-managed; everything else is app
+data. See <Link to="/reference/lifecycle/" /> for the full lifecycle
+vocabulary and the algorithm that consumes it.
 
 ## Module Topics
 
-Topics ending with `.nu` register Nushell modules into the virtual filesystem (VFS). Any actor, service, or action script can then `use` these modules by their stable VFS path.
+Topics under `xs.module.<name>` register Nushell modules into the virtual
+filesystem (VFS). Any actor, service, or action script can then `use` these
+modules by their stable VFS path.
 
 ```nushell
 # Register a module
-r#'export def greet [name: string] { $"hello ($name)" }'# | .append mymod.nu
+r#'export def greet [name: string] { $"hello ($name)" }'# | .append xs.module.mymod
 ```
 
-The topic name (minus the `.nu` suffix) maps to a directory path -- dots become slashes:
+The module name (after `xs.module.`) maps to a directory path, dots become
+slashes:
 
 | Topic | VFS Path |
 | ----- | -------- |
-| `mymod.nu` | `mymod/mod.nu` |
-| `discord.api.nu` | `discord/api/mod.nu` |
+| `xs.module.mymod` | `mymod/mod.nu` |
+| `xs.module.discord.api` | `discord/api/mod.nu` |
 
-Scripts reference modules by their stable VFS path. Re-appending a module topic shadows the previous version:
+Scripts reference modules by their stable VFS path. Re-appending a module
+topic shadows the previous version:
 
 ```nushell
 r#'{
@@ -75,47 +101,13 @@ r#'{
     use mymod
     {out: {greeting: (mymod greet "world")}, next: $state}
   }
-}'# | .append greeter.register
+}'# | .append xs.actor.greeter.create
 ```
 
-Each actor, service, or command sees the modules as they existed when it was registered. Modules appended later are only visible to processors registered after them. Re-appending a module and then re-registering a processor picks up the new version.
-
-## Processor Suffixes
-
-cross.stream uses topic suffixes to coordinate processor lifecycle.
-
-### Services
-
-| Suffix | Description | Emitted By |
-| ------ | ----------- | ---------- |
-| `.spawn` | Create or update a service | User |
-| `.terminate` | Stop a service | User |
-| `.send` | Input to duplex services | User |
-| `.running` | Service has started | System |
-| `.stopped` | Service pipeline stopped | System |
-| `.shutdown` | Service loop fully exited | System |
-| `.parse.error` | Script parsing failed | System |
-| `.recv` | Output from service | System |
-
-### Actors
-
-| Suffix | Description | Emitted By |
-| ------ | ----------- | ---------- |
-| `.register` | Register an actor | User |
-| `.unregister` | Unregister an actor | User |
-| `.active` | Actor is now active | System |
-| `.unregistered` | Actor has been removed | System |
-| `.out` | Output from actor | System |
-
-### Actions
-
-| Suffix | Description | Emitted By |
-| ------ | ----------- | ---------- |
-| `.define` | Define an action | User |
-| `.call` | Invoke an action | User |
-| `.ready` | Action ready for calls | System |
-| `.error` | Action execution failed | System |
-| `.response` | Action execution result | System |
+Each actor, service, or action sees the modules as they existed when it was
+created. Modules appended later are only visible to processors created after
+them. Re-appending a module and then re-creating a processor picks up the new
+version.
 
 ## System Topics
 
@@ -124,14 +116,18 @@ cross.stream uses topic suffixes to coordinate processor lifecycle.
 | `xs.start` | System initialization complete |
 | `xs.threshold` | Stream processing threshold marker |
 | `xs.pulse` | Synthetic pulse events (configurable interval) |
+| `xs.stopping` | Server-wide shutdown signal |
 
-## Customizable Suffixes
+## Output suffix customization
 
 Output suffixes can be changed via `return_options.suffix`:
 
-- `.recv` (Services)
-- `.out` (Actors)
-- `.response` (Actions)
+- `.recv` (services)
+- `.out` (actors)
+- `.response` (actions)
+
+These are app-namespace data topics, not lifecycle topics; they stay outside
+the `xs.` namespace.
 
 ```nushell
 {
@@ -141,12 +137,3 @@ Output suffixes can be changed via `return_options.suffix`:
   }
 }
 ```
-
-## Event Metadata
-
-Lifecycle and output events include:
-
-- `source_id` / `actor_id` / `action_id`: Component instance ID
-- `frame_id`: Triggering frame ID (actors/actions)
-- `error`: Error details (on error events)
-- `reason`: Stop reason (on stopped events)

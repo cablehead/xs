@@ -15,13 +15,13 @@ actions are stateless and execute independently each time they are called.
 ## Defining Actions
 
 To create an action, append a definition string with the topic
-`<action-name>.define`:
+`xs.action.<name>.create`:
 
 ```nushell
 r#'{
   # Required: Action closure
   run: {|frame|
-    # frame.topic - always <action>.call
+    # frame.topic - always <name>.call
     # frame.hash - contains input content if present
     # frame.meta.args - contains call arguments
     let input = if ($frame.hash != null) { .cas $frame.hash } else { null }
@@ -35,64 +35,77 @@ r#'{
     ttl: "last:1" # Keep only most recent frame
     target: "cas" # Default: omitted (record output stored as frame metadata)
   }
-}'# | .append repeat.define
+}'# | .append xs.action.repeat.create
 ```
 
 The `return_options` field controls the suffix, TTL, and storage target for the
 `.response` frame produced by the action. By default, record output goes to
 frame metadata. Set `target: "cas"` to store in CAS; any type is accepted. TTL
-only applies to this `.response` frame -- `.error` events never expire.
+only applies to this `.response` frame, `.error` events never expire.
 
 The action definition requires:
 
 - `run`: A closure that receives the call frame and can return a pipeline of
-  results
+  results.
 
-Upon successful definition, the action emits a `<action>.ready` frame indicating it's ready to accept calls.
+Upon successful definition, the action emits an `xs.action.<name>.active`
+frame indicating it's ready to accept calls. If the definition fails to parse,
+an `xs.action.<name>.invalid` frame is emitted instead.
 
 The closure's output is collected into a single `.response` event. Record output
 goes to frame metadata by default; set `target: "cas"` for non-record output.
 
 ## Calling Actions
 
-Actions are called by appending to `<action-name>.call` with input content and
-arguments:
+Actions are called by appending to `<name>.call` (in the user namespace, not
+under `xs.`) with input content and arguments:
 
 ```nushell
 # Call the repeat action with input and args
 "foo" | .append repeat.call --meta {args: {n: 3}}
 ```
 
-## Lifecycle Events
+## Per-call topics
 
-Actions emit events to track their execution. See <Link to="/reference/topics/">Topics</Link> for all processor suffixes.
+Per-invocation topics live in the user namespace, separate from the action's
+lifecycle:
 
-| Event                | Description                              |
-| -------------------- | ---------------------------------------- |
-| `<action>.ready`    | Action successfully defined and ready for calls |
-| `<action>.response` | Collected result of the action pipeline |
-| `<action>.error`    | Error occurred during action execution  |
+| Topic | Direction | Description |
+| ----- | --------- | ----------- |
+| `<name>.call` | user -> action | Invocation with optional input + args |
+| `<name>.response` | action -> stream | Collected result of the action pipeline |
+| `<name>.error` | action -> stream | Per-invocation runtime error (distinct from lifecycle `invalid`) |
 
-All events include:
+Both `.response` and `.error` carry:
 
-- `action_id`: ID of the action definition
-- `frame_id`: ID of this specific invocation
+- `action_id`: ID of the action definition (the `create` frame's id)
+- `frame_id` / `call_id`: ID of this specific invocation
+
+## Removing actions
+
+Append `xs.action.<name>.term` to undefine an action. The runtime emits
+`xs.action.<name>.fin.term` and drops the active definition.
+
+```nushell
+# Permanently remove the repeat action
+null | .append xs.action.repeat.term
+```
 
 ## Error Handling
 
-If an action encounters an error during execution, it will:
+If an action encounters an error during a call, it emits an `<name>.error`
+frame with the error message and references to `action_id` + the call's
+`frame_id`. The action is not removed; subsequent calls still work. Each call
+is independent.
 
-1. Emit a `<action>.error` frame with:
-   - The error message
-   - Reference to both action_id and frame_id
-2. Stop processing the current invocation
-
-Unlike services, actions do not automatically restart on error - each
-invocation is independent.
+Lifecycle parse errors (`xs.action.<name>.invalid`) are emitted only when a
+`.create` definition fails to parse. The two error topics are distinct.
 
 ## Modules
 
-Actions can use modules registered via `*.nu` topics. An action sees the modules as they existed when it was defined. See <Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+Actions can use modules registered via `xs.module.<name>` topics. An action
+sees the modules as they existed when it was defined. See
+<Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
 
 ```nushell
 r#'{
@@ -100,7 +113,7 @@ r#'{
     use my-math
     my-math double ($frame.meta.args.number)
   }
-}'# | .append calculator.define
+}'# | .append xs.action.calculator.create
 ```
 
 ## Built-in Store Commands
@@ -108,13 +121,28 @@ r#'{
 When the `run` closure executes it can use several helper commands provided by
 cross.stream:
 
-- `.append` -- append a new frame. Metadata you provide is merged with
+- `.append`, append a new frame. Metadata you provide is merged with
   `action_id` and `frame_id`.
-- `.cat` -- read frames from the store.
-- `.last` -- fetch the most recent frame(s), optionally filtered by topic.
-- `.cas` -- read content from CAS by hash.
-- `.get` -- retrieve a frame by ID.
-- `.remove` -- delete a frame from the stream.
+- `.cat`, read frames from the store.
+- `.last`, fetch the most recent frame(s), optionally filtered by topic.
+- `.cas`, read content from CAS by hash.
+- `.get`, retrieve a frame by ID.
+- `.remove`, delete a frame from the stream.
+
+## Lifecycle
+
+Actions share the unified lifecycle vocabulary documented in
+<Link to="/reference/lifecycle/" />. The action subset is small:
+
+| User input | Runtime ack on success | Runtime ack on failure |
+| --- | --- | --- |
+| `xs.action.<name>.create` | `xs.action.<name>.active` | `xs.action.<name>.invalid` |
+| `xs.action.<name>.term` | `xs.action.<name>.fin.term` |, |
+
+Actions don't emit `fin.ok`, `fin.error`, `stopped`, or `replaced`: with no
+long-lived task there is no natural completion, no participation in
+`xs.stopping`, and no running instance to step aside, so a re-`create`
+just rebuilds the definition and re-emits `active`.
 
 ## Key Differences
 

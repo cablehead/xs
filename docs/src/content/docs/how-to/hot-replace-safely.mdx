@@ -1,0 +1,59 @@
+---
+title: Hot-replace a script safely
+description: Replace an actor, service, or action's script while it's running and recover gracefully if the new version is broken.
+sidebar:
+  order: 3
+---
+
+import { Link } from '../../../utils/links';
+
+To replace a running thing with a new version, append a fresh `create`
+with the new script under the same `<kind>.<name>`:
+
+```nushell
+# Replace the running 'log' service with an updated pipeline
+r#'{
+  run: {|| ^tail -F /tmp/log.txt | lines | each {|l| $"[v2] ($l)" } }
+}'# | .append xs.service.log.create
+```
+
+The runtime kills the old task, emits `xs.service.log.replaced`, and starts
+the new one. A new `xs.service.log.active` follows.
+
+## What happens if the new script is broken?
+
+The runtime never leaves you in an empty state because of a typo. The
+algorithm keeps the last known-good version (the one that emitted `active`)
+in a separate compaction slot.
+
+If the new script fails to parse:
+
+1. The runtime emits `xs.service.log.invalid` (with the parse error in
+   `meta.reason`) instead of `active`.
+2. Live behaviour depends on the kind:
+   - **Service / action**: the previous (good) version keeps running. The
+     replacement attempt is rejected; nothing changes.
+   - **Actor**: the running actor already exited on seeing the new
+     `create` (per the actor protocol). The dispatcher then re-spawns a
+     fresh instance from the last known-good `create` so the system isn't
+     left empty.
+3. On the next restart of xs, compaction sees the same picture and starts
+   the last known-good `create`, not the broken one.
+
+## Inspecting the log
+
+You can verify the fallback happened by looking for the lifecycle frames:
+
+```nushell
+.cat -T xs.service.log.* | last 5
+```
+
+Look for the `invalid` frame (the rejected attempt) and the most recent
+`active` (the version that's actually running).
+
+## Related
+
+- <Link to="/reference/lifecycle/#compaction-algorithm" />: the two-slot
+  algorithm and its rules.
+- <Link to="/explanation/lifecycle-design/#the-two-slot-compaction-algorithm" />:
+  why the fallback exists.

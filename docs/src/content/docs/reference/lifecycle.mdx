@@ -1,0 +1,160 @@
+---
+title: Lifecycle
+description: "The unified xs.<kind>.<name>.<event> vocabulary and the compaction algorithm it drives"
+sidebar:
+  order: 5
+---
+
+import { Link } from '../../../utils/links';
+
+Every actor, service, and action shares one lifecycle vocabulary under the
+`xs.` namespace. This page is the canonical reference for the events, the
+compaction algorithm that consumes them, and the invariants the algorithm
+honors.
+
+For the rationale see <Link to="/explanation/lifecycle-design/" />. For the
+per-processor distinctions see the [actors](../actors/), [services](../services/),
+and [actions](../actions/) pages.
+
+## Namespace
+
+```
+xs.actor.<name>.<event>         actor lifecycle
+xs.service.<name>.<event>       service lifecycle
+xs.action.<name>.<event>        action lifecycle
+xs.module.<name>                module registration
+
+<name>.recv / .send / .out      app data, owned by the script
+<anything-not-xs.*>              app-owned, runtime ignores
+```
+
+A topic that starts with `xs.` is runtime-managed; everything else is app
+data.
+
+## Events
+
+`in` = user-appended, `out` = runtime-emitted.
+
+| Event | Dir | Meaning |
+| ----- | --- | ------- |
+| `create` | in | User wants this thing running. |
+| `term` | in | User wants this thing stopped. |
+| `active` | out | Runtime is up. `meta.<kind>_id` (actor_id / source_id / action_id) points at the originating `create`. |
+| `invalid` | out | Source failed to parse (or any other init-time validation). `meta` points at the originating `create`. |
+| `fin.ok` | out | Task ran to natural completion. |
+| `fin.error` | out | Runtime crashed. |
+| `fin.term` | out | Exited because of `term`. |
+| `replaced` | out | Exited because a newer `create` won. Transient marker; a new `.active` follows. |
+| `stopped` | out | Exited because of `xs.stopping` (server shutdown). |
+
+The `fin.*` family means *terminal, will not restart*. `replaced` and
+`stopped` are outside that family because they describe stops that should
+*not* affect restart: `replaced` because a successor is coming, `stopped`
+because the server itself is coming back.
+
+## Compaction algorithm
+
+The dispatcher tracks two slots per `<kind>.<name>`:
+
+- **confirmed** — last `create` that emitted `active` (the last known-good).
+- **pending** — latest `create` with no terminal ack yet.
+
+State transitions:
+
+| Frame | Effect |
+| ----- | ------ |
+| `create` | `pending = this` |
+| `active(source=X)` | `confirmed = create-X`; clear `pending` if it points at X |
+| `invalid(source=X)` | clear `pending` if it points at X |
+| `term` | clear both |
+| `fin.*` (ok / error / term) | clear both |
+| `replaced` | no effect |
+| `stopped` | no effect |
+
+At threshold (end of historical replay) the dispatcher picks what to start:
+
+```
+if pending:    try pending; on parse-fail, fall back to confirmed
+elif confirmed: start confirmed
+else:          nothing to start
+```
+
+This handles the common cases:
+
+- **Hot-replace, broken replacement** — `create_1 → active_1 → create_2 →
+  invalid_2`. `pending` cleared, `confirmed=create_1` survives. Old version
+  restarts.
+- **Hot-replace race** — `create_1 → active_1 → create_2 → ???` (xs died
+  mid-spawn). `confirmed=create_1`, `pending=create_2`. Try `create_2`; on
+  parse-fail, fall back to `create_1`.
+- **Server crash mid-run** — `confirmed` set, `pending` empty. Start
+  `confirmed`. The service was running fine, the server crash should
+  resume.
+- **Server shutdown** — `stopped` doesn't affect compaction; `confirmed`
+  persists; the service resumes on next boot.
+
+### Ack-independence of `term` and `fin.*`
+
+`term` and `fin.*` clear both slots on observation. The algorithm never
+waits for a paired ack. If `term` is in the log but xs died before
+processing it (no `fin.term` was emitted), the `term` alone keeps the
+thing stopped on the next restart.
+
+## Invariants
+
+The algorithm exists to honor these contracts:
+
+- **I1. Stop persistence.** Once `term` or any `fin.*` has been observed
+  for a `<kind>.<name>`, no subsequent restart starts the prior `create`.
+- **I2. Run persistence.** A `<kind>.<name>` with an `active` and no
+  subsequent `fin.*`/`term` resumes on every restart until something
+  terminal lands.
+- **I3. Hot-replace fallback.** When a newer `create_2` follows a
+  known-good `create_1`, and `create_2` is broken (`invalid`) or untested
+  (no ack), restarts fall back to `create_1`. Live and post-restart
+  behaviour agree.
+- **I4. Bidirectional lifecycle.** Every kind supports a user-driven
+  `term` that ends the thing and prevents restart.
+- **I5. Distinct exit categories.** The topic alone (no meta needed)
+  distinguishes failed-to-init vs user-terminated vs runtime-crashed vs
+  naturally-finished vs replaced vs server-shut-down.
+- **I6. Ack traceability.** Every runtime-emitted ack carries a meta
+  pointer to its originating `create` (or `term`).
+- **I7. Server-shutdown invisibility.** A `stopped` event does not affect
+  compaction; the thing resumes on next start.
+- **I8. Single live instance.** At most one running instance per
+  `<kind>.<name>` at any time.
+
+## Per-kind subsets
+
+Not every kind emits every event. The matrix:
+
+| Event | Actor | Service | Action |
+| ----- | :---: | :-----: | :----: |
+| `create` | yes | yes | yes |
+| `term` | yes | yes | yes |
+| `active` | yes | yes | yes |
+| `invalid` | yes | yes | yes |
+| `fin.ok` | yes | yes | no |
+| `fin.error` | yes | yes | no |
+| `fin.term` | yes | yes | yes |
+| `replaced` | yes | yes | no |
+| `stopped` | no | yes | no |
+
+Actions don't run long-lived tasks, so they have no natural completion
+(`fin.ok`), no lifecycle-level runtime errors (per-invocation runtime
+errors flow on the app's per-call response topic, not the lifecycle
+stream), no `stopped` (actions don't participate in `xs.stopping`), and
+no `replaced` (a re-`create` rebuilds the definition and re-emits
+`active`; there is no running instance to step aside).
+
+## Module topics
+
+Modules use a flat namespace under `xs.module.`:
+
+```nushell
+r#'export def greet [name: string] { $"hello ($name)" }'# | .append xs.module.mymod
+```
+
+The name maps to a VFS directory path (dots become slashes). See
+<Link to="/reference/topics/#module-topics" /> for the VFS mapping rules.
