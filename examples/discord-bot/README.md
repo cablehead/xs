@@ -92,7 +92,7 @@ example, you could register an actor that looks for messages in the form
 Load Discord REST API module:
 
 ```nushell
-http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu | .append discord.nu
+http get https://raw.githubusercontent.com/cablehead/discord.nu/main/discord.nu | .append xs.module.discord
 ```
 
 Register dice roll actor:

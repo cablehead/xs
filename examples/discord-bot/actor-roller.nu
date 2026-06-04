@@ -1,3 +1,5 @@
+use std/random
+
 def & [action: closure] {
   if ($in | is-not-empty) {
     $in | do $action
