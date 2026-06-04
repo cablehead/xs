@@ -150,9 +150,9 @@ is independent.</p>
 <p>Lifecycle parse errors (<code dir="auto">xs.action.&#x3C;name>.invalid</code>) are emitted only when a
 <code dir="auto">.create</code> definition fails to parse. The two error topics are distinct.</p>
 <h2 id="modules">Modules</h2>
-<p>Actions can use modules registered via <code dir="auto">xs.module.&lt;name&gt;</code> topics. An action
+<p>Actions can use modules registered via <code dir="auto">xs.module.&#x3C;name></code> topics. An action
 sees the modules as they existed when it was defined. See
- for details.</p>
+<a href="../topics/#module-topics">Module Topics</a> for details.</p>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="nushell"><code><div class="ec-line"><div class="code"><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">r</span><span style="--0:#96A1C2;--1:#64606C;--1fs:italic">#'{</span></div></div><div class="ec-line"><div class="code"><span class="indent">  </span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">run</span><span style="--0:#F1FA8C;--1:#855A1E">:</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F8F8F2;--1:#625F77">{</span><span style="--0:#F8F8F2;--1:#575279">|</span><span style="--0:#FFB86C;--0fs:italic;--1:#6C5C7F;--1fs:italic">frame</span><span style="--0:#F8F8F2;--1:#575279">|</span></div></div><div class="ec-line"><div class="code"><span class="indent">    </span><span style="--0:#50FA7B;--1:#8A5351">use</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F8F8F2;--1:#3D6971">my-math</span></div></div><div class="ec-line"><div class="code"><span class="indent">    </span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">my-math</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">double</span><span style="--0:#F8F8F2;--1:#575279"> (</span><span style="--0:#F8F8F2;--1:#575279;--1fs:italic">$frame.meta.args.number</span><span style="--0:#F8F8F2;--1:#575279">)</span></div></div><div class="ec-line"><div class="code"><span class="indent"><span style="--0:#F8F8F2">  </span></span><span style="--0:#F8F8F2;--1:#625F77">}</span></div></div><div class="ec-line"><div class="code"><span style="--1:#855A1E"><span style="--0:#F1FA8C">}</span><span style="--0:#E9F284">'</span><span style="--0:#F1FA8C"># | .append xs.action.calculator.create</span></span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="r#&#x27;{  run: {|frame|    use my-math    my-math double ($frame.meta.args.number)  }}&#x27;# | .append xs.action.calculator.create"><div></div></button></div></figure></div>
 <h2 id="built-in-store-commands">Built-in Store Commands</h2>
 <p>When the <code dir="auto">run</code> closure executes it can use several helper commands provided by
@@ -167,8 +167,8 @@ cross.stream:</p>
 <li><code dir="auto">.remove</code>, delete a frame from the stream.</li>
 </ul>
 <h2 id="lifecycle">Lifecycle</h2>
-<p>Actions share the unified lifecycle vocabulary documented in
-. The action subset is small:</p>
+<p>Actions share the unified lifecycle vocabulary documented in the
+<a href="../lifecycle/">lifecycle reference</a>. The action subset is small:</p>
 
 
 
