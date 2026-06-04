@@ -1,3 +1,6 @@
 {
-  "includeCoAuthoredBy": false
+  "includeCoAuthoredBy": false,
+  "env": {
+    "RUSTUP_TOOLCHAIN": "1.93.1"
+  }
 }
