@@ -44,8 +44,10 @@ The unified set is nine events:
 - Transient stops: `replaced` (a successor is coming) and `stopped`
   (xs is coming back).
 
-Actions use a subset (no `fin.ok`, no `fin.error`, no `stopped`) because
-actions don't run long-lived tasks. The shape is the same regardless.
+Actions use a subset (no `fin.ok`, no `fin.error`, no `stopped`, no
+`replaced`) because actions don't run long-lived tasks: a re-`create`
+rebuilds the definition and re-emits `active` rather than stepping a
+running instance aside. The shape is otherwise the same.
 
 The dispatcher logic is the same for all three. Only the per-kind
 prefix in the topic string differs.

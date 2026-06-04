@@ -139,9 +139,10 @@ Actions share the unified lifecycle vocabulary documented in
 | `xs.action.<name>.create` | `xs.action.<name>.active` | `xs.action.<name>.invalid` |
 | `xs.action.<name>.term` | `xs.action.<name>.fin.term` |, |
 
-Plus `xs.action.<name>.replaced` when a newer `.create` displaces an existing
-definition. Actions don't emit `fin.ok`, `fin.error`, or `stopped` (no
-long-lived task, no participation in `xs.stopping`).
+Actions don't emit `fin.ok`, `fin.error`, `stopped`, or `replaced`: with no
+long-lived task there is no natural completion, no participation in
+`xs.stopping`, and no running instance to step aside, so a re-`create`
+just rebuilds the definition and re-emits `active`.
 
 ## Key Differences
 

@@ -111,7 +111,7 @@ segments:
 | `fin.ok` | out | task ran to natural completion |
 | `fin.term` | out | exited because of `term` |
 | `replaced` | out | exited because a newer `create` won (transient marker) |
-| `stopped` | out | exited because of `xs.stopping` (server shutdown) |
+| `stopped` | out | exited because of `xs.stopping` (server shutdown); services only |
 
 The `fin.*` family means "terminal, will not restart." `replaced` and
 `stopped` are outside the family because they describe stops that
@@ -236,8 +236,10 @@ likely misreading of `stopped` as a terminal event.
 Actions don't run long-lived tasks. The events they use:
 
 - `create` (was `.define`), `term` (new, adds the missing undefine),
-  `active` (was `.ready`), `invalid`, `fin.term` (on user undefine),
-  `fin.replaced` (on re-define), `replaced` (transient).
+  `active` (was `.ready`), `invalid`, `fin.term` (on user undefine).
+- No `replaced` or `fin.replaced`: an action holds no long-lived task,
+  so a re-`create` while one is defined just rebuilds it and re-emits
+  `active`; there is no running instance to step aside.
 - No `fin.ok` (actions don't naturally finish), no `fin.error` at the
   *lifecycle* level (per-invocation runtime errors stay on the app's
   per-call response topic, not in the action's lifecycle stream), no

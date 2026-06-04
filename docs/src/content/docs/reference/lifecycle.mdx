@@ -138,13 +138,15 @@ Not every kind emits every event. The matrix:
 | `fin.ok` | yes | yes | no |
 | `fin.error` | yes | yes | no |
 | `fin.term` | yes | yes | yes |
-| `replaced` | yes | yes | yes |
+| `replaced` | yes | yes | no |
 | `stopped` | no | yes | no |
 
 Actions don't run long-lived tasks, so they have no natural completion
 (`fin.ok`), no lifecycle-level runtime errors (per-invocation runtime
 errors flow on the app's per-call response topic, not the lifecycle
-stream), and no `stopped` (actions don't participate in `xs.stopping`).
+stream), no `stopped` (actions don't participate in `xs.stopping`), and
+no `replaced` (a re-`create` rebuilds the definition and re-emits
+`active`; there is no running instance to step aside).
 
 ## Module topics
 
