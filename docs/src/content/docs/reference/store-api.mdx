@@ -6,13 +6,12 @@ sidebar:
 ---
 
 import { Aside } from '@astrojs/starlight/components';
-import { Link } from '../../../utils/links';
 
 <Aside type="tip">
-See <Link to="/explanation/architecture/#when-to-use-meta-vs-cas">When to Use Meta vs CAS</Link> for guidance on structuring frame data.
+See [When to Use Meta vs CAS](../../explanation/architecture/#when-to-use-meta-vs-cas) for guidance on structuring frame data.
 </Aside>
 
-The supervisor exposes a HTTP API for interacting with the store. See <Link to="/reference/topics/">Topics</Link> for naming rules and wildcards. By default, it
+The supervisor exposes a HTTP API for interacting with the store. See [Topics](../topics/) for naming rules and wildcards. By default, it
 listens on a Unix domain socket at `./store/sock`.
 
 ## Endpoints

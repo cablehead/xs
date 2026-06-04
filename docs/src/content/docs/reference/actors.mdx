@@ -109,7 +109,7 @@ The `return_options` field controls how return values are handled:
 
 Actors can use modules registered via `xs.module.<name>` topics. An actor sees
 the modules as they existed when it was registered. See
-<Link to="/reference/topics/#module-topics">Module Topics</Link> for details.
+[Module Topics](../topics/#module-topics) for details.
 
 ```nushell
 r###'{
@@ -183,8 +183,8 @@ All output frames automatically include:
 
 ## Lifecycle
 
-Actors share the unified lifecycle vocabulary documented in
-<Link to="/reference/lifecycle/" />. In summary:
+Actors share the unified lifecycle vocabulary documented in the
+[lifecycle reference](../lifecycle/). In summary:
 
 | User input | Runtime ack on success | Runtime ack on failure |
 | --- | --- | --- |
@@ -197,5 +197,5 @@ Plus the runtime emits:
 - `xs.actor.<name>.fin.error` on a runtime crash.
 - `xs.actor.<name>.replaced` when a newer `xs.actor.<name>.create` displaces it.
 
-See <Link to="/reference/lifecycle/" /> for the full event list, the
+See the [lifecycle reference](../lifecycle/) for the full event list, the
 compaction algorithm, and the invariants the dispatcher honors.

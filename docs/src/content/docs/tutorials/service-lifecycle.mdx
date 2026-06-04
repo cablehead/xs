@@ -8,19 +8,19 @@ sidebar:
 import { Aside } from '@astrojs/starlight/components';
 import { Link } from '../../../utils/links';
 
-This tutorial walks through every stage of a <Link to="/reference/services/">service</Link>
+This tutorial walks through every stage of a [service](../../reference/services/)
 lifecycle so you can build intuition for what happens under the hood.
 
 <Aside type="tip">
-See the <Link to="/reference/services/">Services reference</Link> for configuration
-options, duplex communication, and return options. See
-<Link to="/reference/lifecycle/" /> for the full event vocabulary that
+See the [Services reference](../../reference/services/) for configuration
+options, duplex communication, and return options. See the
+[lifecycle reference](../../reference/lifecycle/) for the full event vocabulary that
 applies to actors, services, and actions alike.
 </Aside>
 
 ## Prerequisites
 
-- xs installed and on your PATH (see <Link to="/getting-started/installation/">Installation</Link>)
+- xs installed and on your PATH (see [Installation](../../getting-started/installation/))
 - Two terminal windows, both running <Link to="nu" /> with `use xs.nu *`
 
 ## Serve
@@ -141,7 +141,7 @@ If the replacement create has a parse error, the runtime emits
 `xs.service.log.invalid` and the previous service keeps running. On the next
 restart of xs, compaction also keeps the previous (good) `create` as the
 fallback. The system never lands in an empty state because of a typo. See
-<Link to="/reference/lifecycle/#compaction-algorithm" /> for the rules.
+the [compaction algorithm](../../reference/lifecycle/#compaction-algorithm) for the rules.
 
 ## Terminate
 
@@ -207,4 +207,4 @@ Plus the app-namespace data channels: `<name>.recv` (output, one frame per
 line), `<name>.send` (input, duplex services only).
 
 For the full event vocabulary, the compaction algorithm, and the invariants
-the dispatcher honors, see <Link to="/reference/lifecycle/" />.
+the dispatcher honors, see the [lifecycle reference](../../reference/lifecycle/).

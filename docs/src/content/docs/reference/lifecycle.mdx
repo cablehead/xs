@@ -5,14 +5,12 @@ sidebar:
   order: 5
 ---
 
-import { Link } from '../../../utils/links';
-
 Every actor, service, and action shares one lifecycle vocabulary under the
 `xs.` namespace. This page is the canonical reference for the events, the
 compaction algorithm that consumes them, and the invariants the algorithm
 honors.
 
-For the rationale see <Link to="/explanation/lifecycle-design/" />. For the
+For the rationale see the [lifecycle design page](../../explanation/lifecycle-design/). For the
 per-processor distinctions see the [actors](../actors/), [services](../services/),
 and [actions](../actions/) pages.
 
@@ -157,4 +155,4 @@ r#'export def greet [name: string] { $"hello ($name)" }'# | .append xs.module.my
 ```
 
 The name maps to a VFS directory path (dots become slashes). See
-<Link to="/reference/topics/#module-topics" /> for the VFS mapping rules.
+[Module Topics](../topics/#module-topics) for the VFS mapping rules.
