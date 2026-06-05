@@ -84,6 +84,19 @@ r#'{
 This service emits frames with the topic `logs.line` and automatically
 maintains only the 100 most recent log entries.
 
+## Built-in Store Commands
+
+Inside the `run` closure a service has the same store helper commands as actions
+and actors:
+
+- `.append`, append a new frame. Metadata you provide is merged with a
+  `service_id` identifying the service that wrote it.
+- `.cat`, read frames from the store (streaming, supports `--follow`).
+- `.last`, fetch the most recent frame(s), optionally filtered by topic.
+- `.cas`, read content from CAS by hash.
+- `.get`, retrieve a frame by ID.
+- `.remove`, delete a frame from the stream.
+
 ## Modules
 
 Services can use modules registered via `xs.module.<name>` topics. A service

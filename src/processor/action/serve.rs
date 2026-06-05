@@ -4,7 +4,6 @@ use tracing::instrument;
 
 use crate::error::Error;
 use crate::nu;
-use crate::nu::commands;
 use crate::nu::{value_to_json, ReturnOptions};
 use crate::processor::{Lifecycle, LifecycleReader};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -57,15 +56,9 @@ async fn register_action(frame: &Frame, store: &Store) -> Result<Action, Error> 
     // Build engine from scratch with VFS modules at this point in the stream
     let mut engine = crate::processor::build_engine(store, &frame.id)?;
 
-    // Add streaming .cat and .last (actions get the streaming versions)
-    engine.add_commands(vec![
-        Box::new(commands::cat_stream_command::CatStreamCommand::new(
-            store.clone(),
-        )),
-        Box::new(commands::last_stream_command::LastStreamCommand::new(
-            store.clone(),
-        )),
-    ])?;
+    // Actions read with the streaming variants; .append is added per-invocation
+    // in execute_action, since its base_meta depends on the triggering frame.
+    nu::add_read_commands(&mut engine, store, nu::ReadMode::Stream)?;
 
     // Parse the action configuration
     let nu_config = nu::parse_config(&mut engine, &definition)?;
@@ -108,9 +101,7 @@ async fn execute_action(action: Action, frame: &Frame, store: &Store) -> Result<
 
         let mut engine = action.engine;
 
-        engine.add_commands(vec![Box::new(
-            commands::append_command::AppendCommand::new(store.clone(), base_meta),
-        )])?;
+        nu::add_write_commands(&mut engine, &store, nu::AppendMode::Direct(base_meta))?;
 
         // Parse the action configuration to get the up-to-date closure with modules loaded
         let nu_config = nu::parse_config(&mut engine, &action.definition)?;

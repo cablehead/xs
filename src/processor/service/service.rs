@@ -186,6 +186,20 @@ async fn run(store: Store, spawn_frame: Frame) {
         Err(_) => return,
     };
 
+    // Services get the same read/append surface as the other runners. Their
+    // appends are tagged with the spawning frame's id as `service_id`.
+    let base_meta = serde_json::json!({ "service_id": spawn_frame.id.to_string() });
+    if crate::nu::add_read_commands(&mut engine, &store, crate::nu::ReadMode::Stream).is_err()
+        || crate::nu::add_write_commands(
+            &mut engine,
+            &store,
+            crate::nu::AppendMode::Direct(base_meta),
+        )
+        .is_err()
+    {
+        return;
+    }
+
     let hash = match spawn_frame.hash.clone() {
         Some(h) => h,
         None => return,

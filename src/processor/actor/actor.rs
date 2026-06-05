@@ -14,7 +14,6 @@ use scru128::Scru128Id;
 
 use crate::error::Error;
 use crate::nu;
-use crate::nu::commands;
 use crate::nu::value_to_json;
 use crate::nu::{NuScriptConfig, ReturnOptions};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
@@ -77,14 +76,12 @@ impl Actor {
         store: Store,
     ) -> Result<Self, Error> {
         let output = Arc::new(Mutex::new(Vec::new()));
-        engine.add_commands(vec![
-            Box::new(commands::cat_command::CatCommand::new(store.clone())),
-            Box::new(commands::last_command::LastCommand::new(store.clone())),
-            Box::new(commands::append_command_buffered::AppendCommand::new(
-                store.clone(),
-                output.clone(),
-            )),
-        ])?;
+        nu::add_read_commands(&mut engine, &store, nu::ReadMode::Plain)?;
+        nu::add_write_commands(
+            &mut engine,
+            &store,
+            nu::AppendMode::Buffered(output.clone()),
+        )?;
 
         // Parse configuration using the new generic API
         let nu_script_config = nu::parse_config(&mut engine, &expression)?;

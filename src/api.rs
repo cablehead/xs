@@ -647,21 +647,15 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     nu::add_core_commands(&mut engine, store)
         .map_err(|e| format!("Failed to add core commands to engine: {e}"))?;
 
-    // Add streaming commands
-    engine
-        .add_commands(vec![
-            Box::new(nu::commands::cat_stream_command::CatStreamCommand::new(
-                store.clone(),
-            )),
-            Box::new(nu::commands::last_stream_command::LastStreamCommand::new(
-                store.clone(),
-            )),
-            Box::new(nu::commands::append_command::AppendCommand::new(
-                store.clone(),
-                serde_json::Value::Null,
-            )),
-        ])
-        .map_err(|e| format!("Failed to add streaming commands to engine: {e}"))?;
+    // Add the read/append surface (streaming reads, direct append)
+    nu::add_read_commands(&mut engine, store, nu::ReadMode::Stream)
+        .map_err(|e| format!("Failed to add read commands to engine: {e}"))?;
+    nu::add_write_commands(
+        &mut engine,
+        store,
+        nu::AppendMode::Direct(serde_json::Value::Null),
+    )
+    .map_err(|e| format!("Failed to add write commands to engine: {e}"))?;
 
     // Execute the script
     let result = engine

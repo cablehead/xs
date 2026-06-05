@@ -9,9 +9,13 @@ use nu_protocol::engine::{Job, ThreadJob};
 use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{OutDest, PipelineData, ShellError, Span, Value};
 
+use std::sync::{Arc, Mutex};
+
+use serde_json::Value as JsonValue;
+
 use crate::error::Error;
 use crate::nu::commands;
-use crate::store::Store;
+use crate::store::{Frame, Store};
 
 #[derive(Clone)]
 pub struct Engine {
@@ -308,4 +312,55 @@ pub fn add_core_commands(engine: &mut Engine, store: &Store) -> Result<(), Error
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
         Box::new(commands::scru128_command::Scru128Command::new()),
     ])
+}
+
+/// Which `.cat`/`.last` flavor a pipeline runner exposes.
+pub enum ReadMode {
+    /// Streaming readers that support `--follow` (eval, actions, services).
+    Stream,
+    /// Collected readers without follow (actors).
+    Plain,
+}
+
+/// How `.append` behaves. This is the one axis of the store surface that
+/// genuinely varies by runner.
+pub enum AppendMode {
+    /// Write straight to the store, tagging each frame's metadata with `base_meta`.
+    Direct(JsonValue),
+    /// Buffer appended frames into `output` for the caller to flush (actors).
+    Buffered(Arc<Mutex<Vec<Frame>>>),
+}
+
+/// Register the `.cat` and `.last` read commands for a pipeline runner.
+pub fn add_read_commands(engine: &mut Engine, store: &Store, mode: ReadMode) -> Result<(), Error> {
+    match mode {
+        ReadMode::Stream => engine.add_commands(vec![
+            Box::new(commands::cat_stream_command::CatStreamCommand::new(
+                store.clone(),
+            )),
+            Box::new(commands::last_stream_command::LastStreamCommand::new(
+                store.clone(),
+            )),
+        ]),
+        ReadMode::Plain => engine.add_commands(vec![
+            Box::new(commands::cat_command::CatCommand::new(store.clone())),
+            Box::new(commands::last_command::LastCommand::new(store.clone())),
+        ]),
+    }
+}
+
+/// Register the `.append` write command for a pipeline runner.
+pub fn add_write_commands(
+    engine: &mut Engine,
+    store: &Store,
+    mode: AppendMode,
+) -> Result<(), Error> {
+    match mode {
+        AppendMode::Direct(base_meta) => engine.add_commands(vec![Box::new(
+            commands::append_command::AppendCommand::new(store.clone(), base_meta),
+        )]),
+        AppendMode::Buffered(output) => engine.add_commands(vec![Box::new(
+            commands::append_command_buffered::AppendCommand::new(store.clone(), output),
+        )]),
+    }
 }
