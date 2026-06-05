@@ -26,6 +26,10 @@ exclude = [
     "*.gif"
 ]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lib]
 name = "xs"
 

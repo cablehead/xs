@@ -1,5 +1,14 @@
+//! Shared error types used across the crate.
+
+/// The crate's general-purpose error: any boxed, thread-safe [`std::error::Error`].
+///
+/// Fallible store operations such as [`append`](crate::Store::append) and
+/// [`remove`](crate::Store::remove) return `Result<_, Error>`. Use
+/// [`NotFound::is_not_found`] or [`has_not_found_io_error`] to test for the
+/// not-found case.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/// Marker error indicating a requested resource does not exist.
 #[derive(Debug)]
 pub struct NotFound;
 

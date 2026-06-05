@@ -1,3 +1,23 @@
+//! The event stream store.
+//!
+//! A [`Store`] is an append-only log of [`Frame`]s persisted to a directory on
+//! disk. Append events with [`Store::append`], replay and follow them with
+//! [`Store::read`], and stash payload bytes in the content-addressed store with
+//! the `cas_*` methods.
+//!
+//! ## Topics
+//!
+//! Every frame has a dot-delimited `topic` (for example `clip.add`). Topics form
+//! a hierarchy: a reader can ask for an exact topic, a prefix wildcard like
+//! `clip.*`, or `*` for everything. See [`validate_topic`](crate::store::validate_topic)
+//! for the allowed characters and [`ReadOptions::topic`] for querying.
+//!
+//! ## Retention
+//!
+//! Each frame carries a [`TTL`] that controls how long it is kept: forever, for
+//! a fixed duration, only the last N per topic, or ephemeral (broadcast to live
+//! readers but never stored).
+
 mod ttl;
 pub use ttl::*;
 
@@ -22,9 +42,12 @@ use fjall::{
     Database, Error as FjallError, Keyspace, KeyspaceCreateOptions, PersistMode,
 };
 
+/// Error returned when opening a [`Store`].
 #[derive(Debug)]
 pub enum StoreError {
+    /// The store directory is already open in another process.
     Locked,
+    /// An error from the underlying `fjall` database.
     Other(FjallError),
 }
 
@@ -39,14 +62,43 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+/// A single event in the stream.
+///
+/// A frame is metadata; the payload bytes (if any) live in the content-addressed
+/// store and are referenced by [`hash`](Frame::hash). Build one with the
+/// [`bon`](https://docs.rs/bon) builder, where the topic is the required
+/// starting argument:
+///
+/// ```
+/// use xs::{Frame, TTL};
+///
+/// let frame = Frame::builder("clip.add")
+///     .meta(serde_json::json!({ "source": "keyboard" }))
+///     .ttl(TTL::Last(100))
+///     .build();
+///
+/// assert_eq!(frame.topic, "clip.add");
+/// ```
+///
+/// The [`id`](Frame::id) is assigned by [`Store::append`] at write time, so the
+/// value you set on a builder is ignored when appending.
 #[derive(PartialEq, Eq, Serialize, Deserialize, Clone, Default, bon::Builder)]
 pub struct Frame {
+    /// Dot-delimited topic this frame belongs to (for example `clip.add`).
+    ///
+    /// Must satisfy [`validate_topic`]; [`Store::append`] rejects invalid topics.
     #[builder(start_fn, into)]
     pub topic: String,
+    /// Time-sortable identifier. Assigned by [`Store::append`]; any value set
+    /// before appending is overwritten.
     #[builder(default)]
     pub id: Scru128Id,
+    /// Integrity hash of the payload in the content-addressed store, if this
+    /// frame has one. Produce it with [`Store::cas_insert`].
     pub hash: Option<ssri::Integrity>,
+    /// Arbitrary JSON metadata carried inline with the frame.
     pub meta: Option<serde_json::Value>,
+    /// Retention policy for this frame. Defaults to [`TTL::Forever`] when unset.
     pub ttl: Option<TTL>,
 }
 
@@ -95,26 +147,48 @@ where
     }
 }
 
+/// Options controlling a [`Store::read`] or [`Store::read_sync`] call.
+///
+/// Defaults replay every stored frame once, oldest first, then stop. Build a
+/// query with the [`bon`](https://docs.rs/bon) builder:
+///
+/// ```
+/// use xs::{ReadOptions, FollowOption};
+///
+/// // Replay history for one topic, then keep streaming new appends.
+/// let opts = ReadOptions::builder()
+///     .topic("clip.*".to_string())
+///     .follow(FollowOption::On)
+///     .build();
+/// ```
 #[derive(PartialEq, Deserialize, Clone, Debug, Default, bon::Builder)]
 pub struct ReadOptions {
+    /// Whether to keep streaming live appends after history is replayed.
+    /// Defaults to [`FollowOption::Off`].
     #[serde(default)]
     #[builder(default)]
     pub follow: FollowOption,
+    /// Skip historical frames and emit only appends made after the read starts.
     #[serde(default, deserialize_with = "deserialize_bool")]
     #[builder(default)]
     pub new: bool,
-    /// Start after this ID (exclusive)
+    /// Start after this ID (exclusive).
     #[serde(rename = "after")]
     pub after: Option<Scru128Id>,
-    /// Start from this ID (inclusive)
+    /// Start from this ID (inclusive).
     pub from: Option<Scru128Id>,
+    /// Stop after emitting this many historical frames.
     pub limit: Option<usize>,
-    /// Return the last N frames (most recent)
+    /// Return the last N frames (most recent), in chronological order.
     pub last: Option<usize>,
+    /// Restrict to a topic: an exact name, a `prefix.*` wildcard, or `*` for all.
     pub topic: Option<String>,
 }
 
 impl ReadOptions {
+    /// Parse options from a URL query string (the form used by the HTTP API),
+    /// for example `follow=true&topic=clip.*&last=10`. `None` yields the
+    /// defaults.
     pub fn from_query(query: Option<&str>) -> Result<Self, crate::error::Error> {
         match query {
             Some(q) => Ok(serde_urlencoded::from_str(q)?),
@@ -122,6 +196,9 @@ impl ReadOptions {
         }
     }
 
+    /// Render these options back into a URL query string, the inverse of
+    /// [`from_query`](ReadOptions::from_query). Returns an empty string when no
+    /// options are set.
     pub fn to_query_string(&self) -> String {
         let mut params = Vec::new();
 
@@ -174,11 +251,16 @@ impl ReadOptions {
     }
 }
 
+/// Whether a read keeps streaming after history is replayed.
 #[derive(Default, PartialEq, Clone, Debug)]
 pub enum FollowOption {
+    /// Stop once historical frames are exhausted.
     #[default]
     Off,
+    /// Replay history, then stream live appends indefinitely.
     On,
+    /// Like [`On`](FollowOption::On), but also emit a periodic heartbeat frame
+    /// at the given interval so idle readers can detect a live connection.
     WithHeartbeat(Duration),
 }
 
@@ -189,8 +271,17 @@ enum GCTask {
     Drain(tokio::sync::oneshot::Sender<()>),
 }
 
+/// An append-only event stream backed by a directory on disk.
+///
+/// Open one with [`new`](Store::new). `Store` is cheaply [`Clone`]able: every
+/// clone shares the same underlying database, broadcast channel, and
+/// content-addressed store, so clone it freely across tasks and threads instead
+/// of wrapping it in an `Arc`.
+///
+/// See the [module docs](crate::store) for the topic and retention model.
 #[derive(Clone)]
 pub struct Store {
+    /// Directory backing this store (the path passed to [`new`](Store::new)).
     pub path: PathBuf,
     db: Database,
     stream: Keyspace,
@@ -201,6 +292,20 @@ pub struct Store {
 }
 
 impl Store {
+    /// Open the store at `path`, creating the directory layout if it does not
+    /// exist. Spawns a background worker that garbage-collects expired frames.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Locked`] if another process already holds the
+    /// store open, or [`StoreError::Other`] for any other database error.
+    ///
+    /// ```no_run
+    /// use xs::Store;
+    ///
+    /// let store = Store::new("./clipboard-store".into())?;
+    /// # Ok::<(), xs::StoreError>(())
+    /// ```
     pub fn new(path: PathBuf) -> Result<Store, StoreError> {
         let db = match Database::builder(path.join("fjall"))
             .cache_size(32 * 1024 * 1024) // 32 MiB
@@ -252,12 +357,43 @@ impl Store {
         Ok(store)
     }
 
+    /// Wait until the background garbage-collection worker has processed every
+    /// task queued so far. Useful in tests to observe TTL eviction
+    /// deterministically.
     pub async fn wait_for_gc(&self) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let _ = self.gc_tx.send(GCTask::Drain(tx));
         let _ = rx.await;
     }
 
+    /// Read frames into an async channel according to `options`.
+    ///
+    /// By default this replays matching historical frames oldest-first and then
+    /// closes the channel. With [`FollowOption::On`] it instead keeps the
+    /// channel open and streams new appends as they arrive. When following, a
+    /// single ephemeral `xs.threshold` frame is emitted to mark the boundary
+    /// between replayed history and live events.
+    ///
+    /// The returned [`Receiver`](tokio::sync::mpsc::Receiver) is bounded;
+    /// dropping it stops the read. For a blocking, non-async caller use
+    /// [`read_sync`](Store::read_sync).
+    ///
+    /// ```no_run
+    /// use xs::{Store, ReadOptions, FollowOption};
+    ///
+    /// # async fn run(store: Store) {
+    /// let mut rx = store
+    ///     .read(ReadOptions::builder().follow(FollowOption::On).build())
+    ///     .await;
+    /// while let Some(frame) = rx.recv().await {
+    ///     if frame.topic == "xs.threshold" {
+    ///         // caught up to live; everything after this is new
+    ///         continue;
+    ///     }
+    ///     println!("{} {}", frame.id, frame.topic);
+    /// }
+    /// # }
+    /// ```
     #[tracing::instrument(skip(self))]
     pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
@@ -462,7 +598,22 @@ impl Store {
         rx
     }
 
-    /// Read frames synchronously with full ReadOptions support.
+    /// Replay matching historical frames as a blocking iterator.
+    ///
+    /// This honours the `topic`, `from`, `after`, `limit`, and `last` parts of
+    /// [`ReadOptions`] but ignores [`follow`](ReadOptions::follow): it never
+    /// streams live appends. Use [`read`](Store::read) when you need to follow.
+    ///
+    /// ```no_run
+    /// use xs::{Store, ReadOptions};
+    ///
+    /// # fn run(store: Store) {
+    /// let opts = ReadOptions::builder().topic("clip.*".to_string()).last(10).build();
+    /// for frame in store.read_sync(opts) {
+    ///     println!("{} {}", frame.id, frame.topic);
+    /// }
+    /// # }
+    /// ```
     pub fn read_sync(&self, options: ReadOptions) -> impl Iterator<Item = Frame> + '_ {
         let gc_tx = self.gc_tx.clone();
 
@@ -532,6 +683,12 @@ impl Store {
     /// Scans all frames up to (and including) `as_of` and returns a mapping of
     /// module name to CAS hash for the latest frame on each `xs.module.<name>`
     /// topic.
+    /// Resolve the set of registered Nushell modules as of a given frame ID.
+    ///
+    /// Scans `xs.module.<name>` frames up to and including `as_of` and returns a
+    /// map from module name to the content hash of its latest definition. Used
+    /// by the scripting runtime; rarely needed when embedding the store
+    /// directly.
     pub fn nu_modules_at(
         &self,
         as_of: &Scru128Id,
@@ -553,6 +710,7 @@ impl Store {
         modules
     }
 
+    /// Fetch a single frame by ID, or `None` if no such frame exists.
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
         self.stream
             .get(id.to_bytes())
@@ -560,6 +718,11 @@ impl Store {
             .map(|value| deserialize_frame((id.as_bytes(), value)))
     }
 
+    /// Delete a frame and its topic index entries. Removing a frame that does
+    /// not exist is a no-op and returns `Ok(())`.
+    ///
+    /// This removes the stream entry only; any payload bytes in the
+    /// content-addressed store are left in place.
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
     pub fn remove(&self, id: &Scru128Id) -> Result<(), crate::error::Error> {
         let Some(frame) = self.get(id) else {
@@ -585,48 +748,75 @@ impl Store {
         Ok(())
     }
 
+    // --- Content-addressed store (CAS) ---
+    //
+    // Frame payloads live here, keyed by an integrity hash. The typical flow is
+    // `cas_insert` to store bytes, stash the returned hash on a `Frame`, then
+    // `cas_read` to retrieve them later. Each method has a `_sync` twin for
+    // blocking callers; the streaming `cas_reader`/`cas_writer` variants avoid
+    // buffering the whole payload in memory.
+
+    /// Open a streaming reader for the payload identified by `hash`.
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
         cacache::Reader::open_hash(&self.path.join("cacache"), hash).await
     }
 
+    /// Blocking variant of [`cas_reader`](Store::cas_reader).
     pub fn cas_reader_sync(&self, hash: ssri::Integrity) -> cacache::Result<cacache::SyncReader> {
         cacache::SyncReader::open_hash(self.path.join("cacache"), hash)
     }
 
+    /// Open a streaming writer; finish it to obtain the payload's integrity hash.
     pub async fn cas_writer(&self) -> cacache::Result<cacache::Writer> {
         cacache::WriteOpts::new()
             .open_hash(&self.path.join("cacache"))
             .await
     }
 
+    /// Blocking variant of [`cas_writer`](Store::cas_writer).
     pub fn cas_writer_sync(&self) -> cacache::Result<cacache::SyncWriter> {
         cacache::WriteOpts::new().open_hash_sync(self.path.join("cacache"))
     }
 
+    /// Store `content` and return its integrity hash, ready to attach to a
+    /// [`Frame::hash`].
     pub async fn cas_insert(&self, content: impl AsRef<[u8]>) -> cacache::Result<ssri::Integrity> {
         cacache::write_hash(&self.path.join("cacache"), content).await
     }
 
+    /// Blocking variant of [`cas_insert`](Store::cas_insert).
     pub fn cas_insert_sync(&self, content: impl AsRef<[u8]>) -> cacache::Result<ssri::Integrity> {
         cacache::write_hash_sync(self.path.join("cacache"), content)
     }
 
+    /// Convenience wrapper over [`cas_insert`](Store::cas_insert) for a byte slice.
     pub async fn cas_insert_bytes(&self, bytes: &[u8]) -> cacache::Result<ssri::Integrity> {
         self.cas_insert(bytes).await
     }
 
+    /// Blocking variant of [`cas_insert_bytes`](Store::cas_insert_bytes).
     pub fn cas_insert_bytes_sync(&self, bytes: &[u8]) -> cacache::Result<ssri::Integrity> {
         self.cas_insert_sync(bytes)
     }
 
+    /// Read back the full payload for `hash` into a `Vec<u8>`.
     pub async fn cas_read(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
         cacache::read_hash(&self.path.join("cacache"), hash).await
     }
 
+    /// Blocking variant of [`cas_read`](Store::cas_read).
     pub fn cas_read_sync(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
         cacache::read_hash_sync(self.path.join("cacache"), hash)
     }
 
+    /// Persist a frame exactly as given, including its existing
+    /// [`id`](Frame::id), without broadcasting it to live readers or scheduling
+    /// TTL garbage collection.
+    ///
+    /// Most callers want [`append`](Store::append) instead, which assigns a
+    /// fresh ID, handles ephemeral and `Last` retention, and notifies
+    /// subscribers. Use `insert_frame` only when you are reconstructing a stream
+    /// with predetermined IDs (for example when restoring a backup).
     #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
@@ -648,6 +838,38 @@ impl Store {
         Ok(())
     }
 
+    /// Append a frame to the stream and return it with its freshly assigned
+    /// [`id`](Frame::id).
+    ///
+    /// This is the primary write path. It:
+    ///
+    /// - assigns a new time-sortable ID (overwriting any ID on the input);
+    /// - validates the topic (see [`validate_topic`]);
+    /// - persists the frame, unless its [`TTL`] is [`TTL::Ephemeral`], in which
+    ///   case it is only broadcast to live readers;
+    /// - schedules garbage collection for [`TTL::Last`] retention;
+    /// - broadcasts the frame to everyone currently in a following
+    ///   [`read`](Store::read).
+    ///
+    /// Appends are serialized internally, so frames are assigned IDs and
+    /// delivered to subscribers in a consistent order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the topic is invalid or the underlying write fails.
+    ///
+    /// ```no_run
+    /// use xs::{Store, Frame, TTL};
+    ///
+    /// # async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// let hash = store.cas_insert("hello clipboard").await?;
+    /// let frame = store.append(
+    ///     Frame::builder("clip.add").hash(hash).ttl(TTL::Last(100)).build(),
+    /// )?;
+    /// println!("appended {}", frame.id);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
         // Serialize all appends to ensure ID generation, write, and broadcast
         // happen atomically. This guarantees subscribers receive frames in
@@ -846,10 +1068,19 @@ fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
 const NULL_DELIMITER: u8 = 0;
 const MAX_TOPIC_LENGTH: usize = 255;
 
-/// Validates a topic name according to ADR 0001.
-/// - Allowed characters: a-z A-Z 0-9 _ - .
-/// - Must start with: a-z A-Z 0-9 _
-/// - Cannot be empty, cannot end with '.', max 255 bytes
+/// Validate a frame topic (per ADR 0001).
+///
+/// A topic must be non-empty and at most 255 bytes, start with an ASCII letter
+/// or `_`, and contain only `a-z A-Z 0-9 _ - .`. It may not end with `.` or
+/// contain consecutive dots. [`Store::append`] runs this automatically; call it
+/// directly to validate user input before building a [`Frame`].
+///
+/// ```
+/// use xs::store::validate_topic;
+///
+/// assert!(validate_topic("clip.add").is_ok());
+/// assert!(validate_topic("clip.").is_err());
+/// ```
 pub fn validate_topic(topic: &str) -> Result<(), crate::error::Error> {
     if topic.is_empty() {
         return Err("Topic cannot be empty".to_string().into());
