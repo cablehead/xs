@@ -181,6 +181,19 @@ All output frames automatically include:
 - Frames with `meta.actor_id` equal to the actor's ID are ignored to avoid
   reacting to the actor's own output.
 
+## Built-in Store Commands
+
+Inside the closure an actor has the same store helper commands as actions and
+services:
+
+- `.append`, append a new frame (merged with `actor_id` and `frame_id`).
+- `.cat`, read frames from the store.
+- `.last`, fetch the most recent frame(s), optionally filtered by topic.
+- `.cas`, read content from CAS by hash.
+- `.get`, retrieve a frame by ID.
+- `.remove`, delete a frame from the stream.
+- `.import`, insert a frame verbatim, preserving its ID.
+
 ## Lifecycle
 
 Actors share the unified lifecycle vocabulary documented in the

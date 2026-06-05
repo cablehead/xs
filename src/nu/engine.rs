@@ -349,12 +349,16 @@ pub fn add_read_commands(engine: &mut Engine, store: &Store, mode: ReadMode) -> 
     }
 }
 
-/// Register the `.append` write command for a pipeline runner.
+/// Register the write surface for a pipeline runner: `.append` (per `mode`) plus
+/// `.import`, which is identical across runners.
 pub fn add_write_commands(
     engine: &mut Engine,
     store: &Store,
     mode: AppendMode,
 ) -> Result<(), Error> {
+    engine.add_commands(vec![Box::new(
+        commands::import_command::ImportCommand::new(store.clone()),
+    )])?;
     match mode {
         AppendMode::Direct(base_meta) => engine.add_commands(vec![Box::new(
             commands::append_command::AppendCommand::new(store.clone(), base_meta),

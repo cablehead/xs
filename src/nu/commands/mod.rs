@@ -4,6 +4,7 @@ pub mod cas_command;
 pub mod cat_command;
 pub mod cat_stream_command;
 pub mod get_command;
+pub mod import_command;
 pub mod last_command;
 pub mod last_stream_command;
 pub mod remove_command;

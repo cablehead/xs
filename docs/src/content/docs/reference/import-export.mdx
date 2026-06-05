@@ -26,6 +26,20 @@ The exported data includes:
 - Frame metadata in `frames.jsonl`
 - Content files in `cas/` directory
 
+These `xs.nu` commands operate on a whole export directory.
+
+## From eval and handlers
+
+Inside `xs eval` and handler scripts (actions, actors, services) a `.import`
+builtin inserts a single frame verbatim, preserving its `id`. It is the
+in-engine equivalent of the `xs import` CLI and the `POST /import` endpoint, and
+the primitive the directory-level `.import <path>` helper is built on.
+
+```nushell
+# pipe in a frame record (or its JSON) to restore it
+$frame | .import
+```
+
 ## Version Compatibility
 
 Version 0.1.0 was the first version supporting imports, though the 0.1.0 client can export data from 0.0.9 stores.
