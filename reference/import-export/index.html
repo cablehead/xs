@@ -93,11 +93,17 @@ starlight-tabs:where(.astro-esqgolmp){display:block}.tablist-wrapper:where(.astr
 </ul>
 <p>These <code dir="auto">xs.nu</code> commands operate on a whole export directory.</p>
 <h2 id="from-eval-and-handlers">From eval and handlers</h2>
-<p>Inside <code dir="auto">xs eval</code> and handler scripts (actions, actors, services) a <code dir="auto">.import</code>
-builtin inserts a single frame verbatim, preserving its <code dir="auto">id</code>. It is the
-in-engine equivalent of the <code dir="auto">xs import</code> CLI and the <code dir="auto">POST /import</code> endpoint, and
-the primitive the directory-level <code dir="auto">.import &#x3C;path></code> helper is built on.</p>
-<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="nushell"><code><div class="ec-line"><div class="code"><span style="--0:#96A1C2;--1:#64606C;--1fs:italic"># pipe in a frame record (or its JSON) to restore it</span></div></div><div class="ec-line"><div class="code"><span style="--0:#F8F8F2;--1:#575279;--1fs:italic">$frame</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#FF79C6;--1:#286983">|</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">.import</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="$frame | .import"><div></div></button></div></figure></div>
+<p>Inside <code dir="auto">xs eval</code> and handler scripts (actions, actors, services) two builtins
+expose the import primitives directly:</p>
+<ul>
+<li><code dir="auto">.import</code> inserts a single frame verbatim, preserving its <code dir="auto">id</code>. It is the
+in-engine equivalent of the <code dir="auto">xs import</code> CLI and the <code dir="auto">POST /import</code> endpoint,
+and the primitive the directory-level <code dir="auto">.import &#x3C;path></code> helper is built on.</li>
+<li><code dir="auto">.cas-post</code> writes the pipeline input to the CAS and returns its hash, the
+write counterpart to <code dir="auto">.cas</code> and the in-engine equivalent of <code dir="auto">POST /cas</code>.</li>
+</ul>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="nushell"><code><div class="ec-line"><div class="code"><span style="--0:#96A1C2;--1:#64606C;--1fs:italic"># pipe in a frame record (or its JSON) to restore it</span></div></div><div class="ec-line"><div class="code"><span style="--0:#F8F8F2;--1:#575279;--1fs:italic">$frame</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#FF79C6;--1:#286983">|</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">.import</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#96A1C2;--1:#64606C;--1fs:italic"># stash content in the CAS, keep the hash to reference from a frame</span></div></div><div class="ec-line"><div class="code"><span style="--0:#FF79C6;--1:#286983">let</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F8F8F2;--1:#575279;--1fs:italic">hash</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#FF79C6;--1:#286983">=</span><span style="--0:#F8F8F2;--1:#575279"> (</span><span style="--1:#855A1E"><span style="--0:#E9F284">"</span><span style="--0:#F1FA8C">some content</span><span style="--0:#E9F284">"</span></span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#FF79C6;--1:#286983">|</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">.cas-post</span><span style="--0:#F8F8F2;--1:#575279">)</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="$frame | .importlet hash = (&#x22;some content&#x22; | .cas-post)"><div></div></button></div></figure></div>
 <h2 id="version-compatibility">Version Compatibility</h2>
 <p>Version 0.1.0 was the first version supporting imports, though the 0.1.0 client can export data from 0.0.9 stores.</p>
 <h2 id="example">Example</h2>
