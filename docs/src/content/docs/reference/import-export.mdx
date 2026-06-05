@@ -30,14 +30,21 @@ These `xs.nu` commands operate on a whole export directory.
 
 ## From eval and handlers
 
-Inside `xs eval` and handler scripts (actions, actors, services) a `.import`
-builtin inserts a single frame verbatim, preserving its `id`. It is the
-in-engine equivalent of the `xs import` CLI and the `POST /import` endpoint, and
-the primitive the directory-level `.import <path>` helper is built on.
+Inside `xs eval` and handler scripts (actions, actors, services) two builtins
+expose the import primitives directly:
+
+- `.import` inserts a single frame verbatim, preserving its `id`. It is the
+  in-engine equivalent of the `xs import` CLI and the `POST /import` endpoint,
+  and the primitive the directory-level `.import <path>` helper is built on.
+- `.cas-post` writes the pipeline input to the CAS and returns its hash, the
+  write counterpart to `.cas` and the in-engine equivalent of `POST /cas`.
 
 ```nushell
 # pipe in a frame record (or its JSON) to restore it
 $frame | .import
+
+# stash content in the CAS, keep the hash to reference from a frame
+let hash = ("some content" | .cas-post)
 ```
 
 ## Version Compatibility
