@@ -51,40 +51,55 @@ func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory, version stri
 	// First build attempt - this will likely fail due to libproc issue
 	container = container.WithExec([]string{"bash", "-c", `
 		cargo build --target aarch64-apple-darwin --release --color always 2>&1 | tee build.log
-		
-		# Check if libproc error occurred
-		if grep -q "osx_libproc_bindings.rs.*No such file" build.log; then
-			echo "Detected libproc issue, applying fix..."
-			
-			# Find the libproc source file - try both possible paths
-			SOURCE_FILE=$(find /root/.cargo/registry/src/index.crates.io-* -name "libproc-*" -type d | head -1)/docs_rs/osx_libproc_bindings.rs
-			if [ ! -f "$SOURCE_FILE" ]; then
-				SOURCE_FILE=$(find /root/.cargo/registry/src/index.crates.io-* -name "libproc-*" -type d | head -1)/src/osx_libproc_bindings.rs
-			fi
-			
-			# Find the destination directory
-			DEST_DIR=$(find target/aarch64-apple-darwin/release/build/ -name "libproc-*" -type d | head -1)/out
-			
-			if [ -f "$SOURCE_FILE" ] && [ -d "$DEST_DIR" ]; then
-				echo "Copying $SOURCE_FILE to $DEST_DIR/"
-				cp "$SOURCE_FILE" "$DEST_DIR/"
-				
-				echo "Retrying build..."
-				cargo build --target aarch64-apple-darwin --release --color always
+		status=${PIPESTATUS[0]}
+
+		# Only the known libproc failure is recoverable. Any other non-zero exit
+		# must fail the step, never fall through to package an empty tarball.
+		if [ "$status" -ne 0 ]; then
+			if grep -q "osx_libproc_bindings.rs.*No such file" build.log; then
+				echo "Detected libproc issue, applying fix..."
+
+				# Find the libproc source file - try both possible paths
+				SOURCE_FILE=$(find /root/.cargo/registry/src/index.crates.io-* -name "libproc-*" -type d | head -1)/docs_rs/osx_libproc_bindings.rs
+				if [ ! -f "$SOURCE_FILE" ]; then
+					SOURCE_FILE=$(find /root/.cargo/registry/src/index.crates.io-* -name "libproc-*" -type d | head -1)/src/osx_libproc_bindings.rs
+				fi
+
+				# Find the destination directory
+				DEST_DIR=$(find target/aarch64-apple-darwin/release/build/ -name "libproc-*" -type d | head -1)/out
+
+				if [ -f "$SOURCE_FILE" ] && [ -d "$DEST_DIR" ]; then
+					echo "Copying $SOURCE_FILE to $DEST_DIR/"
+					cp "$SOURCE_FILE" "$DEST_DIR/"
+
+					echo "Retrying build..."
+					cargo build --target aarch64-apple-darwin --release --color always
+				else
+					echo "Error: Could not find source file or destination directory"
+					echo "Source: $SOURCE_FILE"
+					echo "Dest: $DEST_DIR"
+					exit 1
+				fi
 			else
-				echo "Error: Could not find source file or destination directory"
-				echo "Source: $SOURCE_FILE"
-				echo "Dest: $DEST_DIR"
-				exit 1
+				echo "macOS build failed (exit $status), and it is not the known libproc issue."
+				exit "$status"
 			fi
 		fi
-		
+
+		# Backstop: fail loudly if the binary is missing rather than packaging an
+		# empty tarball (covers a failed libproc retry, etc.).
+		if [ ! -f target/aarch64-apple-darwin/release/xs ]; then
+			echo "Error: xs binary not found after build"
+			exit 1
+		fi
+
 		# Clean up log file
 		rm -f build.log
 	`})
 
 	// Create tarball structure using provided version
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/cross-stream-` + version + `
 		cp target/aarch64-apple-darwin/release/xs /tmp/cross-stream-` + version + `/
 		cd /tmp
@@ -112,6 +127,7 @@ func (m *Xs) LinuxArm64Build(ctx context.Context, src *dagger.Directory, version
 
 	// Create tarball structure using provided version
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/cross-stream-` + version + `
 		cp target/aarch64-unknown-linux-musl/release/xs /tmp/cross-stream-` + version + `/
 		cd /tmp
@@ -139,6 +155,7 @@ func (m *Xs) LinuxAmd64Build(ctx context.Context, src *dagger.Directory, version
 
 	// Create tarball structure using provided version
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/cross-stream-` + version + `
 		cp target/x86_64-unknown-linux-musl/release/xs /tmp/cross-stream-` + version + `/
 		cd /tmp
@@ -180,6 +197,7 @@ func (m *Xs) WindowsBuild(ctx context.Context, src *dagger.Directory, version st
 
 	// Create tarball structure using provided version
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/cross-stream-` + version + `
 		cp target/x86_64-pc-windows-gnu/release/xs.exe /tmp/cross-stream-` + version + `/
 		cd /tmp
