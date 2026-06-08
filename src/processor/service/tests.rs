@@ -1452,3 +1452,144 @@ async fn test_service_activates_alongside_other_processors() {
         "service stuck at .create -- never reached .active with actor+service+action co-hosted"
     );
 }
+
+// Regression: a hot-replaced service (a second `xs.service.<name>.create`)
+// must keep the read/append command surface. The initial spawn registers
+// `.append`/`.cat`/`.last`, but the hot-replace path rebuilt the engine
+// without them, so a re-registered service's run closure failed with
+// "command not found" on `.append`. First registration worked, the second did
+// not.
+#[tokio::test]
+async fn test_serve_append_survives_hot_replace() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        }));
+    }
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    // First registration appends `ping` with gen=1.
+    let script1 = r#"{ run: {|| sleep 100ms; {} | .append ping --meta {gen: 1} } }"#;
+    store
+        .append(
+            Frame::builder("xs.service.pinger.create")
+                .maybe_hash(store.cas_insert(script1).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    let gen_of = |f: &Frame| -> Option<u64> {
+        f.meta
+            .as_ref()
+            .and_then(|m| m.get("gen"))
+            .and_then(|v| v.as_u64())
+    };
+
+    // Wait for a gen=1 ping: the first registration works.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut saw_gen1 = false;
+    while Instant::now() < deadline && !saw_gen1 {
+        if let Ok(Some(f)) = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await {
+            if f.topic == "ping" && gen_of(&f) == Some(1) {
+                saw_gen1 = true;
+            }
+        }
+    }
+    assert!(saw_gen1, "first registration never appended a ping");
+
+    // Hot-replace with a second .create whose run closure also appends.
+    let script2 = r#"{ run: {|| sleep 100ms; {} | .append ping --meta {gen: 2} } }"#;
+    store
+        .append(
+            Frame::builder("xs.service.pinger.create")
+                .maybe_hash(store.cas_insert(script2).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    // The hot-replaced service must still have `.append`: expect a gen=2 ping,
+    // and never an .invalid / .fin.error.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut saw_gen2 = false;
+    while Instant::now() < deadline && !saw_gen2 {
+        match tokio::time::timeout(Duration::from_secs(5), recver.recv()).await {
+            Ok(Some(f)) if f.topic == "ping" && gen_of(&f) == Some(2) => {
+                saw_gen2 = true;
+            }
+            Ok(Some(f))
+                if f.topic == "xs.service.pinger.fin.error"
+                    || f.topic == "xs.service.pinger.invalid" =>
+            {
+                panic!(
+                    "hot-replaced service lost its command surface: {} meta={:?}",
+                    f.topic, f.meta
+                );
+            }
+            _ => continue,
+        }
+    }
+
+    assert!(
+        saw_gen2,
+        "hot-replaced service never appended a ping; `.append` was likely missing after re-registration"
+    );
+}
+
+// Locks the service write surface's instance metadata: a frame a service
+// appends via `.append` carries `service_id` (the spawn frame's id) as base
+// meta, with any user `--meta` merged on top.
+#[tokio::test]
+async fn test_serve_append_tags_service_id() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        }));
+    }
+
+    let script = r#"{ run: {|| sleep 100ms; {} | .append out --meta {k: "v"} } }"#;
+    let frame_service = store
+        .append(
+            Frame::builder("xs.service.tagger.create")
+                .maybe_hash(store.cas_insert(script).await.ok())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options).await;
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut checked = false;
+    while Instant::now() < deadline && !checked {
+        if let Ok(Some(f)) = tokio::time::timeout(Duration::from_secs(5), recver.recv()).await {
+            if f.topic == "out" {
+                let meta = f
+                    .meta
+                    .as_ref()
+                    .expect("appended `out` frame should carry meta");
+                assert_eq!(meta["service_id"], frame_service.id.to_string());
+                assert_eq!(meta["k"], "v");
+                checked = true;
+            }
+        }
+    }
+
+    assert!(
+        checked,
+        "service never appended an `out` frame to assert on"
+    );
+}

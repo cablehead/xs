@@ -180,25 +180,33 @@ pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
     tokio::spawn(async move { run(store, spawn_frame).await })
 }
 
+/// Clone the prepared base engine and specialize it for a `<name>.create`
+/// frame: load the modules visible as of that frame and stamp `service_id`.
+/// The read/append command surface already lives on `base`, so neither the
+/// initial spawn nor a hot-replace re-registers builtins.
+fn specialize(
+    base: &nu::Engine,
+    store: &Store,
+    create_id: Scru128Id,
+) -> Result<nu::Engine, Box<dyn std::error::Error + Send + Sync>> {
+    let mut engine = base.clone();
+    let modules = store.nu_modules_at(&create_id);
+    nu::load_modules(&mut engine.state, store, &modules)?;
+    engine.set_append_meta(&serde_json::json!({ "service_id": create_id.to_string() }));
+    Ok(engine)
+}
+
 async fn run(store: Store, spawn_frame: Frame) {
-    let mut engine = match crate::processor::build_engine(&store, &spawn_frame.id) {
+    // Prepared once (nushell + stdlib + core + Stream reads + Direct `.append`);
+    // cloned for the initial run and every hot-replace.
+    let base = match nu::prepared_base(&store, nu::ReadMode::Stream, true) {
         Ok(e) => e,
         Err(_) => return,
     };
-
-    // Services get the same read/append surface as the other runners. Their
-    // appends are tagged with the spawning frame's id as `service_id`.
-    let base_meta = serde_json::json!({ "service_id": spawn_frame.id.to_string() });
-    if crate::nu::add_read_commands(&mut engine, &store, crate::nu::ReadMode::Stream).is_err()
-        || crate::nu::add_write_commands(
-            &mut engine,
-            &store,
-            crate::nu::AppendMode::Direct(base_meta),
-        )
-        .is_err()
-    {
-        return;
-    }
+    let mut engine = match specialize(&base, &store, spawn_frame.id) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
 
     let hash = match spawn_frame.hash.clone() {
         Some(h) => h,
@@ -252,10 +260,10 @@ async fn run(store: Store, spawn_frame: Frame) {
         engine,
     };
 
-    run_loop(store, loop_ctx, task).await;
+    run_loop(store, loop_ctx, task, base).await;
 }
 
-async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
+async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu::Engine) {
     // Create the first start frame and set up a persistent control subscription
     let start_event = emit_event(
         &store,
@@ -353,7 +361,10 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task) {
                                 if let Ok(mut reader) = store.cas_reader(hash).await {
                                     let mut script = String::new();
                                     if reader.read_to_string(&mut script).await.is_ok() {
-                                        let mut new_engine = match crate::processor::build_engine(&store, &frame.id) {
+                                        // Clone the prepared base; the read/append surface is
+                                        // already on it, so a hot-replace never re-registers
+                                        // builtins.
+                                        let mut new_engine = match specialize(&base, &store, frame.id) {
                                             Ok(e) => e,
                                             Err(_) => continue,
                                         };

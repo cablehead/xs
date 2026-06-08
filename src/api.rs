@@ -650,12 +650,8 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Add the read/append surface (streaming reads, direct append)
     nu::add_read_commands(&mut engine, store, nu::ReadMode::Stream)
         .map_err(|e| format!("Failed to add read commands to engine: {e}"))?;
-    nu::add_write_commands(
-        &mut engine,
-        store,
-        nu::AppendMode::Direct(serde_json::Value::Null),
-    )
-    .map_err(|e| format!("Failed to add write commands to engine: {e}"))?;
+    nu::add_write_commands(&mut engine, store, nu::AppendMode::Direct)
+        .map_err(|e| format!("Failed to add write commands to engine: {e}"))?;
 
     // Execute the script
     let result = engine
@@ -926,7 +922,6 @@ mod tests {
                 ),
                 Box::new(crate::nu::commands::append_command::AppendCommand::new(
                     store.clone(),
-                    serde_json::Value::Null,
                 )),
             ])
             .unwrap();

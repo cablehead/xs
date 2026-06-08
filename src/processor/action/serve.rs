@@ -94,14 +94,13 @@ async fn execute_action(action: Action, frame: &Frame, store: &Store) -> Result<
     let frame = frame.clone();
 
     tokio::task::spawn_blocking(move || {
-        let base_meta = serde_json::json!({
-            "action_id": action.id.to_string(),
-            "frame_id": frame.id.to_string()
-        });
-
         let mut engine = action.engine;
 
-        nu::add_write_commands(&mut engine, &store, nu::AppendMode::Direct(base_meta))?;
+        nu::add_write_commands(&mut engine, &store, nu::AppendMode::Direct)?;
+        engine.set_append_meta(&serde_json::json!({
+            "action_id": action.id.to_string(),
+            "frame_id": frame.id.to_string()
+        }));
 
         // Parse the action configuration to get the up-to-date closure with modules loaded
         let nu_config = nu::parse_config(&mut engine, &action.definition)?;

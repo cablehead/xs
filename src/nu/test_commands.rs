@@ -49,12 +49,10 @@ mod tests {
     #[test]
     fn test_append_command() {
         let (store, mut engine) = setup_test_env();
+        engine.set_append_meta(&json!({"base": "meta"}));
         engine
             .add_commands(vec![Box::new(
-                commands::append_command::AppendCommand::new(
-                    store.clone(),
-                    json!({"base": "meta"}),
-                ),
+                commands::append_command::AppendCommand::new(store.clone()),
             )])
             .unwrap();
 

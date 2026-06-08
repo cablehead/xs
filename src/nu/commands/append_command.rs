@@ -7,15 +7,20 @@ use serde_json::Value as JsonValue;
 use crate::nu::util;
 use crate::store::{Frame, Store, TTL};
 
+/// Env var carrying the base metadata stamped on every frame a runner appends
+/// (`service_id`, `{action_id, frame_id}`, ...), as a JSON object string.
+/// Injecting it per instance keeps `.append` instance-independent, so one decl
+/// can be registered on a prepared engine and reused across spawns and restarts.
+pub const APPEND_META_ENV: &str = "XS_APPEND_META";
+
 #[derive(Clone)]
 pub struct AppendCommand {
     store: Store,
-    base_meta: JsonValue,
 }
 
 impl AppendCommand {
-    pub fn new(store: Store, base_meta: JsonValue) -> Self {
-        Self { store, base_meta }
+    pub fn new(store: Store) -> Self {
+        Self { store }
     }
 }
 
@@ -66,18 +71,24 @@ impl Command for AppendCommand {
 
         let topic: String = call.req(engine_state, stack, 0)?;
 
-        // Get user-supplied metadata and convert to JSON
-        let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-        let mut final_meta = self.base_meta.clone(); // Start with base metadata
+        // Base metadata is injected per instance via $env; absent or malformed
+        // resolves to an empty object.
+        let mut base_obj = stack
+            .get_env_var(engine_state, APPEND_META_ENV)
+            .and_then(|v| v.coerce_string().ok())
+            .and_then(|s| serde_json::from_str::<JsonValue>(&s).ok())
+            .and_then(|j| match j {
+                JsonValue::Object(m) => Some(m),
+                _ => None,
+            })
+            .unwrap_or_default();
 
-        // Merge user metadata if provided
+        // Merge user-supplied metadata on top of the base.
+        let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
         if let Some(user_value) = user_meta {
-            let user_json = util::value_to_json(&user_value);
-            if let JsonValue::Object(mut base_obj) = final_meta {
-                if let JsonValue::Object(user_obj) = user_json {
-                    base_obj.extend(user_obj); // Merge user metadata into base
-                    final_meta = JsonValue::Object(base_obj);
-                } else {
+            match util::value_to_json(&user_value) {
+                JsonValue::Object(user_obj) => base_obj.extend(user_obj),
+                _ => {
                     return Err(ShellError::TypeMismatch {
                         err_message: "Meta must be a record".to_string(),
                         span: call.span(),
@@ -85,6 +96,7 @@ impl Command for AppendCommand {
                 }
             }
         }
+        let final_meta = JsonValue::Object(base_obj);
 
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {
