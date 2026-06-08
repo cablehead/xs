@@ -640,18 +640,9 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
         String::from_utf8(bytes.to_vec()).map_err(|e| format!("Invalid UTF-8 in script: {e}"))?;
 
     // Create nushell engine with store helper commands
-    let mut engine =
-        nu::Engine::new().map_err(|e| format!("Failed to create nushell engine: {e}"))?;
-
-    // Add core commands
-    nu::add_core_commands(&mut engine, store)
-        .map_err(|e| format!("Failed to add core commands to engine: {e}"))?;
-
-    // Add the read/append surface (streaming reads, direct append)
-    nu::add_read_commands(&mut engine, store, nu::ReadMode::Stream)
-        .map_err(|e| format!("Failed to add read commands to engine: {e}"))?;
-    nu::add_write_commands(&mut engine, store, nu::AppendMode::Direct)
-        .map_err(|e| format!("Failed to add write commands to engine: {e}"))?;
+    // Same prepared surface as the runners (Stream reads + Direct `.append`).
+    let engine = nu::prepared_base(store, nu::ReadMode::Stream, true)
+        .map_err(|e| format!("Failed to build nushell engine: {e}"))?;
 
     // Execute the script
     let result = engine

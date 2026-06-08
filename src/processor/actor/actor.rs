@@ -76,7 +76,8 @@ impl Actor {
         store: Store,
     ) -> Result<Self, Error> {
         let output = Arc::new(Mutex::new(Vec::new()));
-        nu::add_read_commands(&mut engine, &store, nu::ReadMode::Plain)?;
+        // Reads come from the prepared base; only the per-instance buffered
+        // `.append` (for atomic batch commit) is added here.
         nu::add_write_commands(
             &mut engine,
             &store,
@@ -360,8 +361,11 @@ impl Actor {
             .await
             .map_err(|e| format!("Failed to read expression: {e}"))?;
 
-        // Build engine from scratch with VFS modules at this point in the stream
-        let engine = crate::processor::build_engine(store, &frame.id)?;
+        // Prepared base (Plain reads); the actor's per-instance buffered
+        // `.append` is added in Actor::new. Modules as of this frame.
+        let mut engine = nu::prepared_base(store, nu::ReadMode::Plain, false)?;
+        let modules = store.nu_modules_at(&frame.id);
+        nu::load_modules(&mut engine.state, store, &modules)?;
 
         let actor = Actor::new(
             frame.id,
