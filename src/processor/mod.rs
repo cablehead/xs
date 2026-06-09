@@ -3,22 +3,8 @@ pub mod actor;
 pub mod lifecycle;
 pub mod service;
 
-use crate::nu;
-use crate::store::{Frame, Store};
-use scru128::Scru128Id;
+use crate::store::Frame;
 use tokio::sync::mpsc;
-
-pub fn build_engine(
-    store: &Store,
-    as_of: &Scru128Id,
-) -> Result<nu::Engine, Box<dyn std::error::Error + Send + Sync>> {
-    let mut engine = nu::Engine::new()?;
-    nu::add_core_commands(&mut engine, store)?;
-    engine.add_alias(".rm", ".remove")?;
-    let modules = store.nu_modules_at(as_of);
-    nu::load_modules(&mut engine.state, store, &modules)?;
-    Ok(engine)
-}
 
 pub enum Lifecycle {
     Historical(Frame),

@@ -180,6 +180,16 @@ impl Engine {
         Ok(self)
     }
 
+    /// Set the base metadata stamped on frames this engine's `.append` writes
+    /// (`service_id`, `{action_id, frame_id}`, ...). Injected as `$env` so the
+    /// `.append` decl stays instance-independent. See `append_command`.
+    pub fn set_append_meta(&mut self, meta: &JsonValue) {
+        self.state.add_env_var(
+            crate::nu::commands::append_command::APPEND_META_ENV.to_string(),
+            Value::string(meta.to_string(), Span::unknown()),
+        );
+    }
+
     pub fn run_closure_in_job(
         &mut self,
         closure: &nu_protocol::engine::Closure,
@@ -322,16 +332,17 @@ pub enum ReadMode {
     Plain,
 }
 
-/// How `.append` behaves. This is the one axis of the store surface that
+/// How `.append` behaves. This is the one store command whose behaviour
 /// genuinely varies by runner.
 pub enum AppendMode {
-    /// Write straight to the store, tagging each frame's metadata with `base_meta`.
-    Direct(JsonValue),
+    /// Write straight to the store. The per-instance base metadata is injected
+    /// via the `XS_APPEND_META` env var (see `append_command`), not baked in.
+    Direct,
     /// Buffer appended frames into `output` for the caller to flush (actors).
     Buffered(Arc<Mutex<Vec<Frame>>>),
 }
 
-/// Register the `.cat` and `.last` read commands for a pipeline runner.
+/// Register the `.cat` and `.last` read builtins for a pipeline runner.
 pub fn add_read_commands(engine: &mut Engine, store: &Store, mode: ReadMode) -> Result<(), Error> {
     match mode {
         ReadMode::Stream => engine.add_commands(vec![
@@ -349,8 +360,8 @@ pub fn add_read_commands(engine: &mut Engine, store: &Store, mode: ReadMode) -> 
     }
 }
 
-/// Register the write surface for a pipeline runner: `.append` (per `mode`) plus
-/// `.import` and `.cas-post`, which are identical across runners.
+/// Register the write builtins for a pipeline runner: `.append` (per `mode`)
+/// plus `.import` and `.cas-post`, which are identical across runners.
 pub fn add_write_commands(
     engine: &mut Engine,
     store: &Store,
@@ -363,11 +374,28 @@ pub fn add_write_commands(
         )),
     ])?;
     match mode {
-        AppendMode::Direct(base_meta) => engine.add_commands(vec![Box::new(
-            commands::append_command::AppendCommand::new(store.clone(), base_meta),
+        AppendMode::Direct => engine.add_commands(vec![Box::new(
+            commands::append_command::AppendCommand::new(store.clone()),
         )]),
         AppendMode::Buffered(output) => engine.add_commands(vec![Box::new(
             commands::append_command_buffered::AppendCommand::new(store.clone(), output),
         )]),
     }
+}
+
+/// The module-free, instance-free base engine for a runner: nushell + stdlib +
+/// the core builtins + the `.rm` alias + the read builtins, plus the `.append`
+/// write builtin for direct writers. Build this once per runner and `clone()` it per
+/// spawn or restart; `load_modules(as_of)` and `set_append_meta(..)` specialize
+/// each clone. Actors pass `direct_write: false` and add their per-instance
+/// buffered `.append` to the clone.
+pub fn prepared_base(store: &Store, read: ReadMode, direct_write: bool) -> Result<Engine, Error> {
+    let mut engine = Engine::new()?;
+    add_core_commands(&mut engine, store)?;
+    engine.add_alias(".rm", ".remove")?;
+    add_read_commands(&mut engine, store, read)?;
+    if direct_write {
+        add_write_commands(&mut engine, store, AppendMode::Direct)?;
+    }
+    Ok(engine)
 }

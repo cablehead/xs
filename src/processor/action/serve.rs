@@ -53,12 +53,12 @@ async fn register_action(frame: &Frame, store: &Store) -> Result<Action, Error> 
     let definition_bytes = store.cas_read(hash).await?;
     let definition = String::from_utf8(definition_bytes)?;
 
-    // Build engine from scratch with VFS modules at this point in the stream
-    let mut engine = crate::processor::build_engine(store, &frame.id)?;
-
-    // Actions read with the streaming variants; .append is added per-invocation
-    // in execute_action, since its base_meta depends on the triggering frame.
-    nu::add_read_commands(&mut engine, store, nu::ReadMode::Stream)?;
+    // Prepared base (Stream reads + Direct `.append`), then the VFS modules as
+    // of this frame. The per-invocation engine is a clone of this, so it only
+    // needs `set_append_meta` for the triggering frame.
+    let mut engine = nu::prepared_base(store, nu::ReadMode::Stream, true)?;
+    let modules = store.nu_modules_at(&frame.id);
+    nu::load_modules(&mut engine.state, store, &modules)?;
 
     // Parse the action configuration
     let nu_config = nu::parse_config(&mut engine, &definition)?;
@@ -94,14 +94,13 @@ async fn execute_action(action: Action, frame: &Frame, store: &Store) -> Result<
     let frame = frame.clone();
 
     tokio::task::spawn_blocking(move || {
-        let base_meta = serde_json::json!({
-            "action_id": action.id.to_string(),
-            "frame_id": frame.id.to_string()
-        });
-
         let mut engine = action.engine;
 
-        nu::add_write_commands(&mut engine, &store, nu::AppendMode::Direct(base_meta))?;
+        // The base already carries `.append`; only the per-frame meta varies.
+        engine.set_append_meta(&serde_json::json!({
+            "action_id": action.id.to_string(),
+            "frame_id": frame.id.to_string()
+        }));
 
         // Parse the action configuration to get the up-to-date closure with modules loaded
         let nu_config = nu::parse_config(&mut engine, &action.definition)?;

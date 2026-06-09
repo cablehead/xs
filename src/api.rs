@@ -633,29 +633,27 @@ fn empty() -> BoxBody<Bytes, BoxError> {
         .boxed()
 }
 
+/// Engine for an ad-hoc `.eval` script: the prepared base (Stream reads +
+/// Direct `.append`) plus the VFS modules registered so far, so eval scripts
+/// can `use` them, the same builtins the runners get.
+fn eval_engine(store: &Store) -> Result<nu::Engine, String> {
+    let mut engine = nu::prepared_base(store, nu::ReadMode::Stream, true)
+        .map_err(|e| format!("Failed to build nushell engine: {e}"))?;
+    // Modules registered up to now: a fresh time-ordered id exceeds every
+    // already-appended frame.
+    let modules = store.nu_modules_at(&scru128::new());
+    nu::load_modules(&mut engine.state, store, &modules)
+        .map_err(|e| format!("Failed to load modules: {e}"))?;
+    Ok(engine)
+}
+
 async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Read the script from the request body
     let bytes = body.collect().await?.to_bytes();
     let script =
         String::from_utf8(bytes.to_vec()).map_err(|e| format!("Invalid UTF-8 in script: {e}"))?;
 
-    // Create nushell engine with store helper commands
-    let mut engine =
-        nu::Engine::new().map_err(|e| format!("Failed to create nushell engine: {e}"))?;
-
-    // Add core commands
-    nu::add_core_commands(&mut engine, store)
-        .map_err(|e| format!("Failed to add core commands to engine: {e}"))?;
-
-    // Add the read/append surface (streaming reads, direct append)
-    nu::add_read_commands(&mut engine, store, nu::ReadMode::Stream)
-        .map_err(|e| format!("Failed to add read commands to engine: {e}"))?;
-    nu::add_write_commands(
-        &mut engine,
-        store,
-        nu::AppendMode::Direct(serde_json::Value::Null),
-    )
-    .map_err(|e| format!("Failed to add write commands to engine: {e}"))?;
+    let engine = eval_engine(store)?;
 
     // Execute the script
     let result = engine
@@ -926,7 +924,6 @@ mod tests {
                 ),
                 Box::new(crate::nu::commands::append_command::AppendCommand::new(
                     store.clone(),
-                    serde_json::Value::Null,
                 )),
             ])
             .unwrap();
@@ -955,5 +952,67 @@ mod tests {
             }
             _ => panic!("Expected Int Value, got {:?}", result),
         }
+    }
+
+    // An `.eval` script must be able to `use` a registered VFS module.
+    #[tokio::test]
+    async fn test_eval_uses_modules() {
+        use crate::store::{Frame, Store};
+        use nu_protocol::PipelineData;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let hash = store
+            .cas_insert_sync(r#"export def add_nums [x, y] { $"sum is ($x + $y)" }"#)
+            .unwrap();
+        store
+            .append(Frame::builder("xs.module.mymod").hash(hash).build())
+            .unwrap();
+
+        let engine = super::eval_engine(&store).unwrap();
+        let result = engine
+            .eval(
+                PipelineData::empty(),
+                "use mymod; mymod add_nums 40 2".to_string(),
+            )
+            .unwrap()
+            .into_value(nu_protocol::Span::test_data())
+            .unwrap();
+        assert_eq!(result.into_string().unwrap(), "sum is 42");
+    }
+
+    // A module's exported function must be able to call the store builtins (here
+    // `.append`), not just pure nushell. (rokf94's report; the engine carries
+    // the builtins before modules load.)
+    #[tokio::test]
+    async fn test_module_can_use_append_builtin() {
+        use crate::store::{Frame, Store};
+        use nu_protocol::{PipelineData, Span};
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let hash = store
+            .cas_insert_sync(r#"export def emit [] { {} | .append out --meta {via: "module"} }"#)
+            .unwrap();
+        store
+            .append(Frame::builder("xs.module.emitter").hash(hash).build())
+            .unwrap();
+
+        let engine = super::eval_engine(&store).unwrap();
+        let value = engine
+            .eval(
+                PipelineData::empty(),
+                "use emitter; emitter emit".to_string(),
+            )
+            .unwrap()
+            .into_value(Span::test_data())
+            .unwrap();
+
+        // `.append` ran inside the module and returned the appended frame.
+        let json = crate::nu::value_to_json(&value);
+        assert_eq!(json["topic"], "out");
+        assert_eq!(json["meta"]["via"], "module");
     }
 }
