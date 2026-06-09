@@ -13,7 +13,14 @@ Each runner kind (eval, service, action, actor) builds one prepared base engine 
 | action  | Stream | Direct `.append` on the base       |
 | actor   | Plain  | Buffered `.append` added per clone |
 
-The actor's buffered `.append` is per-instance (it batches an actor's appends to commit atomically with the output frame), so it stays off the shared base.
+## Append modes
+
+`AppendMode` is the one part of the surface that varies by runner:
+
+- **Direct** -- each `.append` writes its frame straight to the store as the call runs. Used by eval, service, and action. The decl carries no per-instance state, so it lives on the shared base.
+- **Buffered** -- `.append` collects frames into a per-instance buffer instead of writing; the actor flushes that buffer so an actor's appends land atomically alongside its output frame. The buffer is per-instance, so this `.append` is added to each clone, not the base.
+
+Both modes share the same `.append` signature and the `XS_APPEND_META` base metadata below; they differ only in where the frame goes.
 
 ## .append metadata
 
