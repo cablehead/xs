@@ -981,4 +981,38 @@ mod tests {
             .unwrap();
         assert_eq!(result.into_string().unwrap(), "sum is 42");
     }
+
+    // A module's exported function must be able to call the store builtins (here
+    // `.append`), not just pure nushell. (rokf94's report; the engine carries
+    // the builtins before modules load.)
+    #[tokio::test]
+    async fn test_module_can_use_append_builtin() {
+        use crate::store::{Frame, Store};
+        use nu_protocol::{PipelineData, Span};
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let hash = store
+            .cas_insert_sync(r#"export def emit [] { {} | .append out --meta {via: "module"} }"#)
+            .unwrap();
+        store
+            .append(Frame::builder("xs.module.emitter").hash(hash).build())
+            .unwrap();
+
+        let engine = super::eval_engine(&store).unwrap();
+        let value = engine
+            .eval(
+                PipelineData::empty(),
+                "use emitter; emitter emit".to_string(),
+            )
+            .unwrap()
+            .into_value(Span::test_data())
+            .unwrap();
+
+        // `.append` ran inside the module and returned the appended frame.
+        let json = crate::nu::value_to_json(&value);
+        assert_eq!(json["topic"], "out");
+        assert_eq!(json["meta"]["via"], "module");
+    }
 }
