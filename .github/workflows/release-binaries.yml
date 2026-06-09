@@ -74,12 +74,20 @@ jobs:
       - name: Pre-pull Dagger Engine
         run: docker pull registry.dagger.io/engine:v0.18.14
 
-      # 7) Run one Dagger build function and export artifact
+      # 7) Run one Dagger build function and export artifact.
+      # Retried: the builder image is pulled inside Dagger, so a transient
+      # Docker Hub outage (e.g. 504 from auth.docker.io) is not primed away by
+      # the engine pre-pull above. The CLI was installed by Setup Dagger.
       - name: Build with Dagger
-        uses: dagger/dagger-for-github@8.0.0
-        with:
-          version: "0.18.14"
-          call: ${{ matrix.dagger_fn }} --src upload --src . --version ${{ steps.version.outputs.version }} export --path ./artifacts/${{ steps.version.outputs.artifact }}
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            dagger call ${{ matrix.dagger_fn }} --src upload --src . --version ${{ steps.version.outputs.version }} export --path ./artifacts/${{ steps.version.outputs.artifact }} && exit 0
+            echo "::warning::Dagger build attempt ${attempt} failed; retrying in 20s"
+            sleep 20
+          done
+          echo "::error::Dagger build failed after 3 attempts"
+          exit 1
 
       # 8) Upload artifact for fan-in job
       - name: Upload artifact
