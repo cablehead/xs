@@ -635,7 +635,7 @@ fn empty() -> BoxBody<Bytes, BoxError> {
 
 /// Engine for an ad-hoc `.eval` script: the prepared base (Stream reads +
 /// Direct `.append`) plus the VFS modules registered so far, so eval scripts
-/// can `use` them, the same surface the runners get.
+/// can `use` them, the same builtins the runners get.
 fn eval_engine(store: &Store) -> Result<nu::Engine, String> {
     let mut engine = nu::prepared_base(store, nu::ReadMode::Stream, true)
         .map_err(|e| format!("Failed to build nushell engine: {e}"))?;

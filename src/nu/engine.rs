@@ -332,7 +332,7 @@ pub enum ReadMode {
     Plain,
 }
 
-/// How `.append` behaves. This is the one axis of the store surface that
+/// How `.append` behaves. This is the one store command whose behaviour
 /// genuinely varies by runner.
 pub enum AppendMode {
     /// Write straight to the store. The per-instance base metadata is injected
@@ -342,7 +342,7 @@ pub enum AppendMode {
     Buffered(Arc<Mutex<Vec<Frame>>>),
 }
 
-/// Register the `.cat` and `.last` read commands for a pipeline runner.
+/// Register the `.cat` and `.last` read builtins for a pipeline runner.
 pub fn add_read_commands(engine: &mut Engine, store: &Store, mode: ReadMode) -> Result<(), Error> {
     match mode {
         ReadMode::Stream => engine.add_commands(vec![
@@ -360,8 +360,8 @@ pub fn add_read_commands(engine: &mut Engine, store: &Store, mode: ReadMode) -> 
     }
 }
 
-/// Register the write surface for a pipeline runner: `.append` (per `mode`) plus
-/// `.import` and `.cas-post`, which are identical across runners.
+/// Register the write builtins for a pipeline runner: `.append` (per `mode`)
+/// plus `.import` and `.cas-post`, which are identical across runners.
 pub fn add_write_commands(
     engine: &mut Engine,
     store: &Store,
@@ -384,8 +384,8 @@ pub fn add_write_commands(
 }
 
 /// The module-free, instance-free base engine for a runner: nushell + stdlib +
-/// core commands + the `.rm` alias + the read surface, plus the `.append` write
-/// surface for direct writers. Build this once per runner and `clone()` it per
+/// the core builtins + the `.rm` alias + the read builtins, plus the `.append`
+/// write builtin for direct writers. Build this once per runner and `clone()` it per
 /// spawn or restart; `load_modules(as_of)` and `set_append_meta(..)` specialize
 /// each clone. Actors pass `direct_write: false` and add their per-instance
 /// buffered `.append` to the clone.

@@ -4,7 +4,7 @@ Each runner kind (eval, service, action, actor) builds one prepared base engine 
 
 ## Base
 
-`nu::prepared_base(store, read, direct_write)` = nushell + stdlib + core commands + `.rm` alias + the read surface, plus `.append` for direct writers. `build_engine` is gone. Per use, the caller clones the base, applies `load_modules(as_of)`, and sets per-instance state.
+`nu::prepared_base(store, read, direct_write)` = nushell + stdlib + the core builtins + `.rm` alias + the read builtins, plus `.append` for direct writers. `build_engine` is gone. Per use, the caller clones the base, applies `load_modules(as_of)`, and sets per-instance state.
 
 | runner  | read   | write                              |
 |---------|--------|------------------------------------|
@@ -15,7 +15,7 @@ Each runner kind (eval, service, action, actor) builds one prepared base engine 
 
 ## Append modes
 
-`AppendMode` is the one part of the surface that varies by runner:
+`AppendMode` is the one builtin whose behaviour varies by runner:
 
 - **Direct** -- each `.append` writes its frame straight to the store as the call runs. Used by eval, service, and action. The decl carries no per-instance state, so it lives on the shared base.
 - **Buffered** -- `.append` collects frames into a per-instance buffer instead of writing; the actor flushes that buffer so an actor's appends land atomically alongside its output frame. The buffer is per-instance, so this `.append` is added to each clone, not the base.
@@ -34,4 +34,4 @@ Both modes share the same `.append` signature and the `XS_APPEND_META` base meta
 
 ## Why
 
-Baking metadata into the decl forced every spawn to re-register `.append`, and the service hot-replace path forgot to, so a re-registered service hit `.append command not found`. With the surface on a cloned base and metadata in `$env`, a hot-replace clones a pristine engine and cannot lose `.append`.
+Baking metadata into the decl forced every spawn to re-register `.append`, and the service hot-replace path forgot to, so a re-registered service hit `.append command not found`. With the builtins on a cloned base and metadata in `$env`, a hot-replace clones a pristine engine and cannot lose `.append`.

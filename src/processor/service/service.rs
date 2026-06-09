@@ -182,7 +182,7 @@ pub fn spawn(store: Store, spawn_frame: Frame) -> JoinHandle<()> {
 
 /// Clone the prepared base engine and specialize it for a `<name>.create`
 /// frame: load the modules visible as of that frame and stamp `service_id`.
-/// The read/append command surface already lives on `base`, so neither the
+/// The read and write builtins already live on `base`, so neither the
 /// initial spawn nor a hot-replace re-registers builtins.
 fn specialize(
     base: &nu::Engine,
@@ -361,8 +361,8 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                                 if let Ok(mut reader) = store.cas_reader(hash).await {
                                     let mut script = String::new();
                                     if reader.read_to_string(&mut script).await.is_ok() {
-                                        // Clone the prepared base; the read/append surface is
-                                        // already on it, so a hot-replace never re-registers
+                                        // Clone the prepared base; the read and write builtins
+                                        // are already on it, so a hot-replace never re-registers
                                         // builtins.
                                         let mut new_engine = match specialize(&base, &store, frame.id) {
                                             Ok(e) => e,
