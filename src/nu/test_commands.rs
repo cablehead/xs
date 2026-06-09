@@ -97,6 +97,39 @@ mod tests {
         assert!(frame.hash.is_none());
     }
 
+    // `.append` takes its base metadata from the `XS_APPEND_META` env var at run
+    // time, so the decl is instance-independent and a prepared engine can be
+    // cloned per runner.
+    #[test]
+    fn test_append_meta_from_env() {
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(
+                commands::append_command::AppendCommand::new(store.clone()),
+            )])
+            .unwrap();
+
+        // No env, no --meta: base is an empty object.
+        let frame = value_to_frame(nu_eval(&engine, PipelineData::empty(), r#".append a"#));
+        assert_eq!(frame.meta.unwrap(), json!({}));
+
+        // Base comes from $env.XS_APPEND_META, read at run time.
+        let frame = value_to_frame(nu_eval(
+            &engine,
+            PipelineData::empty(),
+            r#"$env.XS_APPEND_META = '{"service_id": "svc"}'; .append b"#,
+        ));
+        assert_eq!(frame.meta.unwrap(), json!({"service_id": "svc"}));
+
+        // User --meta merges over the env base.
+        let frame = value_to_frame(nu_eval(
+            &engine,
+            PipelineData::empty(),
+            r#"$env.XS_APPEND_META = '{"service_id": "svc"}'; .append c --meta {k: 1}"#,
+        ));
+        assert_eq!(frame.meta.unwrap(), json!({"service_id": "svc", "k": 1}));
+    }
+
     #[test]
     fn test_cas_command_string() {
         let (store, mut engine) = setup_test_env();
