@@ -2,8 +2,6 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tracing::instrument;
-
 use serde::{Deserialize, Serialize};
 
 use tokio::io::AsyncReadExt;
@@ -23,7 +21,9 @@ pub struct Actor {
     pub id: Scru128Id,
     pub topic: String,
     config: ActorConfig,
-    engine_worker: Arc<EngineWorker>,
+    engine: nu::Engine,
+    closure: nu_protocol::engine::Closure,
+    initial_state: Value,
     output: Arc<Mutex<Vec<Frame>>>,
 }
 
@@ -119,39 +119,53 @@ impl Actor {
             Value::nothing(span)
         };
 
-        let engine_worker = Arc::new(EngineWorker::new(
-            engine,
-            nu_script_config.run_closure,
-            initial_state,
-        ));
-
         Ok(Self {
             id,
             topic,
             config: actor_config,
-            engine_worker,
+            engine,
+            closure: nu_script_config.run_closure,
+            initial_state,
             output,
         })
     }
 
-    async fn eval_in_thread(&self, frame: &Frame) -> Result<ClosureResult, Error> {
-        self.engine_worker.eval(frame.clone()).await
+    /// Evaluate the actor closure for one frame, inline on the calling
+    /// thread. The whole actor loop runs on a dedicated OS thread (see
+    /// `run_blocking`), so there is no async->worker->oneshot handoff per
+    /// frame -- that round trip (two context switches) was the dominant
+    /// per-frame cost in backlog replay. `state` is threaded by the caller.
+    fn eval_frame(&mut self, frame: &Frame, state: &Value) -> Result<ClosureResult, Error> {
+        let frame_val = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown(), false);
+        self.engine
+            .eval_closure_no_job(&self.closure, vec![frame_val, state.clone()], None)
+            .map_err(|e| {
+                let working_set = nu_protocol::engine::StateWorkingSet::new(&self.engine.state);
+                Error::from(nu_protocol::format_cli_error(None, &working_set, &*e, None))
+            })
+            .and_then(|pd| {
+                pd.into_value(nu_protocol::Span::unknown())
+                    .map_err(Error::from)
+            })
+            .and_then(interpret_closure_result)
     }
 
-    #[instrument(
-        level = "info",
-        skip(self, frame, store),
-        fields(
-            message = %format!(
-                "actor={actor_id}:{topic} frame={frame_id}:{frame_topic}",
-                actor_id = self.id, topic = self.topic, frame_id = frame.id, frame_topic = frame.topic)
-        )
-    )]
-    async fn process_frame(&mut self, frame: &Frame, store: &Store) -> Result<bool, Error> {
-        let result = self.eval_in_thread(frame).await?;
+    fn process_frame(
+        &mut self,
+        frame: &Frame,
+        store: &Store,
+        state: &mut Value,
+    ) -> Result<bool, Error> {
+        let result = self.eval_frame(frame, state)?;
 
         let (output, should_continue) = match result {
-            ClosureResult::Continue { output, .. } => (output, true),
+            ClosureResult::Continue {
+                output,
+                ref next_state,
+            } => {
+                *state = next_state.clone();
+                (output, true)
+            }
             ClosureResult::Stop { output } => (output, false),
         };
 
@@ -174,8 +188,8 @@ impl Actor {
 
                 if use_cas {
                     let hash = match value {
-                        Value::Binary { val, .. } => store.cas_insert(val).await?,
-                        _ => store.cas_insert(&value_to_json(value).to_string()).await?,
+                        Value::Binary { val, .. } => store.cas_insert_sync(val)?,
+                        _ => store.cas_insert_sync(value_to_json(value).to_string())?,
                     };
                     Some(
                         Frame::builder(topic)
@@ -207,10 +221,7 @@ impl Actor {
         // Process buffered appends and the additional frame
         let output_to_process: Vec<_> = {
             let mut output = self.output.lock().unwrap();
-            output
-                .drain(..)
-                .chain(additional_frame.into_iter())
-                .collect()
+            output.drain(..).chain(additional_frame).collect()
         };
 
         for mut output_frame in output_to_process {
@@ -235,12 +246,21 @@ impl Actor {
         Ok(should_continue)
     }
 
-    async fn serve(&mut self, store: &Store, options: ReadOptions) {
-        let mut recver = store.read(options).await;
+    /// The actor's hot loop, run on a dedicated OS thread. Pulls frames with
+    /// blocking_recv (no async runtime hop) and evaluates each inline -- the
+    /// per-frame async->worker->oneshot round trip is gone. State is threaded
+    /// here and passed by `&mut` into `process_frame`. All store ops on this
+    /// path (`append`, `cas_insert_sync`) are synchronous.
+    fn run_blocking(mut self, mut recver: mpsc::Receiver<Frame>, store: Store) {
+        // One long-lived background job, so per-frame eval can skip job churn.
+        self.engine.attach_background_job("actor");
+        let mut state = self.initial_state.clone();
+
         let create_topic = format!("xs.actor.{}.create", self.topic);
         let term_topic = format!("xs.actor.{}.term", self.topic);
+        let store = &store;
 
-        while let Some(frame) = recver.recv().await {
+        while let Some(frame) = recver.blocking_recv() {
             // Skip lifecycle activity that occurred before this actor was registered
             if (frame.topic == create_topic || frame.topic == term_topic) && frame.id <= self.id {
                 continue;
@@ -285,7 +305,7 @@ impl Actor {
                 continue;
             }
 
-            match self.process_frame(&frame, store).await {
+            match self.process_frame(&frame, store, &mut state) {
                 Ok(true) => {}
                 Ok(false) => {
                     // Actor self-terminated (natural completion).
@@ -316,18 +336,13 @@ impl Actor {
         }
     }
 
-    pub async fn spawn(&self, store: Store) -> Result<(), Error> {
+    pub async fn spawn(self, store: Store) -> Result<(), Error> {
         let options = self.configure_read_options().await;
-
-        {
-            let store = store.clone();
-            let options = options.clone();
-            let mut actor = self.clone();
-
-            tokio::spawn(async move {
-                actor.serve(&store, options).await;
-            });
-        }
+        // Set up the read stream on the async runtime, then run the actor's
+        // loop on a dedicated OS thread that drains it with blocking_recv.
+        // This keeps the synchronous nushell eval off the tokio runtime
+        // without paying a per-frame thread handoff.
+        let recver = store.read(options).await;
 
         let _ = store.append(
             Frame::builder(format!("xs.actor.{}.active", &self.topic))
@@ -337,6 +352,14 @@ impl Actor {
                 }))
                 .build(),
         );
+
+        let store_for_loop = store.clone();
+        std::thread::Builder::new()
+            .name(format!("actor-{}", self.topic))
+            .spawn(move || {
+                self.run_blocking(recver, store_for_loop);
+            })
+            .map_err(|e| Error::from(format!("Failed to spawn actor thread: {e}")))?;
 
         Ok(())
     }
@@ -402,76 +425,7 @@ impl Actor {
     }
 }
 
-use tokio::sync::{mpsc, oneshot};
-
-pub struct EngineWorker {
-    work_tx: mpsc::Sender<WorkItem>,
-}
-
-struct WorkItem {
-    frame: Frame,
-    resp_tx: oneshot::Sender<Result<ClosureResult, Error>>,
-}
-
-impl EngineWorker {
-    pub fn new(
-        engine: nu::Engine,
-        closure: nu_protocol::engine::Closure,
-        initial_state: Value,
-    ) -> Self {
-        let (work_tx, mut work_rx) = mpsc::channel(32);
-
-        std::thread::spawn(move || {
-            let mut engine = engine;
-            let mut state = initial_state;
-
-            while let Some(WorkItem { frame, resp_tx }) = work_rx.blocking_recv() {
-                let frame_val =
-                    crate::nu::frame_to_value(&frame, nu_protocol::Span::unknown(), false);
-
-                let pipeline = engine.run_closure_in_job(
-                    &closure,
-                    vec![frame_val, state.clone()],
-                    None,
-                    format!("actor {topic}", topic = frame.topic),
-                );
-
-                let result = pipeline
-                    .map_err(|e| {
-                        let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
-                        Error::from(nu_protocol::format_cli_error(None, &working_set, &*e, None))
-                    })
-                    .and_then(|pd| {
-                        pd.into_value(nu_protocol::Span::unknown())
-                            .map_err(Error::from)
-                    })
-                    .and_then(interpret_closure_result);
-
-                if let Ok(ClosureResult::Continue { ref next_state, .. }) = result {
-                    state = next_state.clone();
-                }
-
-                let _ = resp_tx.send(result);
-            }
-        });
-
-        Self { work_tx }
-    }
-
-    pub async fn eval(&self, frame: Frame) -> Result<ClosureResult, Error> {
-        let (resp_tx, resp_rx) = oneshot::channel();
-        let work_item = WorkItem { frame, resp_tx };
-
-        self.work_tx
-            .send(work_item)
-            .await
-            .map_err(|_| Error::from("Engine worker thread has terminated"))?;
-
-        resp_rx
-            .await
-            .map_err(|_| Error::from("Engine worker thread has terminated"))?
-    }
-}
+use tokio::sync::mpsc;
 
 fn interpret_closure_result(value: Value) -> Result<ClosureResult, Error> {
     match value {

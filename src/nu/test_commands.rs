@@ -617,4 +617,38 @@ mod tests {
 
         Ok(())
     }
+
+    // Regression test for the per-frame ThreadJob leak: run_closure_in_job
+    // registered a job in the engine's jobs table on every call and never
+    // removed it. The actor hot loop now attaches one long-lived job and
+    // evaluates frames with eval_closure_no_job; the table must not grow
+    // with call count.
+    #[test]
+    fn test_eval_closure_no_job_does_not_grow_jobs_table() {
+        let (_store, mut engine) = setup_test_env();
+        let closure = engine.parse_closure("{|x, state| $x}").unwrap();
+        engine.attach_background_job("test-actor");
+
+        let baseline = engine.state.jobs.lock().unwrap().iter().count();
+        assert_eq!(baseline, 1);
+
+        for i in 0..100 {
+            let result = engine
+                .eval_closure_no_job(
+                    &closure,
+                    vec![
+                        Value::int(i, Span::test_data()),
+                        Value::nothing(Span::test_data()),
+                    ],
+                    None,
+                )
+                .unwrap()
+                .into_value(Span::test_data())
+                .unwrap();
+            assert_eq!(result, Value::int(i, Span::test_data()));
+        }
+
+        let after = engine.state.jobs.lock().unwrap().iter().count();
+        assert_eq!(after, baseline);
+    }
 }
