@@ -60,7 +60,15 @@ impl Command for CatStreamCommand {
                 "return the N most recent frames",
                 None,
             )
-            .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
+            .named(
+                "topic",
+                SyntaxShape::OneOf(vec![
+                    SyntaxShape::String,
+                    SyntaxShape::List(Box::new(SyntaxShape::String)),
+                ]),
+                "filter by topic pattern(s): string (commas allowed) or list",
+                Some('T'),
+            )
             .switch(
                 "with-timestamp",
                 "include timestamp extracted from frame ID",
@@ -89,7 +97,10 @@ impl Command for CatStreamCommand {
         let last: Option<i64> = call.get_flag(engine_state, stack, "last")?;
         let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
         let from: Option<String> = call.get_flag(engine_state, stack, "from")?;
-        let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
+        let topic: Option<nu_protocol::Value> = call.get_flag(engine_state, stack, "topic")?;
+        let topic: Option<String> = topic
+            .map(crate::nu::util::topic_value_to_string)
+            .transpose()?;
 
         // Helper to parse Scru128Id
         let parse_id = |s: &str, name: &str| -> Result<scru128::Scru128Id, ShellError> {

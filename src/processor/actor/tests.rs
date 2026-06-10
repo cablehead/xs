@@ -1874,3 +1874,262 @@ async fn setup_test_environment() -> (Store, TempDir) {
 
     (store, temp_dir)
 }
+
+#[tokio::test]
+async fn test_topics_filter_exact() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Backlog with mixed topics
+    store.append(Frame::builder("ev").build()).unwrap();
+    store.append(Frame::builder("noise").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "ev");
+    assert_eq!(recver.recv().await.unwrap().topic, "noise");
+
+    // The topics filter is applied at the read level; synthetic frames
+    // (xs.threshold here, since start is "first") bypass it, so the closure
+    // guards xs.* like any unfiltered actor would.
+    store
+        .append(
+            Frame::builder("xs.actor.filter.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                                run: {|frame, state = null|
+                                    if ($frame.topic | str starts-with "xs.") {
+                                        return {next: $state}
+                                    }
+                                    {out: {seen: $frame.topic}, next: $state}
+                                }
+                                start: "first"
+                                topics: ["ev"]
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+
+    // Only the backlog "ev" frame reaches the closure
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "filter.out");
+    assert_eq!(out.meta.as_ref().unwrap()["seen"], "ev");
+
+    // Live frames: "noise" is filtered out at the read level, "ev" is
+    // processed
+    store.append(Frame::builder("noise").build()).unwrap();
+    store.append(Frame::builder("ev").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "noise");
+    assert_eq!(recver.recv().await.unwrap().topic, "ev");
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "filter.out");
+    assert_eq!(out.meta.as_ref().unwrap()["seen"], "ev");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_topics_filter_prefix_wildcard() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // topics also accepts a single comma-separated string of patterns
+    store
+        .append(
+            Frame::builder("xs.actor.filter.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                                run: {|frame, state = null|
+                                    {out: {seen: $frame.topic}, next: $state}
+                                }
+                                topics: "game.move.*,game.create"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+
+    // "game.move" itself does not match "game.move.*" (mirrors
+    // ReadOptions::topic semantics), nor do unrelated topics.
+    store.append(Frame::builder("game.move").build()).unwrap();
+    store.append(Frame::builder("other").build()).unwrap();
+    store
+        .append(Frame::builder("game.move.abc").build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "game.move");
+    assert_eq!(recver.recv().await.unwrap().topic, "other");
+    assert_eq!(recver.recv().await.unwrap().topic, "game.move.abc");
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "filter.out");
+    assert_eq!(out.meta.as_ref().unwrap()["seen"], "game.move.abc");
+
+    // The second pattern from the comma string works too
+    store.append(Frame::builder("game.create").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "game.create");
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "filter.out");
+    assert_eq!(out.meta.as_ref().unwrap()["seen"], "game.create");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_no_topics_processes_all() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    store
+        .append(
+            Frame::builder("xs.actor.all.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                                run: {|frame, state = null|
+                                    {out: {seen: $frame.topic}, next: $state}
+                                }
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.all.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.all.active");
+
+    // Without a topics filter every frame reaches the closure, as before
+    store.append(Frame::builder("ev").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "ev");
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "all.out");
+    assert_eq!(out.meta.as_ref().unwrap()["seen"], "ev");
+
+    store.append(Frame::builder("noise").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "noise");
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "all.out");
+    assert_eq!(out.meta.as_ref().unwrap()["seen"], "noise");
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_topics_filter_lifecycle_frames_still_work() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    store
+        .append(
+            Frame::builder("xs.actor.filter.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                                run: {|frame, state = null|
+                                    {out: {seen: $frame.topic}, next: $state}
+                                }
+                                topics: ["ev"]
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+
+    // The actor's own lifecycle topics are added to its read filter, so a
+    // .term frame still terminates it even though "xs.actor.filter.term"
+    // does not match the user-specified patterns.
+    store
+        .append(Frame::builder("xs.actor.filter.term").build())
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.term");
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.actor.filter.fin.term"
+    );
+
+    assert_no_more_frames(&mut recver).await;
+}
+
+#[tokio::test]
+async fn test_topics_filter_pulse_still_ticks() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options).await;
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    // Heartbeat xs.pulse frames are synthesized per-read and bypass topic
+    // filtering, so a pulse-configured actor still ticks under a filter.
+    store
+        .append(
+            Frame::builder("xs.actor.filter.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                                run: {|frame, state = null|
+                                    if $frame.topic == "xs.pulse" {
+                                        return {out: {tick: true}, next: $state}
+                                    }
+                                    {out: {seen: $frame.topic}, next: $state}
+                                }
+                                pulse: 50
+                                topics: ["ev"]
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+
+    // First output should be a pulse tick
+    let out = recver.recv().await.unwrap();
+    assert_eq!(out.topic, "filter.out");
+    assert_eq!(out.meta.as_ref().unwrap()["tick"], true);
+
+    // And filtered frames still flow alongside the pulse
+    store.append(Frame::builder("noise").build()).unwrap();
+    store.append(Frame::builder("ev").build()).unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "noise");
+    assert_eq!(recver.recv().await.unwrap().topic, "ev");
+    loop {
+        let out = recver.recv().await.unwrap();
+        assert_eq!(out.topic, "filter.out");
+        let meta = out.meta.as_ref().unwrap();
+        if meta.get("tick").is_some() {
+            continue; // interleaved pulse ticks are fine
+        }
+        assert_eq!(meta["seen"], "ev");
+        break;
+    }
+}

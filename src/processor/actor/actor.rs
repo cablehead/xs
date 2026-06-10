@@ -32,6 +32,12 @@ struct ActorConfig {
     start: Start,
     pulse: Option<u64>,
     return_options: Option<ReturnOptions>,
+    /// Optional topic filter, normalized to one pattern per element. Applied
+    /// at the read level (see `configure_read_options`): frames whose topic
+    /// matches none of these patterns never reach the actor loop. Each
+    /// pattern is an exact topic, a `prefix.*` wildcard, or `*`, the same
+    /// pattern language as `ReadOptions::topic`. Absent means all frames.
+    topics: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -55,6 +61,35 @@ struct ActorScriptOptions {
     return_options: Option<ReturnOptions>,
     /// Initial state for the actor closure's second parameter
     initial: Option<serde_json::Value>,
+    /// Optional list of topic patterns the actor cares about. Accepts a
+    /// nushell list of strings or a single comma-separated string.
+    topics: Option<TopicsSpec>,
+}
+
+/// A topics spec from the actor script: a single string (commas allowed) or
+/// a list of strings.
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum TopicsSpec {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl TopicsSpec {
+    /// Normalize to one pattern per element, splitting comma-separated
+    /// strings and dropping empty elements.
+    fn into_patterns(self) -> Vec<String> {
+        let parts: Vec<String> = match self {
+            TopicsSpec::One(s) => vec![s],
+            TopicsSpec::Many(v) => v,
+        };
+        parts
+            .iter()
+            .flat_map(|s| s.split(','))
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect()
+    }
 }
 
 pub(super) enum ClosureResult {
@@ -417,10 +452,24 @@ impl Actor {
             .map(|pulse| FollowOption::WithHeartbeat(Duration::from_millis(pulse)))
             .unwrap_or(FollowOption::On);
 
+        // Apply the actor's topic filter at the read level: non-matching
+        // frames are skipped inside the store and never reach the actor
+        // loop. The actor's own lifecycle topics are always included so the
+        // loop still sees .create/.term frames; synthetic frames (the
+        // heartbeat xs.pulse when `pulse` is set, and xs.threshold) bypass
+        // read-level topic filtering entirely, so they are unaffected.
+        let topic = self.config.topics.as_ref().map(|patterns| {
+            let mut patterns = patterns.clone();
+            patterns.push(format!("xs.actor.{}.create", self.topic));
+            patterns.push(format!("xs.actor.{}.term", self.topic));
+            patterns.join(",")
+        });
+
         ReadOptions::builder()
             .follow(follow_option)
             .new(is_new)
             .maybe_after(after)
+            .maybe_topic(topic)
             .build()
     }
 }
@@ -490,6 +539,7 @@ fn extract_actor_config(
             start,
             pulse: script_options.pulse,
             return_options: script_options.return_options,
+            topics: script_options.topics.map(TopicsSpec::into_patterns),
         },
         script_options.initial,
     ))

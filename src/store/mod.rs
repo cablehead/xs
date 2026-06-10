@@ -9,7 +9,8 @@
 //!
 //! Every frame has a dot-delimited `topic` (for example `clip.add`). Topics form
 //! a hierarchy: a reader can ask for an exact topic, a prefix wildcard like
-//! `clip.*`, or `*` for everything. See [`validate_topic`](crate::store::validate_topic)
+//! `clip.*`, `*` for everything, or a comma-separated list of such patterns
+//! (`game.move.*,game.create`). See [`validate_topic`](crate::store::validate_topic)
 //! for the allowed characters and [`ReadOptions::topic`] for querying.
 //!
 //! ## Retention
@@ -181,8 +182,177 @@ pub struct ReadOptions {
     pub limit: Option<usize>,
     /// Return the last N frames (most recent), in chronological order.
     pub last: Option<usize>,
-    /// Restrict to a topic: an exact name, a `prefix.*` wildcard, or `*` for all.
+    /// Restrict to one or more topic patterns, comma-separated. Each pattern
+    /// is an exact name, a `prefix.*` wildcard, or `*` for all, e.g.
+    /// `clip.add` or `game.move.*,game.create`. Commas are a safe separator
+    /// because [`validate_topic`] forbids them in topic names.
     pub topic: Option<String>,
+}
+
+/// A single topic pattern: an exact topic name or a `prefix.*` wildcard.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pattern {
+    /// Matches the topic exactly.
+    Exact(String),
+    /// Matches any topic starting with this prefix. Stored with the trailing
+    /// dot, so `a.*` becomes `Prefix("a.")` and matches `a.b` but not `a`.
+    Prefix(String),
+}
+
+impl Pattern {
+    fn matches(&self, topic: &str) -> bool {
+        match self {
+            Pattern::Exact(t) => t == topic,
+            Pattern::Prefix(p) => topic.starts_with(p.as_str()),
+        }
+    }
+}
+
+/// A parsed topic filter: the value of [`ReadOptions::topic`] split on commas
+/// into individual [`Pattern`]s.
+///
+/// Note that synthetic control frames emitted by a following read --
+/// `xs.threshold` and heartbeat `xs.pulse` -- are delivered directly on the
+/// read channel and are never subject to this filter.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TopicFilter {
+    /// Match every topic (no filter, or some element was `*`).
+    All,
+    /// Match topics satisfying at least one of these patterns.
+    Patterns(Vec<Pattern>),
+}
+
+impl TopicFilter {
+    /// Parse a comma-separated pattern list. Empty elements are ignored; an
+    /// empty or all-`*` spec yields [`TopicFilter::All`].
+    pub fn parse(spec: &str) -> TopicFilter {
+        let mut patterns = Vec::new();
+        for part in spec.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            if part == "*" {
+                return TopicFilter::All;
+            }
+            if let Some(prefix) = part.strip_suffix(".*") {
+                patterns.push(Pattern::Prefix(format!("{prefix}.")));
+            } else {
+                patterns.push(Pattern::Exact(part.to_string()));
+            }
+        }
+        if patterns.is_empty() {
+            TopicFilter::All
+        } else {
+            TopicFilter::Patterns(patterns)
+        }
+    }
+
+    /// Parse an optional spec; `None` means no filter.
+    pub fn from_option(spec: Option<&str>) -> TopicFilter {
+        match spec {
+            Some(s) => TopicFilter::parse(s),
+            None => TopicFilter::All,
+        }
+    }
+
+    /// Does `topic` match this filter?
+    pub fn matches(&self, topic: &str) -> bool {
+        match self {
+            TopicFilter::All => true,
+            TopicFilter::Patterns(patterns) => patterns.iter().any(|p| p.matches(topic)),
+        }
+    }
+}
+
+/// K-way merge of per-pattern frame iterators, ordered by frame id, with
+/// dedupe when overlapping patterns yield the same frame from more than one
+/// iterator. Each input iterator must itself be sorted by id (ascending when
+/// `descending` is false, descending otherwise).
+struct MergeById<'a> {
+    iters: Vec<Box<dyn Iterator<Item = Frame> + 'a>>,
+    heap: std::collections::BinaryHeap<MergeEntry>,
+    descending: bool,
+    last_emitted: Option<Scru128Id>,
+}
+
+struct MergeEntry {
+    key: u128,
+    idx: usize,
+    frame: Frame,
+}
+
+impl PartialEq for MergeEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.idx == other.idx
+    }
+}
+impl Eq for MergeEntry {}
+impl PartialOrd for MergeEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for MergeEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key.cmp(&other.key).then(self.idx.cmp(&other.idx))
+    }
+}
+
+/// BinaryHeap is a max-heap; for ascending merges flip the bits so the
+/// smallest id pops first.
+fn merge_key(id: &Scru128Id, descending: bool) -> u128 {
+    let raw = u128::from_be_bytes(id.to_bytes());
+    if descending {
+        raw
+    } else {
+        !raw
+    }
+}
+
+impl<'a> MergeById<'a> {
+    fn new(mut iters: Vec<Box<dyn Iterator<Item = Frame> + 'a>>, descending: bool) -> Self {
+        let mut heap = std::collections::BinaryHeap::with_capacity(iters.len());
+        for (idx, iter) in iters.iter_mut().enumerate() {
+            if let Some(frame) = iter.next() {
+                heap.push(MergeEntry {
+                    key: merge_key(&frame.id, descending),
+                    idx,
+                    frame,
+                });
+            }
+        }
+        MergeById {
+            iters,
+            heap,
+            descending,
+            last_emitted: None,
+        }
+    }
+}
+
+impl Iterator for MergeById<'_> {
+    type Item = Frame;
+
+    fn next(&mut self) -> Option<Frame> {
+        loop {
+            let entry = self.heap.pop()?;
+            if let Some(frame) = self.iters[entry.idx].next() {
+                self.heap.push(MergeEntry {
+                    key: merge_key(&frame.id, self.descending),
+                    idx: entry.idx,
+                    frame,
+                });
+            }
+            // Overlapping patterns can yield the same frame from more than
+            // one iterator; emit it once.
+            if self.last_emitted == Some(entry.frame.id) {
+                continue;
+            }
+            self.last_emitted = Some(entry.frame.id);
+            return Some(entry.frame);
+        }
+    }
 }
 
 impl ReadOptions {
@@ -427,15 +597,10 @@ impl Store {
                 let mut count = 0;
 
                 // Handle --last N: get the N most recent frames
+                let filter = TopicFilter::from_option(options.topic.as_deref());
+
                 if let Some(last_n) = options.last {
-                    let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
-                        None | Some("*") => store.iter_frames_rev(),
-                        Some(topic) if topic.ends_with(".*") => {
-                            let prefix = &topic[..topic.len() - 1];
-                            store.iter_frames_by_topic_prefix_rev(prefix)
-                        }
-                        Some(topic) => store.iter_frames_by_topic_rev(topic),
-                    };
+                    let iter = store.iter_for_filter_rev(&filter);
 
                     // Collect last N frames (in reverse order), skipping expired
                     let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
@@ -469,15 +634,7 @@ impl Store {
                         .map(|id| (id, true))
                         .or_else(|| options.after.as_ref().map(|id| (id, false)));
 
-                    let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
-                        None | Some("*") => store.iter_frames(start_bound),
-                        Some(topic) if topic.ends_with(".*") => {
-                            // Wildcard: "user.*" -> prefix "user."
-                            let prefix = &topic[..topic.len() - 1]; // strip "*", keep "."
-                            store.iter_frames_by_topic_prefix(prefix, start_bound)
-                        }
-                        Some(topic) => store.iter_frames_by_topic(topic, start_bound),
-                    };
+                    let iter = store.iter_for_filter(&filter, start_bound);
 
                     for frame in iter {
                         if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
@@ -538,22 +695,13 @@ impl Store {
                         None => (None, 0),
                     };
 
+                    let filter = TopicFilter::from_option(options.topic.as_deref());
+
                     let mut broadcast_rx = broadcast_rx;
                     while let Ok(frame) = broadcast_rx.recv().await {
-                        // Filter by topic (exact match or wildcard)
-                        match options.topic.as_deref() {
-                            None | Some("*") => {}
-                            Some(topic) if topic.ends_with(".*") => {
-                                let prefix = &topic[..topic.len() - 1]; // "user.*" -> "user."
-                                if !frame.topic.starts_with(prefix) {
-                                    continue;
-                                }
-                            }
-                            Some(topic) => {
-                                if frame.topic != topic {
-                                    continue;
-                                }
-                            }
+                        // Filter by topic (any-match against the parsed patterns)
+                        if !filter.matches(&frame.topic) {
+                            continue;
                         }
 
                         // Skip if we've already seen this frame during historical scan
@@ -628,16 +776,11 @@ impl Store {
             Some(frame)
         };
 
+        let filter = TopicFilter::from_option(options.topic.as_deref());
+
         let frames: Vec<Frame> = if let Some(last_n) = options.last {
             // Handle --last N: get the N most recent frames
-            let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
-                None | Some("*") => self.iter_frames_rev(),
-                Some(topic) if topic.ends_with(".*") => {
-                    let prefix = &topic[..topic.len() - 1];
-                    self.iter_frames_by_topic_prefix_rev(prefix)
-                }
-                Some(topic) => self.iter_frames_by_topic_rev(topic),
-            };
+            let iter = self.iter_for_filter_rev(&filter);
 
             // Collect last N frames (in reverse order), skipping expired
             let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
@@ -661,14 +804,7 @@ impl Store {
                 .map(|id| (id, true))
                 .or_else(|| options.after.as_ref().map(|id| (id, false)));
 
-            let iter: Box<dyn Iterator<Item = Frame>> = match options.topic.as_deref() {
-                None | Some("*") => self.iter_frames(start_bound),
-                Some(topic) if topic.ends_with(".*") => {
-                    let prefix = &topic[..topic.len() - 1];
-                    self.iter_frames_by_topic_prefix(prefix, start_bound)
-                }
-                Some(topic) => self.iter_frames_by_topic(topic, start_bound),
-            };
+            let iter = self.iter_for_filter(&filter, start_bound);
 
             iter.filter_map(|frame| filter_expired(frame, &gc_tx))
                 .take(options.limit.unwrap_or(usize::MAX))
@@ -1016,6 +1152,73 @@ impl Store {
                 }),
         )
     }
+
+    /// Forward iterator for a single pattern, using the topic index.
+    fn iter_for_pattern<'a>(
+        &'a self,
+        pattern: &'a Pattern,
+        start: Option<(&'a Scru128Id, bool)>,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        match pattern {
+            Pattern::Exact(topic) => self.iter_frames_by_topic(topic, start),
+            Pattern::Prefix(prefix) => self.iter_frames_by_topic_prefix(prefix, start),
+        }
+    }
+
+    /// Reverse (most recent first) iterator for a single pattern.
+    fn iter_for_pattern_rev<'a>(
+        &'a self,
+        pattern: &'a Pattern,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        match pattern {
+            Pattern::Exact(topic) => self.iter_frames_by_topic_rev(topic),
+            Pattern::Prefix(prefix) => self.iter_frames_by_topic_prefix_rev(prefix),
+        }
+    }
+
+    /// Forward iterator for a parsed topic filter, ascending by frame id.
+    /// A single pattern uses the indexed path directly; multiple patterns
+    /// are k-way merged with dedupe for overlapping patterns.
+    fn iter_for_filter<'a>(
+        &'a self,
+        filter: &'a TopicFilter,
+        start: Option<(&'a Scru128Id, bool)>,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        match filter {
+            TopicFilter::All => self.iter_frames(start),
+            TopicFilter::Patterns(patterns) if patterns.len() == 1 => {
+                self.iter_for_pattern(&patterns[0], start)
+            }
+            TopicFilter::Patterns(patterns) => {
+                let iters = patterns
+                    .iter()
+                    .map(|p| self.iter_for_pattern(p, start))
+                    .collect();
+                Box::new(MergeById::new(iters, false))
+            }
+        }
+    }
+
+    /// Reverse variant of [`iter_for_filter`](Store::iter_for_filter),
+    /// descending by frame id (most recent first).
+    fn iter_for_filter_rev<'a>(
+        &'a self,
+        filter: &'a TopicFilter,
+    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+        match filter {
+            TopicFilter::All => self.iter_frames_rev(),
+            TopicFilter::Patterns(patterns) if patterns.len() == 1 => {
+                self.iter_for_pattern_rev(&patterns[0])
+            }
+            TopicFilter::Patterns(patterns) => {
+                let iters = patterns
+                    .iter()
+                    .map(|p| self.iter_for_pattern_rev(p))
+                    .collect();
+                Box::new(MergeById::new(iters, true))
+            }
+        }
+    }
 }
 
 fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
@@ -1115,8 +1318,26 @@ pub fn validate_topic(topic: &str) -> Result<(), crate::error::Error> {
 }
 
 /// Validates a topic query (for --topic flag).
-/// Allows wildcards: "*" (match all) or "prefix.*" (match children).
-pub fn validate_topic_query(topic: &str) -> Result<(), crate::error::Error> {
+/// Accepts a comma-separated list of patterns; each element is an exact
+/// topic, a `prefix.*` wildcard, or `*` (match all).
+pub fn validate_topic_query(spec: &str) -> Result<(), crate::error::Error> {
+    let mut seen = false;
+    for part in spec.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        seen = true;
+        validate_topic_pattern(part)?;
+    }
+    if !seen {
+        return Err("Topic query cannot be empty".to_string().into());
+    }
+    Ok(())
+}
+
+/// Validate a single topic pattern: "*", "prefix.*", or an exact topic.
+fn validate_topic_pattern(topic: &str) -> Result<(), crate::error::Error> {
     if topic == "*" {
         return Ok(());
     }

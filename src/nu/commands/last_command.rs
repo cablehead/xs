@@ -26,8 +26,8 @@ impl Command for LastCommand {
             .input_output_types(vec![(Type::Nothing, Type::Any)])
             .optional(
                 "topic",
-                SyntaxShape::String,
-                "topic to get most recent frame from (default: all topics)",
+                SyntaxShape::Any,
+                "topic pattern(s) to get most recent frames from: string (commas allowed) or list (default: all topics)",
             )
             .optional(
                 "count",
@@ -53,16 +53,23 @@ impl Command for LastCommand {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let raw_topic: Option<String> = call.opt(engine_state, stack, 0)?;
+        let raw_topic: Option<Value> = call.opt(engine_state, stack, 0)?;
         let raw_count: Option<i64> = call.opt(engine_state, stack, 1)?;
         let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let span = call.head;
 
-        // Disambiguate: if topic parses as a positive integer and count is absent,
-        // treat it as the count (topics cannot start with digits per ADR 0002)
-        let (topic, n) = match (&raw_topic, raw_count) {
-            (Some(t), None) if t.parse::<usize>().is_ok() => (None, t.parse::<usize>().unwrap()),
-            _ => (raw_topic, raw_count.map(|v| v as usize).unwrap_or(1)),
+        // Disambiguate: if topic is an integer (or parses as one) and count is
+        // absent, treat it as the count (topics cannot start with digits per
+        // ADR 0002)
+        let (topic, n) = match (raw_topic, raw_count) {
+            (Some(Value::Int { val, .. }), None) if val > 0 => (None, val as usize),
+            (Some(Value::String { val, .. }), None) if val.parse::<usize>().is_ok() => {
+                (None, val.parse::<usize>().unwrap())
+            }
+            (raw_topic, raw_count) => (
+                raw_topic.map(util::topic_value_to_string).transpose()?,
+                raw_count.map(|v| v as usize).unwrap_or(1),
+            ),
         };
 
         let options = ReadOptions::builder().last(n).maybe_topic(topic).build();

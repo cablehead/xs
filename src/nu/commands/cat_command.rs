@@ -48,7 +48,15 @@ impl Command for CatCommand {
                 "return the N most recent frames",
                 None,
             )
-            .named("topic", SyntaxShape::String, "filter by topic", Some('T'))
+            .named(
+                "topic",
+                SyntaxShape::OneOf(vec![
+                    SyntaxShape::String,
+                    SyntaxShape::List(Box::new(SyntaxShape::String)),
+                ]),
+                "filter by topic pattern(s): string (commas allowed) or list",
+                Some('T'),
+            )
             .switch(
                 "with-timestamp",
                 "include timestamp extracted from frame ID",
@@ -72,7 +80,10 @@ impl Command for CatCommand {
         let last: Option<usize> = call.get_flag(engine_state, stack, "last")?;
         let after: Option<String> = call.get_flag(engine_state, stack, "after")?;
         let from: Option<String> = call.get_flag(engine_state, stack, "from")?;
-        let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
+        let topic: Option<nu_protocol::Value> = call.get_flag(engine_state, stack, "topic")?;
+        let topic: Option<String> = topic
+            .map(crate::nu::util::topic_value_to_string)
+            .transpose()?;
         let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
 
         // Helper to parse Scru128Id

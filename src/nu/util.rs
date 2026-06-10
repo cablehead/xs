@@ -8,6 +8,45 @@ use nu_protocol::{PipelineData, Record, ShellError, Span, Value};
 use crate::store::Frame;
 use crate::store::Store;
 
+/// Convert a topic argument to the comma-separated string form used by
+/// `ReadOptions::topic`. Accepts a string (commas allowed) or a list of
+/// strings (joined with commas).
+#[allow(clippy::result_large_err)] // ShellError is nu's error type
+pub fn topic_value_to_string(value: Value) -> Result<String, ShellError> {
+    let span = value.span();
+    match value {
+        Value::String { val, .. } => Ok(val),
+        Value::List { vals, .. } => {
+            let mut parts = Vec::with_capacity(vals.len());
+            for v in vals {
+                let span = v.span();
+                match v {
+                    Value::String { val, .. } => parts.push(val),
+                    other => {
+                        return Err(ShellError::Generic(GenericError::new(
+                            "Invalid topic",
+                            format!(
+                                "topic list elements must be strings, got {}",
+                                other.get_type()
+                            ),
+                            span,
+                        )))
+                    }
+                }
+            }
+            Ok(parts.join(","))
+        }
+        other => Err(ShellError::Generic(GenericError::new(
+            "Invalid topic",
+            format!(
+                "topic must be a string or a list of strings, got {}",
+                other.get_type()
+            ),
+            span,
+        ))),
+    }
+}
+
 pub fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
     match json {
         serde_json::Value::Null => Value::nothing(span),

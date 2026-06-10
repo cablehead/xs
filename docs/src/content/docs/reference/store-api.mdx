@@ -37,7 +37,7 @@ Query Parameters:
 - `from` - Start from a specific frame ID (inclusive)
 - `limit` - Maximum number of frames to return
 - `last` - Return the last N frames (most recent)
-- `topic` - Filter frames by topic
+- `topic` - Filter frames by topic pattern(s); comma-separated list allowed (`game.move.*,game.create`)
 - `with-timestamp` - Include RFC3339 timestamp extracted from frame ID
 
 Response: newline-delimited JSON frames or SSE stream, based on Accept header.

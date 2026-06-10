@@ -109,7 +109,8 @@ struct CommandCat {
     #[clap(long)]
     sse: bool,
 
-    /// Filter by topic (supports wildcards like user.*)
+    /// Filter by topic pattern(s): exact, wildcard like user.*, or a
+    /// comma-separated list of patterns (user.*,system.start)
     #[clap(long = "topic", short = 'T', value_parser = parse_topic_query)]
     topic: Option<String>,
 

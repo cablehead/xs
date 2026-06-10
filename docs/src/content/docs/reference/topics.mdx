@@ -51,6 +51,26 @@ The wildcard `user.*` matches `user.alice`, `user.alice.messages`, and
 
 Use `*` alone to match all topics (equivalent to omitting `--topic`).
 
+## Multiple Patterns
+
+A topic filter can be a comma-separated list of patterns; a frame matches if
+it matches any of them. Commas are a safe separator because topic names
+cannot contain them.
+
+```sh
+xs cat ./store --topic "game.move.*,game.create"
+```
+
+The list form works everywhere a topic filter is accepted: `xs cat
+--topic`, the HTTP API's `topic` query parameter, `.cat -T` / `.last`
+(which also accept a Nushell list of strings), and an actor's `topics`
+config. Results stay in chronological order, and a frame matched by more
+than one pattern is returned once.
+
+When following with a filter, synthetic control frames (`xs.threshold`,
+heartbeat `xs.pulse`) are still delivered; the filter only applies to
+stored and broadcast frames.
+
 Topic queries return frames in chronological order (by frame ID), not grouped
 by topic. Both historical reads and live follows maintain this ordering.
 

@@ -61,6 +61,18 @@ r###'{
   # Optional: Heartbeat interval in ms
   pulse: 1000
 
+  # Optional: Only deliver matching topics to the actor.
+  # Each entry is an exact topic, a "prefix.*" wildcard, or "*",
+  # the same pattern language as read topic filters. A single
+  # comma-separated string also works ("game.move.*,game.create").
+  # The filter is applied at the read level, so non-matching frames
+  # never reach the actor. The actor's own lifecycle frames
+  # (xs.actor.<name>.create / .term) are always delivered, and
+  # synthetic frames (xs.pulse, xs.threshold) bypass the filter,
+  # so guard for them in the closure as usual. Omit to receive
+  # every frame.
+  topics: ["ping"]
+
   # Optional: Control output frame behavior
   return_options: {
     suffix: ".response" # Output topic suffix
@@ -89,6 +101,7 @@ with metadata:
 | `initial`        | Initial state value (default: null, or the closure param default)          |
 | `start`          | "new" (default), "first", or scru128 ID to control where processing starts |
 | `pulse`          | Interval in milliseconds to send synthetic xs.pulse events                 |
+| `topics`         | Topic patterns to process (list of strings, or one comma-separated string); applied as a read-level filter, so non-matching frames never reach the actor |
 | `return_options` | Controls output frames: see Return Options                                 |
 
 #### Return Options

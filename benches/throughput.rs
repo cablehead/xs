@@ -13,6 +13,9 @@
 //                 framework overhead
 //   actor-mixed   same actor over a stream where only 10% of frames match
 //                 its topic; measures the cost of frames an actor ignores
+//   actor-filtered  same mixed stream, but the actor declares topics: ["ev"]
+//                 so ignored frames are filtered at the read level and never
+//                 reach the actor loop
 //   actor-emit    the counter, emitting one output frame per input,
 //                 exercising the buffered .append + flush path
 //
@@ -125,13 +128,16 @@ async fn run_actor_bench(name: &str, closure: &str, stride: usize) {
 }
 
 /// A counter over "ev" frames that appends "bench.done" at `target`.
-/// With emit, every counted frame also appends an output frame.
-fn actor_closure(emit: bool, target: usize) -> String {
+/// With emit, every counted frame also appends an output frame. With
+/// filtered, the actor declares topics: ["ev"] so non-matching frames are
+/// filtered at the read level and never reach the actor loop.
+fn actor_closure(emit: bool, filtered: bool, target: usize) -> String {
     let body = if emit {
         r#"($n | into string) | .append "bench.out""#
     } else {
         ""
     };
+    let topics = if filtered { r#"  topics: ["ev"]"# } else { "" };
     format!(
         r#"{{
   run: {{|frame, state|
@@ -142,6 +148,7 @@ fn actor_closure(emit: bool, target: usize) -> String {
     {{next: $n}}
   }}
   start: "first"
+{topics}
 }}"#
     )
 }
@@ -153,8 +160,9 @@ fn main() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        run_actor_bench("actor-state", &actor_closure(false, N), 1).await;
-        run_actor_bench("actor-mixed", &actor_closure(false, N / 10), 10).await;
-        run_actor_bench("actor-emit", &actor_closure(true, N), 1).await;
+        run_actor_bench("actor-state", &actor_closure(false, false, N), 1).await;
+        run_actor_bench("actor-mixed", &actor_closure(false, false, N / 10), 10).await;
+        run_actor_bench("actor-filtered", &actor_closure(false, true, N / 10), 10).await;
+        run_actor_bench("actor-emit", &actor_closure(true, false, N), 1).await;
     });
 }
