@@ -2,20 +2,26 @@
 //
 // Run with: cargo bench --bench throughput
 //
-// Four dimensions, each over the same N tiny frames:
+// Six dimensions, each over N tiny frames:
 //
-//   append       raw store writes (the floor for everything else)
-//   replay       historical read_sync scan (what `start: "first"` leans on)
-//   actor-state  frames through an actor with a trivial state-threading
-//                closure; eval is microseconds, so this number is per-frame
-//                framework overhead
-//   actor-emit   same counter, but emitting one output frame per input,
-//                exercising the buffered .append + flush path
+//   append        raw store writes (the floor for everything else)
+//   replay        historical read_sync scan (what `start: "first"` leans on)
+//   replay-topic  topic-filtered scan: idx_topic walk + a point-read per
+//                 matching frame (half the stream matches)
+//   actor-state   frames through an actor with a trivial state-threading
+//                 closure; eval is microseconds, so this number is per-frame
+//                 framework overhead
+//   actor-mixed   same actor over a stream where only 10% of frames match
+//                 its topic; measures the cost of frames an actor ignores
+//   actor-emit    the counter, emitting one output frame per input,
+//                 exercising the buffered .append + flush path
 //
 // Output is one parseable line per dimension:
 //   <name> frames=<n> ms=<elapsed> frames_per_s=<rate> us_per_frame=<cost>
 //
-// Numbers are only comparable on the same hardware.
+// frames= is always the total stream length processed, including frames a
+// dimension filters out or ignores. Numbers are only comparable on the same
+// hardware.
 
 use std::time::{Duration, Instant};
 
@@ -32,9 +38,12 @@ fn report(name: &str, n: usize, elapsed: Duration) {
     println!("{name} frames={n} ms={ms:.0} frames_per_s={rate:.0} us_per_frame={us:.2}");
 }
 
-fn seed(store: &Store, n: usize) {
-    for _ in 0..n {
-        store.append(Frame::builder("ev").build()).unwrap();
+/// Append n frames; every `stride`-th is "ev", the rest "noise".
+/// stride=1 means all "ev".
+fn seed(store: &Store, n: usize, stride: usize) {
+    for i in 0..n {
+        let topic = if i % stride == 0 { "ev" } else { "noise" };
+        store.append(Frame::builder(topic).build()).unwrap();
     }
 }
 
@@ -42,14 +51,14 @@ fn bench_append() {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
     let start = Instant::now();
-    seed(&store, N);
+    seed(&store, N, 1);
     report("append", N, start.elapsed());
 }
 
 fn bench_replay() {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
-    seed(&store, N);
+    seed(&store, N, 1);
     let options = ReadOptions::builder().build();
     let start = Instant::now();
     let count = store.read_sync(options).count();
@@ -57,12 +66,24 @@ fn bench_replay() {
     report("replay", N, start.elapsed());
 }
 
-/// Register `closure` as an actor over a store pre-seeded with N "ev" frames,
-/// then time from registration to the actor's "bench.done" append.
-async fn run_actor_bench(name: &str, closure: &str) {
+fn bench_replay_topic() {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
-    seed(&store, N);
+    seed(&store, N, 2); // half "ev", half "noise"
+    let options = ReadOptions::builder().topic("ev".to_string()).build();
+    let start = Instant::now();
+    let count = store.read_sync(options).count();
+    assert_eq!(count, N / 2);
+    report("replay-topic", N, start.elapsed());
+}
+
+/// Register `closure` as an actor over a store pre-seeded with N frames
+/// (every `stride`-th topic "ev"), then time from registration to the
+/// actor's "bench.done" append.
+async fn run_actor_bench(name: &str, closure: &str, stride: usize) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+    seed(&store, N, stride);
 
     {
         let store = store.clone();
@@ -103,7 +124,9 @@ async fn run_actor_bench(name: &str, closure: &str) {
     report(name, N, start.elapsed());
 }
 
-fn actor_closure(emit: bool) -> String {
+/// A counter over "ev" frames that appends "bench.done" at `target`.
+/// With emit, every counted frame also appends an output frame.
+fn actor_closure(emit: bool, target: usize) -> String {
     let body = if emit {
         r#"($n | into string) | .append "bench.out""#
     } else {
@@ -115,7 +138,7 @@ fn actor_closure(emit: bool) -> String {
     if $frame.topic != "ev" {{ return {{next: $state}} }}
     let n = ($state | default 0) + 1
     {body}
-    if $n == {N} {{ null | .append "bench.done" }}
+    if $n == {target} {{ null | .append "bench.done" }}
     {{next: $n}}
   }}
   start: "first"
@@ -126,10 +149,12 @@ fn actor_closure(emit: bool) -> String {
 fn main() {
     bench_append();
     bench_replay();
+    bench_replay_topic();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        run_actor_bench("actor-state", &actor_closure(false)).await;
-        run_actor_bench("actor-emit", &actor_closure(true)).await;
+        run_actor_bench("actor-state", &actor_closure(false, N), 1).await;
+        run_actor_bench("actor-mixed", &actor_closure(false, N / 10), 10).await;
+        run_actor_bench("actor-emit", &actor_closure(true, N), 1).await;
     });
 }
