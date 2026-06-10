@@ -124,3 +124,7 @@ pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-win
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-gnu]
 pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-windows-amd64.tar.gz"
+
+[[bench]]
+name = "throughput"
+harness = false
