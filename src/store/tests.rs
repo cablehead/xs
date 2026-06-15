@@ -850,6 +850,67 @@ mod tests_ttl_expire {
 
         assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
+
+    /// A pruning TTL on a module topic can delete the version an earlier
+    /// processor's `.create` id resolves against. A processor reads modules as
+    /// of its own create id (`nu_modules_at`), so once the older module frame
+    /// is GC'd and the surviving one has a higher id, the module is invisible
+    /// to that processor and its `use <name>` would fail with ModuleNotFound.
+    /// Demonstrates the caution in docs/reference/ttl.mdx.
+    #[tokio::test]
+    async fn test_pruning_ttl_on_module_hides_version_from_earlier_create() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+
+        // Module `foo` v1, registered with a pruning TTL.
+        let hash_v1 = store.cas_insert("export def v [] { 1 }").await.unwrap();
+        let mod_v1 = store
+            .append(
+                Frame::builder("xs.module.foo")
+                    .ttl(TTL::Last(1))
+                    .hash(hash_v1)
+                    .build(),
+            )
+            .unwrap();
+
+        // A processor created after v1 resolves the module as of its create id.
+        let create = store
+            .append(Frame::builder("xs.service.bar.create").build())
+            .unwrap();
+        assert!(
+            store.nu_modules_at(&create.id).contains_key("foo"),
+            "module is visible as of a create that came after v1"
+        );
+
+        // Module `foo` v2, same pruning TTL: last:1 garbage-collects v1.
+        let hash_v2 = store.cas_insert("export def v [] { 2 }").await.unwrap();
+        let _mod_v2 = store
+            .append(
+                Frame::builder("xs.module.foo")
+                    .ttl(TTL::Last(1))
+                    .hash(hash_v2)
+                    .build(),
+            )
+            .unwrap();
+        store.wait_for_gc().await;
+
+        // v1 is pruned, and v2's id is above the create id, so the processor's
+        // as-of-create read no longer sees the module at all.
+        assert_eq!(store.get(&mod_v1.id), None, "v1 was pruned by last:1");
+        assert!(
+            !store.nu_modules_at(&create.id).contains_key("foo"),
+            "the version the earlier create resolved against is gone, and v2 is in its future"
+        );
+
+        // A processor created after v2 still resolves the surviving version.
+        let create_after = store
+            .append(Frame::builder("xs.service.baz.create").build())
+            .unwrap();
+        assert!(
+            store.nu_modules_at(&create_after.id).contains_key("foo"),
+            "a create after v2 resolves the surviving version"
+        );
+    }
 }
 
 mod tests_append_race {
