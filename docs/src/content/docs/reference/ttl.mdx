@@ -1,0 +1,74 @@
+---
+title: TTL
+description: "Frame retention policies: forever, ephemeral, time, and last"
+sidebar:
+  order: 8
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every frame carries a TTL (time-to-live) that sets how long the store keeps
+it. The default is `forever`. A frame's TTL is fixed when it is appended and
+never changes afterward.
+
+## Kinds
+
+| TTL | Query form | Meaning |
+| --- | ---------- | ------- |
+| Forever | `forever` (default) | Kept indefinitely. |
+| Ephemeral | `ephemeral` | Never written to the store. Only readers following live at the moment of the append see it. |
+| Time | `time:<ms>` | Kept for `<ms>` milliseconds after the frame's creation, then removed. |
+| Last | `last:<n>` | Retains only the newest `n` frames on the frame's topic (`n >= 1`); older frames on that topic are removed. |
+
+## Setting a TTL
+
+From Nushell, pass `--ttl` to `.append`:
+
+```nushell
+"hello"          | .append greeting                      # forever (default)
+{tick: true}     | .append clock      --ttl ephemeral
+{level: "debug"} | .append logs       --ttl time:60000   # 60s
+$state           | .append game.score --ttl last:1       # keep only the latest
+```
+
+Over HTTP, set the `ttl` query parameter on the append endpoint
+(`?ttl=last:1`). The wire forms are exactly the query strings in the table
+above.
+
+## How each kind behaves
+
+- **`forever`** is the default, and the right choice for anything another part
+  of the system reads back later.
+- **`ephemeral`** frames are broadcast but never persisted, so they never
+  appear in `.cat` history or on replay. Use them for liveness signals where a
+  missed frame does not matter.
+- **`time:<ms>`** frames expire relative to their own creation timestamp.
+- **`last:<n>`** schedules a per-topic garbage collection on each append: the
+  store keeps the `n` most recent frames on that topic and removes the rest.
+  This is retention by topic, not by frame, so it affects every frame that
+  shares the topic.
+
+<Aside type="caution" title="Do not put a pruning TTL on module topics">
+Processors resolve their modules **as of their own `.create` frame**: a
+service, actor, or action sees the `xs.module.<name>` versions whose frame id
+is at or below its create id (see [Module Topics](../topics/#module-topics)).
+
+`last:<n>` and `time:` delete older frames on a topic. If you prune
+`xs.module.<name>`, you can delete the module version that an
+already-registered processor's create id resolves against. The next time that
+processor spawns (a restart, a replay, or a hot-replace), the only surviving
+module frame has a **higher** id than its create frame, so it is skipped, and
+the matching older one is gone. The script's `use <name>` then fails with
+`ModuleNotFound`.
+
+It looks intermittent because whether it fires depends on the newest module
+frame's id versus each processor's create id, but it is not a race.
+
+The rule: retain a module version for at least as long as anything relies on
+it, that is, as long as a registered processor's create id resolves against
+it. The simplest way to guarantee that is to leave module topics on the
+default `forever`. If you prune with `last:<n>`, `n` must cover every version
+still resolved by a live processor. To update a module, append the new version
+and re-register the dependent processors so their new create ids resolve to
+it.
+</Aside>
