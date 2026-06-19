@@ -34,6 +34,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use std::sync::{Arc, Mutex};
 
+use nu_protocol::engine::EngineState;
 use scru128::Scru128Id;
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -459,6 +460,12 @@ pub struct Store {
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     append_lock: Arc<Mutex<()>>,
+    /// Optional base engine an embedder prepares (its own context-free commands,
+    /// environment, and consts) for every Nushell engine the processors build.
+    /// Shared across `Store` clones; `None` falls back to the default
+    /// `Engine::new()`. See [`prepared_base`](crate::nu::prepared_base) and the
+    /// "Engine tree" architecture note.
+    base_engine: Option<Arc<EngineState>>,
 }
 
 impl Store {
@@ -519,12 +526,32 @@ impl Store {
             broadcast_tx,
             gc_tx,
             append_lock: Arc::new(Mutex::new(())),
+            base_engine: None,
         };
 
         // Spawn gc worker thread
         spawn_gc_worker(gc_rx, store.clone());
 
         Ok(store)
+    }
+
+    /// Attach a base engine that every processor engine is cloned from.
+    ///
+    /// An embedder (for example http-nu) prepares an [`EngineState`] with its
+    /// own context-free commands, environment, and consts and hands it over
+    /// here. [`prepared_base`](crate::nu::prepared_base) then clones this base
+    /// per spawn and layers the store commands on top, so actors, services, and
+    /// actions all see the embedder's commands. With no base set, the default
+    /// `Engine::new()` is used. The base is shared across `Store` clones, so set
+    /// it once, before spawning the processors.
+    pub fn with_base_engine(mut self, base: EngineState) -> Self {
+        self.base_engine = Some(Arc::new(base));
+        self
+    }
+
+    /// The base engine an embedder attached via [`with_base_engine`], if any.
+    pub fn base_engine(&self) -> Option<&EngineState> {
+        self.base_engine.as_deref()
     }
 
     /// Wait until the background garbage-collection worker has processed every
