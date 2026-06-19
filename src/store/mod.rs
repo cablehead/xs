@@ -460,11 +460,9 @@ pub struct Store {
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     append_lock: Arc<Mutex<()>>,
-    /// Optional base engine an embedder prepares (its own context-free commands,
-    /// environment, and consts) for every Nushell engine the processors build.
-    /// Shared across `Store` clones; `None` falls back to the default
-    /// `Engine::new()`. See [`prepared_base`](crate::nu::prepared_base) and the
-    /// "Engine tree" architecture note.
+    /// Optional base engine the processors clone, set via [`with_base_engine`].
+    /// `None` falls back to `Engine::new()`. See
+    /// [`prepared_base`](crate::nu::prepared_base) and ADR 0007.
     base_engine: Option<Arc<EngineState>>,
 }
 
@@ -535,15 +533,14 @@ impl Store {
         Ok(store)
     }
 
-    /// Attach a base engine that every processor engine is cloned from.
+    /// Set a base engine the processor engines clone.
     ///
-    /// An embedder (for example http-nu) prepares an [`EngineState`] with its
-    /// own context-free commands, environment, and consts and hands it over
-    /// here. [`prepared_base`](crate::nu::prepared_base) then clones this base
-    /// per spawn and layers the store commands on top, so actors, services, and
-    /// actions all see the embedder's commands. With no base set, the default
-    /// `Engine::new()` is used. The base is shared across `Store` clones, so set
-    /// it once, before spawning the processors.
+    /// A program that embeds xs prepares an [`EngineState`] with its own
+    /// commands, env, and consts;
+    /// [`prepared_base`](crate::nu::prepared_base) clones it per spawn and adds
+    /// the store commands, so the actor, service, and action processors get
+    /// those commands. Shared across `Store` clones, so set it once, before the
+    /// processors spawn. No base set: `Engine::new()`.
     pub fn with_base_engine(mut self, base: EngineState) -> Self {
         self.base_engine = Some(Arc::new(base));
         self

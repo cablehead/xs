@@ -489,10 +489,8 @@ pub fn add_write_commands(
 /// each clone. Actors pass `direct_write: false` and add their per-instance
 /// buffered `.append` to the clone.
 pub fn prepared_base(store: &Store, read: ReadMode, direct_write: bool) -> Result<Engine, Error> {
-    // Clone the embedder-provided base (its context-free commands, env, and
-    // consts) when one is set, so every processor engine branches from it;
-    // otherwise build the default base. See the "Engine tree" note: prepare the
-    // base once, clone per use.
+    // Clone the embedder's base engine when the store carries one, else build
+    // the default. See ADR 0007.
     let mut engine = match store.base_engine() {
         Some(base) => Engine {
             state: base.clone(),
