@@ -1,0 +1,82 @@
+---
+title: Read Options
+description: "The options that select, bound, filter, and follow frames when reading the stream"
+sidebar:
+  order: 5
+---
+
+Reading the stream is one operation with a shared set of options, whether you
+read with [`xs cat`](../cli/#cat), the HTTP [`GET /`](../store-api/#get-)
+endpoint, the [`.cat`](../xs-nu/#cat) Nushell command, or a processor's config.
+This page describes what each option does. Each surface's own page lists how to
+spell them; the [mapping table](#spelling-by-surface) below ties the names
+together.
+
+## The read model
+
+A read returns historical frames first, in chronological order (by frame ID),
+then optionally follows the stream for live frames as they are appended. When
+following, an [`xs.threshold`](../topics/#system-topics) frame marks the
+boundary between the historical replay and live frames. It is not emitted when
+you skip history with [`new`](#new), since there is no replay to bound.
+
+## Where to start
+
+By default a read returns all history from the beginning of the stream. These
+options move the start point:
+
+| Option  | Start                                                  |
+| ------- | ------------------------------------------------------ |
+| `from`  | At a specific frame ID, inclusive                      |
+| `after` | After a specific frame ID, exclusive                   |
+| `new`   | Skip all history; only frames appended after the read starts |
+
+## How many
+
+| Option  | Returns                                            |
+| ------- | -------------------------------------------------- |
+| `limit` | At most N frames from the start point, then stops  |
+| `last`  | The N most recent frames, in chronological order   |
+
+## Following live
+
+`follow` keeps the read open after history, streaming live frames as they are
+appended. A follow can carry a heartbeat: a synthetic
+[`xs.pulse`](../topics/#system-topics) frame emitted on an interval, useful to
+keep a connection warm or to drive periodic work in a processor.
+
+## Filtering by topic
+
+`topic` restricts a read to frames whose topic matches a pattern. The pattern
+language (exact, `prefix.*` wildcards, `*` for all, and comma-separated lists)
+is described under [Topics](../topics/#wildcard-queries). A frame matched by
+more than one pattern in a list is returned once.
+
+Filtering preserves the chronological ordering of the read and does not change
+the threshold boundary. Synthetic control frames (`xs.threshold` and heartbeat
+`xs.pulse`) are always delivered to a following read; the filter applies only
+to stored and broadcast frames.
+
+## Output
+
+`with-timestamp` adds an RFC3339 timestamp to each frame, extracted from its
+frame ID. The Nushell commands return it as a native `datetime`.
+
+## Spelling by surface
+
+| Option           | HTTP `GET /`            | `xs cat` / `.cat`              |
+| ---------------- | ----------------------- | ------------------------------ |
+| `from`           | `from`                  | `--from`                       |
+| `after`          | `after`                 | `--after`, `-a`                |
+| `new`            | `new`                   | `--new`, `-n`                  |
+| `limit`          | `limit`                 | `--limit`                      |
+| `last`           | `last`                  | `--last`                       |
+| `follow`         | `follow` (`true` or `<ms>` for a heartbeat) | `--follow`/`-f`, `--pulse <ms>` for a heartbeat |
+| `topic`          | `topic`                 | `--topic`, `-T`                |
+| `with-timestamp` | `with-timestamp`        | `--with-timestamp`             |
+
+[Actors](../actors/) map a subset of these through their config rather than
+flags: `start` selects the start bound (`"new"`, `"first"`, or a frame ID),
+`pulse` sets the heartbeat interval, and `topics` is the topic filter. An actor
+always follows. [Services](../services/) read the stream themselves with
+`.cat`, so they use these options directly.

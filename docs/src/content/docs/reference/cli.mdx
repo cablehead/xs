@@ -61,21 +61,23 @@ Stream frames from the store.
 xs cat <addr> [options]
 ```
 
-| Option                          | Description                                     |
+`--addr` aside, the flags are the [read options](../read-options/); see that
+page for what each does and how following, ordering, and the `xs.threshold`
+boundary work.
+
+| Option                          | Read option                                     |
 | ------------------------------- | ----------------------------------------------- |
 | `<addr>`                        | Address to connect to ([HOST]:PORT, `<PATH>`, or `iroh://...`) |
-| `--follow`, `-f`                | Follow the stream for new events                |
-| `--pulse <ms>`, `-p <ms>`       | Send synthetic `xs.pulse` events at interval    |
-| `--new`, `-n`                   | Skip existing, only show new events             |
-| `--after <id>`, `-a <id>`       | Start after the given frame ID (exclusive)      |
-| `--from <id>`                   | Start from the given frame ID (inclusive)       |
-| `--limit <n>`                   | Maximum number of events to return              |
-| `--last <n>`                    | Return the last N events (most recent)          |
-| `--sse`                         | Use Server-Sent Events format                   |
-| `--topic <topic>`, `-T <topic>` | Filter by topic (supports `user.*` wildcards)   |
-| `--with-timestamp`              | Include RFC3339 timestamp extracted from frame ID |
-
-When using `--follow`, an `xs.threshold` frame marks the transition from historical replay to live events. This frame is not emitted with `--new` (since there's no historical replay).
+| `--follow`, `-f`                | [`follow`](../read-options/#following-live)     |
+| `--pulse <ms>`, `-p <ms>`       | heartbeat interval for `--follow`               |
+| `--new`, `-n`                   | [`new`](../read-options/#where-to-start)        |
+| `--after <id>`, `-a <id>`       | [`after`](../read-options/#where-to-start)      |
+| `--from <id>`                   | [`from`](../read-options/#where-to-start)       |
+| `--limit <n>`                   | [`limit`](../read-options/#how-many)            |
+| `--last <n>`                    | [`last`](../read-options/#how-many)             |
+| `--topic <patterns>`, `-T`      | [`topic`](../read-options/#filtering-by-topic): exact, `user.*`, `*`, or a comma list / Nushell list |
+| `--with-timestamp`              | [`with-timestamp`](../read-options/#output)     |
+| `--sse`                         | Use Server-Sent Events format (output, not a read option) |
 
 Examples:
 
@@ -169,10 +171,10 @@ xs last <addr> [topic] [count] [--follow]
 | Option             | Description                                       |
 | ------------------ | ------------------------------------------------- |
 | `<addr>`           | Address to connect to                             |
-| `[topic]`          | Topic to query (optional, supports wildcards)     |
-| `[count]`          | Number of frames to return (default: 1)           |
-| `--follow`, `-f`   | Follow for updates                                |
-| `--with-timestamp` | Include RFC3339 timestamp extracted from frame ID |
+| `[topic]`          | [`topic`](../read-options/#filtering-by-topic) filter (optional): exact, `user.*`, `*`, or a comma list |
+| `[count]`          | [`last`](../read-options/#how-many): number of frames to return (default: 1) |
+| `--follow`, `-f`   | [`follow`](../read-options/#following-live)       |
+| `--with-timestamp` | [`with-timestamp`](../read-options/#output)       |
 
 Examples:
 ```sh

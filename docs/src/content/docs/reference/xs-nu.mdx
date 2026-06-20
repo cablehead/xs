@@ -48,10 +48,13 @@ Stream frames from the store. Wraps [`xs cat`](../cli/#cat).
 ```nushell
 .cat [--follow (-f)] [--pulse (-p) <ms>] [--new (-n)] [--detail (-d)]
      [--with-timestamp] [--limit <n>] [--last <n>] [--after (-a) <id>]
-     [--from <id>] [--topic (-T) <topic>]
+     [--from <id>] [--topic (-T) <patterns>]
 ```
 
-- `--with-timestamp` - Include timestamp as native Nushell `datetime` type
+The flags are the [read options](../read-options/); `-T` accepts a topic
+pattern, a comma-separated list, or a Nushell list of strings. Two flags are
+Nushell-only: `--detail` (`-d`) includes all frame fields, and
+`--with-timestamp` returns the timestamp as a native `datetime`.
 
 ```nushell
 .cat --topic note
@@ -71,10 +74,11 @@ Get the most recent frame(s) for a topic. Wraps [`xs last`](../cli/#last).
 .last [topic] [count] [--follow] [--with-timestamp]
 ```
 
-- `topic` - Topic to query (optional, defaults to all topics). Supports wildcards like `user.*`.
-- `count` - Number of frames to return (default: 1)
-- `--follow` / `-f` - Stream updates as they arrive
-- `--with-timestamp` - Include timestamp as native Nushell `datetime` type
+The arguments and flags are [read options](../read-options/): `topic` is a
+topic filter (optional, defaults to all topics; accepts wildcards, a comma
+list, or a Nushell list), `count` is [`last`](../read-options/#how-many)
+(default: 1), `--follow` (`-f`) streams updates, and `--with-timestamp`
+returns the timestamp as a native `datetime`.
 
 ```nushell
 .last note              # last frame for topic "note"

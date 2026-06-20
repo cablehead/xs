@@ -61,16 +61,9 @@ r###'{
   # Optional: Heartbeat interval in ms
   pulse: 1000
 
-  # Optional: Only deliver matching topics to the actor.
-  # Each entry is an exact topic, a "prefix.*" wildcard, or "*",
-  # the same pattern language as read topic filters. A single
-  # comma-separated string also works ("game.move.*,game.create").
-  # The filter is applied at the read level, so non-matching frames
-  # never reach the actor. The actor's own lifecycle frames
-  # (xs.actor.<name>.create / .term) are always delivered, and
-  # synthetic frames (xs.pulse, xs.threshold) bypass the filter,
-  # so guard for them in the closure as usual. Omit to receive
-  # every frame.
+  # Optional: a topic filter (see Read Options). Omit to receive every
+  # frame. The actor's own lifecycle frames and synthetic xs.pulse /
+  # xs.threshold are always delivered regardless of the filter.
   topics: ["ping"]
 
   # Optional: Control output frame behavior
@@ -99,9 +92,9 @@ with metadata:
 | ---------------- | -------------------------------------------------------------------------- |
 | `run`            | Required actor closure `{\|frame, state\| -> {out?, next?}}`              |
 | `initial`        | Initial state value (default: null, or the closure param default)          |
-| `start`          | "new" (default), "first", or scru128 ID to control where processing starts |
-| `pulse`          | Interval in milliseconds to send synthetic xs.pulse events                 |
-| `topics`         | Topic patterns to process (list of strings, or one comma-separated string); applied as a read-level filter, so non-matching frames never reach the actor |
+| `start`          | Where to start: "new" (default), "first", or scru128 ID (see [Read Options](../read-options/#where-to-start)) |
+| `pulse`          | Heartbeat interval in ms (see [Read Options](../read-options/#following-live)) |
+| `topics`         | Topic filter: list of strings or one comma-separated string (see [Read Options](../read-options/#filtering-by-topic)) |
 | `return_options` | Controls output frames: see Return Options                                 |
 
 #### Return Options
