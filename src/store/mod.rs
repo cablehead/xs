@@ -34,6 +34,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use std::sync::{Arc, Mutex};
 
+use nu_protocol::engine::EngineState;
 use scru128::Scru128Id;
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -459,6 +460,10 @@ pub struct Store {
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     append_lock: Arc<Mutex<()>>,
+    /// Optional base engine the processors clone, set via [`with_base_engine`].
+    /// `None` falls back to `Engine::new()`. See
+    /// [`prepared_base`](crate::nu::prepared_base) and ADR 0007.
+    base_engine: Option<Arc<EngineState>>,
 }
 
 impl Store {
@@ -519,12 +524,31 @@ impl Store {
             broadcast_tx,
             gc_tx,
             append_lock: Arc::new(Mutex::new(())),
+            base_engine: None,
         };
 
         // Spawn gc worker thread
         spawn_gc_worker(gc_rx, store.clone());
 
         Ok(store)
+    }
+
+    /// Set a base engine the processor engines clone.
+    ///
+    /// A program that embeds xs prepares an [`EngineState`] with its own
+    /// commands, env, and consts;
+    /// [`prepared_base`](crate::nu::prepared_base) clones it per spawn and adds
+    /// the store commands, so the actor, service, and action processors get
+    /// those commands. Shared across `Store` clones, so set it once, before the
+    /// processors spawn. No base set: `Engine::new()`.
+    pub fn with_base_engine(mut self, base: EngineState) -> Self {
+        self.base_engine = Some(Arc::new(base));
+        self
+    }
+
+    /// The base engine an embedder attached via [`with_base_engine`], if any.
+    pub fn base_engine(&self) -> Option<&EngineState> {
+        self.base_engine.as_deref()
     }
 
     /// Wait until the background garbage-collection worker has processed every

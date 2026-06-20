@@ -13,6 +13,8 @@ pub use util::{frame_to_pipeline, frame_to_value, value_to_json};
 pub use vfs::load_modules;
 
 #[cfg(test)]
+mod test_base_engine;
+#[cfg(test)]
 mod test_commands;
 #[cfg(test)]
 mod test_engine;
