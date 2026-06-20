@@ -2,7 +2,7 @@
 //
 // Run with: cargo bench --bench throughput
 //
-// Six dimensions, each over N tiny frames:
+// Dimensions, each over N tiny frames:
 //
 //   append        raw store writes (the floor for everything else)
 //   replay        historical read_sync scan (what `start: "first"` leans on)
