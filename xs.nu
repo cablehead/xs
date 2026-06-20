@@ -22,6 +22,15 @@ export def xs-addr [] {
   $env | get XS_ADDR? | or-else { "~/.local/share/cross.stream/store" | path expand }
 }
 
+# Normalize a topic filter to the comma-separated string the CLI expects.
+# Accepts a single pattern string (commas allowed) or a list of patterns.
+def topic-arg [t: any] {
+  match ($t | describe -d | get type) {
+    "list" => ($t | str join ",")
+    _ => ($t | into string)
+  }
+}
+
 def _cat [options: record] {
   let with_ts = ($options | get with_timestamp? | default false)
   let params = [
@@ -35,7 +44,7 @@ def _cat [options: record] {
     (if $options.limit? != null { ["--limit" $options.limit] })
     (if $options.last? != null { ["--last" $options.last] })
     (if $options.pulse? != null { ["--pulse" $options.pulse] })
-    (if $options.topic? != null { ["--topic" $options.topic] })
+    (if $options.topic? != null { ["--topic" (topic-arg $options.topic)] })
   ] | compact | flatten
 
   xs cat (xs-addr) ...$params | lines | each {|x|
@@ -53,7 +62,7 @@ export def .cat [
   --from: string # start from a specific frame ID (inclusive)
   --limit: int
   --last: int # return the last N events (most recent)
-  --topic (-T): string # filter by topic
+  --topic (-T): oneof<list<string>, string> # filter by topic pattern(s): a string (commas allowed) or a list of strings
 ] {
   _cat {
     follow: $follow
@@ -107,7 +116,7 @@ export def .last [
     if ($arg | describe) == "int" {
       $count = $arg
     } else {
-      $topic = ($arg | into string)
+      $topic = (topic-arg $arg)
     }
   }
 

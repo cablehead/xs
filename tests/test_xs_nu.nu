@@ -47,6 +47,15 @@ use ../xs.nu *
   "with meta" | .append meta-topic --meta {key: "value"}
   .last meta-topic | get meta.key | assert-eq "value" "metadata"
 
+  # test multi-topic filter: comma string and Nushell list are equivalent
+  "a" | .append filt.one
+  "b" | .append filt.two
+  "c" | .append filt.three
+  .cat -T "filt.one,filt.two" | get topic | sort
+    | assert-eq ["filt.one", "filt.two"] ".cat -T comma string"
+  .cat -T [filt.one filt.two] | get topic | sort
+    | assert-eq ["filt.one", "filt.two"] ".cat -T list"
+
   # test .remove
   .last meta-topic | get id | each {|id| .remove $id }
 
