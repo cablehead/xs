@@ -270,8 +270,20 @@ export def .tmp-spawn [
 
     $env.XS_ADDR = $store_path
 
-    # Give the server a moment to start up
-    sleep 500ms
+    # Wait until the server accepts connections, rather than a fixed sleep:
+    # on a loaded runner a fixed delay races the first command (Windows/macOS
+    # CI saw connection-refused at the first .append).
+    mut ready = false
+    for _ in 0..100 {
+      if (xs cat $store_path --last 1 | complete | get exit_code) == 0 {
+        $ready = true
+        break
+      }
+      sleep 100ms
+    }
+    if not $ready {
+      error make {msg: "xs serve did not start accepting connections in time"}
+    }
 
     try {
       # Run the provided closure
