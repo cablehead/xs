@@ -8,6 +8,6 @@ on:
 
 jobs:
   ci:
-    uses: joeblew999/.github/.github/workflows/reusable-mise-ci.yml@v0.60.0
+    uses: joeblew999/.github/.github/workflows/reusable-mise-ci.yml@v0.67.1
     with:
       os-matrix: '["ubuntu-latest", "macos-latest", "windows-latest"]'

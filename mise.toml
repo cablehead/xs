@@ -23,8 +23,8 @@
 
 [task_config]
 includes = [
-  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.60.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.60.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.67.1",
+  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.67.1",
 ]
 
 # -- Tools --------------------------------------------------------------------
