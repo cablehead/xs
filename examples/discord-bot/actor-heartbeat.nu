@@ -69,6 +69,7 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
     last_sent: null,
     last_ack: null,
     authing: null,
+    identify_fails: 0,
     session_id: null,
     resume_gateway_url: null
   }
@@ -108,11 +109,28 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
     match $message {
         # hello
         {op: 10} => {
+            # A fresh hello while we were mid-identify means the connection
+            # dropped before READY. Discord gives no feedback on auth failure
+            # (the 4004 close code doesn't survive websocat's text pipe), so a
+            # single drop is ambiguous: it could be a network blip. Three in a
+            # row is auth. Stop rather than death-loop; looping also burns the
+            # daily identify limit, which can get the token reset.
+            let fails = if $state.authing == "identify" { $state.identify_fails + 1 } else { $state.identify_fails }
+            if $fails >= 3 {
+                .append discord.ws.auth.failed --meta {
+                    attempts: $fails
+                    reason: "connection dropped right after identify, 3 times in a row"
+                    hint: "check the bot token and privileged intents, then re-append discord.ws.token, xs.service.discord.ws.create and xs.actor.discord.heartbeat.create"
+                }
+                .append xs.service.discord.ws.term
+                return null
+            }
             {next: ($state | merge {
                 heartbeat_interval: $message.d.heartbeat_interval,
                 last_ack: $frame.id,
                 last_sent: $frame.id,
-                authing: null
+                authing: null,
+                identify_fails: $fails
             })}
         }
 
@@ -148,7 +166,8 @@ $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
             {next: ($state | merge {
                 session_id: $message.d.session_id,
                 resume_gateway_url: $message.d.resume_gateway_url,
-                authing: "authed"
+                authing: "authed",
+                identify_fails: 0
             })}
         }
 

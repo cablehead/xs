@@ -1,3 +1,5 @@
+use std/random
+
 ## Really need a way to store modules on the stream, which can be imported by handlers
 ## https://github.com/cablehead/discord.nu/blob/main/discord/mod.nu
 ## -->
