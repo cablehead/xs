@@ -1,6 +1,8 @@
 ## Git Commit Style Preferences
 
-**NEVER commit unless explicitly asked by the user.**
+**Prefer to commit and push after each stable change.** A change is "stable" once
+`./scripts/check.sh` is green; don't sit on working, verified changes -- land them in
+small commits and push. (No need to commit half-finished or failing work.)
 
 When committing: review `git diff`
 
