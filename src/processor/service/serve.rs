@@ -106,9 +106,7 @@ struct TopicState {
 use std::str::FromStr;
 
 pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let rx = store
-        .read(ReadOptions::builder().follow(FollowOption::On).build())
-        .await;
+    let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
     let mut lifecycle = LifecycleReader::new(rx);
     let mut states: HashMap<String, TopicState> = HashMap::new();
     let mut active: HashMap<String, JoinHandle<()>> = HashMap::new();

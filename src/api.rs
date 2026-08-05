@@ -282,7 +282,7 @@ async fn handle_stream_cat(
     accept_type: AcceptType,
     with_timestamp: bool,
 ) -> HTTPResult {
-    let rx = store.read(options).await;
+    let rx = store.read(options);
     let stream = ReceiverStream::new(rx);
 
     let accept_type_clone = accept_type.clone();
@@ -564,15 +564,13 @@ async fn handle_last_get(
 
     // Follow mode: use ReadOptions::last to get historical + live frames
     // This emits xs.threshold after historical frames
-    let rx = store
-        .read(
-            ReadOptions::builder()
-                .last(last)
-                .maybe_topic(topic.map(|t| t.to_string()))
-                .follow(FollowOption::On)
-                .build(),
-        )
-        .await;
+    let rx = store.read(
+        ReadOptions::builder()
+            .last(last)
+            .maybe_topic(topic.map(|t| t.to_string()))
+            .follow(FollowOption::On)
+            .build(),
+    );
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(move |frame| {
         let mut bytes = serialize_frame(&frame, with_timestamp).into_bytes();
@@ -637,7 +635,7 @@ fn empty() -> BoxBody<Bytes, BoxError> {
 /// Direct `.append`) plus the VFS modules registered so far, so eval scripts
 /// can `use` them, the same builtins the runners get.
 fn eval_engine(store: &Store) -> Result<nu::Engine, String> {
-    let mut engine = nu::prepared_base(store, nu::ReadMode::Stream, true)
+    let mut engine = nu::prepared_base(store, true)
         .map_err(|e| format!("Failed to build nushell engine: {e}"))?;
     // Modules registered up to now: a fresh time-ordered id exceeds every
     // already-appended frame.
@@ -916,12 +914,12 @@ mod tests {
         // Add streaming commands
         engine
             .add_commands(vec![
-                Box::new(
-                    crate::nu::commands::cat_stream_command::CatStreamCommand::new(store.clone()),
-                ),
-                Box::new(
-                    crate::nu::commands::last_stream_command::LastStreamCommand::new(store.clone()),
-                ),
+                Box::new(crate::nu::commands::cat_command::CatCommand::new(
+                    store.clone(),
+                )),
+                Box::new(crate::nu::commands::last_command::LastCommand::new(
+                    store.clone(),
+                )),
                 Box::new(crate::nu::commands::append_command::AppendCommand::new(
                     store.clone(),
                 )),

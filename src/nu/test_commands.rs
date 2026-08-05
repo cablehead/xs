@@ -10,6 +10,15 @@ mod tests {
     use crate::store::{Frame, Store};
 
     fn setup_test_env() -> (Store, Engine) {
+        // Store::new captures the ambient tokio runtime handle so the now-sync
+        // read() can spawn its follow/heartbeat tasks. These tests are plain
+        // `#[test]`s with no ambient runtime, so enter a shared long-lived one
+        // (leaked; lives for the whole test binary) before creating the store.
+        use std::sync::OnceLock;
+        static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+        let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+        let _guard = rt.enter();
+
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep()).unwrap();
         let engine = Engine::new().unwrap();
@@ -661,10 +670,10 @@ mod tests {
             .count()
     }
 
-    // Reproduce the file-descriptor leak in `.cat` (CatStreamCommand).
+    // Reproduce the file-descriptor leak in `.cat` (CatCommand).
     //
-    // Each `.cat` run spawns an OS thread that builds a fresh
-    // `tokio::runtime::Runtime` (cat_stream_command.rs:147) and calls
+    // (Pre-L1 mechanism, retained for context:) each `.cat` run spawned an OS
+    // thread that built a fresh `tokio::runtime::Runtime` and called
     // `rt.block_on` on a loop that reads from the store and forwards frames to
     // the ListStream. A tokio runtime owns an eventfd (anon_inode) + a wakeup
     // socket. That runtime is only dropped when the block_on future returns,
@@ -693,9 +702,7 @@ mod tests {
         let (store, mut engine) = setup_test_env();
         engine
             .add_commands(vec![
-                Box::new(commands::cat_stream_command::CatStreamCommand::new(
-                    store.clone(),
-                )),
+                Box::new(commands::cat_command::CatCommand::new(store.clone())),
                 Box::new(commands::append_command::AppendCommand::new(store.clone())),
             ])
             .unwrap();
@@ -755,8 +762,8 @@ mod tests {
             growth <= slack,
             "file descriptor leak: fd count grew by {growth} over {iterations} \
              `.cat --follow` runs (before={before}, after={after}); \
-             expected <= {slack}. Each leaked runtime holds a socket + eventfd \
-             pair (see cat_stream_command.rs:147)."
+             expected <= {slack}. Each leaked runtime held a socket + eventfd \
+             pair (pre-L1 mechanism, see cat_command.rs)."
         );
     }
 }

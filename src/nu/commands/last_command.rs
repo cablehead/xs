@@ -1,9 +1,11 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
-use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value};
+use nu_protocol::{
+    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type, Value,
+};
 
 use crate::nu::util;
-use crate::store::{ReadOptions, Store};
+use crate::store::{FollowOption, ReadOptions, Store};
 
 #[derive(Clone)]
 pub struct LastCommand {
@@ -35,6 +37,11 @@ impl Command for LastCommand {
                 "number of frames to return (default: 1)",
             )
             .switch(
+                "follow",
+                "long poll for updates to most recent frame",
+                Some('f'),
+            )
+            .switch(
                 "with-timestamp",
                 "include timestamp extracted from frame ID",
                 None,
@@ -55,6 +62,7 @@ impl Command for LastCommand {
     ) -> Result<PipelineData, ShellError> {
         let raw_topic: Option<Value> = call.opt(engine_state, stack, 0)?;
         let raw_count: Option<i64> = call.opt(engine_state, stack, 1)?;
+        let follow = call.has_flag(engine_state, stack, "follow")?;
         let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let span = call.head;
 
@@ -72,11 +80,37 @@ impl Command for LastCommand {
             ),
         };
 
+        if follow {
+            // Follow mode: stream historical-then-new through the receiver. The
+            // consumer dropping the ListStream cancels the producer task (L1).
+            let options = ReadOptions::builder()
+                .last(n)
+                .maybe_topic(topic)
+                .follow(FollowOption::On)
+                .build();
+
+            let mut rx = self.store.read(options);
+            let stream = ListStream::new(
+                std::iter::from_fn(move || {
+                    let frame = rx.blocking_recv()?; // parks off-runtime; None when producer done/cancelled
+                    Some(util::frame_to_value(&frame, span, with_timestamp))
+                }),
+                span,
+                Signals::empty(),
+            );
+
+            return Ok(PipelineData::ListStream(stream, None));
+        }
+
+        // Historical-only mode: collect so we can preserve the single-value
+        // semantics for count == 1 (a bare `.last topic` returns one Value, not
+        // a one-element list). Draining runs off the caller thread (see
+        // `drain_frames`) so this works even when evaluated on a tokio runtime
+        // thread, e.g. during an actor's async setup.
         let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
 
-        let frames: Vec<Value> = self
-            .store
-            .read_sync(options)
+        let frames: Vec<Value> = util::drain_frames(self.store.read(options))
+            .into_iter()
             .map(|frame| util::frame_to_value(&frame, span, with_timestamp))
             .collect();
 

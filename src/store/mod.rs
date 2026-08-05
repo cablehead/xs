@@ -460,6 +460,10 @@ pub struct Store {
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     append_lock: Arc<Mutex<()>>,
+    /// Runtime handle captured at [`new`](Store::new), used to spawn the follow
+    /// and heartbeat tasks from the now-sync [`read`](Store::read). `Handle` is
+    /// cheaply `Clone`, so every `Store` clone shares the same runtime.
+    rt: Option<tokio::runtime::Handle>,
     /// Optional base engine the processors clone, set via [`with_base_engine`].
     /// `None` falls back to `Engine::new()`. See
     /// [`prepared_base`](crate::nu::prepared_base) and ADR 0007.
@@ -524,6 +528,7 @@ impl Store {
             broadcast_tx,
             gc_tx,
             append_lock: Arc::new(Mutex::new(())),
+            rt: tokio::runtime::Handle::try_current().ok(),
             base_engine: None,
         };
 
@@ -576,9 +581,7 @@ impl Store {
     /// use xs::{Store, ReadOptions, FollowOption};
     ///
     /// # async fn run(store: Store) {
-    /// let mut rx = store
-    ///     .read(ReadOptions::builder().follow(FollowOption::On).build())
-    ///     .await;
+    /// let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
     /// while let Some(frame) = rx.recv().await {
     ///     if frame.topic == "xs.threshold" {
     ///         // caught up to live; everything after this is new
@@ -589,7 +592,7 @@ impl Store {
     /// # }
     /// ```
     #[tracing::instrument(skip(self))]
-    pub async fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
+    pub fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         let should_follow = matches!(
@@ -705,11 +708,16 @@ impl Store {
 
         // Handle broadcast subscription and heartbeat
         if let Some(broadcast_rx) = broadcast_rx {
+            let handle = self
+                .rt
+                .clone()
+                .expect("read() with follow needs a runtime handle");
+
             {
                 let tx = tx.clone();
                 let limit = options.limit;
 
-                tokio::spawn(async move {
+                handle.spawn(async move {
                     // If we have a done_rx, wait for historical processing
                     let (last_id, mut count) = match done_rx {
                         Some(done_rx) => match done_rx.await {
@@ -722,27 +730,35 @@ impl Store {
                     let filter = TopicFilter::from_option(options.topic.as_deref());
 
                     let mut broadcast_rx = broadcast_rx;
-                    while let Ok(frame) = broadcast_rx.recv().await {
-                        // Filter by topic (any-match against the parsed patterns)
-                        if !filter.matches(&frame.topic) {
-                            continue;
-                        }
+                    loop {
+                        tokio::select! {
+                            _ = tx.closed() => break,
+                            r = broadcast_rx.recv() => match r {
+                                Ok(frame) => {
+                                    // Filter by topic (any-match against the parsed patterns)
+                                    if !filter.matches(&frame.topic) {
+                                        continue;
+                                    }
 
-                        // Skip if we've already seen this frame during historical scan
-                        if let Some(last_scanned_id) = last_id {
-                            if frame.id <= last_scanned_id {
-                                continue;
-                            }
-                        }
+                                    // Skip if we've already seen this frame during historical scan
+                                    if let Some(last_scanned_id) = last_id {
+                                        if frame.id <= last_scanned_id {
+                                            continue;
+                                        }
+                                    }
 
-                        if tx.send(frame).await.is_err() {
-                            break;
-                        }
+                                    if tx.send(frame).await.is_err() {
+                                        break;
+                                    }
 
-                        if let Some(limit) = limit {
-                            count += 1;
-                            if count >= limit {
-                                break;
+                                    if let Some(limit) = limit {
+                                        count += 1;
+                                        if count >= limit {
+                                            break;
+                                        }
+                                    }
+                                }
+                                Err(_) => break,
                             }
                         }
                     }
@@ -752,15 +768,19 @@ impl Store {
             // Handle heartbeat if requested
             if let FollowOption::WithHeartbeat(duration) = options.follow {
                 let heartbeat_tx = tx;
-                tokio::spawn(async move {
+                handle.spawn(async move {
                     loop {
-                        tokio::time::sleep(duration).await;
-                        let frame = Frame::builder("xs.pulse")
-                            .id(scru128::new())
-                            .ttl(TTL::Ephemeral)
-                            .build();
-                        if heartbeat_tx.send(frame).await.is_err() {
-                            break;
+                        tokio::select! {
+                            _ = heartbeat_tx.closed() => break,
+                            _ = tokio::time::sleep(duration) => {
+                                let frame = Frame::builder("xs.pulse")
+                                    .id(scru128::new())
+                                    .ttl(TTL::Ephemeral)
+                                    .build();
+                                if heartbeat_tx.send(frame).await.is_err() {
+                                    break;
+                                }
+                            }
                         }
                     }
                 });

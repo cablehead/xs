@@ -9,7 +9,7 @@ use crate::store::{FollowOption, Frame, ReadOptions, Store};
 async fn test_action_with_pipeline() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the action
@@ -64,7 +64,7 @@ async fn test_action_with_pipeline() -> Result<(), Error> {
 async fn test_action_error_handling() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define action that will error with invalid access
@@ -121,7 +121,7 @@ async fn test_action_error_handling() -> Result<(), Error> {
 async fn test_action_single_value() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the action
@@ -173,7 +173,7 @@ async fn test_action_single_value() -> Result<(), Error> {
 async fn test_action_empty_output() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the action
@@ -213,7 +213,7 @@ async fn test_action_empty_output() -> Result<(), Error> {
 async fn test_action_tee_and_append() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define the action that outputs a simple pipeline of 1, 2, 3
@@ -273,7 +273,7 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
 async fn test_action_record_output_goes_to_meta() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     let frame_action = store.append(
@@ -315,7 +315,7 @@ async fn test_action_record_output_goes_to_meta() -> Result<(), Error> {
 async fn inv4_action_term_removes_action_and_blocks_calls() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Define a passing-through action.
@@ -367,7 +367,7 @@ async fn inv4_action_term_removes_action_and_blocks_calls() -> Result<(), Error>
 async fn inv6_action_acks_carry_source_pointer() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Good define -> .active.
@@ -422,7 +422,7 @@ async fn inv6_action_acks_carry_source_pointer() -> Result<(), Error> {
 async fn inv8_action_single_live_instance_per_name() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     let _first = store

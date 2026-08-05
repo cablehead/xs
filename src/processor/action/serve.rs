@@ -56,7 +56,7 @@ async fn register_action(frame: &Frame, store: &Store) -> Result<Action, Error> 
     // Prepared base (Stream reads + Direct `.append`), then the VFS modules as
     // of this frame. The per-invocation engine is a clone of this, so it only
     // needs `set_append_meta` for the triggering frame.
-    let mut engine = nu::prepared_base(store, nu::ReadMode::Stream, true)?;
+    let mut engine = nu::prepared_base(store, true)?;
     let modules = store.nu_modules_at(&frame.id);
     nu::load_modules(&mut engine.state, store, &modules)?;
 
@@ -276,9 +276,7 @@ struct TopicState {
 }
 
 pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let rx = store
-        .read(ReadOptions::builder().follow(FollowOption::On).build())
-        .await;
+    let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
     let mut lifecycle = LifecycleReader::new(rx);
     let mut states: HashMap<String, TopicState> = HashMap::new();
     let mut active: HashMap<String, Action> = HashMap::new();

@@ -47,9 +47,7 @@
 //! )?;
 //!
 //! // Replay history, then follow live appends to drive a UI.
-//! let mut rx = store
-//!     .read(ReadOptions::builder().follow(FollowOption::On).build())
-//!     .await;
+//! let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
 //! while let Some(frame) = rx.recv().await {
 //!     println!("{} {}", frame.id, frame.topic);
 //! }

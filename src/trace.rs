@@ -349,7 +349,7 @@ pub async fn log_stream(store: Store) {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     while let Some(frame) = recver.recv().await {
         let now = Utc::now().with_timezone(&Local);
         let formatted_time = now.format("%H:%M:%S%.3f").to_string();
