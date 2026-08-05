@@ -43,6 +43,27 @@ use ../xs.nu *
   let new_id = (.id)
   .id unpack $new_id | .id pack | assert-eq $new_id ".id roundtrip"
 
+  # pinned ids that lost low-order timestamp bits before the round fix.
+  # the unpack seconds -> datetime -> pack path truncated ms instead of
+  # rounding, so ids whose f64 ms landed just under an integer dropped 1ms.
+  let pinned = [
+    03gmmrhqljv8bnulus79wipck
+    03gmmrhqzjzlbz75e1r8fyvmt
+    03gmmrhsh0x17va0knqvbhly6
+  ]
+  for id in $pinned {
+    .id unpack $id | .id pack | assert-eq $id $".id roundtrip pinned ($id)"
+  }
+
+  # deterministic loop: many fresh ids must roundtrip exactly.
+  # before the fix this failed on roughly 3% of ids.
+  let failures = (1..2000 | each {|_|
+    let id = (.id)
+    let back = (.id unpack $id | .id pack)
+    if $back != $id { {id: $id, back: $back} } else { null }
+  } | compact)
+  $failures | length | assert-eq 0 $".id roundtrip loop failures: ($failures)"
+
   # test metadata
   "with meta" | .append meta-topic --meta {key: "value"}
   .last meta-topic | get meta.key | assert-eq "value" "metadata"
