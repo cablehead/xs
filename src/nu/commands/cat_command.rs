@@ -181,14 +181,20 @@ impl Command for CatCommand {
             return Ok(PipelineData::ListStream(stream, None));
         }
 
-        // Historical mode: drain off the caller thread (see `drain_frames`) so
-        // it works even when evaluated on a tokio runtime thread, then hand back
-        // the materialized values as a ListStream.
-        let values: Vec<Value> = crate::nu::util::drain_frames(self.store.read(options))
-            .iter()
-            .map(&to_value)
-            .collect();
-        let stream = ListStream::new(values.into_iter(), span, Signals::empty());
+        // Historical mode: stream lazily, same shape as the follow branch. The
+        // producer closes the channel once replay completes, so from_fn ends.
+        // blocking_recv parks the caller thread; callers that reach `.cat`
+        // during an actor's async setup run the config eval on a dedicated
+        // thread (see parse_config), so this never parks a runtime thread.
+        let mut rx = self.store.read(options);
+        let stream = ListStream::new(
+            std::iter::from_fn(move || {
+                let frame = rx.blocking_recv()?; // None when the producer finishes replay
+                Some(to_value(&frame))
+            }),
+            span,
+            Signals::empty(),
+        );
         Ok(PipelineData::ListStream(stream, None))
     }
 }

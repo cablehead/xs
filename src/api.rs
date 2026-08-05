@@ -653,10 +653,19 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
 
     let engine = eval_engine(store)?;
 
-    // Execute the script
-    let result = engine
-        .eval(nu_protocol::PipelineData::empty(), script)
-        .map_err(|e| format!("Script evaluation failed:\n{e}"))?;
+    // Execute the script on a dedicated thread, not on this tokio runtime
+    // thread. handle_eval is an async handler, so engine.eval would otherwise
+    // run on a runtime thread. The script can call .cat/.last, whose historical
+    // path parks on tokio's blocking_recv, which panics ("Cannot block the
+    // current thread from within a runtime") on a runtime thread. Running the
+    // eval on a plain std::thread avoids that.
+    let result = std::thread::scope(|scope| {
+        scope
+            .spawn(|| engine.eval(nu_protocol::PipelineData::empty(), script))
+            .join()
+            .expect("eval thread panicked")
+    })
+    .map_err(|e| format!("Script evaluation failed:\n{e}"))?;
 
     // Format output based on PipelineData type according to spec
     match result {

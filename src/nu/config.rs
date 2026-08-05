@@ -85,24 +85,42 @@ pub fn parse_config(engine: &mut crate::nu::Engine, script: &str) -> Result<NuSc
 
     engine.state.merge_delta(working_set.render())?;
 
+    // Evaluate the config body on a dedicated thread the store reads park on,
+    // not on the caller's thread. parse_config is reached from async setup
+    // (Actor::new via from_frame, and the service/serve processors), so the
+    // caller may be a tokio runtime thread. The config body can call .cat/.last,
+    // whose historical path parks on tokio's blocking_recv, which panics
+    // ("Cannot block the current thread from within a runtime") if run on a
+    // runtime thread. Running the eval on a plain std::thread avoids that. The
+    // stack is threaded back out so merge_env below still sees the config env.
     let mut stack = Stack::new();
-    let eval_result = eval_block_with_early_return::<WithoutDebug>(
-        &engine.state,
-        &mut stack,
-        &block,
-        PipelineData::empty(),
-    )
-    .map_err(|err| {
+    // Box the error so the large ShellError does not travel across the thread
+    // boundary by value (clippy::result_large_err).
+    let eval_body: Result<Value, Box<ShellError>> = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let exec_data = eval_block_with_early_return::<WithoutDebug>(
+                    &engine.state,
+                    &mut stack,
+                    &block,
+                    PipelineData::empty(),
+                )
+                .map_err(Box::new)?;
+                exec_data.body.into_value(Span::unknown()).map_err(Box::new)
+            })
+            .join()
+            .expect("config eval thread panicked")
+    });
+
+    let config_value = eval_body.map_err(|err| {
         let working_set = StateWorkingSet::new(&engine.state);
         Error::from(nu_protocol::format_cli_error(
             None,
             &working_set,
-            &err,
+            &*err,
             None,
         ))
     })?;
-
-    let config_value = eval_result.body.into_value(Span::unknown())?;
 
     let run_val = config_value
         .get_data_by_key("run")

@@ -102,17 +102,22 @@ impl Command for LastCommand {
             return Ok(PipelineData::ListStream(stream, None));
         }
 
-        // Historical-only mode: collect so we can preserve the single-value
-        // semantics for count == 1 (a bare `.last topic` returns one Value, not
-        // a one-element list). Draining runs off the caller thread (see
-        // `drain_frames`) so this works even when evaluated on a tokio runtime
-        // thread, e.g. during an actor's async setup.
+        // Historical-only mode. Collect from the read receiver here (not via a
+        // shared eager helper) so we can preserve the single-value semantics for
+        // count == 1: a bare `.last topic` returns one Value, not a one-element
+        // list. The producer closes the channel once replay completes, so this
+        // loop terminates. blocking_recv parks the caller thread; callers that
+        // reach `.last` during an actor's async setup run the config eval on a
+        // dedicated thread (see parse_config), so this never parks a runtime
+        // thread.
         let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
 
-        let frames: Vec<Value> = util::drain_frames(self.store.read(options))
-            .into_iter()
-            .map(|frame| util::frame_to_value(&frame, span, with_timestamp))
-            .collect();
+        let mut rx = self.store.read(options);
+        let frames: Vec<Value> = std::iter::from_fn(move || {
+            let frame = rx.blocking_recv()?; // None when the producer finishes replay
+            Some(util::frame_to_value(&frame, span, with_timestamp))
+        })
+        .collect();
 
         if frames.is_empty() {
             Ok(PipelineData::Empty)

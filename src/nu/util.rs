@@ -47,27 +47,6 @@ pub fn topic_value_to_string(value: Value) -> Result<String, ShellError> {
     }
 }
 
-/// Drain a store read receiver to completion, returning all frames.
-///
-/// The drain runs on a dedicated helper thread so `blocking_recv` never parks
-/// the caller's thread. This matters because `.cat`/`.last` are evaluated both
-/// on plain worker threads and, during an actor's async setup, on a tokio
-/// runtime thread -- and `blocking_recv` panics ("Cannot block the current
-/// thread from within a runtime") if called on the latter. Only used for the
-/// historical (non-follow) path, where the producer closes the channel once
-/// replay completes, so the helper thread always terminates.
-pub fn drain_frames(mut rx: tokio::sync::mpsc::Receiver<Frame>) -> Vec<Frame> {
-    std::thread::spawn(move || {
-        let mut frames = Vec::new();
-        while let Some(frame) = rx.blocking_recv() {
-            frames.push(frame);
-        }
-        frames
-    })
-    .join()
-    .unwrap_or_default()
-}
-
 pub fn json_to_value(json: &serde_json::Value, span: Span) -> Value {
     match json {
         serde_json::Value::Null => Value::nothing(span),
