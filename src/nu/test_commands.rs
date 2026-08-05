@@ -693,9 +693,40 @@ mod tests {
     // the historical frame, then drops the stream -- exactly the "consumer went
     // away while the follower is parked" case -- and asserts the process fd
     // count stays bounded. Against current code it grows ~linearly with N.
+    // Runs the real measurement in its OWN process (the `fd_leak_worker` below,
+    // spawned here). `cargo test` runs tests concurrently and file descriptors
+    // are a process-wide resource, so an in-suite measurement of /proc/self/fd
+    // races unrelated tests opening their own fds. Isolating it in a fresh
+    // process makes the count reflect only the `.cat` read path.
     #[cfg(target_os = "linux")]
     #[test]
     fn test_cat_stream_fd_leak() {
+        let exe = std::env::current_exe().expect("current_exe");
+        let output = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "nu::test_commands::tests::fd_leak_worker",
+            ])
+            .output()
+            .expect("spawn isolated fd-leak worker");
+        assert!(
+            output.status.success(),
+            "isolated fd-leak worker failed:\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    // The isolated worker, spawned as its own process by `test_cat_stream_fd_leak`
+    // (hence `#[ignore]` -- it must not run in the normal parallel pass). Alone in
+    // the process, its /proc/self/fd count reflects only the read path.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "spawned in isolation by test_cat_stream_fd_leak"]
+    fn fd_leak_worker() {
         use crate::nu::commands;
         use crate::store::TTL;
 
@@ -739,7 +770,6 @@ mod tests {
         for _ in 0..warmup {
             run_once(&engine);
         }
-        // Let any transient fds settle.
         std::thread::sleep(std::time::Duration::from_millis(100));
         let before = open_fd_count();
 
@@ -747,38 +777,26 @@ mod tests {
             run_once(&engine);
         }
 
-        // A correct implementation reuses/drops the runtime, so fd count stays
-        // flat. We allow a small slack for allocator/thread-pool noise. The leak
-        // adds ~2 fds (socket + eventfd) per iteration, far above the slack.
-        //
-        // Cleanup after a dropped `.cat --follow` is asynchronous: the follow
-        // task is cancelled via `tx.closed()` on the shared runtime and its fds
-        // are reclaimed shortly after. On a loaded CI runner that lags the tight
-        // loop, so poll until the count settles rather than snapshotting. A real
-        // leak never settles and still trips the assert after the deadline.
-        let slack = 8;
-        let after_immediate = open_fd_count();
-        let mut after = after_immediate;
-        for _ in 0..50 {
-            if after.saturating_sub(before) <= slack {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            after = open_fd_count();
-        }
+        // Follow-task cleanup is asynchronous (cancelled via `tx.closed()` on the
+        // shared runtime). In this isolated, otherwise-idle process there is no
+        // concurrent fd churn, so a brief settle converges; a real leak does not.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let after = open_fd_count();
 
         let growth = after.saturating_sub(before);
         eprintln!(
-            "fd count before={before} after_immediate={after_immediate} \
-             after_settled={after} growth={growth} over {iterations} iterations"
+            "fd count before={before} after={after} growth={growth} over {iterations} iterations"
         );
 
+        // A correct implementation reuses/drops the runtime, so fd count stays
+        // flat. Small slack for allocator/thread-pool noise. The old leak added
+        // ~2 fds (socket + eventfd) per iteration, far above the slack.
+        let slack = 8;
         assert!(
             growth <= slack,
             "file descriptor leak: fd count grew by {growth} over {iterations} \
-             `.cat --follow` runs (before={before}, settled after={after}); \
-             expected <= {slack} after settling. A leaked runtime holds a socket \
-             + eventfd pair (pre-L1 mechanism, see cat_command.rs)."
+             `.cat --follow` runs (before={before}, after={after}); expected <= \
+             {slack}. A leaked runtime holds a socket + eventfd pair (pre-L1 mechanism)."
         );
     }
 }
