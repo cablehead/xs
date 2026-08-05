@@ -178,7 +178,7 @@ async fn test_load_modules_dot_separated_name() {
 async fn test_module_registered_in_vfs() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -238,7 +238,7 @@ async fn test_module_registered_in_vfs() {
 async fn test_module_dot_path_maps_to_directory() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -294,7 +294,7 @@ async fn test_module_dot_path_maps_to_directory() {
 async fn test_live_module_registration() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -350,7 +350,7 @@ async fn test_live_module_registration() {
 async fn test_multiple_modules_shared_parent() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 

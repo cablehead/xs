@@ -197,9 +197,9 @@ fn specialize(
 }
 
 async fn run(store: Store, spawn_frame: Frame) {
-    // Prepared once (nushell + stdlib + core + Stream reads + Direct `.append`);
+    // Prepared once (nushell + stdlib + core + reads + Direct `.append`);
     // cloned for the initial run and every hot-replace.
-    let base = match nu::prepared_base(&store, nu::ReadMode::Stream, true) {
+    let base = match nu::prepared_base(&store, true) {
         Ok(e) => e,
         Err(_) => return,
     };
@@ -280,7 +280,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
         .after(start_id)
         .build();
 
-    let mut control_rx = store.read(control_rx_options).await;
+    let mut control_rx = store.read(control_rx_options);
 
     enum LoopOutcome {
         Continue,
@@ -320,7 +320,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                 .follow(FollowOption::On)
                 .after(start_id)
                 .build();
-            let send_rx = store.read(options).await;
+            let send_rx = store.read(options);
             build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx).await
         } else {
             PipelineData::empty()

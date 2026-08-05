@@ -305,7 +305,7 @@ impl Actor {
             // (the successor's .active will be next).
             if frame.topic == create_topic {
                 let _ = store.append(
-                    Frame::builder(format!("xs.actor.{}.replaced", &self.topic))
+                    Frame::builder(format!("xs.actor.{}.replaced", self.topic))
                         .meta(serde_json::json!({
                             "actor_id": self.id.to_string(),
                             "frame_id": frame.id.to_string(),
@@ -318,7 +318,7 @@ impl Actor {
             // User-requested stop.
             if frame.topic == term_topic {
                 let _ = store.append(
-                    Frame::builder(format!("xs.actor.{}.fin.term", &self.topic))
+                    Frame::builder(format!("xs.actor.{}.fin.term", self.topic))
                         .meta(serde_json::json!({
                             "actor_id": self.id.to_string(),
                             "frame_id": frame.id.to_string(),
@@ -345,7 +345,7 @@ impl Actor {
                 Ok(false) => {
                     // Actor self-terminated (natural completion).
                     let _ = store.append(
-                        Frame::builder(format!("xs.actor.{}.fin.ok", &self.topic))
+                        Frame::builder(format!("xs.actor.{}.fin.ok", self.topic))
                             .meta(serde_json::json!({
                                 "actor_id": self.id.to_string(),
                                 "frame_id": frame.id.to_string(),
@@ -357,7 +357,7 @@ impl Actor {
                 Err(err) => {
                     // Runtime crash.
                     let _ = store.append(
-                        Frame::builder(format!("xs.actor.{}.fin.error", &self.topic))
+                        Frame::builder(format!("xs.actor.{}.fin.error", self.topic))
                             .meta(serde_json::json!({
                                 "actor_id": self.id.to_string(),
                                 "frame_id": frame.id.to_string(),
@@ -377,10 +377,10 @@ impl Actor {
         // loop on a dedicated OS thread that drains it with blocking_recv.
         // This keeps the synchronous nushell eval off the tokio runtime
         // without paying a per-frame thread handoff.
-        let recver = store.read(options).await;
+        let recver = store.read(options);
 
         let _ = store.append(
-            Frame::builder(format!("xs.actor.{}.active", &self.topic))
+            Frame::builder(format!("xs.actor.{}.active", self.topic))
                 .meta(serde_json::json!({
                     "actor_id": self.id.to_string(),
                     "start": self.config.start,
@@ -419,9 +419,9 @@ impl Actor {
             .await
             .map_err(|e| format!("Failed to read expression: {e}"))?;
 
-        // Prepared base (Plain reads); the actor's per-instance buffered
-        // `.append` is added in Actor::new. Modules as of this frame.
-        let mut engine = nu::prepared_base(store, nu::ReadMode::Plain, false)?;
+        // Prepared base; the actor's per-instance buffered `.append` is added
+        // in Actor::new. Modules as of this frame.
+        let mut engine = nu::prepared_base(store, false)?;
         let modules = store.nu_modules_at(&frame.id);
         nu::load_modules(&mut engine.state, store, &modules)?;
 

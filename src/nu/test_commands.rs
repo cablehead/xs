@@ -10,6 +10,15 @@ mod tests {
     use crate::store::{Frame, Store};
 
     fn setup_test_env() -> (Store, Engine) {
+        // Store::new captures the ambient tokio runtime handle so the now-sync
+        // read() can spawn its follow/heartbeat tasks. These tests are plain
+        // `#[test]`s with no ambient runtime, so enter a shared long-lived one
+        // (leaked; lives for the whole test binary) before creating the store.
+        use std::sync::OnceLock;
+        static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+        let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
+        let _guard = rt.enter();
+
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep()).unwrap();
         let engine = Engine::new().unwrap();
@@ -650,5 +659,144 @@ mod tests {
 
         let after = engine.state.jobs.lock().unwrap().iter().count();
         assert_eq!(after, baseline);
+    }
+
+    // Count this process's open file descriptors via /proc/self/fd.
+    // Linux-only; the fd-leak repro below is gated on the same.
+    #[cfg(target_os = "linux")]
+    fn open_fd_count() -> usize {
+        std::fs::read_dir("/proc/self/fd")
+            .expect("read /proc/self/fd")
+            .count()
+    }
+
+    // Reproduce the file-descriptor leak in `.cat` (CatCommand).
+    //
+    // (Pre-L1 mechanism, retained for context:) each `.cat` run spawned an OS
+    // thread that built a fresh `tokio::runtime::Runtime` and called
+    // `rt.block_on` on a loop that reads from the store and forwards frames to
+    // the ListStream. A tokio runtime owns an eventfd (anon_inode) + a wakeup
+    // socket. That runtime is only dropped when the block_on future returns,
+    // which requires the forwarding loop to exit.
+    //
+    // In `--follow` mode the store's read() future parks on the broadcast
+    // receiver waiting for the next append. When the ListStream consumer is
+    // dropped (client disconnects, pipeline ends early), the spawned thread is
+    // still blocked inside `receiver.recv().await` and never observes that the
+    // std mpsc `tx` is now disconnected: std mpsc only reports Disconnected on
+    // the *next* send attempt, and no send happens while parked. So the thread
+    // -- and its runtime, eventfd, and socket -- leak for the life of the
+    // process. One socket+eventfd pair per `.cat --follow` invocation, matching
+    // the production evidence (EMFILE, growing socket/anon_inode pairs).
+    //
+    // This test drives `.cat --follow` through the real nushell engine, takes
+    // the historical frame, then drops the stream -- exactly the "consumer went
+    // away while the follower is parked" case -- and asserts the process fd
+    // count stays bounded. Against current code it grows ~linearly with N.
+    // Runs the real measurement in its OWN process (the `fd_leak_worker` below,
+    // spawned here). `cargo test` runs tests concurrently and file descriptors
+    // are a process-wide resource, so an in-suite measurement of /proc/self/fd
+    // races unrelated tests opening their own fds. Isolating it in a fresh
+    // process makes the count reflect only the `.cat` read path.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_cat_stream_fd_leak() {
+        let exe = std::env::current_exe().expect("current_exe");
+        let output = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "nu::test_commands::tests::fd_leak_worker",
+            ])
+            .output()
+            .expect("spawn isolated fd-leak worker");
+        assert!(
+            output.status.success(),
+            "isolated fd-leak worker failed:\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    // The isolated worker, spawned as its own process by `test_cat_stream_fd_leak`
+    // (hence `#[ignore]` -- it must not run in the normal parallel pass). Alone in
+    // the process, its /proc/self/fd count reflects only the read path.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "spawned in isolation by test_cat_stream_fd_leak"]
+    fn fd_leak_worker() {
+        use crate::nu::commands;
+        use crate::store::TTL;
+
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![
+                Box::new(commands::cat_command::CatCommand::new(store.clone())),
+                Box::new(commands::append_command::AppendCommand::new(store.clone())),
+            ])
+            .unwrap();
+
+        // One historical frame so `.cat --follow` has something to emit before
+        // it parks on the broadcast receiver.
+        store
+            .append(Frame::builder("seed").ttl(TTL::Forever).build())
+            .unwrap();
+
+        // Warm up: the first couple of runs allocate some steady-state fds
+        // (thread-locals, lazy statics) that are not a leak. Measure after.
+        let warmup = 3usize;
+        let iterations = 50usize;
+
+        let run_once = |engine: &Engine| {
+            // `.cat --follow` yields the historical frame then parks. Take the
+            // first value to prove the path ran, then drop the stream while the
+            // follower thread is still parked on the broadcast receiver.
+            let engine = engine.clone();
+            std::thread::spawn(move || {
+                let pipeline = engine
+                    .eval(PipelineData::empty(), ".cat --follow".to_string())
+                    .unwrap();
+                let mut iter = pipeline.into_iter();
+                let first = iter.next();
+                assert!(first.is_some(), "expected the seeded historical frame");
+                // Drop `iter` (and its ListStream) here: consumer goes away.
+            })
+            .join()
+            .unwrap();
+        };
+
+        for _ in 0..warmup {
+            run_once(&engine);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let before = open_fd_count();
+
+        for _ in 0..iterations {
+            run_once(&engine);
+        }
+
+        // Follow-task cleanup is asynchronous (cancelled via `tx.closed()` on the
+        // shared runtime). In this isolated, otherwise-idle process there is no
+        // concurrent fd churn, so a brief settle converges; a real leak does not.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let after = open_fd_count();
+
+        let growth = after.saturating_sub(before);
+        eprintln!(
+            "fd count before={before} after={after} growth={growth} over {iterations} iterations"
+        );
+
+        // A correct implementation reuses/drops the runtime, so fd count stays
+        // flat. Small slack for allocator/thread-pool noise. The old leak added
+        // ~2 fds (socket + eventfd) per iteration, far above the slack.
+        let slack = 8;
+        assert!(
+            growth <= slack,
+            "file descriptor leak: fd count grew by {growth} over {iterations} \
+             `.cat --follow` runs (before={before}, after={after}); expected <= \
+             {slack}. A leaked runtime holds a socket + eventfd pair (pre-L1 mechanism)."
+        );
     }
 }

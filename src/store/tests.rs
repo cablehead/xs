@@ -179,7 +179,7 @@ mod tests_store {
         let follow_options = ReadOptions::builder()
             .follow(FollowOption::WithHeartbeat(Duration::from_millis(5)))
             .build();
-        let mut recver = store.read(follow_options).await;
+        let mut recver = store.read(follow_options);
 
         // Pulses are live frames and can interleave with real frames once we
         // cross the threshold, so skip them when asserting on real frames.
@@ -228,7 +228,7 @@ mod tests_store {
 
         // Read with limit 2
         let options = ReadOptions::builder().limit(2).build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         // Assert we get the first 2 items
         assert_eq!(Some(frame1.clone()), rx.recv().await);
@@ -239,7 +239,7 @@ mod tests_store {
 
         // Read with after
         let options = ReadOptions::builder().after(frame1.id).build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
         assert_eq!(Some(frame2), rx.recv().await);
         assert_eq!(Some(frame3), rx.recv().await);
         assert_eq!(None, rx.recv().await);
@@ -259,7 +259,7 @@ mod tests_store {
 
         // Read with last 2
         let options = ReadOptions::builder().last(2).build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         // Assert we get the last 2 items in chronological order
         assert_eq!(Some(frame4), rx.recv().await);
@@ -286,7 +286,7 @@ mod tests_store {
             .last(2)
             .topic("topic.a".to_string())
             .build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         // Assert we get the last 2 topic.a items in chronological order
         assert_eq!(Some(a2), rx.recv().await);
@@ -307,7 +307,7 @@ mod tests_store {
             .last(2)
             .follow(FollowOption::On)
             .build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         assert_eq!(Some(frame1), rx.recv().await);
         assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
@@ -324,7 +324,7 @@ mod tests_store {
             .limit(2)
             .follow(FollowOption::On)
             .build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         assert_eq!(Some(frame1), rx.recv().await);
         assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
@@ -343,7 +343,7 @@ mod tests_store {
             .limit(2)
             .follow(FollowOption::On)
             .build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         // Assert we get one item then threshold
         assert_eq!(Some(frame1), rx.recv().await);
@@ -382,7 +382,7 @@ mod tests_store {
             .limit(3)
             .follow(FollowOption::On)
             .build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         // We should only get exactly 3 frames, even though follow is enabled
         // and there are 5 frames available
@@ -597,21 +597,21 @@ mod tests_topic {
 
         // Wildcard "user.*" should match user.profile and user.settings, not "user"
         let options = ReadOptions::builder().topic("user.*".to_string()).build();
-        let rx = store.read(options).await;
+        let rx = store.read(options);
         let frames: Vec<_> =
             tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
         assert_eq!(frames, vec![user_profile, user_settings]);
 
         // Exact "user" should only match "user"
         let options = ReadOptions::builder().topic("user".to_string()).build();
-        let rx = store.read(options).await;
+        let rx = store.read(options);
         let frames: Vec<_> =
             tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
         assert_eq!(frames, vec![user]);
 
         // "*" should match all
         let options = ReadOptions::builder().topic("*".to_string()).build();
-        let rx = store.read(options).await;
+        let rx = store.read(options);
         let frames: Vec<_> =
             tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
         assert_eq!(frames.len(), 4);
@@ -635,7 +635,7 @@ mod tests_topic {
 
         // "user.*" matches all three (they all start with "user.")
         let options = ReadOptions::builder().topic("user.*".to_string()).build();
-        let rx = store.read(options).await;
+        let rx = store.read(options);
         let frames: Vec<_> =
             tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
         assert_eq!(
@@ -645,7 +645,7 @@ mod tests_topic {
 
         // "user.a.*" matches only user.a.* topics
         let options = ReadOptions::builder().topic("user.a.*".to_string()).build();
-        let rx = store.read(options).await;
+        let rx = store.read(options);
         let frames: Vec<_> =
             tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
         assert_eq!(frames, vec![user_a_msg, user_a_notes]);
@@ -660,7 +660,7 @@ mod tests_topic {
             .topic("user.*".to_string())
             .follow(FollowOption::On)
             .build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         // Wait for threshold
         assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
@@ -711,7 +711,7 @@ mod tests_topic {
         let foo2 = store.append(Frame::builder("foo").build()).unwrap();
 
         let options = ReadOptions::builder().topic("foo".to_string()).build();
-        let rx = store.read(options).await;
+        let rx = store.read(options);
         let frames: Vec<_> =
             tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
         assert_eq!(frames, vec![foo1, foo2]);
@@ -729,7 +729,7 @@ mod tests_topic {
             .topic("foo".to_string())
             .follow(FollowOption::On)
             .build();
-        let mut rx = store.read(options).await;
+        let mut rx = store.read(options);
 
         assert_eq!(rx.recv().await, Some(foo1));
         assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold".to_string());
@@ -766,7 +766,7 @@ mod tests_ttl_expire {
             .unwrap();
 
         // Immediate read should show both frames
-        let recver = store.read(ReadOptions::default()).await;
+        let recver = store.read(ReadOptions::default());
         assert_eq!(
             tokio_stream::wrappers::ReceiverStream::new(recver)
                 .collect::<Vec<Frame>>()
@@ -778,7 +778,7 @@ mod tests_ttl_expire {
         sleep(Duration::from_millis(200)).await;
 
         // Read after expiry should only show permanent frame
-        let recver = store.read(ReadOptions::default()).await;
+        let recver = store.read(ReadOptions::default());
         assert_eq!(
             tokio_stream::wrappers::ReceiverStream::new(recver)
                 .collect::<Vec<Frame>>()
@@ -928,9 +928,7 @@ mod tests_append_race {
         let store = Arc::new(Store::new(temp_dir.keep()).unwrap());
 
         // Subscribe to broadcasts before spawning tasks
-        let mut rx = store
-            .read(ReadOptions::builder().follow(FollowOption::On).build())
-            .await;
+        let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
 
         // Wait for threshold marker
         let threshold = rx.recv().await.unwrap();
@@ -1249,7 +1247,7 @@ mod tests_topic_filter {
             .topic("game.move.*,game.create".to_string())
             .follow(FollowOption::On)
             .build();
-        let mut recver = store.read(options).await;
+        let mut recver = store.read(options);
 
         for want in [&frames[0], &frames[2], &frames[4], &frames[5]] {
             assert_eq!(recver.recv().await.unwrap().id, want.id);
@@ -1273,7 +1271,7 @@ mod tests_topic_filter {
             .last(2)
             .topic("noise,game.create".to_string())
             .build();
-        let mut recver = store.read(options).await;
+        let mut recver = store.read(options);
         assert_eq!(recver.recv().await.unwrap().id, frames[1].id);
         assert_eq!(recver.recv().await.unwrap().id, frames[5].id);
         assert!(recver.recv().await.is_none());

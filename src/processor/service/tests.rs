@@ -40,7 +40,7 @@ async fn test_serve_basic() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "xs.service.toml.active".to_string());
@@ -87,7 +87,7 @@ async fn test_serve_duplex() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let frame = recver.recv().await.unwrap();
     assert_eq!(frame.topic, "xs.service.greeter.active".to_string());
@@ -142,7 +142,7 @@ async fn test_serve_compact() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     {
         let store = store.clone();
@@ -192,7 +192,7 @@ async fn test_respawn_after_terminate() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let script = r#"{ run: {|| ^sleep 1000 } }"#;
     let hash = store.cas_insert(script).await.unwrap();
@@ -272,7 +272,7 @@ async fn test_serve_restart_until_terminated() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     // first iteration
     assert_eq!(
@@ -326,7 +326,7 @@ async fn test_duplex_terminate_stops() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     // expect running
     let frame = recver.recv().await.unwrap();
@@ -375,7 +375,7 @@ async fn test_parse_error_eviction() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let err_frame = recver.recv().await.unwrap();
     assert_eq!(err_frame.topic, "xs.service.oops.invalid");
@@ -433,7 +433,7 @@ async fn test_refresh_on_new_spawn() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     // Expect the first running
     assert_eq!(
@@ -493,7 +493,7 @@ async fn test_terminate_one_of_two_services() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let script = r#"{ run: {|| each { |x| $"hi: ($x)" } }, duplex: true, return_options: { target: "cas" } }"#;
     let hash = store.cas_insert(script).await.unwrap();
@@ -549,7 +549,7 @@ async fn test_bytestream_ping() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     #[cfg(windows)]
     let script = r#"{ run: {|| ^ping -t 127.0.0.1 } }"#;
@@ -605,9 +605,7 @@ where
     let dir = TempDir::new().unwrap();
     let store = Store::new(dir.path().to_path_buf()).unwrap();
     seed(store.clone()).await;
-    let recver = store
-        .read(ReadOptions::builder().follow(FollowOption::On).build())
-        .await;
+    let recver = store.read(ReadOptions::builder().follow(FollowOption::On).build());
     {
         let store = store.clone();
         tokio::spawn(async move {
@@ -856,7 +854,7 @@ async fn inv4_service_term_emits_fin_term() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let create = store
         .append(
@@ -905,7 +903,7 @@ async fn inv6_service_acks_carry_source_pointer() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let create = store
         .append(
@@ -954,7 +952,7 @@ async fn inv8_service_single_live_instance_per_topic_root() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let script = r#"{ run: {|| ^sleep 1000 } }"#;
     let hash = store.cas_insert(script).await.unwrap();
@@ -1116,7 +1114,7 @@ async fn test_record_output_goes_to_meta() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.service.rec.active");
 
@@ -1155,7 +1153,7 @@ async fn test_record_output_with_cas_target() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(
         recver.recv().await.unwrap().topic,
@@ -1197,7 +1195,7 @@ async fn test_external_command_error_message() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     // Find the fin.error frame (skip spawn/active events).
     let mut stop_frame;
@@ -1240,7 +1238,7 @@ async fn test_graceful_shutdown_via_xs_stopping() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let script = r#"{ run: {|| ^sleep 1000 } }"#;
     let hash = store.cas_insert(script).await.unwrap();
@@ -1347,7 +1345,7 @@ async fn test_service_watch_drives_frames() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let active = tokio::time::timeout(Duration::from_secs(5), recver.recv())
         .await
@@ -1432,7 +1430,7 @@ async fn test_service_activates_alongside_other_processors() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     // Drain until we see .active or time out (the stacks2099 symptom is a stall).
     let deadline = Instant::now() + Duration::from_secs(8);
@@ -1474,7 +1472,7 @@ async fn test_serve_append_survives_hot_replace() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     // First registration appends `ping` with gen=1.
     let script1 = r#"{ run: {|| sleep 100ms; {} | .append ping --meta {gen: 1} } }"#;
@@ -1570,7 +1568,7 @@ async fn test_serve_append_tags_service_id() {
         .follow(FollowOption::On)
         .new(true)
         .build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut checked = false;

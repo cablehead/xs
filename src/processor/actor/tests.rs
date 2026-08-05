@@ -101,7 +101,7 @@ macro_rules! validate_field {
 async fn test_register_invalid_closure_no_args() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(
         recver.recv().await.unwrap().topic,
@@ -136,7 +136,7 @@ async fn test_register_invalid_closure_no_args() {
 async fn test_register_invalid_closure_old_one_arg() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(
         recver.recv().await.unwrap().topic,
@@ -176,7 +176,7 @@ async fn test_register_invalid_closure_old_one_arg() {
 async fn test_register_parse_error() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(
         recver.recv().await.unwrap().topic,
@@ -227,7 +227,7 @@ async fn test_register_parse_error() {
 async fn test_no_self_loop() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(
         recver.recv().await.unwrap().topic,
@@ -271,7 +271,7 @@ async fn test_essentials() {
     let pew2 = store.append(Frame::builder("pew").build()).unwrap();
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "pew");
     assert_eq!(recver.recv().await.unwrap().topic, "pew");
@@ -373,7 +373,7 @@ async fn test_unregister_on_error() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // This frame will trigger the error when the actor comes online
@@ -426,7 +426,7 @@ async fn test_return_options() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -483,7 +483,7 @@ async fn test_return_options() {
     // Only newest response should be in store
     store.wait_for_gc().await;
     let options = ReadOptions::default();
-    let recver = store.read(options).await;
+    let recver = store.read(options);
     use tokio_stream::StreamExt;
     let frames: Vec<_> = tokio_stream::wrappers::ReceiverStream::new(recver)
         .filter(|f| f.topic == "echo.warble")
@@ -501,7 +501,7 @@ async fn test_binary_return_value() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -569,7 +569,7 @@ async fn test_custom_append() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -616,7 +616,7 @@ async fn test_actor_replacement() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -705,7 +705,7 @@ async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
     let (store, _temp_dir) = setup_test_environment().await;
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -770,7 +770,7 @@ async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
 async fn test_actor_with_module() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Register a VFS module via *.nu topic
@@ -836,7 +836,7 @@ async fn test_actor_with_module() -> Result<(), Error> {
 async fn test_actor_preserve_env() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     let _ = store
@@ -918,7 +918,7 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
 async fn test_state_threading() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor with counter state: emits current state on trigger, increments
@@ -993,7 +993,7 @@ async fn test_state_threading() {
 async fn test_out_only_stops() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor returns {out: "goodbye"}, emits output then self-terminates
@@ -1047,7 +1047,7 @@ async fn test_out_only_stops() {
 async fn test_nothing_stops() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor returns null, self-terminates with no output
@@ -1096,7 +1096,7 @@ async fn test_nothing_stops() {
 async fn test_extra_keys_error() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor returns record with extra keys, should error
@@ -1139,7 +1139,7 @@ async fn test_extra_keys_error() {
 async fn test_initial_config() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor with initial: 10, closure default state = 0
@@ -1200,7 +1200,7 @@ async fn test_initial_config() {
 async fn test_initial_config_required_state() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor with 2 required params and initial provided
@@ -1252,7 +1252,7 @@ async fn test_initial_config_required_state() {
 async fn test_required_state_defaults_to_null() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor with 2 required params but no initial, state defaults to null
@@ -1305,7 +1305,7 @@ async fn test_required_state_defaults_to_null() {
 async fn test_default_param_value() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor with no initial config, closure default state = 42
@@ -1364,7 +1364,7 @@ async fn test_default_param_value() {
 async fn test_non_record_return_error() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Actor returns a bare string, not a valid return shape
@@ -1420,7 +1420,7 @@ async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) 
 async fn test_record_out_goes_to_meta() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -1488,7 +1488,7 @@ async fn test_record_out_goes_to_meta() {
 async fn test_non_record_out_errors_without_cas_target() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -1536,7 +1536,7 @@ async fn test_non_record_out_errors_without_cas_target() {
 async fn test_cas_target_allows_non_record_out() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
@@ -1609,7 +1609,7 @@ async fn test_unregistered_actor_not_restarted_on_replay() {
         .unwrap();
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     {
         let store = store.clone();
@@ -1661,7 +1661,7 @@ async fn inv2_actor_with_active_resumes_on_replay() {
         .unwrap();
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
 
     {
         let store = store.clone();
@@ -1693,7 +1693,7 @@ async fn inv2_actor_with_active_resumes_on_replay() {
 async fn inv4_actor_term_emits_fin_term() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     let create = store
@@ -1735,7 +1735,7 @@ async fn inv4_actor_term_emits_fin_term() {
 async fn inv6_actor_acks_carry_source_pointer() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // (1) .active: emitted on successful spawn.
@@ -1795,7 +1795,7 @@ async fn inv6_actor_acks_carry_source_pointer() {
 async fn inv8_actor_single_live_instance_per_topic_root() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Two creates for the same topic root. Only the second should handle
@@ -1879,7 +1879,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
 async fn test_topics_filter_exact() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Backlog with mixed topics
@@ -1939,7 +1939,7 @@ async fn test_topics_filter_exact() {
 async fn test_topics_filter_prefix_wildcard() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // topics also accepts a single comma-separated string of patterns
@@ -1993,7 +1993,7 @@ async fn test_topics_filter_prefix_wildcard() {
 async fn test_no_topics_processes_all() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     store
@@ -2037,7 +2037,7 @@ async fn test_no_topics_processes_all() {
 async fn test_topics_filter_lifecycle_frames_still_work() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     store
@@ -2081,7 +2081,7 @@ async fn test_topics_filter_lifecycle_frames_still_work() {
 async fn test_topics_filter_pulse_still_ticks() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
-    let mut recver = store.read(options).await;
+    let mut recver = store.read(options);
     assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
 
     // Heartbeat xs.pulse frames are synthesized per-read and bypass topic

@@ -3,7 +3,7 @@ use tempfile::TempDir;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature};
 
-use crate::nu::{prepared_base, Engine, ReadMode};
+use crate::nu::{prepared_base, Engine};
 use crate::store::Store;
 
 /// A trivial marker command standing in for a consumer-registered command like
@@ -49,7 +49,7 @@ fn prepared_base_carries_store_base_engine_commands() {
         .unwrap()
         .with_base_engine(base.state);
 
-    let engine = prepared_base(&store, ReadMode::Stream, true).unwrap();
+    let engine = prepared_base(&store, true).unwrap();
     assert!(
         engine
             .eval(PipelineData::empty(), "xs-base-marker".to_string())
@@ -65,7 +65,7 @@ fn prepared_base_without_base_engine_still_builds() {
     let temp = TempDir::new().unwrap();
     let store = Store::new(temp.path().to_path_buf()).unwrap();
 
-    let engine = prepared_base(&store, ReadMode::Stream, true).unwrap();
+    let engine = prepared_base(&store, true).unwrap();
     assert!(
         engine
             .eval(PipelineData::empty(), "echo hi".to_string())

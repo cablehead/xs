@@ -423,14 +423,6 @@ pub fn add_core_commands(engine: &mut Engine, store: &Store) -> Result<(), Error
     ])
 }
 
-/// Which `.cat`/`.last` flavor a pipeline runner exposes.
-pub enum ReadMode {
-    /// Streaming readers that support `--follow` (eval, actions, services).
-    Stream,
-    /// Collected readers without follow (actors).
-    Plain,
-}
-
 /// How `.append` behaves. This is the one store command whose behaviour
 /// genuinely varies by runner.
 pub enum AppendMode {
@@ -441,22 +433,14 @@ pub enum AppendMode {
     Buffered(Arc<Mutex<Vec<Frame>>>),
 }
 
-/// Register the `.cat` and `.last` read builtins for a pipeline runner.
-pub fn add_read_commands(engine: &mut Engine, store: &Store, mode: ReadMode) -> Result<(), Error> {
-    match mode {
-        ReadMode::Stream => engine.add_commands(vec![
-            Box::new(commands::cat_stream_command::CatStreamCommand::new(
-                store.clone(),
-            )),
-            Box::new(commands::last_stream_command::LastStreamCommand::new(
-                store.clone(),
-            )),
-        ]),
-        ReadMode::Plain => engine.add_commands(vec![
-            Box::new(commands::cat_command::CatCommand::new(store.clone())),
-            Box::new(commands::last_command::LastCommand::new(store.clone())),
-        ]),
-    }
+/// Register the `.cat` and `.last` read builtins for a pipeline runner. Both
+/// commands stream through the store's runtime-backed `read()` and support
+/// `--follow`, serving historical and follow reads from a single impl.
+pub fn add_read_commands(engine: &mut Engine, store: &Store) -> Result<(), Error> {
+    engine.add_commands(vec![
+        Box::new(commands::cat_command::CatCommand::new(store.clone())),
+        Box::new(commands::last_command::LastCommand::new(store.clone())),
+    ])
 }
 
 /// Register the write builtins for a pipeline runner: `.append` (per `mode`)
@@ -488,7 +472,7 @@ pub fn add_write_commands(
 /// spawn or restart; `load_modules(as_of)` and `set_append_meta(..)` specialize
 /// each clone. Actors pass `direct_write: false` and add their per-instance
 /// buffered `.append` to the clone.
-pub fn prepared_base(store: &Store, read: ReadMode, direct_write: bool) -> Result<Engine, Error> {
+pub fn prepared_base(store: &Store, direct_write: bool) -> Result<Engine, Error> {
     // Clone the embedder's base engine when the store carries one, else build
     // the default. See ADR 0007.
     let mut engine = match store.base_engine() {
@@ -499,7 +483,7 @@ pub fn prepared_base(store: &Store, read: ReadMode, direct_write: bool) -> Resul
     };
     add_core_commands(&mut engine, store)?;
     engine.add_alias(".rm", ".remove")?;
-    add_read_commands(&mut engine, store, read)?;
+    add_read_commands(&mut engine, store)?;
     if direct_write {
         add_write_commands(&mut engine, store, AppendMode::Direct)?;
     }
