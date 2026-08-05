@@ -374,13 +374,32 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
     tokio::select! {
         res = xs::api::serve(store.clone(), engine.clone(), args.expose) => { res?; }
-        _ = tokio::signal::ctrl_c() => {}
+        _ = shutdown_signal() => {}
     }
 
     store.append(xs::store::Frame::builder("xs.stopping").build())?;
     let _ = tokio::time::timeout(Duration::from_secs(3), service_handle).await;
 
     Ok(())
+}
+
+// Both SIGINT and SIGTERM must run the xs.stopping protocol: supervisors send
+// SIGTERM, and without the protocol service-spawned children leak.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
