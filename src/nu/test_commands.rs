@@ -746,24 +746,39 @@ mod tests {
         for _ in 0..iterations {
             run_once(&engine);
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let after = open_fd_count();
-
-        let growth = after.saturating_sub(before);
-        eprintln!(
-            "fd count before={before} after={after} growth={growth} over {iterations} iterations"
-        );
 
         // A correct implementation reuses/drops the runtime, so fd count stays
         // flat. We allow a small slack for allocator/thread-pool noise. The leak
         // adds ~2 fds (socket + eventfd) per iteration, far above the slack.
+        //
+        // Cleanup after a dropped `.cat --follow` is asynchronous: the follow
+        // task is cancelled via `tx.closed()` on the shared runtime and its fds
+        // are reclaimed shortly after. On a loaded CI runner that lags the tight
+        // loop, so poll until the count settles rather than snapshotting. A real
+        // leak never settles and still trips the assert after the deadline.
         let slack = 8;
+        let after_immediate = open_fd_count();
+        let mut after = after_immediate;
+        for _ in 0..50 {
+            if after.saturating_sub(before) <= slack {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            after = open_fd_count();
+        }
+
+        let growth = after.saturating_sub(before);
+        eprintln!(
+            "fd count before={before} after_immediate={after_immediate} \
+             after_settled={after} growth={growth} over {iterations} iterations"
+        );
+
         assert!(
             growth <= slack,
             "file descriptor leak: fd count grew by {growth} over {iterations} \
-             `.cat --follow` runs (before={before}, after={after}); \
-             expected <= {slack}. Each leaked runtime held a socket + eventfd \
-             pair (pre-L1 mechanism, see cat_command.rs)."
+             `.cat --follow` runs (before={before}, settled after={after}); \
+             expected <= {slack} after settling. A leaked runtime holds a socket \
+             + eventfd pair (pre-L1 mechanism, see cat_command.rs)."
         );
     }
 }
