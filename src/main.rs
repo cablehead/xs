@@ -396,9 +396,22 @@ async fn shutdown_signal() {
             _ = sigterm.recv() => {}
         }
     }
-    #[cfg(not(unix))]
+    // Windows has no SIGTERM. ctrl_close fires when the console window is
+    // closed (a supervisor gets ~5s before Windows force-kills), ctrl_shutdown
+    // fires on system shutdown/logoff -- both are the closest analogs to
+    // "asked to terminate, clean up first". ctrl_close only reaches console
+    // processes, not services stopped via SERVICE_CONTROL_STOP, so this is
+    // best-effort console coverage, not full service support.
+    #[cfg(windows)]
     {
-        let _ = tokio::signal::ctrl_c().await;
+        use tokio::signal::windows::{ctrl_close, ctrl_shutdown};
+        let mut close = ctrl_close().expect("failed to install CTRL_CLOSE handler");
+        let mut shutdown = ctrl_shutdown().expect("failed to install CTRL_SHUTDOWN handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = close.recv() => {}
+            _ = shutdown.recv() => {}
+        }
     }
 }
 
