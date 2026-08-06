@@ -228,8 +228,17 @@ export def ".id unpack" [id?: string] {
     error make {msg: "No ID provided as argument or via pipeline"}
   }
 
+  # ts_ms is the authoritative integer millisecond timestamp that pack reads
+  # back exactly. when is a display-only datetime derived from it, ignored by
+  # pack, so the roundtrip stays lossless.
   let components = xs scru128 unpack $input_id | from json
-  $components | update timestamp ($components.timestamp * 1000000000 | into int | into datetime)
+  {
+    ts_ms: $components.ts_ms
+    when: ($components.ts_ms * 1000000 | into int | into datetime)
+    counter_hi: $components.counter_hi
+    counter_lo: $components.counter_lo
+    node: $components.node
+  }
 }
 
 # Pack component fields into a SCRU128 ID
@@ -239,10 +248,9 @@ export def ".id pack" [components?: record] {
     error make {msg: "No components provided as argument or via pipeline"}
   }
 
+  # Drop the display-only when field; ts_ms is authoritative.
   $input_components
-  | conditional-pipe (($input_components.timestamp | describe) == "datetime") {
-    update timestamp ($input_components.timestamp | into int | $in / 1000000000)
-  }
+  | reject when?
   | to json
   | xs scru128 pack
 }

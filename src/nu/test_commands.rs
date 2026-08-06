@@ -494,13 +494,35 @@ mod tests {
         let record = unpacked.as_record().unwrap();
 
         // Verify expected fields are present
-        assert!(record.get("timestamp").is_some());
+        assert!(record.get("ts_ms").is_some());
+        assert!(record.get("when").is_some());
         assert!(record.get("counter_hi").is_some());
         assert!(record.get("counter_lo").is_some());
         assert!(record.get("node").is_some());
 
-        // Verify timestamp is a datetime
-        assert!(record.get("timestamp").unwrap().as_date().is_ok());
+        // ts_ms is the authoritative integer millisecond timestamp.
+        assert!(record.get("ts_ms").unwrap().as_int().is_ok());
+        // when is a display-only datetime derived from ts_ms.
+        assert!(record.get("when").unwrap().as_date().is_ok());
+    }
+
+    #[test]
+    fn test_scru128_unpack_when_matches_ts_ms() {
+        let engine = setup_scru128_test_env();
+        let test_id = "03d4q1qhbiv09ovtuhokw5yxv";
+        let unpacked = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!(".id unpack {}", test_id),
+        );
+        let record = unpacked.as_record().unwrap();
+
+        // The display-only when field must read back the same instant as the
+        // authoritative ts_ms, so a future change cannot silently drop or skew
+        // the human-readable view.
+        let ts_ms = record.get("ts_ms").unwrap().as_int().unwrap();
+        let when = record.get("when").unwrap().as_date().unwrap();
+        assert_eq!(ts_ms, when.timestamp_millis());
     }
 
     #[test]
@@ -516,8 +538,11 @@ mod tests {
         assert!(unpacked.as_record().is_ok());
         let record = unpacked.as_record().unwrap();
 
-        // Verify expected fields are present
-        assert!(record.get("timestamp").is_some());
+        // The pipeline form emits the same record as the row form: ts_ms is the
+        // authoritative integer millisecond timestamp, when is the display-only
+        // datetime derived from it.
+        assert!(record.get("ts_ms").unwrap().as_int().is_ok());
+        assert!(record.get("when").unwrap().as_date().is_ok());
         assert!(record.get("counter_hi").is_some());
         assert!(record.get("counter_lo").is_some());
         assert!(record.get("node").is_some());
@@ -527,7 +552,7 @@ mod tests {
     fn test_scru128_pack() {
         let engine = setup_scru128_test_env();
         let components =
-            r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
+            r#"{ts_ms: 1700000000000, counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
         let packed = nu_eval(
             &engine,
             PipelineData::empty(),
@@ -542,8 +567,8 @@ mod tests {
     #[test]
     fn test_scru128_pack_pipeline() {
         let engine = setup_scru128_test_env();
-        let components =
-            r#"{timestamp: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
+        // when is display-only; pack must ignore it and use ts_ms.
+        let components = r#"{ts_ms: 1700000000000, when: (date now), counter_hi: 1234, counter_lo: 5678, node: "abcd1234"}"#;
         let packed = nu_eval(
             &engine,
             PipelineData::empty(),
