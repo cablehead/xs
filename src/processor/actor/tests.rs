@@ -2117,19 +2117,34 @@ async fn test_topics_filter_pulse_still_ticks() {
     assert_eq!(out.topic, "filter.out");
     assert_eq!(out.meta.as_ref().unwrap()["tick"], true);
 
-    // And filtered frames still flow alongside the pulse
+    // And filtered frames still flow alongside the pulse.
+    //
+    // Wait past one pulse period (pulse is 50ms) before appending so a second
+    // tick is guaranteed to be emitted ahead of the data frames. This forces
+    // the interleave that only happened by luck on slow CI runners, making the
+    // tick-between-data-frames case deterministic on any machine.
+    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
     store.append(Frame::builder("noise").build()).unwrap();
     store.append(Frame::builder("ev").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "noise");
-    assert_eq!(recver.recv().await.unwrap().topic, "ev");
-    loop {
-        let out = recver.recv().await.unwrap();
-        assert_eq!(out.topic, "filter.out");
-        let meta = out.meta.as_ref().unwrap();
-        if meta.get("tick").is_some() {
-            continue; // interleaved pulse ticks are fine
+
+    // Pulse ticks are async and can land between the data frames, so the exact
+    // interleaving is not fixed. Drain any tick frames and assert only that the
+    // three frames we care about arrive: "noise" then "ev" in append order, and
+    // the actor's own "filter.out {seen: ev}" output.
+    let mut data_topics = Vec::new();
+    let mut saw_seen_ev = false;
+    while !saw_seen_ev {
+        let frame = recver.recv().await.unwrap();
+        if frame.topic == "filter.out" {
+            let meta = frame.meta.as_ref().unwrap();
+            if meta.get("tick").is_some() {
+                continue; // interleaved pulse ticks are fine
+            }
+            assert_eq!(meta["seen"], "ev");
+            saw_seen_ev = true;
+        } else {
+            data_topics.push(frame.topic);
         }
-        assert_eq!(meta["seen"], "ev");
-        break;
     }
+    assert_eq!(data_topics, vec!["noise", "ev"]);
 }
