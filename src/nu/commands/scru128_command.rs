@@ -57,28 +57,24 @@ fn get_record_input(
     }
 }
 
-// Helper function to convert timestamp field to datetime
-fn convert_timestamp_to_datetime(mut nu_value: Value, span: nu_protocol::Span) -> Value {
-    if let Value::Record { val: record, .. } = &mut nu_value {
-        if let Some(Value::Float {
-            val: timestamp_float,
-            ..
-        }) = record.get("timestamp")
-        {
-            let timestamp_ms = (*timestamp_float * 1000.0) as i64;
-            let datetime_value = Value::date(
-                chrono::DateTime::from_timestamp_millis(timestamp_ms)
+// Add a display-only `when` datetime derived from the authoritative `ts_ms`
+// integer. `when` is for reading; pack ignores it and uses `ts_ms`.
+fn add_when_field(nu_value: Value, span: nu_protocol::Span) -> Value {
+    if let Value::Record { val: record, .. } = &nu_value {
+        if let Some(Value::Int { val: ts_ms, .. }) = record.get("ts_ms") {
+            let when = Value::date(
+                chrono::DateTime::from_timestamp_millis(*ts_ms)
                     .unwrap_or_else(chrono::Utc::now)
                     .into(),
                 span,
             );
-            // Create new record with updated timestamp
+            // Insert `when` right after `ts_ms` so the reading order stays
+            // ts_ms, when, counters, node.
             let mut new_record = Record::new();
             for (key, value) in record.iter() {
-                if key == "timestamp" {
-                    new_record.push(key.clone(), datetime_value.clone());
-                } else {
-                    new_record.push(key.clone(), value.clone());
+                new_record.push(key.clone(), value.clone());
+                if key == "ts_ms" {
+                    new_record.push("when".to_string(), when.clone());
                 }
             }
             return Value::record(new_record, span);
@@ -87,31 +83,12 @@ fn convert_timestamp_to_datetime(mut nu_value: Value, span: nu_protocol::Span) -
     nu_value
 }
 
-// Helper function to convert datetime fields to timestamp floats in JSON
-#[allow(clippy::result_large_err)]
-fn convert_datetime_to_timestamp(
-    mut json_value: JsonValue,
-    span: nu_protocol::Span,
-) -> Result<JsonValue, ShellError> {
+// Drop the display-only `when` field before packing. Pack reads `ts_ms` alone.
+fn drop_when_field(mut json_value: JsonValue) -> JsonValue {
     if let JsonValue::Object(ref mut obj) = json_value {
-        if let Some(JsonValue::String(timestamp_str)) = obj.get("timestamp") {
-            if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
-                let timestamp_float = datetime.timestamp_millis() as f64 / 1000.0;
-                obj.insert(
-                    "timestamp".to_string(),
-                    JsonValue::Number(serde_json::Number::from_f64(timestamp_float).ok_or_else(
-                        || {
-                            scru128_error(
-                                "Could not convert datetime to timestamp".to_string(),
-                                span,
-                            )
-                        },
-                    )?),
-                );
-            }
-        }
+        obj.remove("when");
     }
-    Ok(json_value)
+    json_value
 }
 
 #[derive(Clone, Default)]
@@ -171,14 +148,14 @@ impl Command for Scru128Command {
                     .map_err(|e| scru128_error(format!("Failed to unpack ID: {e}"), span))?;
 
                 let nu_value = util::json_to_value(&result, span);
-                let nu_value = convert_timestamp_to_datetime(nu_value, span);
+                let nu_value = add_when_field(nu_value, span);
 
                 Ok(PipelineData::Value(nu_value, None))
             }
             Some("pack") => {
                 let components = get_record_input(call, engine_state, stack, input, span)?;
                 let json_value = util::value_to_json(&components);
-                let json_value = convert_datetime_to_timestamp(json_value, span)?;
+                let json_value = drop_when_field(json_value);
 
                 let result = crate::scru128::pack_from_json(json_value)
                     .map_err(|e| scru128_error(format!("Failed to pack components: {e}"), span))?;
