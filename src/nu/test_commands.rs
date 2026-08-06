@@ -555,22 +555,43 @@ mod tests {
         assert!(scru128::Scru128Id::from_str(id_string).is_ok()); // Verify it's a valid SCRU128 ID
     }
 
+    fn assert_id_roundtrips(engine: &crate::nu::Engine, id: &str) {
+        let unpacked = nu_eval(
+            engine,
+            PipelineData::empty(),
+            format!("\"{}\" | .id unpack", id),
+        );
+        let repacked = nu_eval(engine, PipelineData::Value(unpacked, None), ".id pack");
+        assert_eq!(
+            id,
+            repacked.as_str().unwrap(),
+            "roundtrip mismatch for {id}"
+        );
+    }
+
     #[test]
     fn test_scru128_round_trip() {
         let engine = setup_scru128_test_env();
 
-        let original_id = nu_eval(&engine, PipelineData::empty(), ".id");
-        let original_id_str = original_id.as_str().unwrap();
+        // Pinned ids that lost 1ms of timestamp before the round fix. The
+        // unpack seconds -> datetime -> pack path truncated milliseconds
+        // instead of rounding, so ids whose f64 ms landed just below an
+        // integer dropped a millisecond and repacked to a different id.
+        for id in [
+            "03gmmrhqljv8bnulus79wipck",
+            "03gmmrhqzjzlbz75e1r8fyvmt",
+            "03gmmrhsh0x17va0knqvbhly6",
+        ] {
+            assert_id_roundtrips(&engine, id);
+        }
 
-        let unpacked = nu_eval(
-            &engine,
-            PipelineData::empty(),
-            format!("\"{}\" | .id unpack", original_id_str),
-        );
-        let repacked = nu_eval(&engine, PipelineData::Value(unpacked, None), ".id pack");
-        let repacked_id_str = repacked.as_str().unwrap();
-
-        assert_eq!(original_id_str, repacked_id_str);
+        // Deterministic sweep: every fresh id must roundtrip exactly. Before
+        // the fix this failed on roughly 3% of ids, so 2000 makes a failure
+        // essentially certain rather than a ~1-in-35 flake.
+        for _ in 0..2000 {
+            let id = nu_eval(&engine, PipelineData::empty(), ".id");
+            assert_id_roundtrips(&engine, id.as_str().unwrap());
+        }
     }
 
     #[test]

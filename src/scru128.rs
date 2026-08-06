@@ -68,7 +68,7 @@ pub fn pack_from_json(
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let components: Scru128Components = serde_json::from_value(json)?;
 
-    let timestamp = (components.timestamp * 1000.0) as u64;
+    let timestamp = (components.timestamp * 1000.0).round() as u64;
     let entropy = u32::from_str_radix(&components.node, 16)?;
 
     let scru_id = Scru128Id::from_fields(
@@ -87,7 +87,7 @@ pub fn pack() -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
 
     let components: Scru128Components = serde_json::from_str(&buffer)?;
 
-    let timestamp = (components.timestamp * 1000.0) as u64;
+    let timestamp = (components.timestamp * 1000.0).round() as u64;
     let entropy = u32::from_str_radix(&components.node, 16)?;
 
     let scru_id = Scru128Id::from_fields(
