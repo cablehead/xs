@@ -374,13 +374,45 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
     tokio::select! {
         res = xs::api::serve(store.clone(), engine.clone(), args.expose) => { res?; }
-        _ = tokio::signal::ctrl_c() => {}
+        _ = shutdown_signal() => {}
     }
 
     store.append(xs::store::Frame::builder("xs.stopping").build())?;
     let _ = tokio::time::timeout(Duration::from_secs(3), service_handle).await;
 
     Ok(())
+}
+
+// Both SIGINT and SIGTERM must run the xs.stopping protocol: supervisors send
+// SIGTERM, and without the protocol service-spawned children leak.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+    // Windows has no SIGTERM. ctrl_close fires when the console window is
+    // closed (a supervisor gets ~5s before Windows force-kills), ctrl_shutdown
+    // fires on system shutdown/logoff -- both are the closest analogs to
+    // "asked to terminate, clean up first". ctrl_close only reaches console
+    // processes, not services stopped via SERVICE_CONTROL_STOP, so this is
+    // best-effort console coverage, not full service support.
+    #[cfg(windows)]
+    {
+        use tokio::signal::windows::{ctrl_close, ctrl_shutdown};
+        let mut close = ctrl_close().expect("failed to install CTRL_CLOSE handler");
+        let mut shutdown = ctrl_shutdown().expect("failed to install CTRL_SHUTDOWN handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = close.recv() => {}
+            _ = shutdown.recv() => {}
+        }
+    }
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
