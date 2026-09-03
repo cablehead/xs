@@ -103,7 +103,9 @@ impl Command for LastCommand {
             let mut rx = store.read(options);
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    let frame = rx.blocking_recv()?; // parks off-runtime; None when producer done/cancelled
+                    // Safe even if this iterator is driven from inside a
+                    // caller's own tokio runtime -- see Store::blocking_recv.
+                    let frame = Store::blocking_recv(&mut rx)?; // None when producer done/cancelled
                     Some(util::frame_to_value(&frame, span, with_timestamp))
                 }),
                 span,
@@ -117,15 +119,12 @@ impl Command for LastCommand {
         // shared eager helper) so we can preserve the single-value semantics for
         // count == 1: a bare `.last topic` returns one Value, not a one-element
         // list. The producer closes the channel once replay completes, so this
-        // loop terminates. blocking_recv parks the caller thread; callers that
-        // reach `.last` during an actor's async setup run the config eval on a
-        // dedicated thread (see parse_config), so this never parks a runtime
-        // thread.
+        // loop terminates.
         let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
 
         let mut rx = store.read(options);
         let frames: Vec<Value> = std::iter::from_fn(move || {
-            let frame = rx.blocking_recv()?; // None when the producer finishes replay
+            let frame = Store::blocking_recv(&mut rx)?; // None when the producer finishes replay
             Some(util::frame_to_value(&frame, span, with_timestamp))
         })
         .collect();

@@ -183,7 +183,11 @@ impl Command for CatCommand {
             let mut rx = store.read(options);
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    let frame = rx.blocking_recv()?; // parks off-runtime; None when producer done/cancelled
+                    // Safe even if this iterator is driven from inside a
+                    // caller's own tokio runtime (an embedder's inline eval,
+                    // not just xs's own dedicated-thread callers) -- see
+                    // Store::blocking_recv.
+                    let frame = Store::blocking_recv(&mut rx)?; // None when producer done/cancelled
                     Some(to_value(&frame))
                 }),
                 span,
@@ -194,13 +198,10 @@ impl Command for CatCommand {
 
         // Historical mode: stream lazily, same shape as the follow branch. The
         // producer closes the channel once replay completes, so from_fn ends.
-        // blocking_recv parks the caller thread; callers that reach `.cat`
-        // during an actor's async setup run the config eval on a dedicated
-        // thread (see parse_config), so this never parks a runtime thread.
         let mut rx = store.read(options);
         let stream = ListStream::new(
             std::iter::from_fn(move || {
-                let frame = rx.blocking_recv()?; // None when the producer finishes replay
+                let frame = Store::blocking_recv(&mut rx)?; // None when the producer finishes replay
                 Some(to_value(&frame))
             }),
             span,

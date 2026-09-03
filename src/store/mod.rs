@@ -916,6 +916,38 @@ impl Store {
         rx
     }
 
+    /// Receive the next frame from a channel returned by [`read`](Store::read),
+    /// blocking the calling thread until one arrives or the channel closes.
+    ///
+    /// Plain [`Receiver::blocking_recv`] panics unconditionally when called
+    /// from a thread that is currently driving a tokio runtime ("Cannot
+    /// block the current thread from within a runtime"). That is exactly
+    /// what happens to an embedder whose own async code calls `.cat`/`.last`
+    /// inline rather than from a dedicated thread -- the constraint isn't
+    /// documented anywhere the embedder would see it before hitting the
+    /// panic. This detects that case and steps the calling thread out of the
+    /// runtime's worker pool first
+    /// ([`tokio::task::block_in_place`]), so the block is safe; outside a
+    /// runtime (the CLI, or a dedicated `std::thread` as `.cat`/`.last`
+    /// already use internally) it's the same zero-overhead `blocking_recv`
+    /// as before, and nothing here spawns or retains a runtime of its own --
+    /// this doesn't reintroduce the leak #146 removed.
+    ///
+    /// `block_in_place` itself requires a multi-threaded runtime; called
+    /// while a single-threaded (`current_thread`) runtime is entered, it
+    /// panics with tokio's own message to that effect. A single-threaded
+    /// runtime has no spare worker to hand this thread's other queued work
+    /// off to, so there is no safe way to block it here regardless -- doing
+    /// so would risk deadlocking whatever else that runtime is driving,
+    /// including, potentially, this same store's own follow/heartbeat tasks.
+    pub fn blocking_recv<T>(rx: &mut tokio::sync::mpsc::Receiver<T>) -> Option<T> {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::block_in_place(|| rx.blocking_recv())
+        } else {
+            rx.blocking_recv()
+        }
+    }
+
     /// Replay matching historical frames as a blocking iterator.
     ///
     /// This honours the `topic`, `from`, `after`, `limit`, and `last` parts of

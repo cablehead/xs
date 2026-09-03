@@ -845,4 +845,65 @@ mod tests {
              {slack}. A leaked runtime holds a socket + eventfd pair (pre-L1 mechanism)."
         );
     }
+
+    // `.cat`/`.last` stream their results via `Store::blocking_recv`
+    // (`src/store/mod.rs`), which used to be a raw `Receiver::blocking_recv`.
+    // That panics ("Cannot block the current thread from within a runtime")
+    // the moment it's driven from a thread that is itself part of a running
+    // tokio runtime -- exactly what happens to an embedder whose script eval
+    // runs inline on a runtime thread instead of a dedicated one (unlike
+    // every other test in this file, which routes through `nu_eval`'s
+    // `std::thread::spawn` specifically to avoid that). This test does the
+    // opposite on purpose: no dedicated thread, called directly from this
+    // `#[tokio::test(flavor = "multi_thread")]` body, which itself runs as a
+    // task on one of the runtime's own worker threads.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_cat_and_last_safe_when_called_inline_on_a_runtime_thread() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+        let mut engine = Engine::new().unwrap();
+        engine
+            .add_commands(vec![
+                Box::new(commands::cat_command::CatCommand::new(store.clone())),
+                Box::new(commands::last_command::LastCommand::new(store.clone())),
+            ])
+            .unwrap();
+
+        store.append(Frame::builder("topic1").build()).unwrap();
+        store.append(Frame::builder("topic2").build()).unwrap();
+
+        // Historical (non-follow) mode already exercises the previously-
+        // panicking call: nushell drains the ListStream synchronously while
+        // formatting the result, right here on this task's worker thread.
+        let value = engine
+            .eval(PipelineData::empty(), ".cat".to_string())
+            .unwrap()
+            .into_value(Span::test_data())
+            .unwrap();
+        let frames = value.as_list().unwrap();
+        assert_eq!(frames.len(), 2);
+
+        let value = engine
+            .eval(PipelineData::empty(), ".last topic2".to_string())
+            .unwrap()
+            .into_value(Span::test_data())
+            .unwrap();
+        assert_eq!(
+            value.get_data_by_key("topic").unwrap().as_str().unwrap(),
+            "topic2"
+        );
+
+        // `--follow` takes the other branch of the same iterator (see
+        // `CatCommand::run`); exercise it too. Take the two historical
+        // frames directly off the returned iterator and drop it rather than
+        // materializing the whole (indefinite) stream, the same pattern
+        // `test_cat_stream_fd_leak` above uses to bound a follow stream
+        // deterministically.
+        let pipeline = engine
+            .eval(PipelineData::empty(), ".cat --follow".to_string())
+            .unwrap();
+        let mut iter = pipeline.into_iter();
+        assert!(iter.next().is_some(), "expected first historical frame");
+        assert!(iter.next().is_some(), "expected second historical frame");
+    }
 }
