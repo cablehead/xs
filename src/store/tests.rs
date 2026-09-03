@@ -1277,3 +1277,118 @@ mod tests_topic_filter {
         assert!(recver.recv().await.is_none());
     }
 }
+
+mod tests_core {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_core_is_isolated_from_default_and_other_cores() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        store.append(Frame::builder("on.default").build()).unwrap();
+        let vm = store.core("vm");
+        vm.append(Frame::builder("on.vm").build()).unwrap();
+        let pi = store.core("pi");
+        pi.append(Frame::builder("on.pi").build()).unwrap();
+
+        let default_topics: Vec<_> = store
+            .read_sync(ReadOptions::default())
+            .map(|f| f.topic)
+            .collect();
+        assert_eq!(default_topics, vec!["on.default"]);
+
+        let vm_topics: Vec<_> = vm
+            .read_sync(ReadOptions::default())
+            .map(|f| f.topic)
+            .collect();
+        assert_eq!(vm_topics, vec!["on.vm"]);
+
+        let pi_topics: Vec<_> = pi
+            .read_sync(ReadOptions::default())
+            .map(|f| f.topic)
+            .collect();
+        assert_eq!(pi_topics, vec!["on.pi"]);
+    }
+
+    #[tokio::test]
+    async fn test_core_returns_same_handle_broadcast_across_calls() {
+        // A follow started on `store.core("vm")` before any writer exists must
+        // still see a frame written through a *later* `store.core("vm")` call
+        // -- the registry has to hand back the same broadcast channel every
+        // time, not a fresh one per call.
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let follower = store.core("vm");
+        let mut rx = follower.read(ReadOptions::builder().follow(FollowOption::On).build());
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+
+        let writer = store.core("vm");
+        let appended = writer.append(Frame::builder("hello").build()).unwrap();
+
+        let received = rx.recv().await.unwrap();
+        assert_eq!(received.id, appended.id);
+        assert_eq!(received.topic, "hello");
+    }
+
+    #[tokio::test]
+    async fn test_core_shares_cas_with_default_store() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let hash = store.cas_insert("shared content").await.unwrap();
+        let vm = store.core("vm");
+        let content = vm.cas_read(&hash).await.unwrap();
+        assert_eq!(content, b"shared content");
+    }
+
+    #[tokio::test]
+    async fn test_replicate_frame_preserves_id_and_broadcasts_ephemeral_without_storing() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let vm = store.core("vm");
+
+        let mut rx = vm.read(ReadOptions::builder().follow(FollowOption::On).build());
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+
+        let origin_id = scru128::new();
+        let frame = Frame {
+            id: origin_id,
+            topic: "diff".to_string(),
+            ttl: Some(TTL::Ephemeral),
+            ..Default::default()
+        };
+        let replicated = vm.replicate_frame(frame).unwrap();
+        assert_eq!(replicated.id, origin_id);
+
+        // Broadcast to a live follower...
+        let received = rx.recv().await.unwrap();
+        assert_eq!(received.id, origin_id);
+
+        // ...but never persisted.
+        assert!(vm.get(&origin_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_replicate_frame_preserves_hash_and_stores_non_ephemeral() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let vm = store.core("vm");
+
+        let hash = store.cas_insert("payload").await.unwrap();
+        let origin_id = scru128::new();
+        let frame = Frame {
+            id: origin_id,
+            topic: "clip.add".to_string(),
+            hash: Some(hash.clone()),
+            ..Default::default()
+        };
+        vm.replicate_frame(frame).unwrap();
+
+        let stored = vm.get(&origin_id).expect("frame should be persisted");
+        assert_eq!(stored.hash, Some(hash));
+    }
+}

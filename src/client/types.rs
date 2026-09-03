@@ -48,7 +48,11 @@ fn looks_like_store_dir(p: &std::path::Path) -> bool {
 /// does, is the last segment treated as a core.
 fn split_unix_core(addr: &str) -> (String, Option<String>) {
     let path = std::path::Path::new(addr);
-    if looks_like_store_dir(path) || path.is_file() {
+    // `exists`, not `is_file`: a running store's `sock` is a Unix domain
+    // socket special file, not a regular file, so `is_file` is false for it
+    // and an explicit `<store>/sock` address would otherwise be misread as
+    // core name "sock".
+    if looks_like_store_dir(path) || path.exists() {
         return (addr.to_string(), None);
     }
     if let Some(pos) = addr.rfind('/') {
@@ -210,5 +214,100 @@ mod tests {
         assert_eq!(parts.uri, "https://example.com:400/");
         assert_eq!(parts.host, Some("example.com:400".to_string()));
         assert_eq!(parts.authorization, Some("Basic dXNlcjpwYXNz".to_string()));
+    }
+
+    #[test]
+    fn test_tcp_core_suffix() {
+        let parts = RequestParts::parse("example.com:9000/vm", "foo", None).unwrap();
+        assert_eq!(parts.core, Some("vm".to_string()));
+        assert_eq!(parts.uri, "http://example.com:9000/foo");
+        assert_eq!(
+            parts.connection,
+            ConnectionKind::Tcp {
+                host: "example.com".to_string(),
+                port: 9000
+            }
+        );
+    }
+
+    #[test]
+    fn test_tcp_no_core_suffix() {
+        let parts = RequestParts::parse("example.com:9000", "foo", None).unwrap();
+        assert_eq!(parts.core, None);
+    }
+
+    #[test]
+    fn test_iroh_core_suffix() {
+        let parts = RequestParts::parse("iroh://someticket123/vm", "foo", None).unwrap();
+        assert_eq!(parts.core, Some("vm".to_string()));
+        assert_eq!(
+            parts.connection,
+            ConnectionKind::Iroh {
+                ticket: "someticket123".to_string()
+            }
+        );
+    }
+
+    /// A running store directory (has `fjall/`) with a trailing `/<name>`
+    /// segment: the segment is a core name, and the socket connects to the
+    /// store directory itself.
+    #[test]
+    fn test_unix_core_suffix() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp_dir.path().join("fjall")).unwrap();
+        let addr = temp_dir.path().join("vm");
+
+        let parts = RequestParts::parse(addr.to_str().unwrap(), "foo", None).unwrap();
+        assert_eq!(parts.core, Some("vm".to_string()));
+        assert_eq!(
+            parts.connection,
+            ConnectionKind::Unix(temp_dir.path().join("sock"))
+        );
+    }
+
+    /// An explicit path to a running store's `sock` file must connect
+    /// directly, not be misread as the store's directory plus core "sock" --
+    /// a Unix domain socket isn't a regular file, so this needs `exists`,
+    /// not `is_file`.
+    #[test]
+    fn test_unix_explicit_sock_path_has_no_core() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp_dir.path().join("fjall")).unwrap();
+        let sock_path = temp_dir.path().join("sock");
+        std::os::unix::net::UnixListener::bind(&sock_path).unwrap();
+
+        let parts = RequestParts::parse(sock_path.to_str().unwrap(), "foo", None).unwrap();
+        assert_eq!(parts.core, None);
+        assert_eq!(parts.connection, ConnectionKind::Unix(sock_path));
+    }
+
+    /// A store directory addressed directly (no core suffix) is unaffected.
+    #[test]
+    fn test_unix_no_core_suffix_for_store_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp_dir.path().join("fjall")).unwrap();
+
+        let parts = RequestParts::parse(temp_dir.path().to_str().unwrap(), "foo", None).unwrap();
+        assert_eq!(parts.core, None);
+        assert_eq!(
+            parts.connection,
+            ConnectionKind::Unix(temp_dir.path().join("sock"))
+        );
+    }
+
+    /// A path to a store that hasn't been started yet (no `fjall/` dir, and
+    /// its parent isn't a store either) must not have its last segment
+    /// misread as a core name -- the connection error should still name the
+    /// intended store path, not the store's parent.
+    #[test]
+    fn test_unix_not_yet_started_store_has_no_core() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let addr = temp_dir.path().join("not-started-yet");
+
+        let parts = RequestParts::parse(addr.to_str().unwrap(), "foo", None).unwrap();
+        assert_eq!(parts.core, None);
+        // Doesn't exist, so treated as an explicit socket path, same as
+        // before this change -- not misread as a store dir plus core.
+        assert_eq!(parts.connection, ConnectionKind::Unix(addr));
     }
 }

@@ -1160,3 +1160,258 @@ async fn test_sqlite_commands_available() {
 
     child.kill().await.unwrap();
 }
+
+// --- Replica stores (ADR 0008) -------------------------------------------
+
+/// Declare a replica on `store_path`'s default core: `xs.replica.<name>.create
+/// {addr: origin_path}`.
+fn declare_replica(store_path: &std::path::Path, name: &str, origin_path: &std::path::Path) {
+    let meta = format!(r#"{{"addr":"{}"}}"#, origin_path.display());
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        format!("xs.replica.{name}.create"),
+        "--meta",
+        meta
+    )
+    .run()
+    .unwrap();
+}
+
+/// Poll `xs cat <addr> -T <topic> --last 1` until it returns a frame.
+async fn wait_for_topic(addr: &std::path::Path, topic: &str) {
+    let start = std::time::Instant::now();
+    loop {
+        let out = cmd!(
+            assert_cmd::cargo::cargo_bin!("xs"),
+            "cat",
+            addr,
+            "-T",
+            topic,
+            "--last",
+            "1"
+        )
+        .stderr_null()
+        .read();
+        if matches!(out, Ok(ref s) if !s.trim().is_empty()) {
+            return;
+        }
+        if start.elapsed() > Duration::from_secs(15) {
+            panic!("Timed out waiting for {topic} on {}", addr.display());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Poll `xs cat <addr>` (full history) until it has at least `n` lines.
+async fn wait_for_history_count(addr: &std::path::Path, n: usize) {
+    let start = std::time::Instant::now();
+    loop {
+        let out = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", addr)
+            .stderr_null()
+            .read();
+        if let Ok(s) = out {
+            if s.lines().filter(|l| !l.trim().is_empty()).count() >= n {
+                return;
+            }
+        }
+        if start.elapsed() > Duration::from_secs(15) {
+            panic!(
+                "Timed out waiting for {n} historical frames on {}",
+                addr.display()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The claim the replica model rests on: a replica is not a synced log, it's
+/// a store with a live broadcast, so a follower on the replica sees an
+/// ephemeral frame appended to the origin exactly as a local follow would --
+/// even though ephemeral frames never touch either side's disk.
+#[tokio::test]
+async fn test_replica_follow_sees_ephemeral_frame_from_origin() {
+    let origin_dir = TempDir::new().unwrap();
+    let origin_path = origin_dir.path();
+    let mut origin = spawn_xs_supervisor(origin_path).await;
+    wait_until_ready(origin_path).await;
+
+    let replica_dir = TempDir::new().unwrap();
+    let replica_path = replica_dir.path();
+    let mut replica = spawn_xs_supervisor(replica_path).await;
+    wait_until_ready(replica_path).await;
+
+    declare_replica(replica_path, "vm", origin_path);
+    wait_for_topic(replica_path, "xs.replica.vm.active").await;
+
+    // Live follower on the replica core, started before the ephemeral frame
+    // exists anywhere.
+    let mut rx = spawn_follower(replica_path.join("vm")).await;
+
+    // Drain whatever replicated history precedes the live cursor (at least
+    // origin's own `xs.start`) up to the threshold marking "caught up".
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("timed out draining replica history")
+        {
+            Some(frame) if frame.topic == "xs.threshold" => break,
+            Some(_) => continue,
+            None => panic!("replica follower closed before threshold"),
+        }
+    }
+
+    // Append an ephemeral frame to the ORIGIN -- never persisted anywhere.
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        origin_path,
+        "diff.frame",
+        "--ttl",
+        "ephemeral"
+    )
+    .stdin_bytes(b"ephemeral payload")
+    .run()
+    .unwrap();
+
+    assert_frame_received!(&mut rx, Some("diff.frame"));
+
+    // It's live-only: a fresh historical read of the replica never sees it.
+    let historical = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "cat",
+        replica_path.join("vm")
+    )
+    .read()
+    .unwrap();
+    assert!(
+        !historical.contains("diff.frame"),
+        "ephemeral frame must not be persisted on the replica: {historical}"
+    );
+
+    replica.kill().await.unwrap();
+    origin.kill().await.unwrap();
+}
+
+/// Single-writer is mechanical: appending, importing, or removing against an
+/// addressed core is a 405, regardless of whether that core exists.
+#[tokio::test]
+async fn test_replica_core_rejects_mutation() {
+    let origin_dir = TempDir::new().unwrap();
+    let origin_path = origin_dir.path();
+    let mut origin = spawn_xs_supervisor(origin_path).await;
+    wait_until_ready(origin_path).await;
+
+    // No `xs.replica.vm.create` was ever appended -- the 405 is enforced at
+    // the routing layer purely because a core was addressed, independent of
+    // whether that core has ever been declared as a replica.
+    let append_err = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        origin_path.join("vm"),
+        "should.fail"
+    )
+    .stderr_capture()
+    .stdout_capture()
+    .unchecked()
+    .run()
+    .unwrap();
+    assert!(!append_err.status.success(), "append to a core must fail");
+
+    let import_err = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "import",
+        origin_path.join("vm")
+    )
+    .stdin_bytes(b"{}")
+    .stderr_capture()
+    .stdout_capture()
+    .unchecked()
+    .run()
+    .unwrap();
+    assert!(!import_err.status.success(), "import to a core must fail");
+
+    origin.kill().await.unwrap();
+}
+
+/// A replica's cursor is durable: after the replica process restarts, it
+/// picks up exactly where its own keyspace left off, without dropping or
+/// duplicating frames written to the origin while it was down.
+#[tokio::test]
+async fn test_replica_cursor_resumes_after_restart() {
+    let origin_dir = TempDir::new().unwrap();
+    let origin_path = origin_dir.path();
+    let mut origin = spawn_xs_supervisor(origin_path).await;
+    wait_until_ready(origin_path).await;
+
+    for topic in ["before.one", "before.two"] {
+        cmd!(
+            assert_cmd::cargo::cargo_bin!("xs"),
+            "append",
+            origin_path,
+            topic
+        )
+        .run()
+        .unwrap();
+    }
+
+    let replica_dir = TempDir::new().unwrap();
+    let replica_path = replica_dir.path();
+    let mut replica = spawn_xs_supervisor(replica_path).await;
+    wait_until_ready(replica_path).await;
+
+    declare_replica(replica_path, "vm", origin_path);
+    wait_for_topic(replica_path, "xs.replica.vm.active").await;
+    // xs.start + before.one + before.two
+    wait_for_history_count(&replica_path.join("vm"), 3).await;
+
+    replica.kill().await.unwrap();
+
+    // Origin advances while the replica is down.
+    for topic in ["during.one", "during.two"] {
+        cmd!(
+            assert_cmd::cargo::cargo_bin!("xs"),
+            "append",
+            origin_path,
+            topic
+        )
+        .run()
+        .unwrap();
+    }
+
+    let mut replica = spawn_xs_supervisor(replica_path).await;
+    wait_until_ready(replica_path).await;
+
+    // The dispatcher resumes the confirmed replica from history on boot; no
+    // second `.create` needed.
+    wait_for_history_count(&replica_path.join("vm"), 5).await;
+
+    let historical = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "cat",
+        replica_path.join("vm")
+    )
+    .read()
+    .unwrap();
+    let topics: Vec<Frame> = historical
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let names: Vec<&str> = topics.iter().map(|f| f.topic.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "xs.start",
+            "before.one",
+            "before.two",
+            "during.one",
+            "during.two",
+        ],
+        "no drops or duplicates across the restart: {names:?}"
+    );
+
+    replica.kill().await.unwrap();
+    origin.kill().await.unwrap();
+}
