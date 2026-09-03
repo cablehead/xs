@@ -68,18 +68,39 @@ Splitting the trailing segment differs per transport:
 the replica from a nushell session the same way `xs cat <addr>/vm --follow`
 does from the shell.
 
-`/eval` is rejected (405) for an addressed core, same as the other mutating
-routes, even though a read-only script would be harmless: `eval_engine`
-builds its nu engine's `.append`/`.import`/`.remove` builtins bound to
-whatever `Store` it's given, so scoping `/eval` to a core would hand a
-script exactly the write access the rest of this design goes to lengths to
-deny. The in-process `.cat` builtin (`CatCommand`, used inside `xs
-eval`/service/actor engines) is unaffected by any of this either way -- it
-reads whichever `Store` its engine was built with, and this task doesn't add
-a way to hand it a different core. Scripts that need a replica's frames from
-inside an engine can still shell out via the `xs` binary; wiring
-core-selection into the in-process builtin (with the same read-only
-enforcement `/eval` needs) is future work if that turns out to matter.
+### `xs eval` reads cores; it cannot be pointed at one
+
+Invariant 3 in the source task doc: `xs eval` is the execution model, so
+fold/filter/reduce need to run server-side against a replica core, not by
+pulling the whole stream to the client to fold there. That means the
+in-process `.cat`/`.last`/`.cas` builtins (`CatCommand`/`LastCommand`/
+`CasCommand`, used inside `xs eval`/service/actor engines) needed the same
+core selector as the CLI:
+
+    xs eval <addr> -c 'interleave { .cat --follow } { .cat vm --follow } | ...'
+
+Each gained a `core` parameter (positional for `.cat`, matching the example
+above and `xs-replica-panes.md`; a `--core` flag for `.last` and `.cas`,
+since `.last`'s positions 0/1 already disambiguate topic vs. count). At
+call time, `self.store.core(name)` resolves it -- the same registry
+`api::handle` uses, so a `.cat vm --follow` running inside an `xs eval` on
+the replica process sees the replicator's broadcasts exactly like the CLI
+follow test does. `cas_reader_sync`/`.cas --core` get the same
+pull-from-origin fallback as the async CAS path, blocking on the `Store`'s
+captured runtime handle -- safe because nu command bodies in this codebase
+already run off the tokio runtime thread (the same premise `read`'s
+`blocking_recv` relies on).
+
+`/eval` itself stays rejected (405) for an addressed core -- relaxing that
+was the wrong fix. `eval_engine` builds `.append`/`.import`/`.remove` bound
+to whatever `Store` the engine gets constructed with; scoping `/eval` itself
+to a core would have handed a script exactly the write access the rest of
+this design goes to lengths to deny. Read access into a core is a
+per-builtin parameter instead, so `.cat vm` can read while `.append` (no
+core parameter, by construction) always lands on the engine's one default
+store. There is no way to write into a core from inside a script: not
+because something checks and refuses, but because no builtin accepts a core
+argument on the write side.
 
 ## Write paths
 
@@ -164,9 +185,3 @@ normal HTTP path instead.
   per-writer key, checked on replicate) rather than only at the transport
   level, so a relayed replica can still be verified against its original
   writer. Not implemented here -- out of scope for a same-network replica.
-- **In-process `.cat` builtin has no core selector.** See "Addressing"
-  above. Recommendation if this becomes necessary: thread an optional
-  `Store` override through the nu engine's command registration rather than
-  a per-call argument, since which store a builtin reads from is normally
-  fixed at engine-build time in this codebase (ADR 0006/0007), not a
-  runtime parameter.

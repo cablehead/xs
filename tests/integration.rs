@@ -1226,6 +1226,115 @@ async fn wait_for_history_count(addr: &std::path::Path, n: usize) {
     }
 }
 
+/// `xs eval` is the execution model: a server-side script must be able to
+/// `.cat vm --follow` a replica core -- so folding/filtering can happen
+/// where the data lives, not by pulling the whole stream to the client --
+/// while having no path to write into that core. `/eval` itself stays bound
+/// to the default store (it can't be pointed at a core at all, see
+/// `test_replica_core_rejects_mutation`); this test is about the in-process
+/// `.cat`/`.append` builtins the script runs with.
+#[tokio::test]
+async fn test_eval_can_follow_replica_core_but_not_write_to_it() {
+    let origin_dir = TempDir::new().unwrap();
+    let origin_path = origin_dir.path();
+    let mut origin = spawn_xs_supervisor(origin_path).await;
+    wait_until_ready(origin_path).await;
+
+    let replica_dir = TempDir::new().unwrap();
+    let replica_path = replica_dir.path();
+    let mut replica = spawn_xs_supervisor(replica_path).await;
+    wait_until_ready(replica_path).await;
+
+    declare_replica(replica_path, "vm", origin_path);
+    wait_for_topic(replica_path, "xs.replica.vm.active").await;
+
+    // A script running server-side follows the replica core by name.
+    let mut follow_child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
+        .arg("eval")
+        .arg(replica_path)
+        .arg("-c")
+        .arg(".cat vm --topic diff.frame --follow")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdout = follow_child.stdout.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stdout);
+
+    // Caught up to live (no diff.frame in history yet).
+    let mut line = String::new();
+    let result = tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line))
+        .await
+        .expect("timed out waiting for threshold")
+        .unwrap();
+    assert!(result > 0);
+    let threshold: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(threshold["topic"], "xs.threshold");
+
+    // The origin appends an ephemeral frame; the in-process `.cat vm
+    // --follow` sees it via the replicator's broadcast, same as the CLI
+    // follow test.
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        origin_path,
+        "diff.frame",
+        "--ttl",
+        "ephemeral"
+    )
+    .stdin_bytes(b"keyframe")
+    .run()
+    .unwrap();
+
+    line.clear();
+    let result = tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line))
+        .await
+        .expect("timed out waiting for the replicated ephemeral frame")
+        .unwrap();
+    assert!(result > 0);
+    let seen: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(seen["topic"], "diff.frame");
+
+    follow_child.kill().await.unwrap();
+
+    // There is no way to address "vm" for a write: `.append`/`.import` in
+    // this codebase always target the engine's default store, never a named
+    // core. Appending from an eval script lands on the replica process's
+    // own default stream, not inside "vm".
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        replica_path,
+        "-c",
+        r#""local write" | .append should.not.appear.in.vm"#
+    )
+    .run()
+    .unwrap();
+
+    let vm_history = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "cat",
+        replica_path.join("vm")
+    )
+    .read()
+    .unwrap();
+    assert!(
+        !vm_history.contains("should.not.appear.in.vm"),
+        "a write from inside eval must never land in the replica core: {vm_history}"
+    );
+
+    let default_history = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", replica_path)
+        .read()
+        .unwrap();
+    assert!(
+        default_history.contains("should.not.appear.in.vm"),
+        "the write should have landed on the default store instead: {default_history}"
+    );
+
+    replica.kill().await.unwrap();
+    origin.kill().await.unwrap();
+}
+
 /// The claim the replica model rests on: a replica is not a synced log, it's
 /// a store with a live broadcast, so a follower on the replica sees an
 /// ephemeral frame appended to the origin exactly as a local follow would --

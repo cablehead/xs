@@ -31,6 +31,12 @@ impl Command for CasCommand {
                 SyntaxShape::String,
                 "hash of the content to retrieve",
             )
+            .named(
+                "core",
+                SyntaxShape::String,
+                "replica core to read the blob from instead of the default store, e.g. \"vm\" for a store opened via `xs.replica.vm.create`",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -54,8 +60,13 @@ impl Command for CasCommand {
                 span,
             ))
         })?;
+        let core: Option<String> = call.get_flag(engine_state, stack, "core")?;
+        let store = match &core {
+            Some(name) => self.store.core(name),
+            None => self.store.clone(),
+        };
 
-        let mut reader = self.store.cas_reader_sync(hash).map_err(|e| {
+        let mut reader = store.cas_reader_sync(hash).map_err(|e| {
             ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
         })?;
 

@@ -1100,9 +1100,30 @@ impl Store {
         writer.commit().await.is_ok()
     }
 
-    /// Blocking variant of [`cas_reader`](Store::cas_reader).
+    /// Blocking variant of [`cas_reader`](Store::cas_reader). Falls back to
+    /// the replication origin the same way, blocking on the runtime handle
+    /// captured at [`new`](Store::new) -- safe here because, like
+    /// [`read`](Store::read)'s `blocking_recv`, nu command bodies in this
+    /// codebase always run off the tokio runtime thread (eval/service/actor
+    /// scripts execute on a dedicated `std::thread`, never inline on a
+    /// runtime worker).
     pub fn cas_reader_sync(&self, hash: ssri::Integrity) -> cacache::Result<cacache::SyncReader> {
-        cacache::SyncReader::open_hash(self.path.join("cacache"), hash)
+        let cas_path = self.path.join("cacache");
+        match cacache::SyncReader::open_hash(&cas_path, hash.clone()) {
+            Ok(reader) => Ok(reader),
+            Err(e) => {
+                let pulled = self
+                    .rt
+                    .as_ref()
+                    .map(|rt| rt.block_on(self.pull_from_origin(&hash)))
+                    .unwrap_or(false);
+                if pulled {
+                    cacache::SyncReader::open_hash(&cas_path, hash)
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
 
     /// Open a streaming writer; finish it to obtain the payload's integrity hash.

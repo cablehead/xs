@@ -46,6 +46,12 @@ impl Command for LastCommand {
                 "include timestamp extracted from frame ID",
                 None,
             )
+            .named(
+                "core",
+                SyntaxShape::String,
+                "replica core to read instead of the default store, e.g. \"vm\" for a store opened via `xs.replica.vm.create`",
+                None,
+            )
             .category(Category::Experimental)
     }
 
@@ -63,6 +69,11 @@ impl Command for LastCommand {
         let raw_topic: Option<Value> = call.opt(engine_state, stack, 0)?;
         let raw_count: Option<i64> = call.opt(engine_state, stack, 1)?;
         let follow = call.has_flag(engine_state, stack, "follow")?;
+        let core: Option<String> = call.get_flag(engine_state, stack, "core")?;
+        let store = match &core {
+            Some(name) => self.store.core(name),
+            None => self.store.clone(),
+        };
         let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
         let span = call.head;
 
@@ -89,7 +100,7 @@ impl Command for LastCommand {
                 .follow(FollowOption::On)
                 .build();
 
-            let mut rx = self.store.read(options);
+            let mut rx = store.read(options);
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
                     let frame = rx.blocking_recv()?; // parks off-runtime; None when producer done/cancelled
@@ -112,7 +123,7 @@ impl Command for LastCommand {
         // thread.
         let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
 
-        let mut rx = self.store.read(options);
+        let mut rx = store.read(options);
         let frames: Vec<Value> = std::iter::from_fn(move || {
             let frame = rx.blocking_recv()?; // None when the producer finishes replay
             Some(util::frame_to_value(&frame, span, with_timestamp))

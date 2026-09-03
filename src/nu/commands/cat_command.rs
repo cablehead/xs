@@ -43,6 +43,11 @@ impl Command for CatCommand {
     fn signature(&self) -> Signature {
         Signature::build(".cat")
             .input_output_types(vec![(Type::Nothing, Type::Any)])
+            .optional(
+                "core",
+                SyntaxShape::String,
+                "replica core to read instead of the default store, e.g. \"vm\" for a store opened via `xs.replica.vm.create` -- read-only, same as every other flag here",
+            )
             .switch("follow", "long poll for new events", Some('f'))
             .named(
                 "pulse",
@@ -104,6 +109,12 @@ impl Command for CatCommand {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
+        let core: Option<String> = call.opt(engine_state, stack, 0)?;
+        let store = match &core {
+            Some(name) => self.store.core(name),
+            None => self.store.clone(),
+        };
+
         let follow = call.has_flag(engine_state, stack, "follow")?;
         let pulse: Option<i64> = call.get_flag(engine_state, stack, "pulse")?;
         let new = call.has_flag(engine_state, stack, "new")?;
@@ -169,7 +180,7 @@ impl Command for CatCommand {
             // Follow mode: stream lazily. The follow/heartbeat task runs on the
             // shared runtime; the consumer dropping the ListStream cancels it
             // (the L1 fd-leak fix). Driven off the runtime in real use.
-            let mut rx = self.store.read(options);
+            let mut rx = store.read(options);
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
                     let frame = rx.blocking_recv()?; // parks off-runtime; None when producer done/cancelled
@@ -186,7 +197,7 @@ impl Command for CatCommand {
         // blocking_recv parks the caller thread; callers that reach `.cat`
         // during an actor's async setup run the config eval on a dedicated
         // thread (see parse_config), so this never parks a runtime thread.
-        let mut rx = self.store.read(options);
+        let mut rx = store.read(options);
         let stream = ListStream::new(
             std::iter::from_fn(move || {
                 let frame = rx.blocking_recv()?; // None when the producer finishes replay
