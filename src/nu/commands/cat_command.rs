@@ -2,7 +2,7 @@ use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{
-    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type, Value,
+    Category, ListStream, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
 };
 use std::time::Duration;
 
@@ -176,22 +176,28 @@ impl Command for CatCommand {
             }
         };
 
+        let signals = engine_state.signals().clone();
+
         if following {
             // Follow mode: stream lazily. The follow/heartbeat task runs on the
             // shared runtime; the consumer dropping the ListStream cancels it
             // (the L1 fd-leak fix). Driven off the runtime in real use.
+            //
+            // An idle follow otherwise blocks forever in a single
+            // Store::blocking_recv call, which nothing between yielded items
+            // (like ListStream's own signal check) can preempt -- so the
+            // signal check has to live inside that call. Passing `signals`
+            // to both `blocking_recv` and `ListStream::new` covers both a
+            // read that's currently blocked and one that just returned.
             let mut rx = store.read(options);
+            let iter_signals = signals.clone();
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    // Safe even if this iterator is driven from inside a
-                    // caller's own tokio runtime (an embedder's inline eval,
-                    // not just xs's own dedicated-thread callers) -- see
-                    // Store::blocking_recv.
-                    let frame = Store::blocking_recv(&mut rx)?; // None when producer done/cancelled
+                    let frame = Store::blocking_recv(&mut rx, &iter_signals)?; // None when producer done/cancelled/interrupted
                     Some(to_value(&frame))
                 }),
                 span,
-                Signals::empty(),
+                signals,
             );
             return Ok(PipelineData::ListStream(stream, None));
         }
@@ -199,13 +205,14 @@ impl Command for CatCommand {
         // Historical mode: stream lazily, same shape as the follow branch. The
         // producer closes the channel once replay completes, so from_fn ends.
         let mut rx = store.read(options);
+        let iter_signals = signals.clone();
         let stream = ListStream::new(
             std::iter::from_fn(move || {
-                let frame = Store::blocking_recv(&mut rx)?; // None when the producer finishes replay
+                let frame = Store::blocking_recv(&mut rx, &iter_signals)?; // None when the producer finishes replay or is interrupted
                 Some(to_value(&frame))
             }),
             span,
-            Signals::empty(),
+            signals,
         );
         Ok(PipelineData::ListStream(stream, None))
     }

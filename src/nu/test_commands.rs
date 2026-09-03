@@ -906,4 +906,56 @@ mod tests {
         assert!(iter.next().is_some(), "expected first historical frame");
         assert!(iter.next().is_some(), "expected second historical frame");
     }
+
+    // Task 4 (xs-replica-panes.md): an idle `.cat --follow` must return once
+    // the engine's signals are interrupted, not just check between already-
+    // yielded items. nu_protocol::ListStream's own InterruptIter can only do
+    // the latter (see its `next()`); a single in-flight Store::blocking_recv
+    // call, blocked because nothing has been appended, is exactly the case
+    // it cannot preempt on its own. This drives that single blocked call to
+    // completion by fully draining the stream (`.into_value`), then trips
+    // the interrupt from another thread while it's still parked -- proving
+    // interruption of an in-flight block, not a pre-check that only helps
+    // between items.
+    #[test]
+    fn test_cat_follow_returns_when_signals_interrupted() {
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        let interrupt = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        engine
+            .state
+            .set_signals(nu_protocol::Signals::new(interrupt.clone()));
+
+        // No frames exist and none will be appended: draining this blocks
+        // forever pre-fix -- nothing else will ever make it return.
+        let engine_clone = engine.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            if let Ok(pd) = engine_clone.eval(PipelineData::empty(), ".cat --follow".to_string()) {
+                let _ = pd.into_value(Span::test_data());
+            }
+            let _ = done_tx.send(());
+        });
+
+        // Give the eval time to actually reach the blocked read before
+        // tripping the interrupt.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        interrupt.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        if done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .is_err()
+        {
+            panic!(
+                "`.cat --follow` did not return within 5s of the engine's \
+                 signals being interrupted -- it's still blocked inside \
+                 Store::blocking_recv"
+            );
+        }
+    }
 }

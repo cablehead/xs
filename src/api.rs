@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use scru128::Scru128Id;
@@ -685,13 +687,84 @@ fn eval_engine(store: &Store) -> Result<nu::Engine, String> {
     Ok(engine)
 }
 
+type EvalChunk = Result<hyper::body::Frame<Bytes>, BoxError>;
+
+/// Trip `interrupt` -- and so any `.cat`/`.last` this eval's engine is
+/// blocked in, via `Store::blocking_recv` -- if the client goes away (the
+/// response channel's sender closes) or the server starts shutting down
+/// (`xs.stopping`, per #150: SIGINT/SIGTERM both run that protocol),
+/// whichever happens first. `tx: None` during the pre-streaming phase (the
+/// initial `engine.eval()` join, before we know the response shape and so
+/// have no channel yet) watches shutdown only.
+///
+/// Stops watching -- and drops its own store subscription -- as soon as
+/// `life` resolves, which happens the moment its paired sender is dropped.
+/// Callers hold that sender exactly as long as there's something left to
+/// protect: dropped right after the join for the pre-streaming watcher,
+/// moved into the drain thread (so it drops when that thread ends, for any
+/// reason) for the streaming one. Without this, a short eval like `2 + 2`
+/// would otherwise leak one live store subscription per request forever.
+fn spawn_eval_watcher(
+    store: Store,
+    interrupt: Arc<AtomicBool>,
+    tx: Option<tokio::sync::mpsc::Sender<EvalChunk>>,
+    life: tokio::sync::oneshot::Receiver<()>,
+) {
+    tokio::spawn(async move {
+        let mut stopping = store.read(
+            ReadOptions::builder()
+                .follow(FollowOption::On)
+                .topic("xs.stopping".to_string())
+                .build(),
+        );
+        let watch_stopping = async {
+            while let Some(frame) = stopping.recv().await {
+                if frame.topic == "xs.stopping" {
+                    return;
+                }
+            }
+        };
+        match tx {
+            Some(tx) => {
+                tokio::select! {
+                    _ = tx.closed() => {}
+                    _ = watch_stopping => {}
+                    _ = life => return,
+                }
+            }
+            None => {
+                tokio::select! {
+                    _ = watch_stopping => {}
+                    _ = life => return,
+                }
+            }
+        }
+        interrupt.store(true, Ordering::Relaxed);
+    });
+}
+
 async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
     // Read the script from the request body
     let bytes = body.collect().await?.to_bytes();
     let script =
         String::from_utf8(bytes.to_vec()).map_err(|e| format!("Invalid UTF-8 in script: {e}"))?;
 
-    let engine = eval_engine(store)?;
+    let mut engine = eval_engine(store)?;
+
+    // See spawn_eval_watcher: ctrl-C on the client (or server shutdown)
+    // trips this, and Store::blocking_recv (what .cat/.last block in) checks
+    // it, so an abandoned `interleave { .cat --follow } { .cat vm --follow }
+    // | generate {...}` actually returns instead of leaking its thread.
+    let interrupt = Arc::new(AtomicBool::new(false));
+    engine
+        .state
+        .set_signals(nu_protocol::Signals::new(interrupt.clone()));
+
+    // Covers the join below: a script that blocks before producing any
+    // PipelineData (so before there's a response channel to watch
+    // disconnection on) still notices server shutdown.
+    let (pre_life_tx, pre_life_rx) = tokio::sync::oneshot::channel();
+    spawn_eval_watcher(store.clone(), interrupt.clone(), None, pre_life_rx);
 
     // Execute the script on a dedicated thread, not on this tokio runtime
     // thread. handle_eval is an async handler, so engine.eval would otherwise
@@ -706,6 +779,7 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
             .expect("eval thread panicked")
     })
     .map_err(|e| format!("Script evaluation failed:\n{e}"))?;
+    drop(pre_life_tx); // engine.eval returned; the streaming-phase watcher (below) takes over
 
     // Format output based on PipelineData type according to spec
     match result {
@@ -715,9 +789,12 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                 use std::io::Read;
 
                 let (tx, rx) = tokio::sync::mpsc::channel(16);
+                let (life_tx, life_rx) = tokio::sync::oneshot::channel();
+                spawn_eval_watcher(store.clone(), interrupt.clone(), Some(tx.clone()), life_rx);
 
                 // Spawn sync task to read from nushell Reader and send to channel
                 std::thread::spawn(move || {
+                    let _life_tx = life_tx; // held until this thread ends, however it ends
                     let mut buffer = [0u8; 8192];
                     loop {
                         match reader.read(&mut buffer) {
@@ -758,9 +835,12 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
         nu_protocol::PipelineData::ListStream(stream, ..) => {
             // ListStream → JSONL stream with proper streaming using channel pattern
             let (tx, rx) = tokio::sync::mpsc::channel(16);
+            let (life_tx, life_rx) = tokio::sync::oneshot::channel();
+            spawn_eval_watcher(store.clone(), interrupt.clone(), Some(tx.clone()), life_rx);
 
             // Spawn sync task to iterate stream and send JSONL to channel
             std::thread::spawn(move || {
+                let _life_tx = life_tx; // held until this thread ends, however it ends
                 for value in stream.into_iter() {
                     let json = nu::value_to_json(&value);
                     match serde_json::to_vec(&json) {

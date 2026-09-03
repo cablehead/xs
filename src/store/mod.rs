@@ -916,35 +916,56 @@ impl Store {
         rx
     }
 
+    /// How often [`blocking_recv`](Store::blocking_recv) checks
+    /// `signals.interrupted()` while a channel is idle. Bounds ctrl-C
+    /// latency on an idle `--follow`; short enough to feel instant, long
+    /// enough that the wakeups are not meaningfully more than idle
+    /// `blocking_recv` cost.
+    const BLOCKING_RECV_POLL: Duration = Duration::from_millis(15);
+
     /// Receive the next frame from a channel returned by [`read`](Store::read),
-    /// blocking the calling thread until one arrives or the channel closes.
+    /// blocking the calling thread until one arrives, the channel closes, or
+    /// `signals` is interrupted.
     ///
-    /// Plain [`Receiver::blocking_recv`] panics unconditionally when called
-    /// from a thread that is currently driving a tokio runtime ("Cannot
-    /// block the current thread from within a runtime"). That is exactly
-    /// what happens to an embedder whose own async code calls `.cat`/`.last`
-    /// inline rather than from a dedicated thread -- the constraint isn't
-    /// documented anywhere the embedder would see it before hitting the
-    /// panic. This detects that case and steps the calling thread out of the
-    /// runtime's worker pool first
-    /// ([`tokio::task::block_in_place`]), so the block is safe; outside a
-    /// runtime (the CLI, or a dedicated `std::thread` as `.cat`/`.last`
-    /// already use internally) it's the same zero-overhead `blocking_recv`
-    /// as before, and nothing here spawns or retains a runtime of its own --
-    /// this doesn't reintroduce the leak #146 removed.
+    /// This exists for two reasons, both hit by an embedder whose script
+    /// eval isn't offloaded to a dedicated thread -- see ADR references in
+    /// git history (#146, and the fix that added this method):
     ///
-    /// `block_in_place` itself requires a multi-threaded runtime; called
-    /// while a single-threaded (`current_thread`) runtime is entered, it
-    /// panics with tokio's own message to that effect. A single-threaded
-    /// runtime has no spare worker to hand this thread's other queued work
-    /// off to, so there is no safe way to block it here regardless -- doing
-    /// so would risk deadlocking whatever else that runtime is driving,
-    /// including, potentially, this same store's own follow/heartbeat tasks.
-    pub fn blocking_recv<T>(rx: &mut tokio::sync::mpsc::Receiver<T>) -> Option<T> {
-        if tokio::runtime::Handle::try_current().is_ok() {
-            tokio::task::block_in_place(|| rx.blocking_recv())
-        } else {
-            rx.blocking_recv()
+    /// 1. Plain [`Receiver::blocking_recv`] panics unconditionally when
+    ///    called from a thread that is currently driving a tokio runtime
+    ///    ("Cannot block the current thread from within a runtime").
+    /// 2. Even off a runtime thread, a single `blocking_recv` call on an
+    ///    idle stream (an idle `.cat --follow`) blocks forever with no way
+    ///    back to a caller that wants ctrl-C to work. Nushell's own
+    ///    [`ListStream`](nu_protocol::ListStream) can only check signals
+    ///    *between* yielded items (see its `InterruptIter`); it can't
+    ///    preempt a single in-flight read that never returns on its own.
+    ///    That's exactly this case, so the check has to live inside the
+    ///    blocking call itself.
+    ///
+    /// This is solved the same way for both: never call a tokio blocking
+    /// primitive at all. `try_recv` and `thread::sleep` are both plain,
+    /// non-runtime-aware calls -- safe from any thread, entered into a
+    /// runtime or not -- so polling between them sidesteps (1) for free
+    /// while solving (2). No runtime is spawned or retained here, so this
+    /// doesn't reintroduce the leak #146 removed; on an active stream this
+    /// resolves on the first poll, same latency as a direct `blocking_recv`.
+    pub fn blocking_recv<T>(
+        rx: &mut tokio::sync::mpsc::Receiver<T>,
+        signals: &nu_protocol::Signals,
+    ) -> Option<T> {
+        use tokio::sync::mpsc::error::TryRecvError;
+        loop {
+            match rx.try_recv() {
+                Ok(item) => return Some(item),
+                Err(TryRecvError::Disconnected) => return None,
+                Err(TryRecvError::Empty) => {
+                    if signals.interrupted() {
+                        return None;
+                    }
+                    std::thread::sleep(Self::BLOCKING_RECV_POLL);
+                }
+            }
         }
     }
 

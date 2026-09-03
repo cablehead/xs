@@ -1,7 +1,7 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{
-    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type, Value,
+    Category, ListStream, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
 };
 
 use crate::nu::util;
@@ -91,9 +91,16 @@ impl Command for LastCommand {
             ),
         };
 
+        let signals = engine_state.signals().clone();
+
         if follow {
             // Follow mode: stream historical-then-new through the receiver. The
             // consumer dropping the ListStream cancels the producer task (L1).
+            //
+            // See CatCommand::run for why `signals` goes to both
+            // `blocking_recv` (an idle follow blocks indefinitely in a
+            // single call, which nothing between yielded items can preempt)
+            // and `ListStream::new` (the already-returned case).
             let options = ReadOptions::builder()
                 .last(n)
                 .maybe_topic(topic)
@@ -101,15 +108,14 @@ impl Command for LastCommand {
                 .build();
 
             let mut rx = store.read(options);
+            let iter_signals = signals.clone();
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    // Safe even if this iterator is driven from inside a
-                    // caller's own tokio runtime -- see Store::blocking_recv.
-                    let frame = Store::blocking_recv(&mut rx)?; // None when producer done/cancelled
+                    let frame = Store::blocking_recv(&mut rx, &iter_signals)?; // None when producer done/cancelled/interrupted
                     Some(util::frame_to_value(&frame, span, with_timestamp))
                 }),
                 span,
-                Signals::empty(),
+                signals,
             );
 
             return Ok(PipelineData::ListStream(stream, None));
@@ -124,7 +130,7 @@ impl Command for LastCommand {
 
         let mut rx = store.read(options);
         let frames: Vec<Value> = std::iter::from_fn(move || {
-            let frame = Store::blocking_recv(&mut rx)?; // None when the producer finishes replay
+            let frame = Store::blocking_recv(&mut rx, &signals)?; // None when the producer finishes replay or is interrupted
             Some(util::frame_to_value(&frame, span, with_timestamp))
         })
         .collect();
