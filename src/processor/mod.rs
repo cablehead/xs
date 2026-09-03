@@ -1,6 +1,7 @@
 pub mod action;
 pub mod actor;
 pub mod lifecycle;
+pub mod replica;
 pub mod service;
 
 use crate::store::Frame;

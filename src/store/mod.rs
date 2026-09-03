@@ -1220,8 +1220,15 @@ impl Store {
     /// # }
     /// ```
     pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
+        // Serialize all appends to ensure ID generation, write, and broadcast
+        // happen atomically. This guarantees subscribers receive frames in
+        // scru128 ID order: the id must be minted *inside* the locked
+        // section, or two racing appends can mint ids in one order but
+        // acquire the lock (and so land in the store/broadcast) in the
+        // other.
+        let _guard = self.append_lock.lock().unwrap();
         frame.id = scru128::new();
-        self.write_frame(frame)
+        self.write_frame_locked(frame)
     }
 
     /// Write a frame that already carries its final [`id`](Frame::id) and
@@ -1236,14 +1243,13 @@ impl Store {
     /// ephemeral frames exactly as a local follow does. See ADR 0008.
     #[tracing::instrument(skip(self))]
     pub fn replicate_frame(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
-        self.write_frame(frame)
+        let _guard = self.append_lock.lock().unwrap();
+        self.write_frame_locked(frame)
     }
 
-    fn write_frame(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
-        // Serialize all writes to ensure write and broadcast happen
-        // atomically. This guarantees subscribers receive frames in id order.
-        let _guard = self.append_lock.lock().unwrap();
-
+    /// Store (unless ephemeral) and broadcast a frame that already has its
+    /// final id. Caller must hold `append_lock`.
+    fn write_frame_locked(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
         // Check for null byte in topic (in case we're not storing the frame)
         idx_topic_key_from_frame(&frame)?;
 

@@ -33,6 +33,7 @@ def topic-arg [t: any] {
 
 def _cat [options: record] {
   let with_ts = ($options | get with_timestamp? | default false)
+  let addr = ($options | get addr? | default (xs-addr))
   let params = [
     (if ($options | get follow? | default false) { "--follow" })
     (if ($options | get new? | default false) { "--new" })
@@ -47,12 +48,13 @@ def _cat [options: record] {
     (if $options.topic? != null { ["--topic" (topic-arg $options.topic)] })
   ] | compact | flatten
 
-  xs cat (xs-addr) ...$params | lines | each {|x|
+  xs cat $addr ...$params | lines | each {|x|
     $x | from json | if $with_ts { into datetime timestamp } else { }
   }
 }
 
 export def .cat [
+  core?: string # replicated core to read instead of the default store, e.g. "vm" for a store opened via `xs.replica.vm.create`
   --follow (-f) # long poll for new events
   --pulse (-p): int # specifies the interval (in milliseconds) to receive a synthetic "xs.pulse" event
   --new (-n) # skip existing, only show new
@@ -65,6 +67,7 @@ export def .cat [
   --topic (-T): oneof<list<string>, string> # filter by topic pattern(s): a string (commas allowed) or a list of strings
 ] {
   _cat {
+    addr: (if $core != null { $"(xs-addr)/($core)" } else { xs-addr })
     follow: $follow
     pulse: $pulse
     new: $new

@@ -372,6 +372,15 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
         });
     }
 
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            if let Err(e) = xs::processor::replica::run(store).await {
+                eprintln!("Replica processor error: {e}");
+            }
+        });
+    }
+
     tokio::select! {
         res = xs::api::serve(store.clone(), engine.clone(), args.expose) => { res?; }
         _ = shutdown_signal() => {}
