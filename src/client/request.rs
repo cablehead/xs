@@ -52,6 +52,9 @@ where
     if let Some(auth) = parts.authorization {
         builder = builder.header(hyper::header::AUTHORIZATION, auth);
     }
+    if let Some(core) = parts.core {
+        builder = builder.header("xs-core", core);
+    }
 
     if let Some(extra_headers) = headers {
         for (name, value) in extra_headers {

@@ -212,8 +212,13 @@ fn match_route(
     }
 }
 
+/// Header a client sends to address a named core instead of the default
+/// store, e.g. `xs cat <addr>/vm` parses off `/vm` and sends `xs-core: vm`.
+/// See ADR 0008.
+const CORE_HEADER: &str = "xs-core";
+
 async fn handle(
-    mut store: Store,
+    store: Store,
     _engine: nu::Engine, // TODO: potentially vestigial, will .process come back?
     req: Request<hyper::body::Incoming>,
 ) -> HTTPResult {
@@ -222,7 +227,31 @@ async fn handle(
     let headers = req.headers().clone();
     let query = req.uri().query();
 
-    let res = match match_route(method, path, &headers, query) {
+    let core = headers
+        .get(CORE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let route = match_route(method, path, &headers, query);
+
+    // Replicas are read-only: single-writer is enforced here, mechanically,
+    // rather than left to convention. Every mutating route is rejected for
+    // any addressed core, regardless of name.
+    if core.is_some()
+        && matches!(
+            route,
+            Routes::StreamAppend { .. } | Routes::Import | Routes::StreamItemRemove(_)
+        )
+    {
+        return response_405();
+    }
+
+    let mut store = match &core {
+        Some(name) => store.core(name),
+        None => store,
+    };
+
+    let res = match route {
         Routes::Version => handle_version().await,
 
         Routes::StreamCat {
@@ -603,6 +632,12 @@ fn response_404() -> HTTPResult {
     Ok(Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(empty())?)
+}
+
+fn response_405() -> HTTPResult {
+    Ok(Response::builder()
+        .status(StatusCode::METHOD_NOT_ALLOWED)
+        .body(full("replica is read-only"))?)
 }
 
 fn response_400(message: String) -> HTTPResult {

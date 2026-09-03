@@ -11,7 +11,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio_util::io::ReaderStream;
 
 use super::request;
-use crate::store::{ReadOptions, TTL};
+use crate::store::{Frame, ReadOptions, TTL};
 
 pub async fn cat(
     addr: &str,
@@ -60,6 +60,46 @@ pub async fn cat(
                 Err(e) => {
                     eprintln!("Error reading body: {e}");
                     break;
+                }
+            }
+        }
+    });
+
+    Ok(rx)
+}
+
+/// Like [`cat`], but parses the NDJSON body into [`Frame`]s instead of
+/// handing back raw bytes. Used by the replicator (see
+/// `processor::replica`), which needs structured frames -- id and hash
+/// preserved -- not text to forward to a terminal.
+pub async fn cat_frames(
+    addr: &str,
+    options: ReadOptions,
+) -> Result<Receiver<Frame>, Box<dyn std::error::Error + Send + Sync>> {
+    let bytes_rx = cat(addr, options, false, false).await?;
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+    tokio::spawn(async move {
+        let mut bytes_rx = bytes_rx;
+        let mut buf = Vec::new();
+        while let Some(chunk) = bytes_rx.recv().await {
+            buf.extend_from_slice(&chunk);
+            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                let line = buf.drain(..=pos).collect::<Vec<u8>>();
+                let line = &line[..line.len() - 1];
+                if line.is_empty() {
+                    continue;
+                }
+                match serde_json::from_slice::<Frame>(line) {
+                    Ok(frame) => {
+                        if tx.send(frame).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("cat_frames: invalid frame JSON: {e}");
+                        return;
+                    }
                 }
             }
         }
@@ -130,7 +170,11 @@ where
     let parts = super::types::RequestParts::parse(addr, &format!("cas/{integrity}"), None)?;
 
     match parts.connection {
-        super::types::ConnectionKind::Unix(path) => {
+        // The direct-filesystem fast path below only knows the local
+        // cacache directory; it can't pull a missing blob from a replica's
+        // origin (see Store::cas_reader). Route through the server instead
+        // when a core was addressed, so the on-demand pull applies.
+        super::types::ConnectionKind::Unix(path) if parts.core.is_none() => {
             // Direct CAS access for local path
             let store_path = path.parent().unwrap_or(&path).to_path_buf();
             let cas_path = store_path.join("cacache");

@@ -25,6 +25,7 @@ pub use ttl::*;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -32,7 +33,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use nu_protocol::engine::EngineState;
 use scru128::Scru128Id;
@@ -442,12 +443,39 @@ enum GCTask {
     Drain(tokio::sync::oneshot::Sender<()>),
 }
 
+/// A cached handle to a non-default keyspace pair opened via [`Store::core`].
+///
+/// Each named core gets its own broadcast channel and GC worker, so a live
+/// follow on one core never observes another core's frames, and its own
+/// append lock, so writes to it (via [`Store::replicate_frame`]) are
+/// serialized independently of the default store. Cached in
+/// [`Store::cores`] so every caller of `Store::core(name)` for the same name
+/// shares the same broadcast subscribers -- required for a replica follow to
+/// see frames written by the replicator task.
+#[derive(Clone)]
+struct CoreEntry {
+    stream: Keyspace,
+    idx_topic: Keyspace,
+    broadcast_tx: broadcast::Sender<Frame>,
+    gc_tx: UnboundedSender<GCTask>,
+    append_lock: Arc<Mutex<()>>,
+    /// Remote address this core replicates from, if any. Set by the
+    /// replicator task via [`Store::set_replica_origin`]; consulted by the
+    /// CAS read path to pull a missing blob on demand.
+    origin: Arc<RwLock<Option<String>>>,
+}
+
 /// An append-only event stream backed by a directory on disk.
 ///
 /// Open one with [`new`](Store::new). `Store` is cheaply [`Clone`]able: every
 /// clone shares the same underlying database, broadcast channel, and
 /// content-addressed store, so clone it freely across tasks and threads instead
 /// of wrapping it in an `Arc`.
+///
+/// A `Store` value addresses one log: either the default stream, or -- via
+/// [`core`](Store::core) -- a named replica sharing the same database and CAS
+/// (see the [module docs](crate::store) and ADR 0008). Every read operation
+/// (`read`, `read_sync`, `get`, ...) works the same on either.
 ///
 /// See the [module docs](crate::store) for the topic and retention model.
 #[derive(Clone)]
@@ -468,6 +496,31 @@ pub struct Store {
     /// `None` falls back to `Engine::new()`. See
     /// [`prepared_base`](crate::nu::prepared_base) and ADR 0007.
     base_engine: Option<Arc<EngineState>>,
+    /// `None` for the default store; `Some(name)` when this handle was
+    /// obtained via [`core`](Store::core).
+    core_name: Option<Arc<str>>,
+    /// Registry of named cores opened so far, shared by every clone of the
+    /// default store (and of any core, since cores can't nest). See
+    /// [`core`](Store::core).
+    cores: Arc<Mutex<HashMap<String, CoreEntry>>>,
+    /// This handle's replication origin, if any. See [`CoreEntry::origin`].
+    origin: Arc<RwLock<Option<String>>>,
+}
+
+fn stream_keyspace_opts() -> KeyspaceCreateOptions {
+    KeyspaceCreateOptions::default()
+        .max_memtable_size(8 * 1024 * 1024) // 8 MiB
+        .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
+        .data_block_hash_ratio_policy(HashRatioPolicy::all(8.0))
+        .expect_point_read_hits(true)
+}
+
+fn idx_topic_keyspace_opts() -> KeyspaceCreateOptions {
+    KeyspaceCreateOptions::default()
+        .max_memtable_size(8 * 1024 * 1024) // 8 MiB
+        .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
+        .data_block_hash_ratio_policy(HashRatioPolicy::all(0.0)) // no point reads
+        .expect_point_read_hits(true)
 }
 
 impl Store {
@@ -496,26 +549,9 @@ impl Store {
             Err(e) => return Err(StoreError::Other(e)),
         };
 
-        // Options for stream keyspace: point reads by frame ID
-        let stream_opts = || {
-            KeyspaceCreateOptions::default()
-                .max_memtable_size(8 * 1024 * 1024) // 8 MiB
-                .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
-                .data_block_hash_ratio_policy(HashRatioPolicy::all(8.0))
-                .expect_point_read_hits(true)
-        };
-
-        // Options for idx_topic keyspace: prefix scans only
-        let idx_opts = || {
-            KeyspaceCreateOptions::default()
-                .max_memtable_size(8 * 1024 * 1024) // 8 MiB
-                .data_block_size_policy(BlockSizePolicy::all(16 * 1024)) // 16 KiB
-                .data_block_hash_ratio_policy(HashRatioPolicy::all(0.0)) // no point reads
-                .expect_point_read_hits(true)
-        };
-
-        let stream = db.keyspace("stream", stream_opts).unwrap();
-        let idx_topic = db.keyspace("idx_topic", idx_opts).unwrap();
+        // stream keyspace: point reads by frame ID; idx_topic: prefix scans only
+        let stream = db.keyspace("stream", stream_keyspace_opts).unwrap();
+        let idx_topic = db.keyspace("idx_topic", idx_topic_keyspace_opts).unwrap();
 
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
@@ -530,6 +566,9 @@ impl Store {
             append_lock: Arc::new(Mutex::new(())),
             rt: tokio::runtime::Handle::try_current().ok(),
             base_engine: None,
+            core_name: None,
+            cores: Arc::new(Mutex::new(HashMap::new())),
+            origin: Arc::new(RwLock::new(None)),
         };
 
         // Spawn gc worker thread
@@ -554,6 +593,93 @@ impl Store {
     /// The base engine an embedder attached via [`with_base_engine`], if any.
     pub fn base_engine(&self) -> Option<&EngineState> {
         self.base_engine.as_deref()
+    }
+
+    /// The name this handle was opened as via [`core`](Store::core), or
+    /// `None` for the default store.
+    pub fn core_name(&self) -> Option<&str> {
+        self.core_name.as_deref()
+    }
+
+    /// Open (or fetch the cached handle for) a named core: another keyspace
+    /// pair (`stream.<name>` / `idx_topic.<name>`) in the same fjall
+    /// database, sharing this store's directory (and so its CAS). Hash is
+    /// identity, so content is deduped across cores for free.
+    ///
+    /// Every call with the same `name` on the same underlying database
+    /// returns a handle sharing the same broadcast channel and GC worker, so
+    /// a live follow started before the replicator writes still sees those
+    /// writes. See ADR 0008.
+    ///
+    /// Calling `core` on a handle that is itself already a core panics --
+    /// cores don't nest.
+    #[tracing::instrument(skip(self))]
+    pub fn core(&self, name: &str) -> Store {
+        assert!(
+            self.core_name.is_none(),
+            "cores don't nest: {:?} already names a core",
+            self.core_name
+        );
+
+        let mut cores = self.cores.lock().unwrap();
+        if let Some(entry) = cores.get(name) {
+            return self.handle_for(name, entry);
+        }
+
+        let stream = self
+            .db
+            .keyspace(&format!("stream.{name}"), stream_keyspace_opts)
+            .unwrap();
+        let idx_topic = self
+            .db
+            .keyspace(&format!("idx_topic.{name}"), idx_topic_keyspace_opts)
+            .unwrap();
+        let (broadcast_tx, _) = broadcast::channel(1024);
+        let (gc_tx, gc_rx) = mpsc::unbounded_channel();
+
+        let entry = CoreEntry {
+            stream,
+            idx_topic,
+            broadcast_tx,
+            gc_tx,
+            append_lock: Arc::new(Mutex::new(())),
+            origin: Arc::new(RwLock::new(None)),
+        };
+
+        let handle = self.handle_for(name, &entry);
+        spawn_gc_worker(gc_rx, handle.clone());
+        cores.insert(name.to_string(), entry);
+        handle
+    }
+
+    fn handle_for(&self, name: &str, entry: &CoreEntry) -> Store {
+        Store {
+            path: self.path.clone(),
+            db: self.db.clone(),
+            stream: entry.stream.clone(),
+            idx_topic: entry.idx_topic.clone(),
+            broadcast_tx: entry.broadcast_tx.clone(),
+            gc_tx: entry.gc_tx.clone(),
+            append_lock: entry.append_lock.clone(),
+            rt: self.rt.clone(),
+            base_engine: self.base_engine.clone(),
+            core_name: Some(Arc::from(name)),
+            cores: self.cores.clone(),
+            origin: entry.origin.clone(),
+        }
+    }
+
+    /// Record the remote address this core replicates from. Called by the
+    /// replicator task once per core; consulted by the CAS read path to pull
+    /// a missing blob on demand (see [`cas_reader`](Store::cas_reader)).
+    /// A no-op on the default store.
+    pub fn set_replica_origin(&self, addr: String) {
+        *self.origin.write().unwrap() = Some(addr);
+    }
+
+    /// The remote address this core replicates from, if any.
+    pub fn replica_origin(&self) -> Option<String> {
+        self.origin.read().unwrap().clone()
     }
 
     /// Wait until the background garbage-collection worker has processed every
@@ -937,8 +1063,41 @@ impl Store {
     // buffering the whole payload in memory.
 
     /// Open a streaming reader for the payload identified by `hash`.
+    ///
+    /// On a replica core with a missing blob, pulls it from
+    /// [`replica_origin`](Store::replica_origin) into the shared CAS on
+    /// demand -- CAS content is never replicated eagerly (see ADR 0008).
     pub async fn cas_reader(&self, hash: ssri::Integrity) -> cacache::Result<cacache::Reader> {
-        cacache::Reader::open_hash(&self.path.join("cacache"), hash).await
+        let cas_path = self.path.join("cacache");
+        match cacache::Reader::open_hash(&cas_path, hash.clone()).await {
+            Ok(reader) => Ok(reader),
+            Err(e) => {
+                if self.pull_from_origin(&hash).await {
+                    cacache::Reader::open_hash(&cas_path, hash).await
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    /// Fetch `hash` from this core's replication origin into the local CAS.
+    /// Returns `false` (a no-op) if there is no origin or the fetch fails.
+    async fn pull_from_origin(&self, hash: &ssri::Integrity) -> bool {
+        let Some(addr) = self.replica_origin() else {
+            return false;
+        };
+        let mut writer = match self.cas_writer().await {
+            Ok(w) => w,
+            Err(_) => return false,
+        };
+        if crate::client::cas_get(&addr, hash.clone(), &mut writer)
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        writer.commit().await.is_ok()
     }
 
     /// Blocking variant of [`cas_reader`](Store::cas_reader).
@@ -979,9 +1138,19 @@ impl Store {
         self.cas_insert_sync(bytes)
     }
 
-    /// Read back the full payload for `hash` into a `Vec<u8>`.
+    /// Read back the full payload for `hash` into a `Vec<u8>`. Falls back to
+    /// the replication origin on a replica core, same as
+    /// [`cas_reader`](Store::cas_reader).
     pub async fn cas_read(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
-        cacache::read_hash(&self.path.join("cacache"), hash).await
+        use tokio::io::AsyncReadExt;
+
+        let mut reader = self.cas_reader(hash.clone()).await?;
+        let mut buf = Vec::new();
+        reader
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|e| cacache::Error::IoError(e, "reading cas entry".to_string()))?;
+        Ok(buf)
     }
 
     /// Blocking variant of [`cas_read`](Store::cas_read).
@@ -1051,12 +1220,29 @@ impl Store {
     /// # }
     /// ```
     pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
-        // Serialize all appends to ensure ID generation, write, and broadcast
-        // happen atomically. This guarantees subscribers receive frames in
-        // scru128 ID order.
-        let _guard = self.append_lock.lock().unwrap();
-
         frame.id = scru128::new();
+        self.write_frame(frame)
+    }
+
+    /// Write a frame that already carries its final [`id`](Frame::id) and
+    /// [`hash`](Frame::hash) -- the replication write path.
+    ///
+    /// Unlike [`append`](Store::append), the id is not minted (it is
+    /// preserved from the origin frame, keeping hash-as-identity dedup
+    /// meaningful across cores). Like `append`, and unlike
+    /// [`insert_frame`](Store::insert_frame), it stores the frame only when
+    /// it isn't [`TTL::Ephemeral`], schedules `Last` TTL GC, and broadcasts
+    /// to live followers of this core -- so a replica follow observes
+    /// ephemeral frames exactly as a local follow does. See ADR 0008.
+    #[tracing::instrument(skip(self))]
+    pub fn replicate_frame(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
+        self.write_frame(frame)
+    }
+
+    fn write_frame(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
+        // Serialize all writes to ensure write and broadcast happen
+        // atomically. This guarantees subscribers receive frames in id order.
+        let _guard = self.append_lock.lock().unwrap();
 
         // Check for null byte in topic (in case we're not storing the frame)
         idx_topic_key_from_frame(&frame)?;

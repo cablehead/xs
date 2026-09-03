@@ -25,6 +25,48 @@ pub struct RequestParts {
     pub host: Option<String>,
     pub authorization: Option<String>,
     pub connection: ConnectionKind,
+    /// The core selected by a trailing `/<core>` segment on `addr`, if any.
+    /// Sent as the `xs-core` header so the server resolves `store.core(name)`
+    /// for this request. See ADR 0008.
+    pub core: Option<String>,
+}
+
+/// An xs store directory always contains a `fjall/` subdirectory (see the
+/// [`store`](crate::store) module docs). Used to tell "this path is a store"
+/// from "this path is a store's parent, with a core name as the last
+/// segment" without requiring a new separator in the address syntax.
+fn looks_like_store_dir(p: &std::path::Path) -> bool {
+    p.join("fjall").is_dir()
+}
+
+/// Split a trailing `/<core>` segment off a unix-socket-style address.
+///
+/// `addr` itself wins whenever it already looks like a store (or is an
+/// explicit path to a `sock` file): that keeps `xs cat ./not-yet-started`
+/// reporting "no store at" instead of misreading the last path segment as a
+/// core name. Only when `addr` doesn't look like a store, but its parent
+/// does, is the last segment treated as a core.
+fn split_unix_core(addr: &str) -> (String, Option<String>) {
+    let path = std::path::Path::new(addr);
+    if looks_like_store_dir(path) || path.is_file() {
+        return (addr.to_string(), None);
+    }
+    if let Some(pos) = addr.rfind('/') {
+        let base = if pos == 0 { "/" } else { &addr[..pos] };
+        let tail = &addr[pos + 1..];
+        if !tail.is_empty() && looks_like_store_dir(std::path::Path::new(base)) {
+            return (base.to_string(), Some(tail.to_string()));
+        }
+    }
+    (addr.to_string(), None)
+}
+
+/// Split a trailing `/<core>` segment off a ticket-style address (iroh).
+fn split_trailing_segment(s: &str) -> (String, Option<String>) {
+    match s.split_once('/') {
+        Some((head, tail)) if !tail.is_empty() => (head.to_string(), Some(tail.to_string())),
+        _ => (s.to_string(), None),
+    }
 }
 
 impl RequestParts {
@@ -35,7 +77,8 @@ impl RequestParts {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Iroh case
         if addr.starts_with("iroh://") {
-            let ticket = addr.strip_prefix("iroh://").unwrap_or(addr);
+            let rest = addr.strip_prefix("iroh://").unwrap_or(addr);
+            let (ticket, core) = split_trailing_segment(rest);
             return Ok(RequestParts {
                 uri: if let Some(q) = query {
                     format!("http://localhost/{path}?{q}")
@@ -44,18 +87,19 @@ impl RequestParts {
                 },
                 host: None,
                 authorization: None,
-                connection: ConnectionKind::Iroh {
-                    ticket: ticket.to_string(),
-                },
+                connection: ConnectionKind::Iroh { ticket },
+                core,
             });
         }
 
         // Unix socket case (also handles Windows paths like "C:\...")
         if addr.starts_with('/') || addr.starts_with('.') || is_windows_path(addr) {
-            let socket_path = if std::path::Path::new(addr).is_dir() {
-                std::path::Path::new(addr).join("sock")
+            let (base, core) = split_unix_core(addr);
+            let base_path = std::path::Path::new(&base);
+            let socket_path = if base_path.is_dir() {
+                base_path.join("sock")
             } else {
-                std::path::Path::new(addr).to_path_buf()
+                base_path.to_path_buf()
             };
 
             return Ok(RequestParts {
@@ -67,6 +111,7 @@ impl RequestParts {
                 host: None,
                 authorization: None,
                 connection: ConnectionKind::Unix(socket_path),
+                core,
             });
         }
 
@@ -89,6 +134,16 @@ impl RequestParts {
             "".to_string()
         } else {
             format!(":{port}")
+        };
+        // A trailing path on the address itself (not the route `path` param
+        // passed in above) selects a core, e.g. "host:port/vm".
+        let core = {
+            let p = url.path().trim_matches('/');
+            if p.is_empty() {
+                None
+            } else {
+                Some(p.split('/').next().unwrap_or(p).to_string())
+            }
         };
 
         // Build clean request URI (no auth)
@@ -124,6 +179,7 @@ impl RequestParts {
             } else {
                 ConnectionKind::Tcp { host, port }
             },
+            core,
         })
     }
 }
