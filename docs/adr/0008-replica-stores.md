@@ -66,13 +66,20 @@ Splitting the trailing segment differs per transport:
 `xs.nu`'s `.cat` gained an optional positional `core` argument that appends
 `/<core>` onto `(xs-addr)` before shelling out, so `.cat vm --follow` reads
 the replica from a nushell session the same way `xs cat <addr>/vm --follow`
-does from the shell. The in-process `.cat` builtin (`CatCommand`, used
-inside `xs eval`/service/actor engines) is unchanged -- it is bound to
-whichever `Store` its engine was built with, and this task doesn't add a
-way to hand it a different core. Scripts that need a replica's frames from
+does from the shell.
+
+`/eval` is rejected (405) for an addressed core, same as the other mutating
+routes, even though a read-only script would be harmless: `eval_engine`
+builds its nu engine's `.append`/`.import`/`.remove` builtins bound to
+whatever `Store` it's given, so scoping `/eval` to a core would hand a
+script exactly the write access the rest of this design goes to lengths to
+deny. The in-process `.cat` builtin (`CatCommand`, used inside `xs
+eval`/service/actor engines) is unaffected by any of this either way -- it
+reads whichever `Store` its engine was built with, and this task doesn't add
+a way to hand it a different core. Scripts that need a replica's frames from
 inside an engine can still shell out via the `xs` binary; wiring
-core-selection into the in-process builtin is future work if that turns out
-to matter.
+core-selection into the in-process builtin (with the same read-only
+enforcement `/eval` needs) is future work if that turns out to matter.
 
 ## Write paths
 
@@ -92,8 +99,8 @@ storage rules and broadcasting so a replica follow sees ephemerals.
 `replicate_frame` is not reachable over HTTP; only the in-process replicator
 task (below) calls it. Read-only enforcement is mechanical but lives at the
 HTTP boundary, not inside `Store`: `api::handle` checks for the `xs-core`
-header and returns 405 on `/append/*`, `/import`, and `DELETE /<id>` for
-*any* addressed core, before the route even runs. `Store::append`,
+header and returns 405 on `/append/*`, `/import`, `DELETE /<id>`, and
+`/eval` for *any* addressed core, before the route even runs. `Store::append`,
 `Store::insert_frame`, and `Store::remove` stay generic over which keyspace
 they operate on -- deliberately, because GC (`Store::remove`, driven by TTL
 expiry) has to work identically on a replica core to honor "ttl semantics

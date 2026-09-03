@@ -1332,6 +1332,22 @@ async fn test_replica_core_rejects_mutation() {
     .unwrap();
     assert!(!import_err.status.success(), "import to a core must fail");
 
+    // `/eval` can run `.append`/`.import`/`.remove` too, so it's rejected
+    // the same way, not just the direct HTTP verbs.
+    let eval_err = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        origin_path.join("vm"),
+        "-c",
+        r#""x" | .append should.fail"#
+    )
+    .stderr_capture()
+    .stdout_capture()
+    .unchecked()
+    .run()
+    .unwrap();
+    assert!(!eval_err.status.success(), "eval against a core must fail");
+
     origin.kill().await.unwrap();
 }
 

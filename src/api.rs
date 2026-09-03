@@ -236,11 +236,16 @@ async fn handle(
 
     // Replicas are read-only: single-writer is enforced here, mechanically,
     // rather than left to convention. Every mutating route is rejected for
-    // any addressed core, regardless of name.
+    // any addressed core, regardless of name -- including `/eval`, which
+    // could otherwise run `.append`/`.import`/`.remove` against the core the
+    // engine it builds is bound to.
     if core.is_some()
         && matches!(
             route,
-            Routes::StreamAppend { .. } | Routes::Import | Routes::StreamItemRemove(_)
+            Routes::StreamAppend { .. }
+                | Routes::Import
+                | Routes::StreamItemRemove(_)
+                | Routes::Eval
         )
     {
         return response_405();
