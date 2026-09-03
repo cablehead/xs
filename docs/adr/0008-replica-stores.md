@@ -5,6 +5,69 @@ as another log alongside the default store, so every read-side primitive
 (`.cat`, `--follow`, `.last`, topic filters, TTL semantics) works on it
 unchanged.
 
+## Handoff (tasks 1 and 2, complete)
+
+**Done and verified**, branch `feat/replica-stores`, not merged, no PR:
+
+- Replica keyspaces (`Store::core`), the `<addr>/<core>` addressing scheme
+  (CLI + client), the third `replicate_frame` write path, the
+  `xs.replica.<name>` supervised lifecycle task, and read-only enforcement
+  (405 on mutating HTTP routes for an addressed core, including `/eval`).
+- `.cat`/`.last`/`.cas` in-process builtins take a core selector, so `xs
+  eval` can fold/filter a replica server-side -- this is what makes the
+  viewer's `interleave { .cat --follow } { .cat vm --follow } | ...`
+  pipeline expressible at all. Ran it for real against a live origin +
+  replica pair:
+
+      xs eval <replica-addr> -c \
+        'interleave { .cat --follow } { .cat vm --follow }
+          | generate {|f, s = 0| {out: [$"($f.topic)"], next: $s} } | first 6'
+
+  returned 6 interleaved topics from both cores (the replica's own local
+  stream and the replicated `vm` core) and exited 0. Full transcript,
+  including server-side logs during the run, is in this branch's PR/session
+  history, not reproduced here since it's a point-in-time run, not something
+  this file should assert as fact going forward -- rerun it to check, don't
+  trust this paragraph.
+- `cargo test` (lib + integration + doctests) is green: 202 + 16 + 8 = 226
+  passed, 0 failed, 2 pre-existing ignored (unrelated to this branch). Ran
+  the replica-specific tests several times back to back with no flakiness
+  observed. `cargo fmt --check` and `cargo clippy --all-targets` are clean
+  on every file this branch touches; `tests/integration.rs` carries seven
+  pre-existing `needless_borrow`/`expect_fun_call` clippy warnings from
+  before this branch, left alone as out of scope.
+
+**Not done, and deliberately not attempted** -- tasks 3/4 (nushell
+`interleave` producer-thread cleanup on signal, interruptible `.cat
+--follow`) are untouched. What tasks 3/4 need to know from this branch:
+
+- The replicator itself (`processor::replica::replica::run`) is not the
+  nushell `interleave`/`.cat --follow` code path -- it's a plain tokio task
+  using `tokio::select!` over a local control subscription and a
+  `client::cat_frames` receiver, already clean on cancellation (dropping the
+  receiver stops the inner read task, no threads or runtimes leaked). It
+  isn't blocked on interleave/`.cat --follow` being fixed, and fixing
+  interleave won't need to touch it.
+- What tasks 3/4 *do* need to know: the `interleave { .cat --follow } {
+  .cat vm --follow }` pipeline runs today (see the eval transcript above)
+  but only terminates via `first N` bounding the output, or via `xs.stopping`
+  tearing down the whole server. Ctrl-C on a bare, unbounded `interleave {
+  .cat --follow } { .cat vm --follow }` still leaks producer threads --
+  that's exactly the task 3/4 bug, now with a second core in the mix, not a
+  new problem. Nothing in this branch changes what task 3/4 has to fix, and
+  nothing in this branch should make it harder: the `.cat vm` builtin
+  returns the same `ListStream`/`blocking_recv` shape as plain `.cat`
+  (`src/nu/commands/cat_command.rs`), so whatever fix lands for `.cat
+  --follow`'s cancellation applies to `.cat vm --follow` for free.
+- Task 5 (panes host/viewer split) needs: a viewer running `xs eval <addr>
+  -c '...'` without `--services` reads `xs.service.pty-*.*` lifecycle frames
+  via `.cat vm --follow` same as any other topic -- nothing about replica
+  reads is service-aware or needs to be. The footgun described in the task
+  brief (a viewer with `--services` spawning its own ptys off replicated
+  `xs.service.pty-<id>.create` frames) is unaffected by anything in this
+  branch; that gate lives entirely in whether `--services` is passed to `xs
+  serve`, not in the replica machinery.
+
 ## Model
 
 Hypercore-style: one writer per stream. A replica is not a synced copy of a
