@@ -1,6 +1,6 @@
 use crate::nu::ReturnOptions;
 use crate::processor::service::service::emit_event;
-use crate::processor::service::{ServiceEventKind, ServiceLoop, StopReason, Task};
+use crate::processor::service::{RestartPolicy, ServiceEventKind, ServiceLoop, StopReason, Task};
 use nu_protocol;
 use scru128;
 use serde_json::json;
@@ -302,6 +302,54 @@ async fn test_serve_restart_until_terminated() {
             break;
         }
     }
+}
+
+/// `restart: never` turns a clean drain into a terminal stop: `.fin.ok` is
+/// emitted and the closure is not run again.
+#[tokio::test]
+async fn test_serve_restart_never_finishes() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        });
+    }
+
+    let script = r#"{ run: {|| "hi" }, restart: "never", return_options: { target: "cas" } }"#;
+    let hash = store.cas_insert(script).await.unwrap();
+
+    let create = store
+        .append(
+            Frame::builder("xs.service.oneshot.create")
+                .hash(hash)
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options);
+
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.oneshot.active"
+    );
+    assert_eq!(recver.recv().await.unwrap().topic, "oneshot.recv");
+
+    let fin = recver.recv().await.unwrap();
+    assert_eq!(fin.topic, "xs.service.oneshot.fin.ok");
+    assert_eq!(
+        fin.meta.as_ref().unwrap()["source_id"],
+        create.id.to_string()
+    );
+
+    // Past the 1s restart gap: no second .active, no second .recv.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_no_more_frames(&mut recver).await;
 }
 
 #[tokio::test]
@@ -691,6 +739,33 @@ async fn inv1_service_with_fin_error_does_not_restart_on_replay() {
     assert_no_more_frames(&mut recver).await;
 }
 
+/// Invariant I1: a service with a `.fin.ok` (`restart: never` ran to
+/// completion) stays down on boot.
+#[tokio::test]
+async fn inv1_service_with_fin_ok_does_not_restart_on_replay() {
+    let (_store, _dir, mut recver) = replay(|store| async move {
+        let create = store
+            .append(
+                Frame::builder("xs.service.api.create".to_string())
+                    .hash(store.cas_insert("script").await.unwrap())
+                    .build(),
+            )
+            .unwrap();
+        store
+            .append(
+                Frame::builder("xs.service.api.fin.ok".to_string())
+                    .meta(json!({ "source_id": create.id.to_string() }))
+                    .build(),
+            )
+            .unwrap();
+    })
+    .await;
+
+    let topics = drain_through_threshold(&mut recver).await;
+    assert!(!topics.contains("xs.service.api.active"));
+    assert_no_more_frames(&mut recver).await;
+}
+
 /// Invariant I7: a service with only a `.stopped` (xs.stopping ack) in
 /// history DOES restart on boot. `.stopped` is invisible to compaction.
 #[tokio::test]
@@ -1040,6 +1115,7 @@ fn test_emit_event_helper() {
             target: None,
         }),
         duplex: false,
+        restart: RestartPolicy::default(),
         engine,
     };
 

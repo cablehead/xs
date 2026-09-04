@@ -3,8 +3,8 @@ mod serve;
 pub(crate) mod service;
 
 pub use service::{
-    spawn as spawn_service_loop, ServiceEventKind, ServiceLoop, ServiceScriptOptions, StopReason,
-    Task,
+    spawn as spawn_service_loop, RestartPolicy, ServiceEventKind, ServiceLoop,
+    ServiceScriptOptions, StopReason, Task,
 };
 
 #[cfg(test)]

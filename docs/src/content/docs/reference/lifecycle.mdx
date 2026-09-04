@@ -39,7 +39,7 @@ data.
 | `term` | in | User wants this thing stopped. |
 | `active` | out | Runtime is up. `meta.<kind>_id` (actor_id / source_id / action_id) points at the originating `create`. |
 | `invalid` | out | Source failed to parse (or any other init-time validation). `meta` points at the originating `create`. |
-| `fin.ok` | out | Task ran to natural completion. |
+| `fin.ok` | out | Task ran to natural completion. For services, only under `restart: "never"`; the default policy restarts silently. |
 | `fin.error` | out | Runtime crashed. |
 | `fin.term` | out | Exited because of `term`. |
 | `replaced` | out | Exited because a newer `create` won. Transient marker; a new `.active` follows. |

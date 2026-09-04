@@ -13,9 +13,22 @@ use crate::nu::{value_to_json, ReturnOptions};
 use crate::store::{FollowOption, Frame, ReadOptions, Store};
 use serde_json::json;
 
+/// What the run loop does when the pipeline drains cleanly. An error always
+/// stops the service with `.fin.error`, whatever the policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum RestartPolicy {
+    /// Wait one second and run the closure again. No lifecycle frame.
+    #[default]
+    OnSuccess,
+    /// Emit `.fin.ok` and stop. The service stays down across boots.
+    Never,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 pub struct ServiceScriptOptions {
     pub duplex: Option<bool>,
+    pub restart: Option<RestartPolicy>,
     pub return_options: Option<ReturnOptions>,
 }
 
@@ -30,6 +43,7 @@ pub struct Task {
     pub run_closure: nu_protocol::engine::Closure,
     pub return_options: Option<ReturnOptions>,
     pub duplex: bool,
+    pub restart: RestartPolicy,
     pub engine: nu::Engine,
 }
 
@@ -257,6 +271,7 @@ async fn run(store: Store, spawn_frame: Frame) {
         run_closure: nu_config.run_closure,
         return_options: opts.return_options,
         duplex: opts.duplex.unwrap_or(false),
+        restart: opts.restart.unwrap_or_default(),
         engine,
     };
 
@@ -284,6 +299,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
 
     enum LoopOutcome {
         Continue,
+        Finished,
         Update(Box<Task>, Scru128Id),
         Terminate,
         Shutdown,
@@ -294,6 +310,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match self {
                 LoopOutcome::Continue => write!(f, "Continue"),
+                LoopOutcome::Finished => write!(f, "Finished"),
                 LoopOutcome::Update(_, id) => f.debug_tuple("Update").field(id).finish(),
                 LoopOutcome::Terminate => write!(f, "Terminate"),
                 LoopOutcome::Shutdown => write!(f, "Shutdown"),
@@ -305,7 +322,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
     impl From<&LoopOutcome> for StopReason {
         fn from(value: &LoopOutcome) -> Self {
             match value {
-                LoopOutcome::Continue => StopReason::Finished,
+                LoopOutcome::Continue | LoopOutcome::Finished => StopReason::Finished,
                 LoopOutcome::Update(_, id) => StopReason::Update { update_id: *id },
                 LoopOutcome::Terminate => StopReason::Terminate,
                 LoopOutcome::Shutdown => StopReason::Shutdown,
@@ -383,6 +400,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                                                     run_closure: cfg.run_closure,
                                                     return_options: opts.return_options,
                                                     duplex: opts.duplex.unwrap_or(false),
+                                                    restart: opts.restart.unwrap_or_default(),
                                                     engine: new_engine,
                                                 };
 
@@ -408,7 +426,10 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                 }
                 res = &mut done_rx => {
                     break 'ctrl match res.unwrap_or(Err("thread failed".into())) {
-                        Ok(()) => LoopOutcome::Continue,
+                        Ok(()) => match task.restart {
+                            RestartPolicy::OnSuccess => LoopOutcome::Continue,
+                            RestartPolicy::Never => LoopOutcome::Finished,
+                        },
                         Err(e) => LoopOutcome::Error(e),
                     };
                 }
@@ -421,13 +442,14 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
         //   Update    -> .replaced (transient, successor coming)
         //   Terminate -> .fin.term
         //   Error     -> .fin.error
-        //   Finished  -> no frame: Continue auto-restarts, this isn't a
-        //                terminal stop.
+        //   Finished  -> .fin.ok only under restart: never. Continue
+        //                auto-restarts, so it is not a terminal stop and
+        //                gets no frame.
         //   Shutdown  -> no frame: the post-loop ServiceEventKind::Shutdown
         //                emits the single .stopped frame for the xs-stopping
         //                path.
-        match &reason {
-            StopReason::Finished | StopReason::Shutdown => {}
+        match &outcome {
+            LoopOutcome::Continue | LoopOutcome::Shutdown => {}
             _ => {
                 let _ = emit_event(
                     &store,
@@ -464,7 +486,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                     start_id = event.frame.id;
                 }
             }
-            LoopOutcome::Terminate | LoopOutcome::Error(_) => {
+            LoopOutcome::Finished | LoopOutcome::Terminate | LoopOutcome::Error(_) => {
                 break;
             }
             LoopOutcome::Shutdown => {

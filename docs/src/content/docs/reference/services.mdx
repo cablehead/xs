@@ -32,7 +32,7 @@ The service will:
   per line, `ByteStream` pipelines send binary chunks.
 - Auto-restart on natural completion (the pipeline drained without error). The
   service stays running until the user appends `xs.service.log.term` or it
-  crashes.
+  crashes. Set `restart: "never"` to stop after one run instead.
 
 ## Data channels
 
@@ -49,6 +49,7 @@ lifecycle.
 | Option   | Type    | Default | Description                                                         |
 | -------- | ------- | ------- | ------------------------------------------------------------------- |
 | `duplex` | boolean | false   | Enable sending input to the service's pipeline via `<name>.send`    |
+| `restart` | string | `on-success` | What to do when the pipeline drains cleanly: `on-success` runs it again, `never` stops it (see Auto-restart) |
 | `return_options` | record |, | Customize output frames (see Return Options) |
 
 The `return_options` field controls the suffix and TTL for the `.recv` frames
@@ -140,7 +141,25 @@ When running this service:
 
 When the script's pipeline runs to completion without error, the service waits
 one second and restarts the pipeline. No lifecycle frame is emitted for this
-internal restart, the service is still considered "running."
+internal restart, the service is still considered "running." This is the
+default `restart: "on-success"` policy.
+
+A pipeline that errors is not restarted under any policy. The service emits
+`xs.service.<name>.fin.error` and stays down.
+
+`restart: "never"` makes a clean completion terminal. The service emits
+`xs.service.<name>.fin.ok` and stops, and it stays down across xs restarts like
+any other `fin.*`. Use it when the pipeline ending is the point, such as a
+shell the user exited, rather than a source that went away:
+
+```nushell
+r#'{
+  restart: "never",
+  run: {|| ^my-shell | lines }
+}'# | .append xs.service.shell.create
+```
+
+To run it again, append a new `xs.service.<name>.create`.
 
 Appending a new `xs.service.<name>.create` frame while the service is running
 reloads it with the new script:
@@ -165,9 +184,9 @@ Services share the unified lifecycle vocabulary documented in the
 
 Plus the runtime emits:
 
-- `xs.service.<name>.fin.ok`, the run loop exited because the script
-  returned with no auto-restart left to do (rare; today the loop always
-  retries `Continue`).
+- `xs.service.<name>.fin.ok`, the pipeline ran to completion under
+  `restart: "never"`. Under the default policy a clean completion restarts
+  and emits nothing.
 - `xs.service.<name>.fin.error`, runtime crash in the script.
 - `xs.service.<name>.replaced`, hot-reloaded by a newer `.create`.
 - `xs.service.<name>.stopped`, xs is shutting down (`xs.stopping`). The
