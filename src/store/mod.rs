@@ -36,6 +36,7 @@ pub use ttl::*;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -43,6 +44,8 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -53,7 +56,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{
     config::{BlockSizePolicy, HashRatioPolicy},
-    Database, Error as FjallError, Keyspace, KeyspaceCreateOptions, PersistMode,
+    Database, Error as FjallError, Keyspace, KeyspaceCreateOptions, OwnedWriteBatch, PersistMode,
 };
 
 /// Error returned when opening a [`Store`].
@@ -486,6 +489,10 @@ pub struct Store {
     base_engine: Option<Arc<EngineState>>,
     /// Fsync policy and dirty flag, shared by every clone and the fsync worker.
     fsync: Arc<FsyncState>,
+    /// Batches committed by [`remove_many`](Store::remove_many), so a test can
+    /// check the gc worker commits once per drain.
+    #[cfg(test)]
+    remove_commits: Arc<AtomicUsize>,
 }
 
 /// Joins the gc and fsync workers when the last caller-held `Store` drops.
@@ -602,6 +609,8 @@ impl Store {
             rt: tokio::runtime::Handle::try_current().ok(),
             base_engine: None,
             fsync: fsync_state,
+            #[cfg(test)]
+            remove_commits: Arc::new(AtomicUsize::new(0)),
         };
 
         // Spawn the workers. The gc worker's clone is taken while `workers` is
@@ -1017,32 +1026,69 @@ impl Store {
     /// content-addressed store are left in place.
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
     pub fn remove(&self, id: &Scru128Id) -> Result<(), crate::error::Error> {
-        let Some(frame) = self.get(id) else {
-            // Already deleted
-            return Ok(());
-        };
+        self.remove_many([*id])
+    }
 
-        // Build topic key directly (no validation - frame already exists)
-        let mut topic_key = idx_topic_key_prefix(&frame.topic);
-        topic_key.extend(frame.id.as_bytes());
-
-        // Get prefix index keys for hierarchical queries
-        let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
-
+    /// Delete every frame in `ids`, with their topic index entries, in one
+    /// batch with one commit. Ids whose frame is already gone are skipped, and
+    /// nothing is committed when none remain.
+    fn remove_many(
+        &self,
+        ids: impl IntoIterator<Item = Scru128Id>,
+    ) -> Result<(), crate::error::Error> {
         let mut batch = self.db.batch();
-        batch.remove(&self.stream, id.as_bytes());
-        batch.remove(&self.idx_topic, topic_key);
-        for prefix_key in &prefix_keys {
-            batch.remove(&self.idx_topic, prefix_key);
+        for id in ids {
+            if let Some(frame) = self.get(&id) {
+                self.remove_frame_keys(&mut batch, &frame);
+            }
+        }
+        if batch.is_empty() {
+            return Ok(());
         }
         batch.commit()?;
-        // No inline fsync in any mode. The tombstone reaches disk with the next
-        // append's sync or the next tick. If power loss brings the frame back,
+        #[cfg(test)]
+        self.remove_commits.fetch_add(1, Ordering::Relaxed);
+        // No inline fsync in any mode. The tombstones reach disk with the next
+        // append's sync or the next tick. If power loss brings a frame back,
         // it re-expires on read and is removed again.
         if matches!(self.fsync.mode, Fsync::Interval(_)) {
             self.fsync.dirty.store(true, Ordering::Release);
         }
         Ok(())
+    }
+
+    /// Queue the stream entry and topic index keys of `frame` for removal on
+    /// `batch`. The topic key is built without validation: the frame exists.
+    fn remove_frame_keys(&self, batch: &mut OwnedWriteBatch, frame: &Frame) {
+        let mut topic_key = idx_topic_key_prefix(&frame.topic);
+        topic_key.extend(frame.id.as_bytes());
+        batch.remove(&self.stream, frame.id.as_bytes());
+        batch.remove(&self.idx_topic, topic_key);
+        for prefix_key in idx_topic_prefix_keys(&frame.topic, &frame.id) {
+            batch.remove(&self.idx_topic, prefix_key);
+        }
+    }
+
+    /// Ids on `topic` past the newest `keep`, ignoring frames already in
+    /// `pending` so a batch drops exactly what applying its tasks one by one
+    /// would.
+    fn last_overflow(
+        &self,
+        topic: &str,
+        keep: u32,
+        pending: &HashSet<Scru128Id>,
+    ) -> Vec<Scru128Id> {
+        let prefix = idx_topic_key_prefix(topic);
+        self.idx_topic
+            .prefix(&prefix)
+            .rev() // Scan from newest to oldest
+            .filter_map(|guard| {
+                let key = guard.key().ok()?;
+                Some(idx_topic_frame_id_from_key(&key))
+            })
+            .filter(|id| !pending.contains(id))
+            .skip(keep as usize)
+            .collect()
     }
 
     // --- Content-addressed store (CAS) ---
@@ -1391,36 +1437,39 @@ fn spawn_gc_worker(
     let (closed_tx, _) = mpsc::unbounded_channel();
     store.gc_tx = closed_tx;
 
+    // One drain per wake: take the task that woke us and whatever else is
+    // queued, up to the cap, and apply every removal in one batch with one
+    // commit. A Drain is answered after that commit, so every task queued
+    // before it has been applied by the time its reply lands.
+    const MAX_TASKS_PER_DRAIN: usize = 1024;
+
     std::thread::spawn(move || {
-        while let Some(task) = gc_rx.blocking_recv() {
-            match task {
-                GCTask::Remove(id) => {
-                    let _ = store.remove(&id);
-                }
-
-                GCTask::CheckLastTTL { topic, keep } => {
-                    let prefix = idx_topic_key_prefix(&topic);
-                    let frames_to_remove: Vec<_> = store
-                        .idx_topic
-                        .prefix(&prefix)
-                        .rev() // Scan from newest to oldest
-                        .skip(keep as usize)
-                        .filter_map(|guard| {
-                            let key = guard.key().ok()?;
-                            Some(Scru128Id::from_bytes(
-                                idx_topic_frame_id_from_key(&key).into(),
-                            ))
-                        })
-                        .collect();
-
-                    for frame_id in frames_to_remove {
-                        let _ = store.remove(&frame_id);
+        while let Some(first) = gc_rx.blocking_recv() {
+            let mut ids = HashSet::new();
+            let mut drains = Vec::new();
+            let mut next = Some(first);
+            let mut taken = 0;
+            while let Some(task) = next.take() {
+                match task {
+                    GCTask::Remove(id) => {
+                        ids.insert(id);
                     }
+                    GCTask::CheckLastTTL { topic, keep } => {
+                        ids.extend(store.last_overflow(&topic, keep, &ids));
+                    }
+                    GCTask::Drain(tx) => drains.push(tx),
                 }
+                taken += 1;
+                if taken < MAX_TASKS_PER_DRAIN {
+                    next = gc_rx.try_recv().ok();
+                }
+            }
 
-                GCTask::Drain(tx) => {
-                    let _ = tx.send(());
-                }
+            if let Err(e) = store.remove_many(ids) {
+                tracing::error!("gc remove failed: {e}");
+            }
+            for tx in drains {
+                let _ = tx.send(());
             }
         }
     })

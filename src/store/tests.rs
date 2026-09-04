@@ -851,6 +851,120 @@ mod tests_ttl_expire {
         assert_eq!(frames, vec![frame3, frame4, other_frame]);
     }
 
+    #[tokio::test]
+    async fn test_many_expired_frames_removed_in_one_drain() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+
+        let permanent = store.append(Frame::builder("test").build()).unwrap();
+        let expiring: Vec<Frame> = (0..50)
+            .map(|_| {
+                store
+                    .append(
+                        Frame::builder("test")
+                            .ttl(TTL::Time(Duration::from_millis(50)))
+                            .build(),
+                    )
+                    .unwrap()
+            })
+            .collect();
+
+        sleep(Duration::from_millis(200)).await;
+
+        // The walk skips every expired frame and queues a Remove for each
+        let frames: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
+        assert_eq!(frames, vec![permanent.clone()]);
+
+        // Once wait_for_gc returns every queued removal is visible
+        store.wait_for_gc().await;
+        for frame in &expiring {
+            assert_eq!(store.get(&frame.id), None, "{} still present", frame.id);
+        }
+        assert_eq!(store.get(&permanent.id), Some(permanent));
+        assert!(store.remove_commits.load(Ordering::Relaxed) >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_last_ttl_trims_several_frames_in_one_commit() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+
+        // Five frames under a keep count they never reach: no removals yet
+        for _ in 0..5 {
+            store
+                .append(Frame::builder("test").ttl(TTL::Last(10)).build())
+                .unwrap();
+        }
+        store.wait_for_gc().await;
+        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 0);
+
+        // Lowering the keep count trims four frames in a single batch
+        let last = store
+            .append(Frame::builder("test").ttl(TTL::Last(2)).build())
+            .unwrap();
+        store.wait_for_gc().await;
+
+        let frames: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[1], last);
+        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 1);
+    }
+
+    /// A Remove and a CheckLastTTL on the same topic in one drain land the
+    /// same frames as applying them one by one: the last:n scan does not count
+    /// a frame the same drain is already removing.
+    #[tokio::test]
+    async fn test_gc_drain_interleaves_expiry_and_last_ttl() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+
+        let f1 = store
+            .append(Frame::builder("test").ttl(TTL::Last(10)).build())
+            .unwrap();
+        let f2 = store
+            .append(Frame::builder("test").ttl(TTL::Last(10)).build())
+            .unwrap();
+        let f3 = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_millis(50)))
+                    .build(),
+            )
+            .unwrap();
+        let other: Vec<Frame> = (0..3)
+            .map(|_| {
+                store
+                    .append(
+                        Frame::builder("other")
+                            .ttl(TTL::Time(Duration::from_millis(50)))
+                            .build(),
+                    )
+                    .unwrap()
+            })
+            .collect();
+
+        sleep(Duration::from_millis(200)).await;
+
+        // Queues Remove(f3) and a Remove per `other` frame
+        let frames: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
+        assert_eq!(frames, vec![f1.clone(), f2.clone()]);
+
+        // Queues CheckLastTTL { test, keep: 2 }. With f3 gone the newest two
+        // are f2 and f4, so f1 goes and f2 stays.
+        let f4 = store
+            .append(Frame::builder("test").ttl(TTL::Last(2)).build())
+            .unwrap();
+        store.wait_for_gc().await;
+
+        let frames: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
+        assert_eq!(frames, vec![f2, f4]);
+        assert_eq!(store.get(&f1.id), None);
+        assert_eq!(store.get(&f3.id), None);
+        for frame in &other {
+            assert_eq!(store.get(&frame.id), None);
+        }
+    }
+
     /// A pruning TTL on a module topic can delete the version an earlier
     /// processor's `.create` id resolves against. A processor reads modules as
     /// of its own create id (`nu_modules_at`), so once the older module frame
