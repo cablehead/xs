@@ -51,14 +51,6 @@ above.
   This is retention by topic, not by frame, so it affects every frame that
   shares the topic.
 
-<Aside type="caution" title="time: frames from before the sweeper are not swept">
-The sweeper works from an expiry index that is written when a `time:` frame
-is appended. A `time:` frame written by an xs before this index existed has
-no entry in it. Reads still hide it once it expires, but nothing removes it
-from disk. There is no backfill. To reclaim the space, remove such frames
-yourself, or start a fresh store.
-</Aside>
-
 <Aside type="caution" title="Do not put a pruning TTL on module topics">
 Processors resolve their modules **as of their own `.create` frame**: a
 service, actor, or action sees the `xs.module.<name>` versions whose frame id
