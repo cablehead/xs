@@ -111,7 +111,15 @@ mod tests {
     // cloned per runner.
     #[test]
     fn test_append_meta_from_env() {
+        // A value inherited from the process must not reach the engine: only
+        // set_append_meta sets it. Any other engine built while this is set
+        // strips it too, so no test observes it.
+        std::env::set_var(
+            commands::append_command::APPEND_META_ENV,
+            r#"{"service_id":"leaked"}"#,
+        );
         let (store, mut engine) = setup_test_env();
+        std::env::remove_var(commands::append_command::APPEND_META_ENV);
         engine
             .add_commands(vec![Box::new(
                 commands::append_command::AppendCommand::new(store.clone()),

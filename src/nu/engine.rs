@@ -32,6 +32,18 @@ impl Engine {
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
 
+        // Only xs sets the append metadata, per instance via set_append_meta.
+        // Nushell exports $env to externals, so a process started from inside
+        // a service (a shell in a pty, a nested xs) inherits the parent's
+        // identity. Left in place it would be stamped on every frame this
+        // engine appends.
+        let key = nu_protocol::engine::EnvName::from(
+            commands::append_command::APPEND_META_ENV.to_string(),
+        );
+        for vars in Arc::make_mut(&mut engine_state.env_vars).values_mut() {
+            vars.remove(&key);
+        }
+
         Ok(Self {
             state: engine_state,
         })
