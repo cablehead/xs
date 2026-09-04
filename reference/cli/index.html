@@ -98,7 +98,7 @@ starlight-tabs:where(.astro-esqgolmp){display:block}.tablist-wrapper:where(.astr
 </ul>
 <h3 id="serve"><code dir="auto">serve</code></h3>
 <p>Start the supervisor process.</p>
-<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">serve</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">&#x3C;path></span><span style="--0:#F8F8F2;--1:#575279"> [--expose </span><span style="--0:#F1FA8C;--1:#855A1E">&#x3C;LISTEN_ADDR>]</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs serve <path> [--expose <LISTEN_ADDR>]"><div></div></button></div></figure></div>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">serve</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">&#x3C;path></span><span style="--0:#F8F8F2;--1:#575279"> [--expose </span><span style="--0:#F1FA8C;--1:#855A1E">&#x3C;LISTEN_ADDR>]</span><span style="--0:#F8F8F2;--1:#575279"> [--fsync </span><span style="--0:#F1FA8C;--1:#855A1E">&#x3C;POLICY>]</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>]"><div></div></button></div></figure></div>
 
 
 
@@ -116,11 +116,30 @@ starlight-tabs:where(.astro-esqgolmp){display:block}.tablist-wrapper:where(.astr
 
 
 
-<table><thead><tr><th>Option</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">&#x3C;path></code></td><td>Path to the store</td></tr><tr><td><code dir="auto">--expose &#x3C;LISTEN_ADDR></code></td><td>Expose the API on an additional address ([HOST]:PORT, <code dir="auto">&#x3C;PATH></code>, or <code dir="auto">iroh://</code>)</td></tr></tbody></table>
+
+
+
+
+<table><thead><tr><th>Option</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">&#x3C;path></code></td><td>Path to the store</td></tr><tr><td><code dir="auto">--expose &#x3C;LISTEN_ADDR></code></td><td>Expose the API on an additional address ([HOST]:PORT, <code dir="auto">&#x3C;PATH></code>, or <code dir="auto">iroh://</code>)</td></tr><tr><td><code dir="auto">--fsync &#x3C;POLICY></code></td><td>When to fsync the journal: <code dir="auto">always</code>, <code dir="auto">interval:&#x3C;ms></code>, or <code dir="auto">never</code>. Default <code dir="auto">interval:1000</code></td></tr></tbody></table>
 <p>Examples:</p>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#96A1C2;--1:#625F77;--1fs:italic">#</span><span style="--0:#96A1C2;--1:#64606C;--1fs:italic"> Expose on TCP port</span></div></div><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">serve</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--expose</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">127.0.0.1:8080</span></div></div><div class="ec-line"><div class="code">
 </div></div><div class="ec-line"><div class="code"><span style="--0:#96A1C2;--1:#625F77;--1fs:italic">#</span><span style="--0:#96A1C2;--1:#64606C;--1fs:italic"> Expose via iroh for peer-to-peer QUIC connections</span></div></div><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">serve</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--expose</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">iroh://</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs serve ./store --expose 127.0.0.1:8080xs serve ./store --expose iroh://"><div></div></button></div></figure></div>
 <p>See the <a href="../exposing-streams/">Exposing Streams</a> reference for detailed networking options.</p>
+<h4 id="fsync-policy">Fsync policy</h4>
+<p>Every append commits to the on-disk journal before it returns. A process
+crash loses nothing in any mode. Only power loss or a kernel crash can lose
+the part of the journal not yet fsynced, and recovery then yields a stable
+prefix of the stream. <code dir="auto">--fsync</code> decides when that fsync happens:</p>
+<ul>
+<li><code dir="auto">always</code>: fsync after every append, before the append returns. Slowest.
+An append that has returned survives power loss. This was the only
+behaviour before the flag existed.</li>
+<li><code dir="auto">interval:&#x3C;ms></code>: fsync on a timer, and only when something was written
+since the last tick. Power loss can lose up to one interval of appends.
+The default is <code dir="auto">interval:1000</code>.</li>
+<li><code dir="auto">never</code>: no fsync. The OS decides when the journal reaches disk.</li>
+</ul>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#96A1C2;--1:#625F77;--1fs:italic">#</span><span style="--0:#96A1C2;--1:#64606C;--1fs:italic"> Old behaviour: fsync on every append</span></div></div><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">serve</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--fsync</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">always</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs serve ./store --fsync always"><div></div></button></div></figure></div>
 <h3 id="cat"><code dir="auto">cat</code></h3>
 <p>Stream frames from the store.</p>
 <div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">cat</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">&#x3C;addr></span><span style="--0:#F8F8F2;--1:#575279"> [options]</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs cat <addr> [options]"><div></div></button></div></figure></div>
