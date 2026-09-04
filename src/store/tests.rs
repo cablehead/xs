@@ -1277,3 +1277,114 @@ mod tests_topic_filter {
         assert!(recver.recv().await.is_none());
     }
 }
+
+mod tests_fsync {
+    use super::*;
+
+    #[test]
+    fn test_parse_fsync() {
+        assert_eq!("always".parse::<Fsync>(), Ok(Fsync::Always));
+        assert_eq!("never".parse::<Fsync>(), Ok(Fsync::Never));
+        assert_eq!(
+            "interval:250".parse::<Fsync>(),
+            Ok(Fsync::Interval(Duration::from_millis(250)))
+        );
+        assert_eq!(Fsync::default(), Fsync::Interval(Duration::from_secs(1)));
+
+        // Display round-trips through the parser
+        for policy in [
+            Fsync::Always,
+            Fsync::Never,
+            Fsync::Interval(Duration::from_millis(1000)),
+        ] {
+            assert_eq!(policy.to_string().parse::<Fsync>(), Ok(policy));
+        }
+        assert_eq!(Fsync::default().to_string(), "interval:1000");
+
+        // Invalid cases
+        assert!("interval:0".parse::<Fsync>().is_err());
+        assert!("interval:abc".parse::<Fsync>().is_err());
+        assert!("interval:".parse::<Fsync>().is_err());
+        assert!("interval".parse::<Fsync>().is_err());
+        assert!("Always".parse::<Fsync>().is_err());
+        assert!("".parse::<Fsync>().is_err());
+    }
+
+    fn append_and_read_back(policy: Fsync) {
+        let folder = tempfile::tempdir().unwrap();
+        let store = Store::with_fsync(folder.path().to_path_buf(), policy).unwrap();
+        assert_eq!(store.fsync(), policy);
+
+        let a = store.append(Frame::builder("a").build()).unwrap();
+        let b = store.append(Frame::builder("b").build()).unwrap();
+
+        assert_eq!(store.get(&a.id), Some(a.clone()));
+        let ids: Vec<_> = store
+            .read_sync(ReadOptions::default())
+            .map(|f| f.id)
+            .collect();
+        assert_eq!(ids, vec![a.id, b.id]);
+
+        store.flush().unwrap();
+    }
+
+    #[test]
+    fn test_append_under_interval() {
+        append_and_read_back(Fsync::Interval(Duration::from_millis(50)));
+    }
+
+    #[test]
+    fn test_append_under_never() {
+        append_and_read_back(Fsync::Never);
+    }
+
+    #[test]
+    fn test_append_under_always() {
+        append_and_read_back(Fsync::Always);
+    }
+
+    #[test]
+    fn test_interval_tick_clears_dirty() {
+        let folder = tempfile::tempdir().unwrap();
+        let store = Store::with_fsync(
+            folder.path().to_path_buf(),
+            Fsync::Interval(Duration::from_millis(20)),
+        )
+        .unwrap();
+
+        store.append(Frame::builder("a").build()).unwrap();
+        assert!(store.fsync.dirty.load(Ordering::Acquire));
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while store.fsync.dirty.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline, "tick never fired");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn test_reopen_sees_frames_appended_under_interval() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().to_path_buf();
+
+        let store =
+            Store::with_fsync(path.clone(), Fsync::Interval(Duration::from_secs(60))).unwrap();
+        let frames: Vec<Frame> = (0..3)
+            .map(|_| store.append(Frame::builder("a").build()).unwrap())
+            .collect();
+
+        // No tick has fired and no flush was called. Dropping the last clone
+        // stops the workers without waiting out the interval and closes the
+        // database, so the path reopens at once instead of reporting Locked.
+        let started = std::time::Instant::now();
+        drop(store);
+        assert!(started.elapsed() < Duration::from_secs(5));
+
+        let store = Store::with_fsync(path, Fsync::Never).unwrap();
+        let ids: Vec<_> = store
+            .read_sync(ReadOptions::default())
+            .map(|f| f.id)
+            .collect();
+        assert_eq!(ids, frames.iter().map(|f| f.id).collect::<Vec<_>>());
+    }
+}

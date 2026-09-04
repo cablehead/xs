@@ -18,7 +18,18 @@
 //! Each frame carries a [`TTL`] that controls how long it is kept: forever, for
 //! a fixed duration, only the last N per topic, or ephemeral (broadcast to live
 //! readers but never stored).
+//!
+//! ## Durability
+//!
+//! Every append commits to the on-disk journal before it returns, so a process
+//! crash loses nothing. Only power loss or a kernel crash can lose the part of
+//! the journal not yet fsynced, and recovery then yields a stable prefix of the
+//! stream. An [`Fsync`] policy, set with [`Store::with_fsync`], decides when
+//! that fsync happens: after every append, on a timer (the default, one
+//! second), or never. [`Store::flush`] fsyncs on demand.
 
+mod fsync;
+pub use fsync::*;
 mod ttl;
 pub use ttl::*;
 
@@ -32,6 +43,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nu_protocol::engine::EngineState;
@@ -459,6 +471,10 @@ pub struct Store {
     idx_topic: Keyspace,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
+    /// Joins the background workers when the last caller-held clone drops.
+    /// Declared after `gc_tx` on purpose: fields drop in order, so the gc
+    /// channel closes before the join, and the gc worker can exit.
+    workers: Option<Arc<Workers>>,
     append_lock: Arc<Mutex<()>>,
     /// Runtime handle captured at [`new`](Store::new), used to spawn the follow
     /// and heartbeat tasks from the now-sync [`read`](Store::read). `Handle` is
@@ -468,11 +484,46 @@ pub struct Store {
     /// `None` falls back to `Engine::new()`. See
     /// [`prepared_base`](crate::nu::prepared_base) and ADR 0007.
     base_engine: Option<Arc<EngineState>>,
+    /// Fsync policy and dirty flag, shared by every clone and the fsync worker.
+    fsync: Arc<FsyncState>,
+}
+
+/// Joins the gc and fsync workers when the last caller-held `Store` drops.
+/// The gc worker's own clone carries `None`, so it never joins itself. Once
+/// the join returns both workers have dropped their database handles, the
+/// database is closed, and the path can be reopened.
+struct Workers {
+    gc: Option<std::thread::JoinHandle<()>>,
+    fsync: Option<(Arc<FsyncState>, std::thread::JoinHandle<()>)>,
+}
+
+impl Drop for Workers {
+    fn drop(&mut self) {
+        if let Some((state, handle)) = self.fsync.take() {
+            state.stop.store(true, Ordering::Release);
+            handle.thread().unpark();
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.gc.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Shared fsync bookkeeping.
+struct FsyncState {
+    mode: Fsync,
+    /// Set after every commit under `interval`; the tick clears it.
+    dirty: AtomicBool,
+    /// Tells the fsync worker to exit.
+    stop: AtomicBool,
 }
 
 impl Store {
     /// Open the store at `path`, creating the directory layout if it does not
     /// exist. Spawns a background worker that garbage-collects expired frames.
+    /// Uses the default [`Fsync`] policy; see [`with_fsync`](Store::with_fsync)
+    /// to choose one.
     ///
     /// # Errors
     ///
@@ -486,6 +537,19 @@ impl Store {
     /// # Ok::<(), xs::StoreError>(())
     /// ```
     pub fn new(path: PathBuf) -> Result<Store, StoreError> {
+        Store::with_fsync(path, Fsync::default())
+    }
+
+    /// Open the store at `path` with an explicit [`Fsync`] policy. Otherwise
+    /// the same as [`new`](Store::new).
+    ///
+    /// ```no_run
+    /// use xs::{Store, Fsync};
+    ///
+    /// let store = Store::with_fsync("./clipboard-store".into(), Fsync::Always)?;
+    /// # Ok::<(), xs::StoreError>(())
+    /// ```
+    pub fn with_fsync(path: PathBuf, fsync: Fsync) -> Result<Store, StoreError> {
         let db = match Database::builder(path.join("fjall"))
             .cache_size(32 * 1024 * 1024) // 32 MiB
             .worker_threads(1)
@@ -520,22 +584,70 @@ impl Store {
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
 
-        let store = Store {
+        let fsync_state = Arc::new(FsyncState {
+            mode: fsync,
+            dirty: AtomicBool::new(false),
+            stop: AtomicBool::new(false),
+        });
+
+        let mut store = Store {
             path: path.clone(),
             db,
             stream,
             idx_topic,
             broadcast_tx,
             gc_tx,
+            workers: None,
             append_lock: Arc::new(Mutex::new(())),
             rt: tokio::runtime::Handle::try_current().ok(),
             base_engine: None,
+            fsync: fsync_state,
         };
 
-        // Spawn gc worker thread
-        spawn_gc_worker(gc_rx, store.clone());
+        // Spawn the workers. The gc worker's clone is taken while `workers` is
+        // still `None`, so only callers' clones join them.
+        let gc = spawn_gc_worker(gc_rx, store.clone());
+        let fsync_worker = match fsync {
+            Fsync::Interval(interval) => Some((
+                store.fsync.clone(),
+                spawn_fsync_worker(store.db.clone(), store.fsync.clone(), interval),
+            )),
+            Fsync::Always | Fsync::Never => None,
+        };
+        store.workers = Some(Arc::new(Workers {
+            gc: Some(gc),
+            fsync: fsync_worker,
+        }));
 
         Ok(store)
+    }
+
+    /// The [`Fsync`] policy this store was opened with.
+    pub fn fsync(&self) -> Fsync {
+        self.fsync.mode
+    }
+
+    /// Fsync the journal now, whatever the [`Fsync`] policy. Every append
+    /// that has returned is durable once this returns. Use it before a
+    /// planned shutdown, or in tests that reopen a store.
+    pub fn flush(&self) -> Result<(), crate::error::Error> {
+        // Clear before persisting: a write that lands during the persist sets
+        // the flag again, so the next tick still covers it.
+        self.fsync.dirty.store(false, Ordering::Release);
+        self.db.persist(PersistMode::SyncAll)?;
+        Ok(())
+    }
+
+    /// Apply the [`Fsync`] policy after a committed batch: sync inline under
+    /// `always`, mark the journal dirty for the tick under `interval`, and do
+    /// nothing under `never`.
+    fn after_commit(&self) -> Result<(), crate::error::Error> {
+        match self.fsync.mode {
+            Fsync::Always => self.db.persist(PersistMode::SyncAll)?,
+            Fsync::Interval(_) => self.fsync.dirty.store(true, Ordering::Release),
+            Fsync::Never => {}
+        }
+        Ok(())
     }
 
     /// Set a base engine the processor engines clone.
@@ -924,7 +1036,12 @@ impl Store {
             batch.remove(&self.idx_topic, prefix_key);
         }
         batch.commit()?;
-        self.db.persist(PersistMode::SyncAll)?;
+        // No inline fsync in any mode. The tombstone reaches disk with the next
+        // append's sync or the next tick. If power loss brings the frame back,
+        // it re-expires on read and is removed again.
+        if matches!(self.fsync.mode, Fsync::Interval(_)) {
+            self.fsync.dirty.store(true, Ordering::Release);
+        }
         Ok(())
     }
 
@@ -1014,8 +1131,7 @@ impl Store {
             batch.insert(&self.idx_topic, prefix_key, b"");
         }
         batch.commit()?;
-        self.db.persist(PersistMode::SyncAll)?;
-        Ok(())
+        self.after_commit()
     }
 
     /// Append a frame to the stream and return it with its freshly assigned
@@ -1265,7 +1381,16 @@ impl Store {
     }
 }
 
-fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
+fn spawn_gc_worker(
+    mut gc_rx: UnboundedReceiver<GCTask>,
+    mut store: Store,
+) -> std::thread::JoinHandle<()> {
+    // The worker's own clone must not hold a live `gc_tx`, or the channel
+    // never closes and the worker, the database, and the fsync worker outlive
+    // every caller's handle. Give it a sender whose receiver is already gone.
+    let (closed_tx, _) = mpsc::unbounded_channel();
+    store.gc_tx = closed_tx;
+
     std::thread::spawn(move || {
         while let Some(task) = gc_rx.blocking_recv() {
             match task {
@@ -1298,7 +1423,30 @@ fn spawn_gc_worker(mut gc_rx: UnboundedReceiver<GCTask>, store: Store) {
                 }
             }
         }
-    });
+    })
+}
+
+/// Fsync the journal every `interval` when something was written since the
+/// last tick. [`Workers`] stops it by setting `stop` and unparking, so the
+/// join waits for at most one in-flight persist. No final persist is needed
+/// here: fjall syncs the journal when the database closes.
+fn spawn_fsync_worker(
+    db: Database,
+    state: Arc<FsyncState>,
+    interval: Duration,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || loop {
+        // park_timeout may wake early; the flags below make that harmless.
+        std::thread::park_timeout(interval);
+        if state.stop.load(Ordering::Acquire) {
+            break;
+        }
+        if state.dirty.swap(false, Ordering::AcqRel) {
+            if let Err(e) = db.persist(PersistMode::SyncAll) {
+                tracing::error!("fsync failed: {e}");
+            }
+        }
+    })
 }
 
 fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {

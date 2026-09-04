@@ -33,13 +33,14 @@ xs <COMMAND> [OPTIONS]
 Start the supervisor process.
 
 ```sh
-xs serve <path> [--expose <LISTEN_ADDR>]
+xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>]
 ```
 
 | Option                   | Description                                                       |
 | ------------------------ | ----------------------------------------------------------------- |
 | `<path>`                 | Path to the store                                                 |
 | `--expose <LISTEN_ADDR>` | Expose the API on an additional address ([HOST]:PORT, `<PATH>`, or `iroh://`) |
+| `--fsync <POLICY>`       | When to fsync the journal: `always`, `interval:<ms>`, or `never`. Default `interval:1000` |
 
 Examples:
 
@@ -52,6 +53,26 @@ xs serve ./store --expose iroh://
 ```
 
 See the [Exposing Streams](../exposing-streams/) reference for detailed networking options.
+
+#### Fsync policy
+
+Every append commits to the on-disk journal before it returns. A process
+crash loses nothing in any mode. Only power loss or a kernel crash can lose
+the part of the journal not yet fsynced, and recovery then yields a stable
+prefix of the stream. `--fsync` decides when that fsync happens:
+
+- `always`: fsync after every append, before the append returns. Slowest.
+  An append that has returned survives power loss. This was the only
+  behaviour before the flag existed.
+- `interval:<ms>`: fsync on a timer, and only when something was written
+  since the last tick. Power loss can lose up to one interval of appends.
+  The default is `interval:1000`.
+- `never`: no fsync. The OS decides when the journal reaches disk.
+
+```sh
+# Old behaviour: fsync on every append
+xs serve ./store --fsync always
+```
 
 ### `cat`
 

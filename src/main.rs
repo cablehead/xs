@@ -9,7 +9,8 @@ use tokio::io::AsyncWriteExt;
 
 use xs::nu;
 use xs::store::{
-    parse_ttl, validate_topic, validate_topic_query, FollowOption, ReadOptions, Store, StoreError,
+    parse_ttl, validate_topic, validate_topic_query, FollowOption, Fsync, ReadOptions, Store,
+    StoreError,
 };
 
 fn parse_topic(s: &str) -> Result<String, String> {
@@ -69,6 +70,11 @@ struct CommandServe {
     /// Can be [HOST]:PORT for TCP or <PATH> for Unix domain socket
     #[clap(long, value_parser, value_name = "LISTEN_ADDR")]
     expose: Option<String>,
+
+    /// When to fsync the journal: always (after every append),
+    /// interval:<ms> (on a timer, only if something was written), or never
+    #[clap(long, value_parser, value_name = "POLICY", default_value_t = Fsync::default())]
+    fsync: Fsync,
 }
 
 #[derive(Parser, Debug)]
@@ -317,7 +323,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
     tracing::trace!("Starting server with path: {:?}", args.path);
 
-    let store = match Store::new(args.path.clone()) {
+    let store = match Store::with_fsync(args.path.clone(), args.fsync) {
         Ok(store) => store,
         Err(StoreError::Locked) => {
             let sock_path = args.path.join("sock");
@@ -379,6 +385,7 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
     store.append(xs::store::Frame::builder("xs.stopping").build())?;
     let _ = tokio::time::timeout(Duration::from_secs(3), service_handle).await;
+    store.flush()?;
 
     Ok(())
 }

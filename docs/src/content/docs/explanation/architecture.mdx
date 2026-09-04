@@ -47,6 +47,20 @@ The event stream uses <Link to="fjall" /> (a log-structured merge-tree store) as
 - Custom metadata
 - TTL (Time-To-Live) settings
 
+### Durability
+
+Every append commits to the fjall journal before it returns. A commit is
+crash-consistent on its own: a process crash loses nothing. What an fsync
+adds is durability against power loss or a kernel crash. Without it the part
+of the journal not yet fsynced can be lost, and recovery then yields a stable
+prefix of the stream, never a torn one.
+
+The fsync policy decides when that fsync happens. `xs serve --fsync` takes
+`always` (after every append), `interval:<ms>` (on a timer, only when
+something was written), or `never`. The default is `interval:1000`. Embedders
+pass the same choice to `Store::with_fsync`; `Store::flush` fsyncs on demand.
+See the [cli reference](../../reference/cli/#fsync-policy).
+
 ### Content Storage (CAS)
 
 Content is stored separately in a Content-Addressable Storage (CAS) system implemented using cacache. Key features:
