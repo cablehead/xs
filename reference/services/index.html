@@ -93,7 +93,7 @@ record with a <code dir="auto">run</code> closure using the topic <code dir="aut
 per line, <code dir="auto">ByteStream</code> pipelines send binary chunks.</li>
 <li>Auto-restart on natural completion (the pipeline drained without error). The
 service stays running until the user appends <code dir="auto">xs.service.log.term</code> or it
-crashes.</li>
+crashes. Set <code dir="auto">restart: "never"</code> to stop after one run instead.</li>
 </ul>
 <h2 id="data-channels">Data channels</h2>
 
@@ -143,7 +143,13 @@ lifecycle.</p>
 
 
 
-<table><thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">duplex</code></td><td>boolean</td><td>false</td><td>Enable sending input to the service’s pipeline via <code dir="auto">&#x3C;name>.send</code></td></tr><tr><td><code dir="auto">return_options</code></td><td>record</td><td>,</td><td>Customize output frames (see Return Options)</td></tr></tbody></table>
+
+
+
+
+
+
+<table><thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">duplex</code></td><td>boolean</td><td>false</td><td>Enable sending input to the service’s pipeline via <code dir="auto">&#x3C;name>.send</code></td></tr><tr><td><code dir="auto">restart</code></td><td>string</td><td><code dir="auto">on-success</code></td><td>What to do when the pipeline drains cleanly: <code dir="auto">on-success</code> runs it again, <code dir="auto">never</code> stops it (see Auto-restart)</td></tr><tr><td><code dir="auto">return_options</code></td><td>record</td><td>,</td><td>Customize output frames (see Return Options)</td></tr></tbody></table>
 <p>The <code dir="auto">return_options</code> field controls the suffix and TTL for the <code dir="auto">.recv</code> frames
 produced by the service.</p>
 <h3 id="return-options">Return Options</h3>
@@ -220,7 +226,16 @@ via <code dir="auto">&#x3C;name>.send</code> frames:</p>
 <h2 id="auto-restart-and-hot-reload">Auto-restart and hot-reload</h2>
 <p>When the script’s pipeline runs to completion without error, the service waits
 one second and restarts the pipeline. No lifecycle frame is emitted for this
-internal restart, the service is still considered “running.”</p>
+internal restart, the service is still considered “running.” This is the
+default <code dir="auto">restart: "on-success"</code> policy.</p>
+<p>A pipeline that errors is not restarted under any policy. The service emits
+<code dir="auto">xs.service.&#x3C;name>.fin.error</code> and stays down.</p>
+<p><code dir="auto">restart: "never"</code> makes a clean completion terminal. The service emits
+<code dir="auto">xs.service.&#x3C;name>.fin.ok</code> and stops, and it stays down across xs restarts like
+any other <code dir="auto">fin.*</code>. Use it when the pipeline ending is the point, such as a
+shell the user exited, rather than a source that went away:</p>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="nushell"><code><div class="ec-line"><div class="code"><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">r</span><span style="--0:#96A1C2;--1:#64606C;--1fs:italic">#'{</span></div></div><div class="ec-line"><div class="code"><span class="indent">  </span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">restart</span><span style="--0:#F1FA8C;--1:#855A1E">:</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--1:#855A1E"><span style="--0:#E9F284">"</span><span style="--0:#F1FA8C">never</span><span style="--0:#E9F284">"</span></span><span style="--0:#F8F8F2;--1:#575279">,</span></div></div><div class="ec-line"><div class="code"><span class="indent">  </span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">run</span><span style="--0:#F1FA8C;--1:#855A1E">:</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F8F8F2;--1:#625F77">{</span><span style="--0:#F8F8F2;--1:#575279">|| </span><span style="--0:#FF79C6;--1:#286983">^</span><span style="--0:#8BE9FD;--0fs:italic;--1:#3D6971">my-shell</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#FF79C6;--1:#286983">|</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#FF79C6;--1:#286983">lines</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F8F8F2;--1:#625F77">}</span></div></div><div class="ec-line"><div class="code"><span style="--1:#855A1E"><span style="--0:#F1FA8C">}</span><span style="--0:#E9F284">'</span><span style="--0:#F1FA8C"># | .append xs.service.shell.create</span></span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="r#&#x27;{  restart: &#x22;never&#x22;,  run: {|| ^my-shell | lines }}&#x27;# | .append xs.service.shell.create"><div></div></button></div></figure></div>
+<p>To run it again, append a new <code dir="auto">xs.service.&#x3C;name>.create</code>.</p>
 <p>Appending a new <code dir="auto">xs.service.&#x3C;name>.create</code> frame while the service is running
 reloads it with the new script:</p>
 <ul>
@@ -258,9 +273,9 @@ known-good <code dir="auto">create</code> as a fallback.</li>
 <table><thead><tr><th>User input</th><th>Runtime ack on success</th><th>Runtime ack on failure</th></tr></thead><tbody><tr><td><code dir="auto">xs.service.&#x3C;name>.create</code></td><td><code dir="auto">xs.service.&#x3C;name>.active</code></td><td><code dir="auto">xs.service.&#x3C;name>.invalid</code></td></tr><tr><td><code dir="auto">xs.service.&#x3C;name>.term</code></td><td><code dir="auto">xs.service.&#x3C;name>.fin.term</code></td><td>,</td></tr></tbody></table>
 <p>Plus the runtime emits:</p>
 <ul>
-<li><code dir="auto">xs.service.&#x3C;name>.fin.ok</code>, the run loop exited because the script
-returned with no auto-restart left to do (rare; today the loop always
-retries <code dir="auto">Continue</code>).</li>
+<li><code dir="auto">xs.service.&#x3C;name>.fin.ok</code>, the pipeline ran to completion under
+<code dir="auto">restart: "never"</code>. Under the default policy a clean completion restarts
+and emits nothing.</li>
 <li><code dir="auto">xs.service.&#x3C;name>.fin.error</code>, runtime crash in the script.</li>
 <li><code dir="auto">xs.service.&#x3C;name>.replaced</code>, hot-reloaded by a newer <code dir="auto">.create</code>.</li>
 <li><code dir="auto">xs.service.&#x3C;name>.stopped</code>, xs is shutting down (<code dir="auto">xs.stopping</code>). The
