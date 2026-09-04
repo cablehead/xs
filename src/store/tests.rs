@@ -748,10 +748,19 @@ mod tests_ttl_expire {
     use tokio::time::sleep;
     use tokio_stream::StreamExt;
 
+    /// A store whose sweep tick never fires during a test, so every sweep
+    /// is the one the test queues with `sweep()`.
+    fn store_without_tick() -> Store {
+        let temp_dir = TempDir::new().unwrap();
+        let options = StoreOptions::builder()
+            .ttl_sweep(Duration::from_secs(600))
+            .build();
+        Store::open(temp_dir.keep(), options).unwrap()
+    }
+
     #[tokio::test]
     async fn test_time_based_ttl_expiry() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep()).unwrap();
+        let store = store_without_tick();
 
         // Add permanent frame
         let permanent_frame = store.append(Frame::builder("test").build()).unwrap();
@@ -786,9 +795,143 @@ mod tests_ttl_expire {
             vec![permanent_frame]
         );
 
-        // Assert the underlying partition has been updated
+        // Hidden, but still on disk until a sweep
+        store.wait_for_gc().await;
+        assert_eq!(store.get(&expiring_frame.id), Some(expiring_frame.clone()));
+        assert_eq!(store.idx_expiry_len(), 1);
+
+        store.sweep();
         store.wait_for_gc().await;
         assert_eq!(store.get(&expiring_frame.id), None);
+        assert_eq!(store.idx_expiry_len(), 0);
+    }
+
+    /// The sweep tick removes an expired frame no read ever touched.
+    #[tokio::test]
+    async fn test_sweep_tick_removes_untouched_expired_frame() {
+        let temp_dir = TempDir::new().unwrap();
+        let options = StoreOptions::builder()
+            .ttl_sweep(Duration::from_millis(20))
+            .build();
+        let store = Store::open(temp_dir.keep(), options).unwrap();
+
+        let permanent = store.append(Frame::builder("test").build()).unwrap();
+        let expiring = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_millis(50)))
+                    .build(),
+            )
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while store.get(&expiring.id).is_some() {
+            assert!(std::time::Instant::now() < deadline, "never swept");
+            sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(store.idx_expiry_len(), 0);
+        assert_eq!(store.get(&permanent.id), Some(permanent));
+    }
+
+    /// A sweep leaves a time: frame whose ttl has not passed, and its expiry
+    /// entry, in place.
+    #[tokio::test]
+    async fn test_sweep_keeps_unexpired_frame() {
+        let store = store_without_tick();
+
+        let living = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_secs(600)))
+                    .build(),
+            )
+            .unwrap();
+        let expiring = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_millis(50)))
+                    .build(),
+            )
+            .unwrap();
+        assert_eq!(store.idx_expiry_len(), 2);
+
+        sleep(Duration::from_millis(200)).await;
+        store.sweep();
+        store.wait_for_gc().await;
+
+        assert_eq!(store.get(&living.id), Some(living));
+        assert_eq!(store.get(&expiring.id), None);
+        assert_eq!(store.idx_expiry_len(), 1);
+    }
+
+    /// Deleting a time: frame by any path drops its expiry entry with it.
+    #[tokio::test]
+    async fn test_removing_time_frame_drops_expiry_entry() {
+        let store = store_without_tick();
+
+        let frame = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_secs(600)))
+                    .build(),
+            )
+            .unwrap();
+        assert_eq!(store.idx_expiry_len(), 1);
+
+        // Explicit remove
+        store.remove(&frame.id).unwrap();
+        assert_eq!(store.get(&frame.id), None);
+        assert_eq!(store.idx_expiry_len(), 0);
+
+        // Trimmed by a last:n append on the same topic
+        for _ in 0..3 {
+            store
+                .append(
+                    Frame::builder("test")
+                        .ttl(TTL::Time(Duration::from_secs(600)))
+                        .build(),
+                )
+                .unwrap();
+        }
+        assert_eq!(store.idx_expiry_len(), 3);
+        store
+            .append(Frame::builder("test").ttl(TTL::Last(1)).build())
+            .unwrap();
+        store.wait_for_gc().await;
+        assert_eq!(store.read_sync(ReadOptions::default()).count(), 1);
+        assert_eq!(store.idx_expiry_len(), 0);
+    }
+
+    /// A sweep that fills its cap runs again at once, so a backlog larger
+    /// than one batch clears without waiting for the next tick.
+    #[tokio::test]
+    async fn test_sweep_over_cap_runs_again() {
+        let store = store_without_tick();
+
+        let total = 4096 + 5;
+        for _ in 0..total {
+            store
+                .append(
+                    Frame::builder("test")
+                        .ttl(TTL::Time(Duration::from_millis(50)))
+                        .build(),
+                )
+                .unwrap();
+        }
+        assert_eq!(store.idx_expiry_len(), total);
+
+        sleep(Duration::from_millis(200)).await;
+        store.sweep();
+
+        // The Drain may land in either of the two drains, so poll
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while store.idx_expiry_len() > 0 {
+            assert!(std::time::Instant::now() < deadline, "sweep never finished");
+            sleep(Duration::from_millis(10)).await;
+        }
+        store.wait_for_gc().await;
+        assert_eq!(store.read_sync(ReadOptions::default()).count(), 0);
+        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]
@@ -853,8 +996,7 @@ mod tests_ttl_expire {
 
     #[tokio::test]
     async fn test_many_expired_frames_removed_in_one_drain() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep()).unwrap();
+        let store = store_without_tick();
 
         let permanent = store.append(Frame::builder("test").build()).unwrap();
         let expiring: Vec<Frame> = (0..50)
@@ -871,17 +1013,19 @@ mod tests_ttl_expire {
 
         sleep(Duration::from_millis(200)).await;
 
-        // The walk skips every expired frame and queues a Remove for each
+        // The walk hides every expired frame
         let frames: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
         assert_eq!(frames, vec![permanent.clone()]);
 
-        // Once wait_for_gc returns every queued removal is visible
+        // One sweep removes them all in one commit, and wait_for_gc orders
+        // after it
+        store.sweep();
         store.wait_for_gc().await;
         for frame in &expiring {
             assert_eq!(store.get(&frame.id), None, "{} still present", frame.id);
         }
         assert_eq!(store.get(&permanent.id), Some(permanent));
-        assert!(store.remove_commits.load(Ordering::Relaxed) >= 1);
+        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
@@ -910,13 +1054,12 @@ mod tests_ttl_expire {
         assert_eq!(store.remove_commits.load(Ordering::Relaxed), 1);
     }
 
-    /// A Remove and a CheckLastTTL on the same topic in one drain land the
+    /// A Sweep and a CheckLastTTL on the same topic in one drain land the
     /// same frames as applying them one by one: the last:n scan does not count
     /// a frame the same drain is already removing.
     #[tokio::test]
     async fn test_gc_drain_interleaves_expiry_and_last_ttl() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = Store::new(temp_dir.keep()).unwrap();
+        let store = store_without_tick();
 
         let f1 = store
             .append(Frame::builder("test").ttl(TTL::Last(10)).build())
@@ -945,12 +1088,13 @@ mod tests_ttl_expire {
 
         sleep(Duration::from_millis(200)).await;
 
-        // Queues Remove(f3) and a Remove per `other` frame
         let frames: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
         assert_eq!(frames, vec![f1.clone(), f2.clone()]);
 
-        // Queues CheckLastTTL { test, keep: 2 }. With f3 gone the newest two
-        // are f2 and f4, so f1 goes and f2 stays.
+        // Queues a Sweep that takes f3 and every `other` frame, then
+        // CheckLastTTL { test, keep: 2 }. With f3 gone the newest two are f2
+        // and f4, so f1 goes and f2 stays.
+        store.sweep();
         let f4 = store
             .append(Frame::builder("test").ttl(TTL::Last(2)).build())
             .unwrap();

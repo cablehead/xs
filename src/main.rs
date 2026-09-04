@@ -10,7 +10,7 @@ use tokio::io::AsyncWriteExt;
 use xs::nu;
 use xs::store::{
     parse_ttl, validate_topic, validate_topic_query, FollowOption, Fsync, ReadOptions, Store,
-    StoreError,
+    StoreError, StoreOptions,
 };
 
 fn parse_topic(s: &str) -> Result<String, String> {
@@ -75,6 +75,11 @@ struct CommandServe {
     /// interval:<ms> (on a timer, only if something was written), or never
     #[clap(long, value_parser, value_name = "POLICY", default_value_t = Fsync::default())]
     fsync: Fsync,
+
+    /// How often to sweep expired time: frames from disk, in milliseconds.
+    /// 0 disables the sweeper
+    #[clap(long, value_parser, value_name = "MS", default_value_t = 1000)]
+    ttl_sweep: u64,
 }
 
 #[derive(Parser, Debug)]
@@ -323,7 +328,11 @@ async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Sen
 
     tracing::trace!("Starting server with path: {:?}", args.path);
 
-    let store = match Store::with_fsync(args.path.clone(), args.fsync) {
+    let options = StoreOptions::builder()
+        .fsync(args.fsync)
+        .ttl_sweep(Duration::from_millis(args.ttl_sweep))
+        .build();
+    let store = match Store::open(args.path.clone(), options) {
         Ok(store) => store,
         Err(StoreError::Locked) => {
             let sock_path = args.path.join("sock");

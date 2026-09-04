@@ -61,6 +61,15 @@ something was written), or `never`. The default is `interval:1000`. Embedders
 pass the same choice to `Store::with_fsync`; `Store::flush` fsyncs on demand.
 See the [cli reference](../../reference/cli/#fsync-policy).
 
+### Expiry
+
+A `time:` frame is written together with an entry in an expiry index, keyed
+by the moment it expires. A background sweeper scans that index up to now on
+a timer (`xs serve --ttl-sweep`, default one second) and removes every
+expired frame it finds in one batch. Reads hide an expired frame the sweeper
+has not reached yet, so the sweep interval only bounds how long the frame
+stays on disk. See the [TTL reference](../../reference/ttl/).
+
 ### Content Storage (CAS)
 
 Content is stored separately in a Content-Addressable Storage (CAS) system implemented using cacache. Key features:

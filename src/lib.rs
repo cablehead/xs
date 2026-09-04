@@ -58,7 +58,7 @@
 //! # Where to look
 //!
 //! - [`store`] is the embedding surface: [`Store`], [`Frame`], [`ReadOptions`],
-//!   [`FollowOption`], [`TTL`], [`Fsync`].
+//!   [`FollowOption`], [`TTL`], [`Fsync`], [`StoreOptions`].
 //! - [`error`] holds the shared [`Error`] type and the
 //!   [`NotFound`](error::NotFound) marker.
 //! - The remaining modules ([`api`], [`client`], [`listener`], [`processor`],
@@ -85,7 +85,7 @@ pub mod store;
 pub mod trace;
 
 pub use error::Error;
-pub use store::{FollowOption, Frame, Fsync, ReadOptions, Store, StoreError, TTL};
+pub use store::{FollowOption, Frame, Fsync, ReadOptions, Store, StoreError, StoreOptions, TTL};
 
 /// Time-sortable, 128-bit unique identifier used to order [`Frame`]s.
 ///

@@ -33,7 +33,7 @@ xs <COMMAND> [OPTIONS]
 Start the supervisor process.
 
 ```sh
-xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>]
+xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>] [--ttl-sweep <MS>]
 ```
 
 | Option                   | Description                                                       |
@@ -41,6 +41,7 @@ xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>]
 | `<path>`                 | Path to the store                                                 |
 | `--expose <LISTEN_ADDR>` | Expose the API on an additional address ([HOST]:PORT, `<PATH>`, or `iroh://`) |
 | `--fsync <POLICY>`       | When to fsync the journal: `always`, `interval:<ms>`, or `never`. Default `interval:1000` |
+| `--ttl-sweep <MS>`       | How often to sweep expired `time:` frames from disk. `0` disables the sweeper. Default `1000` |
 
 Examples:
 

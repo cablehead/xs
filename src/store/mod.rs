@@ -17,7 +17,10 @@
 //!
 //! Each frame carries a [`TTL`] that controls how long it is kept: forever, for
 //! a fixed duration, only the last N per topic, or ephemeral (broadcast to live
-//! readers but never stored).
+//! readers but never stored). A `time:` frame is indexed by its expiry and a
+//! background sweeper removes it within one sweep interval (the default, one
+//! second, is set with [`StoreOptions::ttl_sweep`]). Reads never return an
+//! expired frame, even one the sweeper has not reached yet.
 //!
 //! ## Durability
 //!
@@ -452,9 +455,67 @@ pub enum FollowOption {
 
 #[derive(Debug)]
 enum GCTask {
-    Remove(Scru128Id),
-    CheckLastTTL { topic: String, keep: u32 },
+    CheckLastTTL {
+        topic: String,
+        keep: u32,
+    },
+    /// Remove every `time:` frame whose expiry has passed, up to
+    /// `MAX_SWEEP_PER_DRAIN`. Sent by the sweep tick.
+    Sweep,
     Drain(tokio::sync::oneshot::Sender<()>),
+}
+
+/// A frame the gc worker is about to delete.
+enum Removal {
+    /// Only the id is known. The frame is fetched to learn its keys.
+    Id(Scru128Id),
+    /// An expiry index hit. The topic and expiry came from the index entry,
+    /// so no point read is needed.
+    Expired {
+        id: Scru128Id,
+        topic: String,
+        expires_at: u64,
+    },
+}
+
+impl Removal {
+    fn id(&self) -> Scru128Id {
+        match self {
+            Removal::Id(id) | Removal::Expired { id, .. } => *id,
+        }
+    }
+}
+
+/// Options for opening a [`Store`]. Build one with the
+/// [`bon`](https://docs.rs/bon) builder; every field has a default.
+///
+/// ```
+/// use std::time::Duration;
+/// use xs::{Fsync, StoreOptions};
+///
+/// let options = StoreOptions::builder()
+///     .fsync(Fsync::Always)
+///     .ttl_sweep(Duration::from_millis(250))
+///     .build();
+/// assert_eq!(options.fsync, Fsync::Always);
+/// assert_eq!(StoreOptions::default().ttl_sweep, Duration::from_millis(1000));
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, bon::Builder)]
+pub struct StoreOptions {
+    /// When the journal is fsynced. See [`Fsync`].
+    #[builder(default)]
+    pub fsync: Fsync,
+    /// How often expired `time:` frames are swept from disk. Default 1000 ms.
+    /// Zero disables the sweeper; expired frames are then only hidden from
+    /// reads, never removed.
+    #[builder(default = Duration::from_millis(1000))]
+    pub ttl_sweep: Duration,
+}
+
+impl Default for StoreOptions {
+    fn default() -> Self {
+        StoreOptions::builder().build()
+    }
 }
 
 /// An append-only event stream backed by a directory on disk.
@@ -472,6 +533,9 @@ pub struct Store {
     db: Database,
     stream: Keyspace,
     idx_topic: Keyspace,
+    /// `time:` frames keyed by expiry then id, valued by topic. The sweeper
+    /// range-scans it up to now. See [`idx_expiry_key`].
+    idx_expiry: Keyspace,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     /// Joins the background workers when the last caller-held clone drops.
@@ -495,23 +559,63 @@ pub struct Store {
     remove_commits: Arc<AtomicUsize>,
 }
 
-/// Joins the gc and fsync workers when the last caller-held `Store` drops.
-/// The gc worker's own clone carries `None`, so it never joins itself. Once
-/// the join returns both workers have dropped their database handles, the
-/// database is closed, and the path can be reopened.
+/// Joins the background workers when the last caller-held `Store` drops.
+/// The gc worker's own clone carries `None`, so it never joins itself. The
+/// ticks stop first: the sweep tick holds a gc sender, and the gc worker
+/// only exits once every sender is gone. Once the joins return every worker
+/// has dropped its database handle, the database is closed, and the path
+/// can be reopened.
 struct Workers {
     gc: Option<std::thread::JoinHandle<()>>,
-    fsync: Option<(Arc<FsyncState>, std::thread::JoinHandle<()>)>,
+    fsync: Option<Tick>,
+    sweep: Option<Tick>,
 }
 
 impl Drop for Workers {
     fn drop(&mut self) {
-        if let Some((state, handle)) = self.fsync.take() {
-            state.stop.store(true, Ordering::Release);
-            handle.thread().unpark();
+        drop(self.fsync.take());
+        drop(self.sweep.take());
+        if let Some(handle) = self.gc.take() {
             let _ = handle.join();
         }
-        if let Some(handle) = self.gc.take() {
+    }
+}
+
+/// A thread that runs a closure every `interval` until dropped. Dropping it
+/// sets `stop`, unparks the thread, and joins it, so the join waits for at
+/// most one in-flight run of the closure.
+struct Tick {
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Tick {
+    fn spawn(interval: Duration, mut run: impl FnMut() + Send + 'static) -> Tick {
+        let stop = Arc::new(AtomicBool::new(false));
+        let handle = std::thread::spawn({
+            let stop = stop.clone();
+            move || loop {
+                // park_timeout may wake early; the flags checked by each
+                // closure make that harmless.
+                std::thread::park_timeout(interval);
+                if stop.load(Ordering::Acquire) {
+                    break;
+                }
+                run();
+            }
+        });
+        Tick {
+            stop,
+            handle: Some(handle),
+        }
+    }
+}
+
+impl Drop for Tick {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(handle) = self.handle.take() {
+            handle.thread().unpark();
             let _ = handle.join();
         }
     }
@@ -522,8 +626,6 @@ struct FsyncState {
     mode: Fsync,
     /// Set after every commit under `interval`; the tick clears it.
     dirty: AtomicBool,
-    /// Tells the fsync worker to exit.
-    stop: AtomicBool,
 }
 
 impl Store {
@@ -544,7 +646,7 @@ impl Store {
     /// # Ok::<(), xs::StoreError>(())
     /// ```
     pub fn new(path: PathBuf) -> Result<Store, StoreError> {
-        Store::with_fsync(path, Fsync::default())
+        Store::open(path, StoreOptions::default())
     }
 
     /// Open the store at `path` with an explicit [`Fsync`] policy. Otherwise
@@ -557,6 +659,24 @@ impl Store {
     /// # Ok::<(), xs::StoreError>(())
     /// ```
     pub fn with_fsync(path: PathBuf, fsync: Fsync) -> Result<Store, StoreError> {
+        Store::open(path, StoreOptions::builder().fsync(fsync).build())
+    }
+
+    /// Open the store at `path` with explicit [`StoreOptions`]. Otherwise the
+    /// same as [`new`](Store::new).
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use xs::{Store, StoreOptions};
+    ///
+    /// let options = StoreOptions::builder()
+    ///     .ttl_sweep(Duration::from_millis(250))
+    ///     .build();
+    /// let store = Store::open("./clipboard-store".into(), options)?;
+    /// # Ok::<(), xs::StoreError>(())
+    /// ```
+    pub fn open(path: PathBuf, options: StoreOptions) -> Result<Store, StoreError> {
+        let fsync = options.fsync;
         let db = match Database::builder(path.join("fjall"))
             .cache_size(32 * 1024 * 1024) // 32 MiB
             .worker_threads(1)
@@ -587,6 +707,7 @@ impl Store {
 
         let stream = db.keyspace("stream", stream_opts).unwrap();
         let idx_topic = db.keyspace("idx_topic", idx_opts).unwrap();
+        let idx_expiry = db.keyspace("idx_expiry", idx_opts).unwrap();
 
         let (broadcast_tx, _) = broadcast::channel(1024);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
@@ -594,7 +715,6 @@ impl Store {
         let fsync_state = Arc::new(FsyncState {
             mode: fsync,
             dirty: AtomicBool::new(false),
-            stop: AtomicBool::new(false),
         });
 
         let mut store = Store {
@@ -602,6 +722,7 @@ impl Store {
             db,
             stream,
             idx_topic,
+            idx_expiry,
             broadcast_tx,
             gc_tx,
             workers: None,
@@ -616,16 +737,23 @@ impl Store {
         // Spawn the workers. The gc worker's clone is taken while `workers` is
         // still `None`, so only callers' clones join them.
         let gc = spawn_gc_worker(gc_rx, store.clone());
-        let fsync_worker = match fsync {
-            Fsync::Interval(interval) => Some((
+        let fsync_tick = match fsync {
+            Fsync::Interval(interval) => Some(spawn_fsync_tick(
+                store.db.clone(),
                 store.fsync.clone(),
-                spawn_fsync_worker(store.db.clone(), store.fsync.clone(), interval),
+                interval,
             )),
             Fsync::Always | Fsync::Never => None,
         };
+        let sweep_tick = if options.ttl_sweep.is_zero() {
+            None
+        } else {
+            Some(spawn_sweep_tick(store.gc_tx.clone(), options.ttl_sweep))
+        };
         store.workers = Some(Arc::new(Workers {
             gc: Some(gc),
-            fsync: fsync_worker,
+            fsync: fsync_tick,
+            sweep: sweep_tick,
         }));
 
         Ok(store)
@@ -686,6 +814,19 @@ impl Store {
         let _ = rx.await;
     }
 
+    /// Queue a sweep now, as the sweep tick would. Follow it with
+    /// [`wait_for_gc`](Store::wait_for_gc) to observe the removals.
+    #[cfg(test)]
+    fn sweep(&self) {
+        let _ = self.gc_tx.send(GCTask::Sweep);
+    }
+
+    /// Number of entries in the expiry index.
+    #[cfg(test)]
+    fn idx_expiry_len(&self) -> usize {
+        self.idx_expiry.len().unwrap()
+    }
+
     /// Read frames into an async channel according to `options`.
     ///
     /// By default this replays matching historical frames oldest-first and then
@@ -737,7 +878,6 @@ impl Store {
             let store = self.clone();
             let options = options.clone();
             let should_follow_clone = should_follow;
-            let gc_tx = self.gc_tx.clone();
 
             // Spawn OS thread to handle historical events
             std::thread::spawn(move || {
@@ -753,11 +893,8 @@ impl Store {
                     // Collect last N frames (in reverse order), skipping expired
                     let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
                     for frame in iter {
-                        if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                            if is_expired(&frame.id, ttl) {
-                                let _ = gc_tx.send(GCTask::Remove(frame.id));
-                                continue;
-                            }
+                        if is_expired(&frame) {
+                            continue;
                         }
                         frames.push(frame);
                         if frames.len() >= last_n {
@@ -785,11 +922,8 @@ impl Store {
                     let iter = store.iter_for_filter(&filter, start_bound);
 
                     for frame in iter {
-                        if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                            if is_expired(&frame.id, ttl) {
-                                let _ = gc_tx.send(GCTask::Remove(frame.id));
-                                continue;
-                            }
+                        if is_expired(&frame) {
+                            continue;
                         }
 
                         last_id = Some(frame.id);
@@ -928,18 +1062,8 @@ impl Store {
     /// # }
     /// ```
     pub fn read_sync(&self, options: ReadOptions) -> impl Iterator<Item = Frame> + '_ {
-        let gc_tx = self.gc_tx.clone();
-
-        // Filter out expired frames
-        let filter_expired = move |frame: Frame, gc_tx: &UnboundedSender<GCTask>| {
-            if let Some(TTL::Time(ttl)) = frame.ttl.as_ref() {
-                if is_expired(&frame.id, ttl) {
-                    let _ = gc_tx.send(GCTask::Remove(frame.id));
-                    return None;
-                }
-            }
-            Some(frame)
-        };
+        // Hide expired frames the sweeper has not reached yet
+        let filter_expired = |frame: Frame| (!is_expired(&frame)).then_some(frame);
 
         let filter = TopicFilter::from_option(options.topic.as_deref());
 
@@ -950,7 +1074,7 @@ impl Store {
             // Collect last N frames (in reverse order), skipping expired
             let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
             for frame in iter {
-                if let Some(frame) = filter_expired(frame, &gc_tx) {
+                if let Some(frame) = filter_expired(frame) {
                     frames.push(frame);
                     if frames.len() >= last_n {
                         break;
@@ -971,7 +1095,7 @@ impl Store {
 
             let iter = self.iter_for_filter(&filter, start_bound);
 
-            iter.filter_map(|frame| filter_expired(frame, &gc_tx))
+            iter.filter_map(filter_expired)
                 .take(options.limit.unwrap_or(usize::MAX))
                 .collect()
         };
@@ -1026,20 +1150,34 @@ impl Store {
     /// content-addressed store are left in place.
     #[tracing::instrument(skip(self), fields(id = %id.to_string()))]
     pub fn remove(&self, id: &Scru128Id) -> Result<(), crate::error::Error> {
-        self.remove_many([*id])
+        self.remove_many([Removal::Id(*id)])
     }
 
-    /// Delete every frame in `ids`, with their topic index entries, in one
-    /// batch with one commit. Ids whose frame is already gone are skipped, and
-    /// nothing is committed when none remain.
+    /// Delete every frame in `removals`, with their index entries, in one
+    /// batch with one commit. A [`Removal::Id`] whose frame is already gone
+    /// is skipped, and nothing is committed when none remain.
     fn remove_many(
         &self,
-        ids: impl IntoIterator<Item = Scru128Id>,
+        removals: impl IntoIterator<Item = Removal>,
     ) -> Result<(), crate::error::Error> {
         let mut batch = self.db.batch();
-        for id in ids {
-            if let Some(frame) = self.get(&id) {
-                self.remove_frame_keys(&mut batch, &frame);
+        for removal in removals {
+            match removal {
+                Removal::Id(id) => {
+                    if let Some(frame) = self.get(&id) {
+                        self.remove_frame_keys(
+                            &mut batch,
+                            &frame.id,
+                            &frame.topic,
+                            expires_at(&frame),
+                        );
+                    }
+                }
+                Removal::Expired {
+                    id,
+                    topic,
+                    expires_at,
+                } => self.remove_frame_keys(&mut batch, &id, &topic, Some(expires_at)),
             }
         }
         if batch.is_empty() {
@@ -1050,23 +1188,55 @@ impl Store {
         self.remove_commits.fetch_add(1, Ordering::Relaxed);
         // No inline fsync in any mode. The tombstones reach disk with the next
         // append's sync or the next tick. If power loss brings a frame back,
-        // it re-expires on read and is removed again.
+        // its index entries come back with it, so it is trimmed or swept
+        // again.
         if matches!(self.fsync.mode, Fsync::Interval(_)) {
             self.fsync.dirty.store(true, Ordering::Release);
         }
         Ok(())
     }
 
-    /// Queue the stream entry and topic index keys of `frame` for removal on
-    /// `batch`. The topic key is built without validation: the frame exists.
-    fn remove_frame_keys(&self, batch: &mut OwnedWriteBatch, frame: &Frame) {
-        let mut topic_key = idx_topic_key_prefix(&frame.topic);
-        topic_key.extend(frame.id.as_bytes());
-        batch.remove(&self.stream, frame.id.as_bytes());
+    /// Queue the stream entry and index keys of a frame for removal on
+    /// `batch`. `expires_at` is the frame's expiry index slot, `Some` only for
+    /// a `time:` frame. The topic key is built without validation: the frame
+    /// exists.
+    fn remove_frame_keys(
+        &self,
+        batch: &mut OwnedWriteBatch,
+        id: &Scru128Id,
+        topic: &str,
+        expires_at: Option<u64>,
+    ) {
+        let mut topic_key = idx_topic_key_prefix(topic);
+        topic_key.extend(id.as_bytes());
+        batch.remove(&self.stream, id.as_bytes());
         batch.remove(&self.idx_topic, topic_key);
-        for prefix_key in idx_topic_prefix_keys(&frame.topic, &frame.id) {
+        for prefix_key in idx_topic_prefix_keys(topic, id) {
             batch.remove(&self.idx_topic, prefix_key);
         }
+        if let Some(expires_at) = expires_at {
+            batch.remove(&self.idx_expiry, idx_expiry_key(expires_at, id));
+        }
+    }
+
+    /// The oldest `time:` frames whose expiry is at or before `now_ms`, at
+    /// most `limit` of them, straight from the expiry index. A full `limit`
+    /// means there may be more.
+    fn expired_at(&self, now_ms: u64, limit: usize) -> Vec<Removal> {
+        let last = idx_expiry_key(now_ms, &Scru128Id::from_bytes([0xff; 16]));
+        self.idx_expiry
+            .range(..=last)
+            .filter_map(|guard| {
+                let (key, value) = guard.into_inner().ok()?;
+                let (expires_at, id) = idx_expiry_parse_key(&key);
+                Some(Removal::Expired {
+                    id,
+                    topic: String::from_utf8_lossy(&value).into_owned(),
+                    expires_at,
+                })
+            })
+            .take(limit)
+            .collect()
     }
 
     /// Ids on `topic` past the newest `keep`, ignoring frames already in
@@ -1175,6 +1345,14 @@ impl Store {
         batch.insert(&self.idx_topic, topic_key, b"");
         for prefix_key in &prefix_keys {
             batch.insert(&self.idx_topic, prefix_key, b"");
+        }
+        // A time: frame is also indexed by its expiry, for the sweeper
+        if let Some(expires_at) = expires_at(frame) {
+            batch.insert(
+                &self.idx_expiry,
+                idx_expiry_key(expires_at, &frame.id),
+                frame.topic.as_bytes(),
+            );
         }
         batch.commit()?;
         self.after_commit()
@@ -1442,20 +1620,46 @@ fn spawn_gc_worker(
     // commit. A Drain is answered after that commit, so every task queued
     // before it has been applied by the time its reply lands.
     const MAX_TASKS_PER_DRAIN: usize = 1024;
+    // A sweep removes at most this many frames. When it fills the cap the
+    // next drain starts with another sweep, without waiting for the tick.
+    const MAX_SWEEP_PER_DRAIN: usize = 4096;
 
     std::thread::spawn(move || {
-        while let Some(first) = gc_rx.blocking_recv() {
-            let mut ids = HashSet::new();
+        let mut carried: Option<GCTask> = None;
+        loop {
+            let first = match carried.take() {
+                Some(task) => task,
+                None => match gc_rx.blocking_recv() {
+                    Some(task) => task,
+                    None => break,
+                },
+            };
+
+            // Ids in this drain, so a last:n scan and a sweep never count or
+            // queue a frame twice.
+            let mut pending = HashSet::new();
+            let mut removals = Vec::new();
             let mut drains = Vec::new();
+            let mut sweep_again = false;
             let mut next = Some(first);
             let mut taken = 0;
             while let Some(task) = next.take() {
                 match task {
-                    GCTask::Remove(id) => {
-                        ids.insert(id);
-                    }
                     GCTask::CheckLastTTL { topic, keep } => {
-                        ids.extend(store.last_overflow(&topic, keep, &ids));
+                        for id in store.last_overflow(&topic, keep, &pending) {
+                            if pending.insert(id) {
+                                removals.push(Removal::Id(id));
+                            }
+                        }
+                    }
+                    GCTask::Sweep => {
+                        let expired = store.expired_at(now_ms(), MAX_SWEEP_PER_DRAIN);
+                        sweep_again |= expired.len() == MAX_SWEEP_PER_DRAIN;
+                        for removal in expired {
+                            if pending.insert(removal.id()) {
+                                removals.push(removal);
+                            }
+                        }
                     }
                     GCTask::Drain(tx) => drains.push(tx),
                 }
@@ -1465,31 +1669,24 @@ fn spawn_gc_worker(
                 }
             }
 
-            if let Err(e) = store.remove_many(ids) {
+            if let Err(e) = store.remove_many(removals) {
                 tracing::error!("gc remove failed: {e}");
             }
             for tx in drains {
                 let _ = tx.send(());
+            }
+            if sweep_again {
+                carried = Some(GCTask::Sweep);
             }
         }
     })
 }
 
 /// Fsync the journal every `interval` when something was written since the
-/// last tick. [`Workers`] stops it by setting `stop` and unparking, so the
-/// join waits for at most one in-flight persist. No final persist is needed
-/// here: fjall syncs the journal when the database closes.
-fn spawn_fsync_worker(
-    db: Database,
-    state: Arc<FsyncState>,
-    interval: Duration,
-) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || loop {
-        // park_timeout may wake early; the flags below make that harmless.
-        std::thread::park_timeout(interval);
-        if state.stop.load(Ordering::Acquire) {
-            break;
-        }
+/// last tick. No final persist is needed on stop: fjall syncs the journal
+/// when the database closes.
+fn spawn_fsync_tick(db: Database, state: Arc<FsyncState>, interval: Duration) -> Tick {
+    Tick::spawn(interval, move || {
         if state.dirty.swap(false, Ordering::AcqRel) {
             if let Err(e) = db.persist(PersistMode::SyncAll) {
                 tracing::error!("fsync failed: {e}");
@@ -1498,15 +1695,49 @@ fn spawn_fsync_worker(
     })
 }
 
-fn is_expired(id: &Scru128Id, ttl: &Duration) -> bool {
-    let created_ms = id.timestamp();
-    let expires_ms = created_ms.saturating_add(ttl.as_millis() as u64);
-    let now_ms = std::time::SystemTime::now()
+/// Queue a [`GCTask::Sweep`] every `interval`. The gc worker does the scan
+/// and the removals, so a slow sweep never blocks the tick.
+fn spawn_sweep_tick(gc_tx: UnboundedSender<GCTask>, interval: Duration) -> Tick {
+    Tick::spawn(interval, move || {
+        let _ = gc_tx.send(GCTask::Sweep);
+    })
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_millis() as u64;
+        .as_millis() as u64
+}
 
-    now_ms >= expires_ms
+/// When a `time:` frame expires, in ms since the epoch: its id's timestamp
+/// plus its ttl. `None` for any other ttl.
+fn expires_at(frame: &Frame) -> Option<u64> {
+    match frame.ttl.as_ref() {
+        Some(TTL::Time(ttl)) => Some(frame.id.timestamp().saturating_add(ttl.as_millis() as u64)),
+        _ => None,
+    }
+}
+
+/// Has this frame's `time:` ttl passed? Matches the sweeper's cut-off, so a
+/// frame is hidden from reads from the moment it becomes sweepable.
+fn is_expired(frame: &Frame) -> bool {
+    matches!(expires_at(frame), Some(at) if now_ms() >= at)
+}
+
+/// Expiry index key: expiry in ms as big-endian u64, then the frame id. Sorts
+/// by expiry, so a range scan up to now yields exactly the expired frames.
+fn idx_expiry_key(expires_at: u64, id: &Scru128Id) -> [u8; 24] {
+    let mut key = [0u8; 24];
+    key[..8].copy_from_slice(&expires_at.to_be_bytes());
+    key[8..].copy_from_slice(id.as_bytes());
+    key
+}
+
+fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
+    let expires_at = u64::from_be_bytes(key[..8].try_into().unwrap());
+    let id = Scru128Id::from_bytes(key[8..24].try_into().unwrap());
+    (expires_at, id)
 }
 
 const NULL_DELIMITER: u8 = 0;

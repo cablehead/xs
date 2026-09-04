@@ -43,10 +43,21 @@ above.
   appear in `.cat` history or on replay. Use them for liveness signals where a
   missed frame does not matter.
 - **`time:<ms>`** frames expire relative to their own creation timestamp.
+  A read never returns an expired frame. A background sweeper removes
+  expired frames from disk within one sweep interval, `xs serve --ttl-sweep`,
+  default one second. No read has to touch a frame for it to be removed.
 - **`last:<n>`** schedules a per-topic garbage collection on each append: the
   store keeps the `n` most recent frames on that topic and removes the rest.
   This is retention by topic, not by frame, so it affects every frame that
   shares the topic.
+
+<Aside type="caution" title="time: frames from before the sweeper are not swept">
+The sweeper works from an expiry index that is written when a `time:` frame
+is appended. A `time:` frame written by an xs before this index existed has
+no entry in it. Reads still hide it once it expires, but nothing removes it
+from disk. There is no backfill. To reclaim the space, remove such frames
+yourself, or start a fresh store.
+</Aside>
 
 <Aside type="caution" title="Do not put a pruning TTL on module topics">
 Processors resolve their modules **as of their own `.create` frame**: a
