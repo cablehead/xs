@@ -35,7 +35,7 @@ impl Command for AppendCommand {
             .required("topic", SyntaxShape::String, "this clip's topic")
             .named(
                 "meta",
-                SyntaxShape::Record(vec![]),
+                SyntaxShape::Record(vec![].into()),
                 "arbitrary metadata",
                 None,
             )

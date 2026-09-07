@@ -2,7 +2,7 @@
 name = "cross-stream"
 edition = "2021"
 version = "0.13.5-dev"
-rust-version = "1.93.1"
+rust-version = "1.95.0"
 description = "An event stream store for personal, local-first use, specializing in event sourcing."
 license = "MIT"
 repository = "https://github.com/cablehead/xs"
@@ -55,13 +55,13 @@ chrono = "0.4.38"
 bon = "2.3"
 tempfile = "3.23"
 
-nu-cli = "0.113.1"
-nu-command = { version = "0.113.1", features = ["sqlite"] }
-nu-protocol = "0.113.1"
-nu-cmd-lang = "0.113.1"
-nu-engine = "0.113.1"
-nu-parser = "0.113.1"
-nu-std = "0.113.1"
+nu-cli = "0.115.1"
+nu-command = { version = "0.115.1", features = ["sqlite"] }
+nu-protocol = "0.115.1"
+nu-cmd-lang = "0.115.1"
+nu-engine = "0.115.1"
+nu-parser = "0.115.1"
+nu-std = "0.115.1"
 
 http = "1.1.0"
 http-body-util = "0.1"
@@ -87,7 +87,7 @@ data-encoding = "2.6"
 nix = { version = "0.29", default-features = false, features = ["poll", "fs"] }
 
 [target.'cfg(windows)'.dependencies]
-win_uds = { version = "=0.2.2", features = ["async"] }
+win_uds = { version = "=0.2.4", features = ["async"] }
 
 [dev-dependencies]
 assert_cmd = "2.0.14"

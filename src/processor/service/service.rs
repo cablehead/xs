@@ -654,7 +654,7 @@ pub(crate) fn value_to_event(
         _ if use_cas => {
             let data = match value {
                 Value::String { val, .. } => val.as_bytes().to_vec(),
-                Value::Binary { val, .. } => val.clone(),
+                Value::Binary { val, .. } => val.to_vec(),
                 _ => value_to_json(value).to_string().into_bytes(),
             };
             Ok(Some(ServiceEventKind::Recv {
