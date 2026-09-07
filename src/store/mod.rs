@@ -1013,7 +1013,20 @@ impl Store {
                                         }
                                     }
                                 }
-                                Err(_) => break,
+                                // Lagged is recoverable: the receiver fell behind the
+                                // broadcast channel's capacity and `skipped` messages
+                                // were dropped, but the next recv() picks up where the
+                                // channel's buffer now starts. There is no in-band way
+                                // to tell the caller a gap happened -- the read channel
+                                // only carries frames -- so this is logged instead.
+                                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                                    tracing::warn!(
+                                        skipped,
+                                        "follow lagged behind the broadcast channel"
+                                    );
+                                    continue;
+                                }
+                                Err(broadcast::error::RecvError::Closed) => break,
                             }
                         }
                     }

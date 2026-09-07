@@ -217,6 +217,40 @@ mod tests_store {
     }
 
     #[tokio::test]
+    async fn test_follow_recovers_from_lag() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+
+        // `new` skips historical replay, so the follow task subscribes to the
+        // broadcast channel and does nothing else until we drive the runtime
+        // by awaiting `rx`. That leaves a window to outrun it.
+        let options = ReadOptions::builder()
+            .new(true)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options);
+
+        // append() is synchronous and never yields, so all of these land
+        // before the follow task is ever polled. The broadcast channel holds
+        // 1024, so this overruns it and the follow's receiver falls behind.
+        for _ in 0..2000 {
+            store.append(Frame::builder("filler").build()).unwrap();
+        }
+        let marker = store.append(Frame::builder("marker").build()).unwrap();
+
+        // A lagged follow should skip ahead, not end: we should still reach
+        // the marker appended after the overrun, not a closed channel.
+        let mut saw_marker = false;
+        while let Some(frame) = rx.recv().await {
+            if frame.id == marker.id {
+                saw_marker = true;
+                break;
+            }
+        }
+        assert!(saw_marker, "follow ended instead of recovering from a lag");
+    }
+
+    #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
