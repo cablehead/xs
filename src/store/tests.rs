@@ -2040,3 +2040,515 @@ mod tests_idx_topic_expiry {
         assert!(store.get(&expired.id).is_some());
     }
 }
+
+/// Both background scans resume where the last one stopped instead of
+/// starting over. These cover what that must not cost: a frame that is due
+/// is always removed in the end, and one that is not is never touched early,
+/// whichever way a scan is interrupted.
+mod tests_gc_resume {
+    use super::*;
+
+    use std::collections::HashSet;
+
+    use tempfile::TempDir;
+    use tokio::time::sleep;
+
+    /// A store whose sweep tick never fires, so the only gc a test gets is
+    /// the gc it asks for.
+    fn store_at(path: std::path::PathBuf) -> Store {
+        let options = StoreOptions::builder()
+            .ttl_sweep(Duration::from_secs(600))
+            .build();
+        Store::open(path, options).unwrap()
+    }
+
+    fn store_without_tick() -> Store {
+        store_at(TempDir::new().unwrap().keep())
+    }
+
+    /// A frame that expired `ago` ago, with the id to match: what restoring a
+    /// backup writes, and the one way an entry lands behind a scan.
+    fn frame_from_the_past(topic: &str, ago: Duration) -> Frame {
+        let ts = now_ms() - ago.as_millis() as u64;
+        Frame {
+            id: Scru128Id::try_from_fields(ts, 0, 0, 0).unwrap(),
+            topic: topic.to_string(),
+            ttl: Some(TTL::Time(Duration::ZERO)),
+            ..Default::default()
+        }
+    }
+
+    fn expiring(store: &Store, topic: &str) -> Frame {
+        store
+            .append(Frame::builder(topic).ttl(TTL::Time(Duration::ZERO)).build())
+            .unwrap()
+    }
+
+    fn topic_ids(store: &Store, topic: &str) -> Vec<Scru128Id> {
+        let options = ReadOptions::builder().topic(topic.to_string()).build();
+        store.read_sync(options).map(|f| f.id).collect()
+    }
+
+    /// A sweep interrupted by its cap picks up where it stopped: the batches
+    /// are disjoint, in expiry order, and together they are every due frame.
+    #[tokio::test]
+    async fn test_sweep_resumes_across_capped_batches() {
+        let store = store_without_tick();
+        let ids: Vec<Scru128Id> = (0..10).map(|_| expiring(&store, "test").id).collect();
+
+        let mut swept = Vec::new();
+        let mut batches = 0;
+        loop {
+            let batch = store.expired_at(now_ms(), 3);
+            if batch.is_empty() {
+                break;
+            }
+            batches += 1;
+            swept.extend(batch.iter().map(Removal::id));
+            store.remove_many(batch).unwrap();
+        }
+
+        assert_eq!(swept, ids, "every due frame, once, oldest first");
+        assert_eq!(batches, 4, "3 + 3 + 3 + 1");
+        assert_eq!(store.idx_expiry_len(), 0);
+    }
+
+    /// The resume point never passes a frame whose expiry has not arrived. A
+    /// sweep that runs while it is still live leaves it, and the next sweep
+    /// after it comes due takes it.
+    #[tokio::test]
+    async fn test_sweep_does_not_skip_a_frame_that_is_not_yet_due() {
+        let store = store_without_tick();
+
+        // Appended first, so the lower id, but the later expiry: it sorts
+        // above everything the first sweep can reach.
+        let later = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_millis(300)))
+                    .build(),
+            )
+            .unwrap();
+        let due = expiring(&store, "test");
+
+        store.sweep();
+        store.wait_for_gc().await;
+        assert_eq!(store.get(&due.id), None);
+        assert_eq!(store.get(&later.id), Some(later.clone()));
+
+        sleep(Duration::from_millis(400)).await;
+        store.sweep();
+        store.wait_for_gc().await;
+        assert_eq!(store.get(&later.id), None, "swept once it came due");
+        assert_eq!(store.idx_expiry_len(), 0);
+    }
+
+    /// An expiry entry written below the resume point -- a frame restored
+    /// with an id from the past -- pulls the resume point back onto it.
+    /// Without that, no later sweep would ever look there again.
+    #[tokio::test]
+    async fn test_sweep_takes_a_frame_indexed_below_the_resume_point() {
+        let store = store_without_tick();
+
+        let first = expiring(&store, "test");
+        store.sweep();
+        store.wait_for_gc().await;
+        assert_eq!(store.get(&first.id), None);
+
+        let old = frame_from_the_past("test", Duration::from_secs(60));
+        store.insert_frame(&old).unwrap();
+
+        store.sweep();
+        store.wait_for_gc().await;
+        assert_eq!(store.get(&old.id), None, "swept from behind the sweeper");
+        assert_eq!(store.idx_expiry_len(), 0);
+    }
+
+    /// A store reopened mid-backlog has no resume point to inherit, so it
+    /// starts from the beginning of the index and drains what is left.
+    #[tokio::test]
+    async fn test_reopened_store_drains_the_rest_of_a_backlog() {
+        let path = TempDir::new().unwrap().keep();
+
+        let store = store_at(path.clone());
+        let ids: Vec<Scru128Id> = (0..10).map(|_| expiring(&store, "test").id).collect();
+        // Stop the sweep four in, leaving the resume point in the middle of
+        // the index and six frames behind it.
+        let batch = store.expired_at(now_ms(), 4);
+        assert_eq!(batch.len(), 4);
+        store.remove_many(batch).unwrap();
+        drop(store);
+
+        let store = store_at(path);
+        store.sweep();
+        store.wait_for_gc().await;
+        for id in &ids {
+            assert_eq!(store.get(id), None, "{id} outlived the reopen");
+        }
+        assert_eq!(store.idx_expiry_len(), 0);
+    }
+
+    /// A trim interrupted by its limit picks up above its own tombstones:
+    /// the batches are disjoint, oldest first, and stop at the newest `keep`.
+    #[tokio::test]
+    async fn test_trim_resumes_across_capped_batches() {
+        let store = store_without_tick();
+        // ttl=forever, so nothing is queued for the gc worker and the test
+        // has the trim scan to itself.
+        let ids: Vec<Scru128Id> = (0..10)
+            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .collect();
+
+        let mut trimmed = Vec::new();
+        let mut batches = 0;
+        loop {
+            let batch = store.last_overflow("test", 2, &HashSet::new(), 3);
+            if batch.is_empty() {
+                break;
+            }
+            batches += 1;
+            trimmed.extend(batch.iter().copied());
+            store
+                .remove_many(batch.into_iter().map(Removal::Id))
+                .unwrap();
+        }
+
+        assert_eq!(trimmed, ids[..8], "everything but the newest two, once");
+        assert_eq!(batches, 3, "3 + 3 + 2");
+        assert_eq!(topic_ids(&store, "test"), ids[8..]);
+    }
+
+    /// A topic sitting below its keep count has nothing to trim, but the scan
+    /// that establishes that reaches the end of the topic, so it records where
+    /// the topic starts and the next scan does not walk the tombstones under
+    /// it again. The floor it leaves is inclusive: the oldest frame is still
+    /// there and still counts.
+    #[tokio::test]
+    async fn test_trim_below_keep_floors_on_the_oldest_live_frame() {
+        let store = store_without_tick();
+        let ids: Vec<Scru128Id> = (0..3)
+            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .collect();
+        // A tombstone under the topic, from a path that is not a trim.
+        store.remove(&ids[0]).unwrap();
+
+        assert!(store
+            .last_overflow("test", 10, &HashSet::new(), 16)
+            .is_empty());
+        assert_eq!(
+            store.trim_floor.lock().unwrap().get("test").copied(),
+            Some(TrimFloor {
+                id: ids[1],
+                inclusive: true,
+            }),
+            "floored on the oldest frame still on the topic",
+        );
+
+        // The frame it floored on is live, so a later trim still counts and
+        // takes it.
+        let last = store.append(Frame::builder("test").build()).unwrap().id;
+        let overflow = store.last_overflow("test", 2, &HashSet::new(), 16);
+        assert_eq!(overflow, vec![ids[1]]);
+        store
+            .remove_many(overflow.into_iter().map(Removal::Id))
+            .unwrap();
+        assert_eq!(topic_ids(&store, "test"), vec![ids[2], last]);
+    }
+    /// A trim that fills its cap is carried to the next drain, so a topic
+    /// with a backlog larger than one batch settles on `keep` without another
+    /// append to prompt it.
+    #[tokio::test]
+    async fn test_trim_over_cap_runs_again() {
+        let store = store_without_tick();
+
+        let total = 4096 + 5;
+        for _ in 0..total {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        let last = store
+            .append(Frame::builder("test").ttl(TTL::Last(1)).build())
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while store.read_sync(ReadOptions::default()).count() > 1 {
+            assert!(std::time::Instant::now() < deadline, "trim never finished");
+            sleep(Duration::from_millis(10)).await;
+        }
+        store.wait_for_gc().await;
+        assert_eq!(topic_ids(&store, "test"), vec![last.id]);
+        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 2);
+    }
+
+    /// A topic index entry written below the trim floor -- again, a frame
+    /// restored with an id from the past -- drops the floor, so the next trim
+    /// scans the topic whole and takes it.
+    #[tokio::test]
+    async fn test_trim_takes_a_frame_indexed_below_the_floor() {
+        let store = store_without_tick();
+
+        for _ in 0..3 {
+            store
+                .append(Frame::builder("test").ttl(TTL::Last(1)).build())
+                .unwrap();
+        }
+        store.wait_for_gc().await;
+        assert_eq!(topic_ids(&store, "test").len(), 1);
+
+        let old = frame_from_the_past("test", Duration::from_secs(60));
+        // insert_frame does not schedule gc; the next append does.
+        store.insert_frame(&old).unwrap();
+        let last = store
+            .append(Frame::builder("test").ttl(TTL::Last(1)).build())
+            .unwrap();
+        store.wait_for_gc().await;
+
+        assert_eq!(store.get(&old.id), None, "trimmed from behind the trim");
+        assert_eq!(topic_ids(&store, "test"), vec![last.id]);
+    }
+
+    /// Removing a frame by hand from inside the window a trim keeps leaves
+    /// the floor telling the truth: the next trim still lands exactly `keep`.
+    #[tokio::test]
+    async fn test_trim_after_a_manual_remove_inside_the_kept_window() {
+        let store = store_without_tick();
+        let ids: Vec<Scru128Id> = (0..5)
+            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .collect();
+
+        assert_eq!(
+            store.last_overflow("test", 2, &HashSet::new(), 16),
+            ids[..3]
+        );
+        store
+            .remove_many(ids[..3].iter().copied().map(Removal::Id))
+            .unwrap();
+
+        // One of the two the trim just kept goes by hand.
+        store.remove(&ids[3]).unwrap();
+        assert_eq!(
+            store.last_overflow("test", 2, &HashSet::new(), 16),
+            Vec::<Scru128Id>::new(),
+            "one frame left on the topic, nothing to trim"
+        );
+
+        let more: Vec<Scru128Id> = (0..2)
+            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .collect();
+        let overflow = store.last_overflow("test", 2, &HashSet::new(), 16);
+        assert_eq!(overflow, vec![ids[4]]);
+        store
+            .remove_many(overflow.into_iter().map(Removal::Id))
+            .unwrap();
+        assert_eq!(topic_ids(&store, "test"), more);
+    }
+
+    /// Sweeps and trims share a topic and a drain over several rounds: what
+    /// survives is what applying each round on its own would leave.
+    #[tokio::test]
+    async fn test_sweeps_and_trims_interleave_over_several_drains() {
+        let store = store_without_tick();
+        let mut kept = Vec::new();
+
+        for round in 0..5 {
+            // Two frames that are already due and one that outlives the test.
+            expiring(&store, "test");
+            expiring(&store, "test");
+            let live = store
+                .append(
+                    Frame::builder("test")
+                        .ttl(TTL::Time(Duration::from_secs(600)))
+                        .build(),
+                )
+                .unwrap();
+            let trimmed = store
+                .append(Frame::builder("test").ttl(TTL::Last(2)).build())
+                .unwrap();
+            kept.push(live.id);
+            kept.push(trimmed.id);
+
+            store.sweep();
+            store.wait_for_gc().await;
+
+            // last:2 counts what is on the topic after the sweep: the two
+            // frames this round added that are not due, plus whatever earlier
+            // rounds left, which the trim takes.
+            assert_eq!(
+                topic_ids(&store, "test"),
+                kept[kept.len() - 2..],
+                "round {round}"
+            );
+            kept = kept[kept.len() - 2..].to_vec();
+            assert_eq!(store.idx_expiry_len(), 1, "round {round}: the live frame");
+        }
+    }
+}
+
+/// Scale benchmarks for the two background gc scans. Ignored by default:
+///
+///   cargo test --release --lib tests_gc_scale -- --ignored --nocapture
+///
+/// `XS_BENCH_SWEEP_N` and `XS_BENCH_TRIM_N` override the frame counts.
+///
+/// Both scans used to restart at the beginning of their index, so every pass
+/// walked the tombstones of everything the passes before it had removed. One
+/// machine, release build, before that changed and after:
+///
+///   sweep-backlog, ms to empty the expiry index
+///                    200k    500k      1M     us/frame
+///   restarting       1604    5872   14088     8.0 -> 14.1
+///   resuming          528    1497    3167     2.6 ->  3.2
+///
+///   last-trim, appends on one last:1 topic, a gc drain each
+///                     10k     20k          us/frame
+///   restarting      23144   95805 ms       2314 -> 4790
+///   resuming          227     467 ms         23 ->   23
+///
+/// Restarting grows with the tombstones it has left: doubling the trim's
+/// appends quadruples its time. Resuming holds its per-frame cost flat. The
+/// numbers only compare on the same hardware; the shape is the point.
+mod tests_gc_scale {
+    use super::*;
+
+    use std::path::PathBuf;
+    use std::sync::atomic::Ordering;
+    use std::time::Instant;
+
+    use tokio::time::sleep;
+
+    fn bench_n(var: &str, default: usize) -> usize {
+        std::env::var(var)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    }
+
+    /// A store directory under `TMPDIR`, removed by path afterwards: a
+    /// benchmark leaks its `Store` rather than dropping it, so nothing else
+    /// cleans it up.
+    fn bench_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("xs-bench-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn bench_store(path: PathBuf) -> Store {
+        let options = StoreOptions::builder()
+            .fsync(Fsync::Never)
+            // No tick: every sweep in a benchmark is one the benchmark asked
+            // for.
+            .ttl_sweep(Duration::from_secs(3600))
+            .build();
+        Store::open(path, options).unwrap()
+    }
+
+    /// Wait for the gc worker to have removed `want` frames, printing the rate
+    /// as it goes so a run that will not finish still says how far it got.
+    async fn await_removals(store: &Store, want: usize, budget: Duration) -> (usize, Duration) {
+        let start = Instant::now();
+        let mut next_report = Duration::from_secs(10);
+        loop {
+            let removed = store.removed_frames.load(Ordering::Relaxed);
+            let elapsed = start.elapsed();
+            if removed >= want {
+                return (removed, elapsed);
+            }
+            if elapsed > budget {
+                println!("  gave up after {:.1}s", elapsed.as_secs_f64());
+                return (removed, elapsed);
+            }
+            if elapsed > next_report {
+                println!(
+                    "  {removed}/{want} removed in {:.1}s",
+                    elapsed.as_secs_f64()
+                );
+                next_report = elapsed + Duration::from_secs(10);
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// Drain a backlog of expired `time:` frames. One sweep starts it; the gc
+    /// worker carries another whenever a batch fills its cap, so this measures
+    /// every sweep it takes to empty the expiry index.
+    #[tokio::test]
+    #[ignore = "benchmark"]
+    async fn bench_sweep_backlog() {
+        let n = bench_n("XS_BENCH_SWEEP_N", 200_000);
+        let path = bench_dir("sweep");
+        let store = bench_store(path.clone());
+
+        let start = Instant::now();
+        for _ in 0..n {
+            store
+                .append(
+                    Frame::builder("bench")
+                        .ttl(TTL::Time(Duration::ZERO))
+                        .build(),
+                )
+                .unwrap();
+        }
+        let append = start.elapsed();
+
+        store.sweep();
+        let (removed, elapsed) = await_removals(&store, n, Duration::from_secs(900)).await;
+
+        println!(
+            "sweep-backlog frames={n} append_ms={:.0} sweep_ms={:.0} removed={removed} \
+             frames_per_s={:.0}",
+            append.as_secs_f64() * 1e3,
+            elapsed.as_secs_f64() * 1e3,
+            removed as f64 / elapsed.as_secs_f64(),
+        );
+
+        // Store::drop can hang on a store this size; leak it and take the
+        // directory by path.
+        std::mem::forget(store);
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    /// A slow producer on a `last:1` topic: one append, one gc drain, over and
+    /// over. Every drain trims exactly one frame, so this measures what each
+    /// trim scan costs as the topic's tombstones pile up.
+    #[tokio::test]
+    #[ignore = "benchmark"]
+    async fn bench_last_trim() {
+        let n = bench_n("XS_BENCH_TRIM_N", 20_000);
+        let path = bench_dir("trim");
+        let store = bench_store(path.clone());
+
+        let start = Instant::now();
+        let mut report = Duration::from_secs(10);
+        for i in 0..n {
+            store
+                .append(Frame::builder("bench").ttl(TTL::Last(1)).build())
+                .unwrap();
+            store.wait_for_gc().await;
+            if start.elapsed() > report {
+                println!(
+                    "  {i}/{n} appended in {:.1}s",
+                    start.elapsed().as_secs_f64()
+                );
+                report = start.elapsed() + Duration::from_secs(10);
+            }
+        }
+        let elapsed = start.elapsed();
+        let removed = store.removed_frames.load(Ordering::Relaxed);
+
+        println!(
+            "last-trim frames={n} ms={:.0} removed={removed} frames_per_s={:.0} \
+             us_per_frame={:.1}",
+            elapsed.as_secs_f64() * 1e3,
+            removed as f64 / elapsed.as_secs_f64(),
+            elapsed.as_secs_f64() * 1e6 / n as f64,
+        );
+        assert_eq!(
+            removed,
+            n - 1,
+            "every append but the last should be trimmed"
+        );
+
+        std::mem::forget(store);
+        let _ = std::fs::remove_dir_all(&path);
+    }
+}

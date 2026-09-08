@@ -39,7 +39,7 @@ pub use ttl::*;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -486,6 +486,57 @@ impl Removal {
     }
 }
 
+/// Where the next expiry sweep starts scanning. Everything below it has been
+/// swept, so the sweep steps over the tombstones earlier sweeps left instead
+/// of walking them again.
+///
+/// It only ever moves up to a key a sweep actually removed, and a sweep never
+/// looks past the frames that are due, so it can never come to rest above an
+/// entry that is still waiting for its expiry to pass. The one way an entry
+/// can appear below it is an index write, which
+/// [`note_indexed_expiry`](Store::note_indexed_expiry) moves it back for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SweepStart {
+    key: [u8; 24],
+    /// Whether `key` itself still has to be swept: false on the key a sweep
+    /// removed, true on one a later index write put back in play.
+    inclusive: bool,
+}
+
+impl SweepStart {
+    fn bound(&self) -> Bound<[u8; 24]> {
+        if self.inclusive {
+            Bound::Included(self.key)
+        } else {
+            Bound::Excluded(self.key)
+        }
+    }
+
+    /// Sort position, so two starts can be compared. An inclusive start sits
+    /// before an exclusive one on the same key: it covers one more entry.
+    fn rank(&self) -> ([u8; 24], u8) {
+        (self.key, u8::from(!self.inclusive))
+    }
+}
+
+/// Where a `last:n` trim scan of a topic starts. Below it the topic holds no
+/// live frame, only the tombstones of ones a trim or another removal path
+/// took, so a scan that starts here counts and trims exactly what a scan of
+/// the whole topic would.
+///
+/// A trim proves that of everything it removed. A scan that reaches the end of
+/// the topic without finding `keep` live frames proves it of everything under
+/// the oldest entry it saw, which is why the bound can be inclusive.
+///
+/// The one way a live frame can appear below it is an index write, which
+/// [`note_indexed_topic`](Store::note_indexed_topic) drops the floor for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct TrimFloor {
+    id: Scru128Id,
+    /// Whether `id` itself is still on the topic and in scope for the scan.
+    inclusive: bool,
+}
+
 /// Options for opening a [`Store`]. Build one with the
 /// [`bon`](https://docs.rs/bon) builder; every field has a default.
 ///
@@ -534,8 +585,21 @@ pub struct Store {
     stream: Keyspace,
     idx_topic: Keyspace,
     /// `time:` frames keyed by expiry then id, valued by topic. The sweeper
-    /// range-scans it up to now. See [`idx_expiry_key`].
+    /// range-scans it from [`sweep_start`](Store::sweep_start) up to now. See
+    /// [`idx_expiry_key`].
     idx_expiry: Keyspace,
+    /// Where the next sweep resumes in `idx_expiry`; `None` is the start of
+    /// the index. In memory only: a reopened store sweeps from the start
+    /// again, which costs one walk of whatever tombstones outlived it and can
+    /// never skip a frame. See [`SweepStart`].
+    sweep_start: Arc<Mutex<Option<SweepStart>>>,
+    /// Per-topic `last:n` trim floor: every frame on the topic with an id at
+    /// or below it has been removed, so a trim scan stops there rather than
+    /// running on into the tombstones of the frames it trimmed last time. In
+    /// memory only, on the same reasoning as
+    /// [`sweep_start`](Store::sweep_start). See
+    /// [`last_overflow`](Store::last_overflow).
+    trim_floor: Arc<Mutex<HashMap<String, TrimFloor>>>,
     broadcast_tx: broadcast::Sender<Frame>,
     gc_tx: UnboundedSender<GCTask>,
     /// Joins the background workers when the last caller-held clone drops.
@@ -557,6 +621,10 @@ pub struct Store {
     /// check the gc worker commits once per drain.
     #[cfg(test)]
     remove_commits: Arc<AtomicUsize>,
+    /// Frames removed by [`remove_many`](Store::remove_many), so a test can
+    /// watch a backlog drain without counting the index itself.
+    #[cfg(test)]
+    removed_frames: Arc<AtomicUsize>,
     /// Frames pulled from the underlying keyspace iterators, so a test can
     /// check a read only scans as far as it is asked to.
     #[cfg(test)]
@@ -736,6 +804,8 @@ impl Store {
             stream,
             idx_topic,
             idx_expiry,
+            sweep_start: Arc::new(Mutex::new(None)),
+            trim_floor: Arc::new(Mutex::new(HashMap::new())),
             broadcast_tx,
             gc_tx,
             workers: None,
@@ -745,6 +815,8 @@ impl Store {
             fsync: fsync_state,
             #[cfg(test)]
             remove_commits: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            removed_frames: Arc::new(AtomicUsize::new(0)),
             #[cfg(test)]
             frames_scanned: Arc::new(AtomicUsize::new(0)),
             #[cfg(test)]
@@ -1243,6 +1315,8 @@ impl Store {
         topic: &str,
         expires_at: Option<u64>,
     ) {
+        #[cfg(test)]
+        self.removed_frames.fetch_add(1, Ordering::Relaxed);
         let mut topic_key = idx_topic_key_prefix(topic);
         topic_key.extend(id.as_bytes());
         batch.remove(&self.stream, id.as_bytes());
@@ -1258,43 +1332,232 @@ impl Store {
     /// The oldest `time:` frames whose expiry is at or before `now_ms`, at
     /// most `limit` of them, straight from the expiry index. A full `limit`
     /// means there may be more.
+    ///
+    /// The scan resumes at [`sweep_start`](Store::sweep_start) rather than at
+    /// the start of the index. Everything below that point is the tombstones
+    /// of frames earlier sweeps removed, and walking them again on every sweep
+    /// is what made draining a backlog cost O(n^2/batch).
     fn expired_at(&self, now_ms: u64, limit: usize) -> Vec<Removal> {
         let last = idx_expiry_key(now_ms, &Scru128Id::from_bytes([0xff; 16]));
-        self.idx_expiry
-            .range(..=last)
-            .filter_map(|guard| {
-                let (key, value) = guard.into_inner().ok()?;
-                let (expires_at, id) = idx_expiry_parse_key(&key);
-                Some(Removal::Expired {
-                    id,
-                    topic: String::from_utf8_lossy(&value).into_owned(),
-                    expires_at,
-                })
-            })
+        let from = *self.sweep_start.lock().unwrap();
+        // A clock that stepped backwards can leave the resume point above the
+        // cut-off. Nothing below it is unswept, so there is nothing to do
+        // until the clock catches up.
+        if from.is_some_and(|start| start.key > last) {
+            return Vec::new();
+        }
+        let start = from.map_or(Bound::Unbounded, |start| start.bound());
+
+        let mut removals = Vec::new();
+        let mut swept = None;
+        for guard in self
+            .idx_expiry
+            .range((start, Bound::Included(last)))
             .take(limit)
-            .collect()
+        {
+            // Stop on a read error rather than skipping the entry: the resume
+            // point may never pass an entry this sweep did not remove.
+            let Ok((key, value)) = guard.into_inner() else {
+                break;
+            };
+            let Ok(key) = <[u8; 24]>::try_from(key.as_ref()) else {
+                break;
+            };
+            let (expires_at, id) = idx_expiry_parse_key(&key);
+            removals.push(Removal::Expired {
+                id,
+                topic: String::from_utf8_lossy(&value).into_owned(),
+                expires_at,
+            });
+            swept = Some(key);
+        }
+
+        if let Some(key) = swept {
+            let mut start = self.sweep_start.lock().unwrap();
+            // Only advance from the point this scan started at. An index write
+            // that moved it back while the scan ran wins: the next sweep
+            // covers this ground again, and covering it twice is cheap next to
+            // leaving a frame behind.
+            if *start == from {
+                *start = Some(SweepStart {
+                    key,
+                    inclusive: false,
+                });
+            }
+        }
+        removals
     }
 
-    /// Ids on `topic` past the newest `keep`, ignoring frames already in
-    /// `pending` so a batch drops exactly what applying its tasks one by one
-    /// would.
+    /// Ids on `topic` past the newest `keep`, oldest first, at most `limit` of
+    /// them, ignoring frames already in `pending` so a batch drops exactly
+    /// what applying its tasks one by one would. A full `limit` means there
+    /// may be more.
+    ///
+    /// Two bounded scans, both floored at the topic's
+    /// [`trim_floor`](Store::trim_floor), below which the topic holds nothing
+    /// but the tombstones of frames an earlier trim removed:
+    ///
+    /// 1. backwards from the newest entry for the `keep`-th newest live id,
+    ///    the high-water mark everything older than which is overflow;
+    /// 2. forwards from the floor for the ids to remove.
+    ///
+    /// Taking the removals in forward order is what keeps trimming a backlog
+    /// linear. A truncated pass leaves the floor on the newest id it removed,
+    /// so the next pass starts above its own tombstones instead of walking
+    /// them to reach what it left.
+    ///
+    /// Both scans read index keys only. The expiry an `idx_topic` value now
+    /// carries is for the read path: a trim counts entries, so a `time:` frame
+    /// the sweeper has not reached yet still holds one of the `keep` slots,
+    /// exactly as it did when those values were empty.
     fn last_overflow(
         &self,
         topic: &str,
         keep: u32,
         pending: &HashSet<Scru128Id>,
+        limit: usize,
     ) -> Vec<Scru128Id> {
-        let prefix = idx_topic_key_prefix(topic);
-        self.idx_topic
-            .prefix(&prefix)
-            .rev() // Scan from newest to oldest
-            .filter_map(|guard| {
-                let key = guard.key().ok()?;
-                Some(idx_topic_frame_id_from_key(&key))
-            })
-            .filter(|id| !pending.contains(id))
-            .skip(keep as usize)
-            .collect()
+        let floor = self.trim_floor.lock().unwrap().get(topic).copied();
+        // The floor is a bound on the id, so it is a bound on the key: both
+        // scans open at it and never reach the tombstones below it. See
+        // [`idx_topic_range`].
+        let (low, top) = idx_topic_range(
+            idx_topic_key_prefix(topic),
+            floor.map(|floor| (floor.id, floor.inclusive)),
+        );
+
+        // The keep-th newest live id. Everything below it is overflow; fewer
+        // than keep live entries means there is nothing to trim.
+        let high = if keep == 0 {
+            top
+        } else {
+            let mut seen = 0;
+            let mut hwm = None;
+            let mut oldest = None;
+            for guard in self.idx_topic.range((low.clone(), top)).rev() {
+                // A read error is not the end of the topic: give up on this
+                // pass rather than record a floor the scan never reached.
+                let Ok(key) = guard.key() else {
+                    return Vec::new();
+                };
+                let id = idx_topic_frame_id_from_key(&key);
+                oldest = Some(id);
+                if pending.contains(&id) {
+                    continue;
+                }
+                seen += 1;
+                if seen == keep {
+                    hwm = Some(key.to_vec());
+                    break;
+                }
+            }
+            match hwm {
+                Some(key) => Bound::Excluded(key),
+                None => {
+                    // The scan reached the end of the topic without finding
+                    // `keep` live frames. Nothing to trim, but everything
+                    // below the oldest entry it saw is tombstone, so the next
+                    // scan can start there instead of walking it again.
+                    if let Some(id) = oldest {
+                        self.set_trim_floor(
+                            topic,
+                            floor,
+                            TrimFloor {
+                                id,
+                                inclusive: true,
+                            },
+                        );
+                    }
+                    return Vec::new();
+                }
+            }
+        };
+
+        let mut overflow = Vec::new();
+        let mut trimmed = None;
+        for guard in self.idx_topic.range((low, high)) {
+            let Ok(key) = guard.key() else { break };
+            let id = idx_topic_frame_id_from_key(&key);
+            if !pending.contains(&id) {
+                overflow.push(id);
+            }
+            // A pending id counts: this drain removes it too, so the floor may
+            // pass it.
+            trimmed = Some(id);
+            if overflow.len() == limit {
+                break;
+            }
+        }
+
+        if let Some(id) = trimmed {
+            self.set_trim_floor(
+                topic,
+                floor,
+                TrimFloor {
+                    id,
+                    inclusive: false,
+                },
+            );
+        }
+        overflow
+    }
+
+    /// Move a topic's trim floor to `to`, unless something moved it since the
+    /// scan read `from`. An index write that dropped it while the scan ran
+    /// wins: the next trim covers the topic from further back, and covering
+    /// ground twice is cheap next to leaving a frame behind.
+    fn set_trim_floor(&self, topic: &str, from: Option<TrimFloor>, to: TrimFloor) {
+        let mut floors = self.trim_floor.lock().unwrap();
+        if floors.get(topic).copied() == from {
+            floors.insert(topic.to_string(), to);
+        }
+    }
+
+    /// Note that a `time:` frame's expiry entry has been committed at `key`.
+    ///
+    /// A frame restored with an id from the past, or appended in the instant a
+    /// sweep passed its slot, lands below the resume point, where no later
+    /// sweep would look. Move the resume point back onto it.
+    ///
+    /// Must be called after the commit: called before, a sweep could run,
+    /// find nothing at the key yet, and leave the resume point above it again.
+    fn note_indexed_expiry(&self, key: [u8; 24]) {
+        let mut start = self.sweep_start.lock().unwrap();
+        // Already at the start of the index: nothing can be below it.
+        let Some(current) = *start else { return };
+        let candidate = SweepStart {
+            key,
+            inclusive: true,
+        };
+        if candidate.rank() < current.rank() {
+            *start = Some(candidate);
+        }
+    }
+
+    /// Note that a frame's topic index entry has been committed. An id at or
+    /// below the topic's trim floor is in ground a trim scan no longer covers,
+    /// so drop the floor and let the next trim scan the topic whole.
+    ///
+    /// Called after the commit, as
+    /// [`note_indexed_expiry`](Store::note_indexed_expiry) is, and for every
+    /// frame: `last:n` counts what is on the topic, whatever ttl put it there.
+    fn note_indexed_topic(&self, topic: &str, id: &Scru128Id) {
+        let mut floors = self.trim_floor.lock().unwrap();
+        if floors.is_empty() {
+            return;
+        }
+        if floors.get(topic).is_some_and(|floor| *id <= floor.id) {
+            floors.remove(topic);
+        }
+    }
+
+    /// Forget where the sweep and the `last:n` trims had got to, so each next
+    /// scan starts from the beginning of its index again. Called when a
+    /// removal batch fails to commit: its frames are still there, but the
+    /// resume points have already moved as though they were gone.
+    fn reset_gc_resume(&self) {
+        *self.sweep_start.lock().unwrap() = None;
+        self.trim_floor.lock().unwrap().clear();
     }
 
     // --- Content-addressed store (CAS) ---
@@ -1387,14 +1650,18 @@ impl Store {
             batch.insert(&self.idx_topic, prefix_key, idx_value);
         }
         // A time: frame is also indexed by its expiry, for the sweeper
-        if let Some(expires_at) = expires_at(frame) {
-            batch.insert(
-                &self.idx_expiry,
-                idx_expiry_key(expires_at, &frame.id),
-                frame.topic.as_bytes(),
-            );
+        let expiry_key = expires_at(frame).map(|at| idx_expiry_key(at, &frame.id));
+        if let Some(key) = expiry_key {
+            batch.insert(&self.idx_expiry, key, frame.topic.as_bytes());
         }
         batch.commit()?;
+        // Both gc scans resume where they last stopped, and an id from the
+        // past can land behind them. Tell them, once the entries are there to
+        // be found.
+        if let Some(key) = expiry_key {
+            self.note_indexed_expiry(key);
+        }
+        self.note_indexed_topic(&frame.topic, &frame.id);
         self.after_commit()
     }
 
@@ -1656,17 +1923,21 @@ fn spawn_gc_worker(
     // A sweep removes at most this many frames. When it fills the cap the
     // next drain starts with another sweep, without waiting for the tick.
     const MAX_SWEEP_PER_DRAIN: usize = 4096;
+    // A last:n trim removes at most this many frames per topic per drain, and
+    // is carried over the same way a full sweep is. Without a cap the first
+    // trim of a topic with a backlog collects every id past `keep` at once.
+    const MAX_TRIM_PER_DRAIN: usize = 4096;
 
     std::thread::spawn(move || {
-        let mut carried: Option<GCTask> = None;
+        // Tasks a full batch left unfinished, run first in the next drain.
+        let mut carried: Vec<GCTask> = Vec::new();
         loop {
-            let first = match carried.take() {
-                Some(task) => task,
-                None => match gc_rx.blocking_recv() {
-                    Some(task) => task,
+            if carried.is_empty() {
+                match gc_rx.blocking_recv() {
+                    Some(task) => carried.push(task),
                     None => break,
-                },
-            };
+                }
+            }
 
             // Ids in this drain, so a last:n scan and a sweep never count or
             // queue a frame twice.
@@ -1674,12 +1945,22 @@ fn spawn_gc_worker(
             let mut removals = Vec::new();
             let mut drains = Vec::new();
             let mut sweep_again = false;
-            let mut next = Some(first);
+            // Topics whose trim filled its cap, one entry each however many
+            // tasks for them this drain took.
+            let mut trim_again: HashMap<String, u32> = HashMap::new();
             let mut taken = 0;
-            while let Some(task) = next.take() {
+            while taken < MAX_TASKS_PER_DRAIN {
+                let Some(task) = carried.pop().or_else(|| gc_rx.try_recv().ok()) else {
+                    break;
+                };
                 match task {
                     GCTask::CheckLastTTL { topic, keep } => {
-                        for id in store.last_overflow(&topic, keep, &pending) {
+                        let overflow =
+                            store.last_overflow(&topic, keep, &pending, MAX_TRIM_PER_DRAIN);
+                        if overflow.len() == MAX_TRIM_PER_DRAIN {
+                            trim_again.insert(topic, keep);
+                        }
+                        for id in overflow {
                             if pending.insert(id) {
                                 removals.push(Removal::Id(id));
                             }
@@ -1697,19 +1978,25 @@ fn spawn_gc_worker(
                     GCTask::Drain(tx) => drains.push(tx),
                 }
                 taken += 1;
-                if taken < MAX_TASKS_PER_DRAIN {
-                    next = gc_rx.try_recv().ok();
-                }
             }
 
             if let Err(e) = store.remove_many(removals) {
                 tracing::error!("gc remove failed: {e}");
+                // The batch did not land, so every frame this drain counted as
+                // gone is still there, below resume points that have already
+                // moved past it. Start both scans over.
+                store.reset_gc_resume();
             }
             for tx in drains {
                 let _ = tx.send(());
             }
+            carried.extend(
+                trim_again
+                    .into_iter()
+                    .map(|(topic, keep)| GCTask::CheckLastTTL { topic, keep }),
+            );
             if sweep_again {
-                carried = Some(GCTask::Sweep);
+                carried.push(GCTask::Sweep);
             }
         }
     })
