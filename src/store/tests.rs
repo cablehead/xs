@@ -2716,3 +2716,43 @@ mod tests_gc_restart_cost {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Two things a `last:n` burst used to cost, measured together: the gc worker
+/// re-scanning a topic once per queued task, and `Store::drop` joining a worker
+/// that is still doing it. Run before and after the drain collapses those tasks.
+#[cfg(test)]
+mod tests_last_burst_cost {
+    use super::*;
+    use std::time::Instant;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    #[ignore = "measurement; run with --ignored --nocapture"]
+    async fn bench_last_burst_then_drop() {
+        for (n, keep) in [(20_000usize, 1_000u32), (20_000, 10_000)] {
+            let dir = TempDir::new().unwrap().keep();
+            let store = Store::open(
+                dir.clone(),
+                StoreOptions::builder().fsync(Fsync::Never).build(),
+            )
+            .unwrap();
+            let t = Instant::now();
+            for _ in 0..n {
+                store
+                    .append(Frame::builder("burst.ev").ttl(TTL::Last(keep)).build())
+                    .unwrap();
+            }
+            let append_ms = t.elapsed().as_millis();
+            let t = Instant::now();
+            store.wait_for_gc().await;
+            let gc_ms = t.elapsed().as_millis();
+            let t = Instant::now();
+            drop(store);
+            println!(
+                "BURST n={n} keep={keep} append={append_ms}ms gc_drain={gc_ms}ms drop={}ms",
+                t.elapsed().as_millis()
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}

@@ -1948,6 +1948,11 @@ fn spawn_gc_worker(
             // Topics whose trim filled its cap, one entry each however many
             // tasks for them this drain took.
             let mut trim_again: HashMap<String, u32> = HashMap::new();
+            // Topics this drain must trim, collapsed from however many tasks
+            // asked. Scanned after the take loop so every Sweep has already
+            // run: an expired frame is hidden from reads, so it must not hold
+            // a keep slot.
+            let mut trims: HashMap<String, u32> = HashMap::new();
             let mut taken = 0;
             while taken < MAX_TASKS_PER_DRAIN {
                 let Some(task) = carried.pop().or_else(|| gc_rx.try_recv().ok()) else {
@@ -1955,16 +1960,14 @@ fn spawn_gc_worker(
                 };
                 match task {
                     GCTask::CheckLastTTL { topic, keep } => {
-                        let overflow =
-                            store.last_overflow(&topic, keep, &pending, MAX_TRIM_PER_DRAIN);
-                        if overflow.len() == MAX_TRIM_PER_DRAIN {
-                            trim_again.insert(topic, keep);
-                        }
-                        for id in overflow {
-                            if pending.insert(id) {
-                                removals.push(Removal::Id(id));
-                            }
-                        }
+                        // One scan per topic per drain, at the smallest keep
+                        // asked for. A second scan for the same topic filters
+                        // out everything the first collected, skips keep, and
+                        // walks the rest to return nothing.
+                        trims
+                            .entry(topic)
+                            .and_modify(|k| *k = (*k).min(keep))
+                            .or_insert(keep);
                     }
                     GCTask::Sweep => {
                         let expired = store.expired_at(now_ms(), MAX_SWEEP_PER_DRAIN);
@@ -1978,6 +1981,20 @@ fn spawn_gc_worker(
                     GCTask::Drain(tx) => drains.push(tx),
                 }
                 taken += 1;
+            }
+
+            // Now that every Sweep in this drain has run, so `pending` holds
+            // the expired frames it is removing, trim each topic once.
+            for (topic, keep) in trims {
+                let overflow = store.last_overflow(&topic, keep, &pending, MAX_TRIM_PER_DRAIN);
+                if overflow.len() == MAX_TRIM_PER_DRAIN {
+                    trim_again.insert(topic, keep);
+                }
+                for id in overflow {
+                    if pending.insert(id) {
+                        removals.push(Removal::Id(id));
+                    }
+                }
             }
 
             if let Err(e) = store.remove_many(removals) {
