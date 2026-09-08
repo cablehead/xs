@@ -561,6 +561,10 @@ pub struct Store {
     /// check a read only scans as far as it is asked to.
     #[cfg(test)]
     frames_scanned: Arc<AtomicUsize>,
+    /// Point reads into `stream`, so a test can check a topic scan drops an
+    /// expired id on the index value alone.
+    #[cfg(test)]
+    stream_reads: Arc<AtomicUsize>,
 }
 
 /// Joins the background workers when the last caller-held `Store` drops.
@@ -743,6 +747,8 @@ impl Store {
             remove_commits: Arc::new(AtomicUsize::new(0)),
             #[cfg(test)]
             frames_scanned: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            stream_reads: Arc::new(AtomicUsize::new(0)),
         };
 
         // Spawn the workers. The gc worker's clone is taken while `workers` is
@@ -1165,6 +1171,8 @@ impl Store {
 
     /// Fetch a single frame by ID, or `None` if no such frame exists.
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
+        #[cfg(test)]
+        self.stream_reads.fetch_add(1, Ordering::Relaxed);
         self.stream
             .get(id.to_bytes())
             .unwrap()
@@ -1368,11 +1376,15 @@ impl Store {
         // Get prefix index keys for hierarchical queries
         let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
 
+        // Every idx_topic entry for this frame carries the same expiry, so a
+        // topic scan can drop an expired id without reading the frame.
+        let idx_value = idx_topic_expiry_value(frame);
+
         let mut batch = self.db.batch();
         batch.insert(&self.stream, frame.id.as_bytes(), encoded);
-        batch.insert(&self.idx_topic, topic_key, b"");
+        batch.insert(&self.idx_topic, topic_key, idx_value);
         for prefix_key in &prefix_keys {
-            batch.insert(&self.idx_topic, prefix_key, b"");
+            batch.insert(&self.idx_topic, prefix_key, idx_value);
         }
         // A time: frame is also indexed by its expiry, for the sweeper
         if let Some(expires_at) = expires_at(frame) {
@@ -1483,6 +1495,7 @@ impl Store {
     /// Iterate frames by topic in reverse order (most recent first).
     fn iter_frames_by_topic_rev(&self, topic: &str) -> Box<dyn Iterator<Item = Frame> + '_> {
         let prefix = idx_topic_key_prefix(topic);
+        let now = now_ms();
         #[cfg(test)]
         let scanned = self.frames_scanned.clone();
         Box::new(
@@ -1492,9 +1505,7 @@ impl Store {
                 .filter_map(move |guard| {
                     #[cfg(test)]
                     scanned.fetch_add(1, Ordering::Relaxed);
-                    let key = guard.key().ok()?;
-                    let frame_id = idx_topic_frame_id_from_key(&key);
-                    self.get(&frame_id)
+                    self.get(&idx_topic_hit_id(guard, now)?)
                 }),
         )
     }
@@ -1508,6 +1519,7 @@ impl Store {
         index_prefix.extend(prefix.as_bytes());
         index_prefix.push(NULL_DELIMITER);
 
+        let now = now_ms();
         #[cfg(test)]
         let scanned = self.frames_scanned.clone();
 
@@ -1518,9 +1530,7 @@ impl Store {
                 .filter_map(move |guard| {
                     #[cfg(test)]
                     scanned.fetch_add(1, Ordering::Relaxed);
-                    let key = guard.key().ok()?;
-                    let frame_id = idx_topic_frame_id_from_key(&key);
-                    self.get(&frame_id)
+                    self.get(&idx_topic_hit_id(guard, now)?)
                 }),
         )
     }
@@ -1532,13 +1542,13 @@ impl Store {
         start: Option<(Scru128Id, bool)>,
     ) -> Box<dyn Iterator<Item = Frame> + '_> {
         let range = idx_topic_range(idx_topic_key_prefix(topic), start);
+        let now = now_ms();
         #[cfg(test)]
         let scanned = self.frames_scanned.clone();
         Box::new(self.idx_topic.range(range).filter_map(move |guard| {
             #[cfg(test)]
             scanned.fetch_add(1, Ordering::Relaxed);
-            let key = guard.key().ok()?;
-            self.get(&idx_topic_frame_id_from_key(&key))
+            self.get(&idx_topic_hit_id(guard, now)?)
         }))
     }
 
@@ -1555,14 +1565,14 @@ impl Store {
         index_prefix.push(NULL_DELIMITER);
 
         let range = idx_topic_range(index_prefix, start);
+        let now = now_ms();
         #[cfg(test)]
         let scanned = self.frames_scanned.clone();
 
         Box::new(self.idx_topic.range(range).filter_map(move |guard| {
             #[cfg(test)]
             scanned.fetch_add(1, Ordering::Relaxed);
-            let key = guard.key().ok()?;
-            self.get(&idx_topic_frame_id_from_key(&key))
+            self.get(&idx_topic_hit_id(guard, now)?)
         }))
     }
 
@@ -1863,6 +1873,55 @@ fn idx_topic_prefix_keys(topic: &str, frame_id: &scru128::Scru128Id) -> Vec<Vec<
         pos += dot_pos + 1;
     }
     keys
+}
+
+/// An `idx_topic` value meaning "this frame has no `time:` ttl". Distinct from
+/// the empty value an older store wrote, which means "unknown".
+const IDX_TOPIC_NEVER: u64 = u64::MAX;
+
+/// The `idx_topic` value for a frame: its expiry in ms as a big-endian u64, or
+/// [`IDX_TOPIC_NEVER`]. Every entry for the frame -- the exact topic key and
+/// each prefix key -- gets the same eight bytes, so a topic scan can drop an
+/// expired id without a point read into `stream`.
+fn idx_topic_expiry_value(frame: &Frame) -> [u8; 8] {
+    expires_at(frame).unwrap_or(IDX_TOPIC_NEVER).to_be_bytes()
+}
+
+/// Has the frame behind this `idx_topic` value expired as of `now`? A value
+/// that is not eight bytes -- an entry written before the index carried an
+/// expiry -- reads as "unknown" and answers `false`, so the caller falls back
+/// to reading the frame and letting [`is_expired`] decide. Both shapes can sit
+/// in one index.
+///
+/// The arithmetic matches [`expires_at`] exactly, so this never hides a frame
+/// [`is_expired`] would keep.
+#[inline]
+fn idx_topic_is_expired(value: &[u8], now: u64) -> bool {
+    match <[u8; 8]>::try_from(value) {
+        Ok(bytes) => {
+            let expires_at = u64::from_be_bytes(bytes);
+            expires_at != IDX_TOPIC_NEVER && now >= expires_at
+        }
+        Err(_) => false,
+    }
+}
+
+/// The frame id an `idx_topic` hit points at, or `None` to skip the hit
+/// entirely.
+///
+/// The entry's value carries the frame's expiry, so an already expired id is
+/// dropped here without the point read into `stream` that seeing its ttl would
+/// otherwise take. `now` is sampled once when the iterator is built, which only
+/// ever skips fewer frames than a fresh sample would: [`is_expired`] still runs
+/// on everything that gets through, so the two never disagree about what is
+/// visible.
+#[inline]
+fn idx_topic_hit_id(guard: fjall::Guard, now: u64) -> Option<Scru128Id> {
+    let (key, value) = guard.into_inner().ok()?;
+    if idx_topic_is_expired(&value, now) {
+        return None;
+    }
+    Some(idx_topic_frame_id_from_key(&key))
 }
 
 /// The `idx_topic` key range covering one index prefix, opening at `start`

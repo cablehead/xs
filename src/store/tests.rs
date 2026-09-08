@@ -1838,3 +1838,205 @@ mod tests_fsync {
         assert_eq!(ids, frames.iter().map(|f| f.id).collect::<Vec<_>>());
     }
 }
+
+/// The expiry each `idx_topic` value carries, which lets a topic scan drop an
+/// expired id without the point read into `stream` it would otherwise take to
+/// see the ttl. What a read returns must not depend on whether the entry
+/// carries one.
+mod tests_idx_topic_expiry {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    /// Sweeping is parked for ten minutes, so an expired frame stays on disk
+    /// and the read path is what hides it.
+    fn store_without_tick() -> Store {
+        let options = StoreOptions::builder()
+            .ttl_sweep(Duration::from_secs(600))
+            .build();
+        Store::open(TempDir::new().unwrap().keep(), options).unwrap()
+    }
+
+    fn ids(store: &Store, options: ReadOptions) -> Vec<Scru128Id> {
+        store.read_sync(options).map(|f| f.id).collect()
+    }
+
+    /// Every shape of topic read: exact and prefix, forward and reverse, plus
+    /// the unindexed stream scan for contrast.
+    fn assert_visible(store: &Store, expected: &[Scru128Id]) {
+        let shapes = [
+            ReadOptions::builder().topic("a.b".to_string()).build(),
+            ReadOptions::builder().topic("a.*".to_string()).build(),
+            ReadOptions::builder()
+                .topic("a.b".to_string())
+                .last(16usize)
+                .build(),
+            ReadOptions::builder()
+                .topic("a.*".to_string())
+                .last(16usize)
+                .build(),
+            ReadOptions::default(),
+        ];
+        for options in shapes {
+            assert_eq!(ids(store, options.clone()), expected, "{options:?}");
+        }
+    }
+
+    fn append_live(store: &Store) -> Frame {
+        store.append(Frame::builder("a.b").build()).unwrap()
+    }
+
+    fn append_expiring(store: &Store) -> Frame {
+        store
+            .append(
+                Frame::builder("a.b")
+                    .ttl(TTL::Time(Duration::from_millis(1)))
+                    .build(),
+            )
+            .unwrap()
+    }
+
+    /// One frame that outlives the test and one that is already expired by the
+    /// time this returns.
+    fn seed(store: &Store) -> Scru128Id {
+        let live = append_live(store);
+        append_expiring(store);
+        std::thread::sleep(Duration::from_millis(20));
+        live.id
+    }
+
+    /// Rewrite a frame's index entries with the empty value a store written
+    /// before the index carried an expiry would have left.
+    fn strip_expiry_values(store: &Store, frame: &Frame) {
+        let mut batch = store.db.batch();
+        batch.insert(
+            &store.idx_topic,
+            idx_topic_key_from_frame(frame).unwrap(),
+            b"",
+        );
+        for key in idx_topic_prefix_keys(&frame.topic, &frame.id) {
+            batch.insert(&store.idx_topic, key, b"");
+        }
+        batch.commit().unwrap();
+    }
+
+    #[test]
+    fn test_expired_frames_stay_hidden() {
+        let store = store_without_tick();
+        let live = seed(&store);
+        assert_visible(&store, &[live]);
+    }
+
+    /// A store written before the index carried an expiry has empty values.
+    /// They read as "unknown", so the frame is fetched and `is_expired`
+    /// decides, exactly as before. Both shapes coexist in one index.
+    #[test]
+    fn test_reads_an_index_written_without_an_expiry() {
+        let store = store_without_tick();
+
+        let live = append_live(&store);
+        let expiring = append_expiring(&store);
+        strip_expiry_values(&store, &live);
+        strip_expiry_values(&store, &expiring);
+        std::thread::sleep(Duration::from_millis(20));
+        assert_visible(&store, &[live.id]);
+
+        // Frames appended now get eight-byte values and sit alongside the
+        // stripped ones.
+        let live2 = append_live(&store);
+        append_expiring(&store);
+        std::thread::sleep(Duration::from_millis(20));
+        assert_visible(&store, &[live.id, live2.id]);
+    }
+
+    /// `remove_frame_keys` rebuilds the key to delete it and never looks at the
+    /// value, so a non-empty value must not strand an index entry.
+    #[test]
+    fn test_remove_clears_entries_carrying_an_expiry() {
+        let store = store_without_tick();
+        let frame = store
+            .append(
+                Frame::builder("a.b")
+                    .ttl(TTL::Time(Duration::from_secs(600)))
+                    .build(),
+            )
+            .unwrap();
+        assert_visible(&store, &[frame.id]);
+        store.remove(&frame.id).unwrap();
+        assert_visible(&store, &[]);
+    }
+
+    /// The point of the value: an expired id is dropped at the index, so the
+    /// scan reads only the frames it returns.
+    #[test]
+    fn test_expired_entries_skip_the_point_read() {
+        const EXPIRED: usize = 200;
+
+        let store = store_without_tick();
+        let expiring: Vec<_> = (0..EXPIRED).map(|_| append_expiring(&store)).collect();
+        let live = append_live(&store);
+        std::thread::sleep(Duration::from_millis(20));
+
+        for topic in ["a.b", "a.*"] {
+            let scanned = store.frames_scanned.load(Ordering::Relaxed);
+            let reads = store.stream_reads.load(Ordering::Relaxed);
+            let options = ReadOptions::builder().topic(topic.to_string()).build();
+            assert_eq!(ids(&store, options), vec![live.id]);
+            let scanned = store.frames_scanned.load(Ordering::Relaxed) - scanned;
+            let reads = store.stream_reads.load(Ordering::Relaxed) - reads;
+
+            assert_eq!(scanned, EXPIRED + 1, "{topic}");
+            assert_eq!(reads, 1, "{topic} read {reads} frames to return 1");
+        }
+
+        // Stripping the values puts the entries back in the shape an older
+        // store wrote, and every one of them costs a point read again.
+        for frame in expiring.iter().chain(std::iter::once(&live)) {
+            strip_expiry_values(&store, frame);
+        }
+        let reads = store.stream_reads.load(Ordering::Relaxed);
+        let options = ReadOptions::builder().topic("a.b".to_string()).build();
+        assert_eq!(ids(&store, options), vec![live.id]);
+        assert_eq!(
+            store.stream_reads.load(Ordering::Relaxed) - reads,
+            EXPIRED + 1
+        );
+    }
+
+    /// The two read-path changes compose: the range bound decides where the
+    /// scan opens, the index value decides which of the entries above it are
+    /// worth fetching.
+    #[test]
+    fn test_seek_and_expiry_skip_compose() {
+        const BELOW: usize = 200;
+
+        let store = store_without_tick();
+        for _ in 0..BELOW {
+            append_live(&store);
+        }
+        let bound = append_live(&store);
+        let expired = append_expiring(&store);
+        let live = append_live(&store);
+        std::thread::sleep(Duration::from_millis(20));
+
+        for topic in ["a.b", "a.*"] {
+            let scanned = store.frames_scanned.load(Ordering::Relaxed);
+            let reads = store.stream_reads.load(Ordering::Relaxed);
+            let options = ReadOptions::builder()
+                .topic(topic.to_string())
+                .after(bound.id)
+                .build();
+            assert_eq!(ids(&store, options), vec![live.id]);
+            let scanned = store.frames_scanned.load(Ordering::Relaxed) - scanned;
+            let reads = store.stream_reads.load(Ordering::Relaxed) - reads;
+
+            // Two entries above the bound, of which one is expired: the 201
+            // below it are never scanned, and the expired one is never read.
+            assert_eq!(scanned, 2, "{topic}");
+            assert_eq!(reads, 1, "{topic}");
+        }
+
+        // The expired frame is still on disk; only the read path hides it.
+        assert!(store.get(&expired.id).is_some());
+    }
+}
