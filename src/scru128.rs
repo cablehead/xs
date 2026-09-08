@@ -30,12 +30,12 @@ fn id_of(
     components: Scru128Components,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let entropy = u32::from_str_radix(&components.node, 16)?;
-    let scru_id = Scru128Id::from_fields(
+    let scru_id = Scru128Id::try_from_fields(
         components.ts_ms,
         components.counter_hi,
         components.counter_lo,
         entropy,
-    );
+    )?;
     Ok(scru_id.to_string())
 }
 
