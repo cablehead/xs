@@ -470,13 +470,13 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     let result = {
         use nix::unistd::dup;
         use std::io::Write;
-        use std::os::unix::io::{AsRawFd, FromRawFd};
+        use std::os::unix::io::AsFd;
         use tokio::io::unix::AsyncFd;
 
-        let stdout_fd = std::io::stdout().as_raw_fd();
+        let stdout_handle = std::io::stdout();
         // Create a duplicate of the file descriptor so we can check it separately
-        let dup_fd = dup(stdout_fd)?;
-        let stdout_file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
+        let dup_fd = dup(stdout_handle.as_fd())?;
+        let stdout_file = std::fs::File::from(dup_fd);
         let async_fd = AsyncFd::new(stdout_file)?;
 
         async {

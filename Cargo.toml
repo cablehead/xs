@@ -50,9 +50,9 @@ serde_urlencoded = "0.7.1"
 ssri = "9.2.0"
 crossbeam-channel = "0.5.13"
 tracing = "0.1.40"
-console = "0.15.8"
+console = "0.16"
 chrono = "0.4.38"
-bon = "2.3"
+bon = "3"
 tempfile = "3.23"
 
 nu-cli = "0.115.1"
@@ -74,9 +74,9 @@ tokio-util = { version = "0.7.11", features = ["compat"] }
 url = "2.5.0"
 rustls = "0.23.28"
 tokio-rustls = "0.26.0"
-webpki-roots = "0.26.6"
-dirs = "5"
-base64 = "0.22.1"
+webpki-roots = "1"
+dirs = "7"
+base64 = "0.23"
 tracing-subscriber = "0.3.19"
 iroh = "1.1.0"
 iroh-base = "1.1.0"
@@ -84,14 +84,14 @@ iroh-tickets = "1"
 data-encoding = "2.6"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", default-features = false, features = ["poll", "fs"] }
+nix = { version = "0.31", default-features = false, features = ["poll", "fs"] }
 
 [target.'cfg(windows)'.dependencies]
 win_uds = { version = "=0.2.4", features = ["async"] }
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
-duct = "0.13.7"
+duct = "1"
 static_assertions = "1.1.0"
 tracing-subscriber = "0.3.18"
 
