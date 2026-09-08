@@ -1525,29 +1525,20 @@ impl Store {
         )
     }
 
+    /// Iterate frames on an exact topic, ascending by frame id, from `start`.
     fn iter_frames_by_topic(
         &self,
         topic: &str,
         start: Option<(Scru128Id, bool)>,
     ) -> Box<dyn Iterator<Item = Frame> + '_> {
-        let prefix = idx_topic_key_prefix(topic);
+        let range = idx_topic_range(idx_topic_key_prefix(topic), start);
         #[cfg(test)]
         let scanned = self.frames_scanned.clone();
-        Box::new(self.idx_topic.prefix(prefix).filter_map(move |guard| {
+        Box::new(self.idx_topic.range(range).filter_map(move |guard| {
             #[cfg(test)]
             scanned.fetch_add(1, Ordering::Relaxed);
             let key = guard.key().ok()?;
-            let frame_id = idx_topic_frame_id_from_key(&key);
-            if let Some((bound_id, inclusive)) = start {
-                if inclusive {
-                    if frame_id < bound_id {
-                        return None;
-                    }
-                } else if frame_id <= bound_id {
-                    return None;
-                }
-            }
-            self.get(&frame_id)
+            self.get(&idx_topic_frame_id_from_key(&key))
         }))
     }
 
@@ -1563,29 +1554,16 @@ impl Store {
         index_prefix.extend(prefix.as_bytes());
         index_prefix.push(NULL_DELIMITER);
 
+        let range = idx_topic_range(index_prefix, start);
         #[cfg(test)]
         let scanned = self.frames_scanned.clone();
 
-        Box::new(
-            self.idx_topic
-                .prefix(index_prefix)
-                .filter_map(move |guard| {
-                    #[cfg(test)]
-                    scanned.fetch_add(1, Ordering::Relaxed);
-                    let key = guard.key().ok()?;
-                    let frame_id = idx_topic_frame_id_from_key(&key);
-                    if let Some((bound_id, inclusive)) = start {
-                        if inclusive {
-                            if frame_id < bound_id {
-                                return None;
-                            }
-                        } else if frame_id <= bound_id {
-                            return None;
-                        }
-                    }
-                    self.get(&frame_id)
-                }),
-        )
+        Box::new(self.idx_topic.range(range).filter_map(move |guard| {
+            #[cfg(test)]
+            scanned.fetch_add(1, Ordering::Relaxed);
+            let key = guard.key().ok()?;
+            self.get(&idx_topic_frame_id_from_key(&key))
+        }))
     }
 
     /// Forward iterator for a single pattern, using the topic index.
@@ -1885,6 +1863,39 @@ fn idx_topic_prefix_keys(topic: &str, frame_id: &scru128::Scru128Id) -> Vec<Vec<
         pos += dot_pos + 1;
     }
     keys
+}
+
+/// The `idx_topic` key range covering one index prefix, opening at `start`
+/// when there is one.
+///
+/// Every key under a prefix is that prefix followed by the frame's 16 byte id,
+/// and ids sort ascending, so a bound on the id is a bound on the key. Seeking
+/// to it beats walking the topic from its first entry and discarding
+/// everything below: on a topic holding 500k frames, reading `after` a recent
+/// id touches a handful of index entries instead of all 500k.
+///
+/// The upper bound is the prefix plus all ones, the largest key the prefix can
+/// hold. A topic never contains the NUL delimiter, so no other topic's keys
+/// fall inside the range.
+fn idx_topic_range(
+    prefix: Vec<u8>,
+    start: Option<(Scru128Id, bool)>,
+) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
+    fn key_at(prefix: &[u8], id: &[u8; 16]) -> Vec<u8> {
+        let mut key = Vec::with_capacity(prefix.len() + 16);
+        key.extend_from_slice(prefix);
+        key.extend_from_slice(id);
+        key
+    }
+
+    let hi = Bound::Included(key_at(&prefix, &[0xff; 16]));
+    let lo = match start {
+        Some((id, true)) => Bound::Included(key_at(&prefix, id.as_bytes())),
+        Some((id, false)) => Bound::Excluded(key_at(&prefix, id.as_bytes())),
+        // Shorter than every key it covers, so it sorts before all of them.
+        None => Bound::Included(prefix),
+    };
+    (lo, hi)
 }
 
 fn idx_topic_key_prefix(topic: &str) -> Vec<u8> {

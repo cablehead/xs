@@ -1419,6 +1419,122 @@ fn test_read_sync_is_lazy() {
     assert_eq!(FRAMES, all.len());
 }
 
+/// A `from`/`after` bound on a topic read is a bound on the index key, so the
+/// scan opens at it rather than walking the topic from its first entry and
+/// discarding everything below.
+mod tests_topic_seek {
+    use super::*;
+
+    /// Frames on two sibling topics, interleaved, so the prefix index holds
+    /// twice what the exact index does and the two interleave by id.
+    fn seed(store: &Store, each: usize) -> (Vec<Scru128Id>, Vec<Scru128Id>) {
+        let mut a = Vec::with_capacity(each);
+        let mut b = Vec::with_capacity(each);
+        for _ in 0..each {
+            a.push(store.append(Frame::builder("topic.a").build()).unwrap().id);
+            b.push(store.append(Frame::builder("topic.b").build()).unwrap().id);
+        }
+        (a, b)
+    }
+
+    /// The ids a read returns, and the index entries it touched to get them.
+    fn read(store: &Store, options: ReadOptions) -> (Vec<Scru128Id>, usize) {
+        let before = store.frames_scanned.load(Ordering::Relaxed);
+        let ids: Vec<_> = store.read_sync(options).map(|f| f.id).collect();
+        (ids, store.frames_scanned.load(Ordering::Relaxed) - before)
+    }
+
+    fn topic_after(topic: &str, after: Scru128Id) -> ReadOptions {
+        ReadOptions::builder()
+            .topic(topic.to_string())
+            .after(after)
+            .build()
+    }
+
+    fn topic_from(topic: &str, from: Scru128Id) -> ReadOptions {
+        ReadOptions::builder()
+            .topic(topic.to_string())
+            .from(from)
+            .build()
+    }
+
+    #[test]
+    fn test_topic_read_seeks_to_the_start_bound() {
+        const EACH: usize = 400;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let (a, b) = seed(&store, EACH);
+
+        // Exact topic: only the four entries above the bound are read, not the
+        // 396 below it.
+        let (ids, scanned) = read(&store, topic_after("topic.a", a[EACH - 5]));
+        assert_eq!(ids, a[EACH - 4..]);
+        assert_eq!(
+            scanned, 4,
+            "scanned {scanned} of {EACH} index entries to return the last 4"
+        );
+
+        // Prefix: the same bound over an index holding both topics. Nine
+        // entries sit above it -- four more on topic.a, five on topic.b.
+        let (ids, scanned) = read(&store, topic_after("topic.*", a[EACH - 5]));
+        let mut expected: Vec<_> = a[EACH - 4..]
+            .iter()
+            .chain(b[EACH - 5..].iter())
+            .copied()
+            .collect();
+        expected.sort();
+        assert_eq!(ids, expected);
+        assert_eq!(
+            scanned,
+            9,
+            "scanned {scanned} of {} index entries to return the last 9",
+            EACH * 2
+        );
+    }
+
+    #[test]
+    fn test_start_bound_semantics_are_unchanged() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let (a, b) = seed(&store, 3);
+
+        // from is inclusive, after is exclusive.
+        assert_eq!(read(&store, topic_from("topic.a", a[1])).0, a[1..]);
+        assert_eq!(read(&store, topic_after("topic.a", a[1])).0, a[2..]);
+
+        // A bound that names no entry in this topic lands between two that it
+        // does: b[0] was appended between a[0] and a[1].
+        assert_eq!(read(&store, topic_from("topic.a", b[0])).0, a[1..]);
+        assert_eq!(read(&store, topic_after("topic.a", b[0])).0, a[1..]);
+
+        // Bounds outside the topic's span.
+        let low = Scru128Id::from_bytes([0x00; 16]);
+        let high = Scru128Id::from_bytes([0xff; 16]);
+        assert_eq!(read(&store, topic_from("topic.a", low)).0, a);
+        assert!(read(&store, topic_from("topic.a", high)).0.is_empty());
+
+        // The prefix path takes the same bound across both topics.
+        let (ids, _) = read(&store, topic_after("topic.*", a[1]));
+        assert_eq!(ids, vec![b[1], a[2], b[2]]);
+    }
+
+    /// The range's upper bound is the prefix plus all ones. A sibling topic
+    /// whose name extends this one must stay outside it.
+    #[test]
+    fn test_bounded_scan_stops_at_the_topic() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let a = store.append(Frame::builder("topic.a").build()).unwrap();
+        store.append(Frame::builder("topic.ab").build()).unwrap();
+        store.append(Frame::builder("topic.a.c").build()).unwrap();
+
+        let low = Scru128Id::from_bytes([0x00; 16]);
+        assert_eq!(read(&store, topic_from("topic.a", low)).0, vec![a.id]);
+    }
+}
+
 mod tests_topic_filter {
     use super::*;
     use tempfile::TempDir;
