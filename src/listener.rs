@@ -136,6 +136,36 @@ fn get_or_create_secret() -> io::Result<SecretKey> {
     }
 }
 
+/// Set IROH_RELAY_MODE=disabled to get a fully local iroh endpoint: no relay,
+/// no n0 DNS discovery, nothing that leaves the machine. Tests use this to
+/// stay hermetic instead of depending on n0's production relay/DNS infra.
+fn iroh_relay_disabled() -> bool {
+    std::env::var("IROH_RELAY_MODE").as_deref() == Ok("disabled")
+}
+
+pub(crate) async fn bind_iroh_endpoint(
+    alpns: Vec<Vec<u8>>,
+    secret_key: SecretKey,
+) -> Result<Endpoint, Box<dyn std::error::Error + Send + Sync>> {
+    if iroh_relay_disabled() {
+        Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .alpns(alpns)
+            .relay_mode(RelayMode::Disabled)
+            .secret_key(secret_key)
+            .bind()
+            .await
+            .map_err(|e| e.into())
+    } else {
+        Endpoint::builder(iroh::endpoint::presets::N0)
+            .alpns(alpns)
+            .relay_mode(RelayMode::Default)
+            .secret_key(secret_key)
+            .bind()
+            .await
+            .map_err(|e| e.into())
+    }
+}
+
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
 impl<T: AsyncRead + AsyncWrite> AsyncReadWrite for T {}
@@ -310,11 +340,7 @@ impl Listener {
             tracing::info!("Binding iroh endpoint");
 
             let secret_key = get_or_create_secret()?;
-            let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
-                .alpns(vec![ALPN.to_vec()])
-                .relay_mode(RelayMode::Default)
-                .secret_key(secret_key)
-                .bind()
+            let endpoint = bind_iroh_endpoint(vec![ALPN.to_vec()], secret_key)
                 .await
                 .map_err(|e| {
                     tracing::error!("Failed to bind iroh endpoint: {}", e);
@@ -325,19 +351,26 @@ impl Listener {
 
             // Wait for a home relay so the ticket can carry it, but don't block
             // startup forever: on a network where no relay is reachable, fall
-            // back to a direct-addresses-only ticket instead of hanging.
+            // back to a direct-addresses-only ticket instead of hanging. Skip
+            // the wait entirely when relay is deliberately disabled -- it
+            // would just burn the full timeout waiting for a relay that will
+            // never come.
             let relay_wait = std::time::Duration::from_secs(5);
-            let mut relay_status = endpoint.home_relay_status();
-            let got_relay = tokio::time::timeout(relay_wait, async {
-                while relay_status.get().is_empty() {
-                    if relay_status.updated().await.is_err() {
-                        break;
+            let got_relay = if iroh_relay_disabled() {
+                false
+            } else {
+                let mut relay_status = endpoint.home_relay_status();
+                tokio::time::timeout(relay_wait, async {
+                    while relay_status.get().is_empty() {
+                        if relay_status.updated().await.is_err() {
+                            break;
+                        }
                     }
-                }
-            })
-            .await
-            .is_ok();
-            if !got_relay {
+                })
+                .await
+                .is_ok()
+            };
+            if !got_relay && !iroh_relay_disabled() {
                 tracing::warn!(
                     "No iroh home relay after {relay_wait:?}; \
                      issuing a direct-addresses-only ticket"
@@ -417,11 +450,7 @@ impl Listener {
                 let secret_key = get_or_create_secret()?;
 
                 // Create a client endpoint
-                let client_endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
-                    .alpns(vec![])
-                    .relay_mode(RelayMode::Default)
-                    .secret_key(secret_key)
-                    .bind()
+                let client_endpoint = bind_iroh_endpoint(vec![], secret_key)
                     .await
                     .map_err(io::Error::other)?;
 

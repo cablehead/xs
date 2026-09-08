@@ -826,8 +826,8 @@ async fn test_iroh_networking() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     // Wait for iroh ticket to be ready - poll for xs.start frame with expose metadata.
-    // Must outlast the server's relay-wait fallback (see Listener::bind), which mints a
-    // direct-addresses-only ticket after ~5s on networks where no relay is reachable.
+    // IROH_RELAY_MODE=disabled (set above) skips the server's relay wait entirely, so
+    // this should resolve almost immediately; the 15s bound is just a generous ceiling.
     let mut ticket_ready = false;
     let start_time = std::time::Instant::now();
     while !ticket_ready && start_time.elapsed() < Duration::from_secs(15) {
@@ -875,46 +875,44 @@ async fn test_iroh_networking() {
         expose_url
     );
 
-    // Test client connection via iroh ticket with timeout
-    let result = tokio::time::timeout(
-        Duration::from_secs(10), // Reasonable timeout for iroh connection
-        tokio::task::spawn_blocking(move || {
-            cmd!(
-                assert_cmd::cargo::cargo_bin!("xs"),
-                "append",
-                expose_url,
-                "test-topic"
-            )
-            .stdin_bytes(b"hello via iroh")
-            .run()
-        }),
-    )
-    .await;
+    // Test client connection via iroh ticket. Uses a duct Handle (not .run())
+    // so that if the connection hangs, we can actually kill the child process
+    // on timeout instead of just abandoning our wait on it -- a bare
+    // tokio::time::timeout around a blocking .run() stops the *test* from
+    // waiting, but leaves the real `xs append` process running forever.
+    let append_result = tokio::task::spawn_blocking(move || {
+        let handle = cmd!(
+            assert_cmd::cargo::cargo_bin!("xs"),
+            "append",
+            expose_url,
+            "test-topic"
+        )
+        .stdin_bytes(b"hello via iroh".to_vec())
+        .env("IROH_RELAY_MODE", "disabled")
+        .start()
+        .expect("failed to spawn xs append");
 
-    // Handle timeout and connection results
-    match result {
-        Ok(Ok(cmd_result)) => {
-            // Connection attempt completed within timeout
-            match cmd_result {
-                Ok(_) => println!("Iroh connection succeeded!"),
-                Err(e) => {
-                    let error_msg = format!("{:?}", e);
-                    assert!(
-                        !error_msg.contains("not yet implemented")
-                            && !error_msg.contains("Unsupported"),
-                        "Should not get 'not implemented' error anymore, got: {}",
-                        error_msg
-                    );
-                    println!("Expected connection error during development: {:?}", e);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            match handle.try_wait() {
+                Ok(Some(_)) => return Ok(()),
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = handle.kill();
+                        return Err("xs append timed out after 10 seconds".to_string());
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
                 }
+                Err(e) => return Err(e.to_string()),
             }
         }
-        Ok(Err(join_err)) => {
-            panic!("Task join error: {:?}", join_err);
-        }
-        Err(_timeout) => {
-            println!("Connection attempt timed out after 10 seconds");
-        }
+    })
+    .await
+    .expect("join error");
+
+    match append_result {
+        Ok(()) => println!("Iroh connection succeeded!"),
+        Err(e) => panic!("xs append over iroh failed: {e}"),
     }
 
     // Clean up
@@ -959,6 +957,8 @@ async fn spawn_xs_server_with_iroh(store_path: &std::path::Path) -> Child {
         .arg(store_path)
         .arg("--expose")
         .arg("iroh://")
+        // Stay off n0's real relay/DNS infra: local-only, deterministic, fast.
+        .env("IROH_RELAY_MODE", "disabled")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
