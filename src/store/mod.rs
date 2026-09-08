@@ -557,6 +557,10 @@ pub struct Store {
     /// check the gc worker commits once per drain.
     #[cfg(test)]
     remove_commits: Arc<AtomicUsize>,
+    /// Frames pulled from the underlying keyspace iterators, so a test can
+    /// check a read only scans as far as it is asked to.
+    #[cfg(test)]
+    frames_scanned: Arc<AtomicUsize>,
 }
 
 /// Joins the background workers when the last caller-held `Store` drops.
@@ -732,6 +736,8 @@ impl Store {
             fsync: fsync_state,
             #[cfg(test)]
             remove_commits: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            frames_scanned: Arc::new(AtomicUsize::new(0)),
         };
 
         // Spawn the workers. The gc worker's clone is taken while `workers` is
@@ -888,7 +894,7 @@ impl Store {
                 let filter = TopicFilter::from_option(options.topic.as_deref());
 
                 if let Some(last_n) = options.last {
-                    let iter = store.iter_for_filter_rev(&filter);
+                    let iter = store.iter_for_filter_rev(filter);
 
                     // Collect last N frames (in reverse order), skipping expired
                     let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
@@ -915,11 +921,10 @@ impl Store {
                     // Determine start bound: from (inclusive) takes precedence over after (exclusive)
                     let start_bound = options
                         .from
-                        .as_ref()
                         .map(|id| (id, true))
-                        .or_else(|| options.after.as_ref().map(|id| (id, false)));
+                        .or_else(|| options.after.map(|id| (id, false)));
 
-                    let iter = store.iter_for_filter(&filter, start_bound);
+                    let iter = store.iter_for_filter(filter, start_bound);
 
                     for frame in iter {
                         if is_expired(&frame) {
@@ -1064,6 +1069,11 @@ impl Store {
     /// [`ReadOptions`] but ignores [`follow`](ReadOptions::follow): it never
     /// streams live appends. Use [`read`](Store::read) when you need to follow.
     ///
+    /// The iterator is lazy: it reads a frame per `next`, so a caller that
+    /// stops early only pays for what it pulled. The exception is `last`,
+    /// which reads in reverse and buffers its N frames to return them in
+    /// chronological order.
+    ///
     /// ```no_run
     /// use xs::{Store, ReadOptions};
     ///
@@ -1080,9 +1090,11 @@ impl Store {
 
         let filter = TopicFilter::from_option(options.topic.as_deref());
 
-        let frames: Vec<Frame> = if let Some(last_n) = options.last {
-            // Handle --last N: get the N most recent frames
-            let iter = self.iter_for_filter_rev(&filter);
+        if let Some(last_n) = options.last {
+            // Handle --last N: get the N most recent frames. This branch reads
+            // in reverse and re-orders, so it has to collect, but it is bounded
+            // by last_n.
+            let iter = self.iter_for_filter_rev(filter);
 
             // Collect last N frames (in reverse order), skipping expired
             let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
@@ -1097,23 +1109,21 @@ impl Store {
 
             // Reverse to chronological order
             frames.reverse();
-            frames
+            Box::new(frames.into_iter()) as Box<dyn Iterator<Item = Frame> + '_>
         } else {
-            // Normal forward iteration
+            // Normal forward iteration, streamed: the caller only pays for the
+            // frames it pulls.
             let start_bound = options
                 .from
-                .as_ref()
                 .map(|id| (id, true))
-                .or_else(|| options.after.as_ref().map(|id| (id, false)));
+                .or_else(|| options.after.map(|id| (id, false)));
 
-            let iter = self.iter_for_filter(&filter, start_bound);
-
-            iter.filter_map(filter_expired)
-                .take(options.limit.unwrap_or(usize::MAX))
-                .collect()
-        };
-
-        frames.into_iter()
+            Box::new(
+                self.iter_for_filter(filter, start_bound)
+                    .filter_map(filter_expired)
+                    .take(options.limit.unwrap_or(usize::MAX)),
+            )
+        }
     }
 
     /// Returns the current module state as of a given point in the stream.
@@ -1435,7 +1445,7 @@ impl Store {
     /// `start` is `(id, inclusive)` where inclusive=true means >= and inclusive=false means >.
     fn iter_frames(
         &self,
-        start: Option<(&Scru128Id, bool)>,
+        start: Option<(Scru128Id, bool)>,
     ) -> Box<dyn Iterator<Item = Frame> + '_> {
         let range = match start {
             Some((id, true)) => (Bound::Included(id.as_bytes().to_vec()), Bound::Unbounded),
@@ -1443,7 +1453,11 @@ impl Store {
             None => (Bound::Unbounded, Bound::Unbounded),
         };
 
-        Box::new(self.stream.range(range).filter_map(|guard| {
+        #[cfg(test)]
+        let scanned = self.frames_scanned.clone();
+        Box::new(self.stream.range(range).filter_map(move |guard| {
+            #[cfg(test)]
+            scanned.fetch_add(1, Ordering::Relaxed);
             let (key, value) = guard.into_inner().ok()?;
             Some(deserialize_frame((key, value)))
         }))
@@ -1451,23 +1465,28 @@ impl Store {
 
     /// Iterate frames in reverse order (most recent first).
     fn iter_frames_rev(&self) -> Box<dyn Iterator<Item = Frame> + '_> {
-        Box::new(self.stream.iter().rev().filter_map(|guard| {
+        #[cfg(test)]
+        let scanned = self.frames_scanned.clone();
+        Box::new(self.stream.iter().rev().filter_map(move |guard| {
+            #[cfg(test)]
+            scanned.fetch_add(1, Ordering::Relaxed);
             let (key, value) = guard.into_inner().ok()?;
             Some(deserialize_frame((key, value)))
         }))
     }
 
     /// Iterate frames by topic in reverse order (most recent first).
-    fn iter_frames_by_topic_rev<'a>(
-        &'a self,
-        topic: &'a str,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_frames_by_topic_rev(&self, topic: &str) -> Box<dyn Iterator<Item = Frame> + '_> {
         let prefix = idx_topic_key_prefix(topic);
+        #[cfg(test)]
+        let scanned = self.frames_scanned.clone();
         Box::new(
             self.idx_topic
                 .prefix(prefix)
                 .rev()
                 .filter_map(move |guard| {
+                    #[cfg(test)]
+                    scanned.fetch_add(1, Ordering::Relaxed);
                     let key = guard.key().ok()?;
                     let frame_id = idx_topic_frame_id_from_key(&key);
                     self.get(&frame_id)
@@ -1476,19 +1495,24 @@ impl Store {
     }
 
     /// Iterate frames by topic prefix in reverse order (most recent first).
-    fn iter_frames_by_topic_prefix_rev<'a>(
-        &'a self,
-        prefix: &'a str,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_frames_by_topic_prefix_rev(
+        &self,
+        prefix: &str,
+    ) -> Box<dyn Iterator<Item = Frame> + '_> {
         let mut index_prefix = Vec::with_capacity(prefix.len() + 1);
         index_prefix.extend(prefix.as_bytes());
         index_prefix.push(NULL_DELIMITER);
+
+        #[cfg(test)]
+        let scanned = self.frames_scanned.clone();
 
         Box::new(
             self.idx_topic
                 .prefix(index_prefix)
                 .rev()
                 .filter_map(move |guard| {
+                    #[cfg(test)]
+                    scanned.fetch_add(1, Ordering::Relaxed);
                     let key = guard.key().ok()?;
                     let frame_id = idx_topic_frame_id_from_key(&key);
                     self.get(&frame_id)
@@ -1496,21 +1520,25 @@ impl Store {
         )
     }
 
-    fn iter_frames_by_topic<'a>(
-        &'a self,
-        topic: &'a str,
-        start: Option<(&'a Scru128Id, bool)>,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_frames_by_topic(
+        &self,
+        topic: &str,
+        start: Option<(Scru128Id, bool)>,
+    ) -> Box<dyn Iterator<Item = Frame> + '_> {
         let prefix = idx_topic_key_prefix(topic);
+        #[cfg(test)]
+        let scanned = self.frames_scanned.clone();
         Box::new(self.idx_topic.prefix(prefix).filter_map(move |guard| {
+            #[cfg(test)]
+            scanned.fetch_add(1, Ordering::Relaxed);
             let key = guard.key().ok()?;
             let frame_id = idx_topic_frame_id_from_key(&key);
             if let Some((bound_id, inclusive)) = start {
                 if inclusive {
-                    if frame_id < *bound_id {
+                    if frame_id < bound_id {
                         return None;
                     }
-                } else if frame_id <= *bound_id {
+                } else if frame_id <= bound_id {
                     return None;
                 }
             }
@@ -1520,28 +1548,33 @@ impl Store {
 
     /// Iterate frames matching a topic prefix (for wildcard queries like "user.*").
     /// The prefix should include the trailing dot (e.g., "user." for "user.*").
-    fn iter_frames_by_topic_prefix<'a>(
-        &'a self,
-        prefix: &'a str,
-        start: Option<(&'a Scru128Id, bool)>,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_frames_by_topic_prefix(
+        &self,
+        prefix: &str,
+        start: Option<(Scru128Id, bool)>,
+    ) -> Box<dyn Iterator<Item = Frame> + '_> {
         // Build index prefix: "user.\0" for scanning all "user.*" entries
         let mut index_prefix = Vec::with_capacity(prefix.len() + 1);
         index_prefix.extend(prefix.as_bytes());
         index_prefix.push(NULL_DELIMITER);
 
+        #[cfg(test)]
+        let scanned = self.frames_scanned.clone();
+
         Box::new(
             self.idx_topic
                 .prefix(index_prefix)
                 .filter_map(move |guard| {
+                    #[cfg(test)]
+                    scanned.fetch_add(1, Ordering::Relaxed);
                     let key = guard.key().ok()?;
                     let frame_id = idx_topic_frame_id_from_key(&key);
                     if let Some((bound_id, inclusive)) = start {
                         if inclusive {
-                            if frame_id < *bound_id {
+                            if frame_id < bound_id {
                                 return None;
                             }
-                        } else if frame_id <= *bound_id {
+                        } else if frame_id <= bound_id {
                             return None;
                         }
                     }
@@ -1551,44 +1584,41 @@ impl Store {
     }
 
     /// Forward iterator for a single pattern, using the topic index.
-    fn iter_for_pattern<'a>(
-        &'a self,
-        pattern: &'a Pattern,
-        start: Option<(&'a Scru128Id, bool)>,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_for_pattern(
+        &self,
+        pattern: Pattern,
+        start: Option<(Scru128Id, bool)>,
+    ) -> Box<dyn Iterator<Item = Frame> + '_> {
         match pattern {
-            Pattern::Exact(topic) => self.iter_frames_by_topic(topic, start),
-            Pattern::Prefix(prefix) => self.iter_frames_by_topic_prefix(prefix, start),
+            Pattern::Exact(topic) => self.iter_frames_by_topic(&topic, start),
+            Pattern::Prefix(prefix) => self.iter_frames_by_topic_prefix(&prefix, start),
         }
     }
 
     /// Reverse (most recent first) iterator for a single pattern.
-    fn iter_for_pattern_rev<'a>(
-        &'a self,
-        pattern: &'a Pattern,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_for_pattern_rev(&self, pattern: Pattern) -> Box<dyn Iterator<Item = Frame> + '_> {
         match pattern {
-            Pattern::Exact(topic) => self.iter_frames_by_topic_rev(topic),
-            Pattern::Prefix(prefix) => self.iter_frames_by_topic_prefix_rev(prefix),
+            Pattern::Exact(topic) => self.iter_frames_by_topic_rev(&topic),
+            Pattern::Prefix(prefix) => self.iter_frames_by_topic_prefix_rev(&prefix),
         }
     }
 
     /// Forward iterator for a parsed topic filter, ascending by frame id.
     /// A single pattern uses the indexed path directly; multiple patterns
     /// are k-way merged with dedupe for overlapping patterns.
-    fn iter_for_filter<'a>(
-        &'a self,
-        filter: &'a TopicFilter,
-        start: Option<(&'a Scru128Id, bool)>,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_for_filter(
+        &self,
+        filter: TopicFilter,
+        start: Option<(Scru128Id, bool)>,
+    ) -> Box<dyn Iterator<Item = Frame> + '_> {
         match filter {
             TopicFilter::All => self.iter_frames(start),
-            TopicFilter::Patterns(patterns) if patterns.len() == 1 => {
-                self.iter_for_pattern(&patterns[0], start)
+            TopicFilter::Patterns(mut patterns) if patterns.len() == 1 => {
+                self.iter_for_pattern(patterns.remove(0), start)
             }
             TopicFilter::Patterns(patterns) => {
                 let iters = patterns
-                    .iter()
+                    .into_iter()
                     .map(|p| self.iter_for_pattern(p, start))
                     .collect();
                 Box::new(MergeById::new(iters, false))
@@ -1598,18 +1628,15 @@ impl Store {
 
     /// Reverse variant of [`iter_for_filter`](Store::iter_for_filter),
     /// descending by frame id (most recent first).
-    fn iter_for_filter_rev<'a>(
-        &'a self,
-        filter: &'a TopicFilter,
-    ) -> Box<dyn Iterator<Item = Frame> + 'a> {
+    fn iter_for_filter_rev(&self, filter: TopicFilter) -> Box<dyn Iterator<Item = Frame> + '_> {
         match filter {
             TopicFilter::All => self.iter_frames_rev(),
-            TopicFilter::Patterns(patterns) if patterns.len() == 1 => {
-                self.iter_for_pattern_rev(&patterns[0])
+            TopicFilter::Patterns(mut patterns) if patterns.len() == 1 => {
+                self.iter_for_pattern_rev(patterns.remove(0))
             }
             TopicFilter::Patterns(patterns) => {
                 let iters = patterns
-                    .iter()
+                    .into_iter()
                     .map(|p| self.iter_for_pattern_rev(p))
                     .collect();
                 Box::new(MergeById::new(iters, true))

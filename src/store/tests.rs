@@ -723,11 +723,11 @@ mod tests_topic {
         let frame3 = store.append(Frame::builder("test").build()).unwrap();
 
         // Test iter_frames with exclusive bound (after)
-        let frames: Vec<_> = store.iter_frames(Some((&frame2.id, false))).collect();
+        let frames: Vec<_> = store.iter_frames(Some((frame2.id, false))).collect();
         assert_eq!(frames, vec![frame3.clone()], "exclusive bound failed");
 
         // Test iter_frames with inclusive bound (from)
-        let frames: Vec<_> = store.iter_frames(Some((&frame2.id, true))).collect();
+        let frames: Vec<_> = store.iter_frames(Some((frame2.id, true))).collect();
         assert_eq!(
             frames,
             vec![frame2.clone(), frame3.clone()],
@@ -1375,6 +1375,48 @@ fn test_read_sync_limit_with_topic() {
         .build();
     let frames: Vec<_> = store.read_sync(options).collect();
     assert_eq!(vec![a1, a2], frames);
+}
+
+/// `read_sync` promises a lazy iterator: pulling the first frame must not
+/// scan the whole stream. The counter records every frame the underlying
+/// keyspace iterators yield, so an eager `collect` shows up as a scan of all
+/// FRAMES frames instead of the handful the caller asked for.
+#[test]
+fn test_read_sync_is_lazy() {
+    const FRAMES: usize = 500;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+    for _ in 0..FRAMES {
+        store.append(Frame::builder("topic.a").build()).unwrap();
+    }
+
+    // No topic: the plain stream scan.
+    let before = store.frames_scanned.load(Ordering::Relaxed);
+    let mut iter = store.read_sync(ReadOptions::default());
+    let first = iter.next().unwrap();
+    let scanned = store.frames_scanned.load(Ordering::Relaxed) - before;
+    assert_eq!(first.topic, "topic.a");
+    assert!(
+        scanned <= 2,
+        "read_sync scanned {scanned} of {FRAMES} frames to yield its first"
+    );
+
+    // Same for the topic-indexed path.
+    let before = store.frames_scanned.load(Ordering::Relaxed);
+    let options = ReadOptions::builder().topic("topic.*".to_string()).build();
+    let mut iter = store.read_sync(options);
+    let _ = iter.next().unwrap();
+    let scanned = store.frames_scanned.load(Ordering::Relaxed) - before;
+    assert!(
+        scanned <= 2,
+        "read_sync scanned {scanned} of {FRAMES} frames to yield its first"
+    );
+
+    // Laziness must not change what a full read returns.
+    let all: Vec<_> = store.read_sync(ReadOptions::default()).collect();
+    assert_eq!(FRAMES, all.len());
 }
 
 mod tests_topic_filter {
