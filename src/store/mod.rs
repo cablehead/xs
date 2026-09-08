@@ -683,7 +683,12 @@ impl Store {
         let fsync = options.fsync;
         let db = match Database::builder(path.join("fjall"))
             .cache_size(32 * 1024 * 1024) // 32 MiB
-            .worker_threads(1)
+            // One worker cannot keep up: every append writes three keyspaces, each
+            // calls check_memtable_rotate, and all of them queue into the single
+            // shared channel that worker also has to drain. At 1, flushes starve --
+            // 1M appends put only 10.7% of their bytes into segments, and 1.0% with
+            // the sweeper also committing. See BUGS-FOUND.md.
+            .worker_threads(2)
             .open()
         {
             Ok(db) => db,
