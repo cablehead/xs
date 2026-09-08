@@ -78,9 +78,9 @@ webpki-roots = "0.26.6"
 dirs = "5"
 base64 = "0.22.1"
 tracing-subscriber = "0.3.19"
-iroh = "0.91.2"
-iroh-base = "0.91.2"
-rand = "0.8"
+iroh = "1.1.0"
+iroh-base = "1.1.0"
+iroh-tickets = "1"
 data-encoding = "2.6"
 
 [target.'cfg(unix)'.dependencies]

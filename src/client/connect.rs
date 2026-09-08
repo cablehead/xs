@@ -1,6 +1,6 @@
 use crate::listener::{AsyncReadWriteBox, IrohStream, ALPN, HANDSHAKE};
 use iroh::{Endpoint, RelayMode, SecretKey};
-use iroh_base::ticket::NodeTicket;
+use iroh_tickets::endpoint::EndpointTicket;
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use rustls::RootCertStore;
@@ -38,7 +38,7 @@ fn get_or_create_secret() -> Result<SecretKey, BoxError> {
             })
         }
         Err(_) => {
-            let key = SecretKey::generate(rand::rngs::OsRng);
+            let key = SecretKey::generate();
             tracing::info!(
                 "Generated new secret key: {}",
                 data_encoding::HEXLOWER.encode(&key.to_bytes())
@@ -69,7 +69,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
             let secret_key = get_or_create_secret()?;
 
             // Create an iroh endpoint for connecting
-            let endpoint = Endpoint::builder()
+            let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
                 .alpns(vec![])
                 .relay_mode(RelayMode::Default)
                 .secret_key(secret_key)
@@ -77,13 +77,13 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
                 .await
                 .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
 
-            // Parse the ticket string to get the NodeTicket, then extract NodeAddr
-            let node_ticket: NodeTicket = ticket.parse().map_err(|e| {
+            // Parse the ticket string to get the EndpointTicket, then extract EndpointAddr
+            let node_ticket: EndpointTicket = ticket.parse().map_err(|e| {
                 Box::new(std::io::Error::other(format!("Invalid ticket format: {e}"))) as BoxError
             })?;
-            let node_addr = node_ticket.node_addr().clone();
+            let node_addr = node_ticket.endpoint_addr().clone();
 
-            tracing::info!("Connecting to iroh node: {}", node_addr.node_id);
+            tracing::info!("Connecting to iroh node: {}", node_addr.id);
 
             // Connect to the node using the proper ALPN with retry logic
             let mut backoff = std::time::Duration::from_millis(100);
@@ -130,7 +130,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
 
             tracing::info!("Handshake sent successfully");
 
-            let stream = IrohStream::new(send_stream, recv_stream);
+            let stream = IrohStream::new(send_stream, recv_stream, conn, Some(endpoint));
             Ok(Box::new(stream))
         }
     }

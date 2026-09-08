@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 
 use iroh::endpoint::{RecvStream, SendStream};
 use iroh::{Endpoint, RelayMode, SecretKey, Watcher};
-use iroh_base::ticket::NodeTicket;
+use iroh_tickets::endpoint::EndpointTicket;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 
@@ -126,7 +126,7 @@ fn get_or_create_secret() -> io::Result<SecretKey> {
             })
         }
         Err(_) => {
-            let key = SecretKey::generate(rand::rngs::OsRng);
+            let key = SecretKey::generate();
             tracing::info!(
                 "Generated new secret key: {}",
                 data_encoding::HEXLOWER.encode(&key.to_bytes())
@@ -145,13 +145,25 @@ pub type AsyncReadWriteBox = Box<dyn AsyncReadWrite + Unpin + Send>;
 pub struct IrohStream {
     send_stream: SendStream,
     recv_stream: RecvStream,
+    // Keep the connection (and, for a client-side stream, the endpoint that
+    // owns it) alive for as long as the stream is in use. Dropping either
+    // early tears the connection down out from under an in-flight stream.
+    _conn: iroh::endpoint::Connection,
+    _endpoint: Option<Endpoint>,
 }
 
 impl IrohStream {
-    pub fn new(send_stream: SendStream, recv_stream: RecvStream) -> Self {
+    pub fn new(
+        send_stream: SendStream,
+        recv_stream: RecvStream,
+        conn: iroh::endpoint::Connection,
+        endpoint: Option<Endpoint>,
+    ) -> Self {
         Self {
             send_stream,
             recv_stream,
+            _conn: conn,
+            _endpoint: endpoint,
         }
     }
 }
@@ -287,7 +299,7 @@ impl Listener {
 
                 tracing::info!("Handshake verified successfully from {}", remote_node_id);
 
-                let stream = IrohStream::new(send_stream, recv_stream);
+                let stream = IrohStream::new(send_stream, recv_stream, conn, None);
                 Ok((Box::new(stream), None))
             }
         }
@@ -298,7 +310,7 @@ impl Listener {
             tracing::info!("Binding iroh endpoint");
 
             let secret_key = get_or_create_secret()?;
-            let endpoint = Endpoint::builder()
+            let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
                 .alpns(vec![ALPN.to_vec()])
                 .relay_mode(RelayMode::Default)
                 .secret_key(secret_key)
@@ -315,21 +327,46 @@ impl Listener {
             // startup forever: on a network where no relay is reachable, fall
             // back to a direct-addresses-only ticket instead of hanging.
             let relay_wait = std::time::Duration::from_secs(5);
-            if tokio::time::timeout(relay_wait, endpoint.home_relay().initialized())
-                .await
-                .is_err()
-            {
+            let mut relay_status = endpoint.home_relay_status();
+            let got_relay = tokio::time::timeout(relay_wait, async {
+                while relay_status.get().is_empty() {
+                    if relay_status.updated().await.is_err() {
+                        break;
+                    }
+                }
+            })
+            .await
+            .is_ok();
+            if !got_relay {
                 tracing::warn!(
                     "No iroh home relay after {relay_wait:?}; \
                      issuing a direct-addresses-only ticket"
                 );
             }
-            let node_addr = endpoint.node_addr().initialized().await;
 
-            // Create a proper NodeTicket
-            let ticket = NodeTicket::new(node_addr.clone()).to_string();
+            // watch_addr() starts out empty until local addresses (and/or the
+            // relay above) are discovered -- wait for it to have something to
+            // dial, so we never mint a ticket with zero addresses that a
+            // connecting peer would hang against forever.
+            let mut addr_watcher = endpoint.watch_addr();
+            let node_addr = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    let addr = addr_watcher.get();
+                    if !addr.addrs.is_empty() {
+                        return addr;
+                    }
+                    if addr_watcher.updated().await.is_err() {
+                        return addr_watcher.peek().clone();
+                    }
+                }
+            })
+            .await
+            .unwrap_or_else(|_| addr_watcher.get());
 
-            tracing::info!("Iroh endpoint ready with node ID: {}", node_addr.node_id);
+            // Create a proper EndpointTicket
+            let ticket = EndpointTicket::new(node_addr.clone()).to_string();
+
+            tracing::info!("Iroh endpoint ready with node ID: {}", node_addr.id);
             tracing::info!("Iroh ticket: {}", ticket);
 
             Ok(Listener::Iroh(endpoint, ticket))
@@ -380,7 +417,7 @@ impl Listener {
                 let secret_key = get_or_create_secret()?;
 
                 // Create a client endpoint
-                let client_endpoint = Endpoint::builder()
+                let client_endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
                     .alpns(vec![])
                     .relay_mode(RelayMode::Default)
                     .secret_key(secret_key)
@@ -389,10 +426,10 @@ impl Listener {
                     .map_err(io::Error::other)?;
 
                 // Parse ticket to get node address
-                let node_ticket: NodeTicket = ticket
+                let node_ticket: EndpointTicket = ticket
                     .parse()
                     .map_err(|e| io::Error::other(format!("Invalid ticket: {}", e)))?;
-                let node_addr = node_ticket.node_addr().clone();
+                let node_addr = node_ticket.endpoint_addr().clone();
 
                 // Connect to the server
                 let conn = client_endpoint
@@ -412,7 +449,7 @@ impl Listener {
                     .await
                     .map_err(io::Error::other)?;
 
-                let stream = IrohStream::new(send_stream, recv_stream);
+                let stream = IrohStream::new(send_stream, recv_stream, conn, Some(client_endpoint));
                 Ok(Box::new(stream))
             }
         }
