@@ -2003,6 +2003,102 @@ mod tests_idx_topic_expiry {
         );
     }
 
+    /// A `last:n` trim already knows every key it is deleting: the topic is
+    /// the index prefix it scanned, the id is in the key, and the expiry is in
+    /// the value. So the removal costs no point read into `stream`, and it
+    /// still deletes the expiry entry of a frame that had one.
+    #[test]
+    fn test_trim_removes_without_a_point_read() {
+        let store = store_without_tick();
+
+        // Interleaved so the overflow spans both shapes: frames with a
+        // `time:` ttl, which have an expiry entry to delete, and frames
+        // without, which do not.
+        let mut appended = Vec::new();
+        for _ in 0..3 {
+            appended.push(append_live(&store));
+            appended.push(
+                store
+                    .append(
+                        Frame::builder("a.b")
+                            .ttl(TTL::Time(Duration::from_secs(600)))
+                            .build(),
+                    )
+                    .unwrap(),
+            );
+        }
+        assert_eq!(store.idx_expiry_len(), 3);
+
+        let overflow = store.last_overflow("a.b", 2, &HashSet::new(), 100);
+        let trimmed: Vec<_> = overflow.iter().map(|frame| frame.id).collect();
+        assert_eq!(
+            trimmed,
+            appended[..4].iter().map(|f| f.id).collect::<Vec<_>>()
+        );
+
+        let reads = store.stream_reads.load(Ordering::Relaxed);
+        store
+            .remove_many(overflow.into_iter().map(|frame| Removal::Indexed {
+                id: frame.id,
+                topic: "a.b".to_string(),
+                expires_at: frame.expires_at,
+            }))
+            .unwrap();
+        assert_eq!(
+            store.stream_reads.load(Ordering::Relaxed) - reads,
+            0,
+            "the trim read frames it had already been handed"
+        );
+
+        // Both index entries went with the frames, so nothing is left to
+        // sweep or scan.
+        assert_eq!(
+            ids(&store, ReadOptions::default()),
+            appended[4..].iter().map(|f| f.id).collect::<Vec<_>>()
+        );
+        assert_eq!(store.idx_expiry_len(), 1);
+        for frame in &appended[..4] {
+            assert!(store.get(&frame.id).is_none());
+        }
+    }
+
+    /// A store written before the index carried an expiry has no expiry to
+    /// hand the removal. The frame still goes, and the expiry entry it leaves
+    /// behind is the sweeper`s to clean up.
+    #[test]
+    fn test_trim_of_a_legacy_entry_still_removes_the_frame() {
+        let store = store_without_tick();
+        let old = store
+            .append(
+                Frame::builder("a.b")
+                    .ttl(TTL::Time(Duration::from_secs(600)))
+                    .build(),
+            )
+            .unwrap();
+        strip_expiry_values(&store, &old);
+        let keep = append_live(&store);
+
+        let overflow = store.last_overflow("a.b", 1, &HashSet::new(), 100);
+        assert_eq!(overflow.len(), 1);
+        assert_eq!(overflow[0].expires_at, None);
+        store
+            .remove_many(overflow.into_iter().map(|frame| Removal::Indexed {
+                id: frame.id,
+                topic: "a.b".to_string(),
+                expires_at: frame.expires_at,
+            }))
+            .unwrap();
+
+        assert!(store.get(&old.id).is_none());
+        assert_eq!(ids(&store, ReadOptions::default()), vec![keep.id]);
+        // The stale expiry entry is still there. A sweep drops it when its
+        // point read finds no frame.
+        assert_eq!(store.idx_expiry_len(), 1);
+        let swept = store.expired_at(now_ms() + 1_000_000, 100);
+        store.remove_many(swept).unwrap();
+        assert_eq!(store.idx_expiry_len(), 0);
+    }
+
     /// The two read-path changes compose: the range bound decides where the
     /// scan opens, the index value decides which of the entries above it are
     /// worth fetching.
@@ -2082,6 +2178,24 @@ mod tests_gc_resume {
         store
             .append(Frame::builder(topic).ttl(TTL::Time(Duration::ZERO)).build())
             .unwrap()
+    }
+
+    /// The ids a trim collected, in the order it would remove them.
+    fn overflow_ids(overflow: &[Overflow]) -> Vec<Scru128Id> {
+        overflow.iter().map(|frame| frame.id).collect()
+    }
+
+    /// The removals the gc worker builds from a trim`s overflow: every key
+    /// comes off the index, so none of them costs a point read.
+    fn trim_removals(topic: &str, overflow: Vec<Overflow>) -> Vec<Removal> {
+        overflow
+            .into_iter()
+            .map(|frame| Removal::Indexed {
+                id: frame.id,
+                topic: topic.to_string(),
+                expires_at: frame.expires_at,
+            })
+            .collect()
     }
 
     fn topic_ids(store: &Store, topic: &str) -> Vec<Scru128Id> {
@@ -2207,10 +2321,8 @@ mod tests_gc_resume {
                 break;
             }
             batches += 1;
-            trimmed.extend(batch.iter().copied());
-            store
-                .remove_many(batch.into_iter().map(Removal::Id))
-                .unwrap();
+            trimmed.extend(overflow_ids(&batch));
+            store.remove_many(trim_removals("test", batch)).unwrap();
         }
 
         assert_eq!(trimmed, ids[..8], "everything but the newest two, once");
@@ -2248,10 +2360,8 @@ mod tests_gc_resume {
         // takes it.
         let last = store.append(Frame::builder("test").build()).unwrap().id;
         let overflow = store.last_overflow("test", 2, &HashSet::new(), 16);
-        assert_eq!(overflow, vec![ids[1]]);
-        store
-            .remove_many(overflow.into_iter().map(Removal::Id))
-            .unwrap();
+        assert_eq!(overflow_ids(&overflow), vec![ids[1]]);
+        store.remove_many(trim_removals("test", overflow)).unwrap();
         assert_eq!(topic_ids(&store, "test"), vec![ids[2], last]);
     }
     /// A trim that fills its cap is carried to the next drain, so a topic
@@ -2316,7 +2426,7 @@ mod tests_gc_resume {
             .collect();
 
         assert_eq!(
-            store.last_overflow("test", 2, &HashSet::new(), 16),
+            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 16)),
             ids[..3]
         );
         store
@@ -2326,7 +2436,7 @@ mod tests_gc_resume {
         // One of the two the trim just kept goes by hand.
         store.remove(&ids[3]).unwrap();
         assert_eq!(
-            store.last_overflow("test", 2, &HashSet::new(), 16),
+            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 16)),
             Vec::<Scru128Id>::new(),
             "one frame left on the topic, nothing to trim"
         );
@@ -2335,10 +2445,8 @@ mod tests_gc_resume {
             .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
             .collect();
         let overflow = store.last_overflow("test", 2, &HashSet::new(), 16);
-        assert_eq!(overflow, vec![ids[4]]);
-        store
-            .remove_many(overflow.into_iter().map(Removal::Id))
-            .unwrap();
+        assert_eq!(overflow_ids(&overflow), vec![ids[4]]);
+        store.remove_many(trim_removals("test", overflow)).unwrap();
         assert_eq!(topic_ids(&store, "test"), more);
     }
 

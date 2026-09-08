@@ -469,19 +469,20 @@ enum GCTask {
 enum Removal {
     /// Only the id is known. The frame is fetched to learn its keys.
     Id(Scru128Id),
-    /// An expiry index hit. The topic and expiry came from the index entry,
-    /// so no point read is needed.
-    Expired {
+    /// An index hit that already carries every key the removal needs, so no
+    /// point read into `stream` is required. `expires_at` is `None` when the
+    /// frame has no `time:` ttl and so has no expiry index entry.
+    Indexed {
         id: Scru128Id,
         topic: String,
-        expires_at: u64,
+        expires_at: Option<u64>,
     },
 }
 
 impl Removal {
     fn id(&self) -> Scru128Id {
         match self {
-            Removal::Id(id) | Removal::Expired { id, .. } => *id,
+            Removal::Id(id) | Removal::Indexed { id, .. } => *id,
         }
     }
 }
@@ -1281,11 +1282,11 @@ impl Store {
                         );
                     }
                 }
-                Removal::Expired {
+                Removal::Indexed {
                     id,
                     topic,
                     expires_at,
-                } => self.remove_frame_keys(&mut batch, &id, &topic, Some(expires_at)),
+                } => self.remove_frame_keys(&mut batch, &id, &topic, expires_at),
             }
         }
         if batch.is_empty() {
@@ -1364,10 +1365,10 @@ impl Store {
                 break;
             };
             let (expires_at, id) = idx_expiry_parse_key(&key);
-            removals.push(Removal::Expired {
+            removals.push(Removal::Indexed {
                 id,
                 topic: String::from_utf8_lossy(&value).into_owned(),
-                expires_at,
+                expires_at: Some(expires_at),
             });
             swept = Some(key);
         }
@@ -1416,7 +1417,7 @@ impl Store {
         keep: u32,
         pending: &HashSet<Scru128Id>,
         limit: usize,
-    ) -> Vec<Scru128Id> {
+    ) -> Vec<Overflow> {
         let floor = self.trim_floor.lock().unwrap().get(topic).copied();
         // The floor is a bound on the id, so it is a bound on the key: both
         // scans open at it and never reach the tombstones below it. See
@@ -1476,10 +1477,17 @@ impl Store {
         let mut overflow = Vec::new();
         let mut trimmed = None;
         for guard in self.idx_topic.range((low, high)) {
-            let Ok(key) = guard.key() else { break };
+            // Take the value too: it carries the frame's expiry, so the removal
+            // needs no point read into `stream` to learn its keys.
+            let Ok((key, value)) = guard.into_inner() else {
+                break;
+            };
             let id = idx_topic_frame_id_from_key(&key);
             if !pending.contains(&id) {
-                overflow.push(id);
+                overflow.push(Overflow {
+                    id,
+                    expires_at: idx_topic_expiry_of(&value),
+                });
             }
             // A pending id counts: this drain removes it too, so the floor may
             // pass it.
@@ -1987,13 +1995,18 @@ fn spawn_gc_worker(
             // the expired frames it is removing, trim each topic once.
             for (topic, keep) in trims {
                 let overflow = store.last_overflow(&topic, keep, &pending, MAX_TRIM_PER_DRAIN);
-                if overflow.len() == MAX_TRIM_PER_DRAIN {
-                    trim_again.insert(topic, keep);
-                }
-                for id in overflow {
-                    if pending.insert(id) {
-                        removals.push(Removal::Id(id));
+                let again = overflow.len() == MAX_TRIM_PER_DRAIN;
+                for frame in overflow {
+                    if pending.insert(frame.id) {
+                        removals.push(Removal::Indexed {
+                            id: frame.id,
+                            topic: topic.clone(),
+                            expires_at: frame.expires_at,
+                        });
                     }
+                }
+                if again {
+                    trim_again.insert(topic, keep);
                 }
             }
 
@@ -2182,6 +2195,37 @@ fn idx_topic_prefix_keys(topic: &str, frame_id: &scru128::Scru128Id) -> Vec<Vec<
 /// An `idx_topic` value meaning "this frame has no `time:` ttl". Distinct from
 /// the empty value an older store wrote, which means "unknown".
 const IDX_TOPIC_NEVER: u64 = u64::MAX;
+
+/// One frame a `last:n` trim is going to remove, with everything
+/// [`Store::remove_many`] needs to delete its keys. The topic is the one being
+/// trimmed and the expiry came off the index entry, so no point read is needed.
+#[derive(Debug, Clone, Copy)]
+struct Overflow {
+    id: Scru128Id,
+    /// `Some` when the frame has a `time:` ttl and so an expiry index entry.
+    /// `None` when it has none, or when the entry predates the index carrying
+    /// one -- see [`idx_topic_expiry_of`].
+    expires_at: Option<u64>,
+}
+
+/// The expiry an `idx_topic` value carries, if it carries one.
+///
+/// `None` covers two cases the caller must treat alike: a frame with no `time:`
+/// ttl, which has no expiry index entry to delete, and an entry written before
+/// the index carried an expiry, whose frame may have one. Removing a key that
+/// is not there is a no-op, so both are safe to treat as "nothing to delete" --
+/// but the second leaves a stale expiry entry, which the sweeper drops on its
+/// next pass when the point read finds no frame.
+#[inline]
+fn idx_topic_expiry_of(value: &[u8]) -> Option<u64> {
+    match <[u8; 8]>::try_from(value) {
+        Ok(bytes) => match u64::from_be_bytes(bytes) {
+            IDX_TOPIC_NEVER => None,
+            at => Some(at),
+        },
+        Err(_) => None,
+    }
+}
 
 /// The `idx_topic` value for a frame: its expiry in ms as a big-endian u64, or
 /// [`IDX_TOPIC_NEVER`]. Every entry for the frame -- the exact topic key and
