@@ -2552,3 +2552,167 @@ mod tests_gc_scale {
         let _ = std::fs::remove_dir_all(&path);
     }
 }
+
+/// `wait_for_gc` answers when the queue as it stood has been applied, which is
+/// not the same as "the topic is now at `keep`". A trim larger than one batch
+/// carries its remainder into the next drain, so the first reply can land while
+/// the topic is still over its limit. The sweep has always behaved this way;
+/// this pins it for the trim too, so a future change cannot quietly tighten or
+/// loosen the contract without a test noticing.
+#[cfg(test)]
+mod tests_gc_drain_contract {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_wait_for_gc_can_return_with_a_trim_still_outstanding() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::open(
+            temp_dir.path().to_path_buf(),
+            StoreOptions::builder().fsync(Fsync::Never).build(),
+        )
+        .unwrap();
+
+        // One batch is 4096 removals, so 6000 past `keep` needs two drains.
+        let keep = 10u32;
+        let over = 6_000;
+        for _ in 0..(keep as usize + over) {
+            store
+                .append(
+                    Frame::builder("drain.contract")
+                        .ttl(TTL::Last(keep))
+                        .build(),
+                )
+                .unwrap();
+        }
+
+        // First reply: everything queued when the Drain arrived has been applied,
+        // but the carried remainder has not.
+        store.wait_for_gc().await;
+        let after_first = store
+            .read_sync(
+                ReadOptions::builder()
+                    .topic("drain.contract".to_string())
+                    .build(),
+            )
+            .count();
+
+        // Drain until it settles, bounded so a regression fails rather than hangs.
+        let mut settled = after_first;
+        for _ in 0..20 {
+            store.wait_for_gc().await;
+            let n = store
+                .read_sync(
+                    ReadOptions::builder()
+                        .topic("drain.contract".to_string())
+                        .build(),
+                )
+                .count();
+            if n == settled && n == keep as usize {
+                break;
+            }
+            settled = n;
+        }
+
+        assert_eq!(
+            settled, keep as usize,
+            "the trim must finish across repeated drains"
+        );
+        assert!(
+            after_first >= settled,
+            "the first reply cannot have removed more than the settled state"
+        );
+    }
+}
+
+/// What a restart costs. The resume cursors are in-memory, so a reopened store
+/// starts from the beginning of the index and walks whatever tombstones
+/// outlived it before it is resuming again. This measures that walk against the
+/// steady-state cost of the same work on a store that never restarted.
+#[cfg(test)]
+mod tests_gc_restart_cost {
+    use super::*;
+    use std::time::Instant;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    #[ignore = "measurement, not an assertion; run with --ignored --nocapture"]
+    async fn bench_restart_cost() {
+        let n: usize = std::env::var("XS_BENCH_RESTART_N")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(200_000);
+        let dir = TempDir::new().unwrap().keep();
+
+        // Build a store, sweep most of it, so tombstones exist to be walked.
+        let store = Store::open(
+            dir.clone(),
+            StoreOptions::builder().fsync(Fsync::Never).build(),
+        )
+        .unwrap();
+        for i in 0..n {
+            let ttl = if i % 10 == 0 {
+                TTL::Forever
+            } else {
+                TTL::Time(Duration::from_millis(1))
+            };
+            store
+                .append(Frame::builder("restart.ev").ttl(ttl).build())
+                .unwrap();
+        }
+        // drain the first backlog on the warm store
+        let warm = Instant::now();
+        for _ in 0..40 {
+            store.sweep();
+            store.wait_for_gc().await;
+            if store.read_sync(ReadOptions::default()).count() <= n / 10 {
+                break;
+            }
+        }
+        let warm_ms = warm.elapsed().as_millis();
+        let live_before = store.read_sync(ReadOptions::default()).count();
+
+        // Drop it properly -- with the worker fix this must return. Time it: the
+        // drop stall at one worker was one of the symptoms.
+        let t = Instant::now();
+        drop(store);
+        let drop_ms = t.elapsed().as_millis();
+
+        // Reopen: cursors are gone, so the next sweep starts from the top.
+        let t = Instant::now();
+        let store = Store::open(
+            dir.clone(),
+            StoreOptions::builder().fsync(Fsync::Never).build(),
+        )
+        .unwrap();
+        let open_ms = t.elapsed().as_millis();
+
+        // Append a little more so there is fresh work, then time the first
+        // post-restart sweep against a second one that benefits from the cursor.
+        for _ in 0..1_000 {
+            store
+                .append(
+                    Frame::builder("restart.ev")
+                        .ttl(TTL::Time(Duration::from_millis(1)))
+                        .build(),
+                )
+                .unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let t = Instant::now();
+        store.sweep();
+        store.wait_for_gc().await;
+        let first_ms = t.elapsed().as_millis();
+        let t = Instant::now();
+        store.sweep();
+        store.wait_for_gc().await;
+        let second_ms = t.elapsed().as_millis();
+
+        println!(
+            "RESTART n={n} live={live_before} warm_drain={warm_ms}ms drop={drop_ms}ms open={open_ms}ms \
+             first_sweep_after_restart={first_ms}ms second_sweep={second_ms}ms"
+        );
+        std::mem::forget(store);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
