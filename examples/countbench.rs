@@ -1,7 +1,7 @@
 //! What a `last:n` append costs once the topic keeps a count.
 //!
 //! ```text
-//! cargo run --profile exp --bin countbench
+//! cargo run --profile exp --example countbench
 //! ```
 //!
 //! Each append is waited on, so it lands in its own gc drain. That is the
