@@ -965,7 +965,7 @@ mod tests_ttl_expire {
         }
         store.wait_for_gc().await;
         assert_eq!(store.read_sync(ReadOptions::default()).count(), 0);
-        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 2);
+        assert_eq!(store.stats.remove_commits.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]
@@ -1059,7 +1059,7 @@ mod tests_ttl_expire {
             assert_eq!(store.get(&frame.id), None, "{} still present", frame.id);
         }
         assert_eq!(store.get(&permanent.id), Some(permanent));
-        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 1);
+        assert_eq!(store.stats.remove_commits.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
@@ -1074,7 +1074,7 @@ mod tests_ttl_expire {
                 .unwrap();
         }
         store.wait_for_gc().await;
-        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 0);
+        assert_eq!(store.stats.remove_commits.load(Ordering::Relaxed), 0);
 
         // Lowering the keep count trims four frames in a single batch
         let last = store
@@ -1085,7 +1085,7 @@ mod tests_ttl_expire {
         let frames: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[1], last);
-        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 1);
+        assert_eq!(store.stats.remove_commits.load(Ordering::Relaxed), 1);
     }
 
     /// A Sweep and a CheckLastTTL on the same topic in one drain land the
@@ -1393,10 +1393,10 @@ fn test_read_sync_is_lazy() {
     }
 
     // No topic: the plain stream scan.
-    let before = store.frames_scanned.load(Ordering::Relaxed);
+    let before = store.stats.frames_scanned.load(Ordering::Relaxed);
     let mut iter = store.read_sync(ReadOptions::default());
     let first = iter.next().unwrap();
-    let scanned = store.frames_scanned.load(Ordering::Relaxed) - before;
+    let scanned = store.stats.frames_scanned.load(Ordering::Relaxed) - before;
     assert_eq!(first.topic, "topic.a");
     assert!(
         scanned <= 2,
@@ -1404,11 +1404,11 @@ fn test_read_sync_is_lazy() {
     );
 
     // Same for the topic-indexed path.
-    let before = store.frames_scanned.load(Ordering::Relaxed);
+    let before = store.stats.frames_scanned.load(Ordering::Relaxed);
     let options = ReadOptions::builder().topic("topic.*".to_string()).build();
     let mut iter = store.read_sync(options);
     let _ = iter.next().unwrap();
-    let scanned = store.frames_scanned.load(Ordering::Relaxed) - before;
+    let scanned = store.stats.frames_scanned.load(Ordering::Relaxed) - before;
     assert!(
         scanned <= 2,
         "read_sync scanned {scanned} of {FRAMES} frames to yield its first"
@@ -1439,9 +1439,12 @@ mod tests_topic_seek {
 
     /// The ids a read returns, and the index entries it touched to get them.
     fn read(store: &Store, options: ReadOptions) -> (Vec<Scru128Id>, usize) {
-        let before = store.frames_scanned.load(Ordering::Relaxed);
+        let before = store.stats.frames_scanned.load(Ordering::Relaxed);
         let ids: Vec<_> = store.read_sync(options).map(|f| f.id).collect();
-        (ids, store.frames_scanned.load(Ordering::Relaxed) - before)
+        (
+            ids,
+            store.stats.frames_scanned.load(Ordering::Relaxed) - before,
+        )
     }
 
     fn topic_after(topic: &str, after: Scru128Id) -> ReadOptions {
@@ -1978,12 +1981,12 @@ mod tests_idx_topic_expiry {
         std::thread::sleep(Duration::from_millis(20));
 
         for topic in ["a.b", "a.*"] {
-            let scanned = store.frames_scanned.load(Ordering::Relaxed);
-            let reads = store.stream_reads.load(Ordering::Relaxed);
+            let scanned = store.stats.frames_scanned.load(Ordering::Relaxed);
+            let reads = store.stats.stream_reads.load(Ordering::Relaxed);
             let options = ReadOptions::builder().topic(topic.to_string()).build();
             assert_eq!(ids(&store, options), vec![live.id]);
-            let scanned = store.frames_scanned.load(Ordering::Relaxed) - scanned;
-            let reads = store.stream_reads.load(Ordering::Relaxed) - reads;
+            let scanned = store.stats.frames_scanned.load(Ordering::Relaxed) - scanned;
+            let reads = store.stats.stream_reads.load(Ordering::Relaxed) - reads;
 
             assert_eq!(scanned, EXPIRED + 1, "{topic}");
             assert_eq!(reads, 1, "{topic} read {reads} frames to return 1");
@@ -1994,11 +1997,11 @@ mod tests_idx_topic_expiry {
         for frame in expiring.iter().chain(std::iter::once(&live)) {
             strip_expiry_values(&store, frame);
         }
-        let reads = store.stream_reads.load(Ordering::Relaxed);
+        let reads = store.stats.stream_reads.load(Ordering::Relaxed);
         let options = ReadOptions::builder().topic("a.b".to_string()).build();
         assert_eq!(ids(&store, options), vec![live.id]);
         assert_eq!(
-            store.stream_reads.load(Ordering::Relaxed) - reads,
+            store.stats.stream_reads.load(Ordering::Relaxed) - reads,
             EXPIRED + 1
         );
     }
@@ -2036,7 +2039,7 @@ mod tests_idx_topic_expiry {
             appended[..4].iter().map(|f| f.id).collect::<Vec<_>>()
         );
 
-        let reads = store.stream_reads.load(Ordering::Relaxed);
+        let reads = store.stats.stream_reads.load(Ordering::Relaxed);
         store
             .remove_many(overflow.into_iter().map(|frame| Removal::Indexed {
                 id: frame.id,
@@ -2045,7 +2048,7 @@ mod tests_idx_topic_expiry {
             }))
             .unwrap();
         assert_eq!(
-            store.stream_reads.load(Ordering::Relaxed) - reads,
+            store.stats.stream_reads.load(Ordering::Relaxed) - reads,
             0,
             "the trim read frames it had already been handed"
         );
@@ -2116,15 +2119,15 @@ mod tests_idx_topic_expiry {
         std::thread::sleep(Duration::from_millis(20));
 
         for topic in ["a.b", "a.*"] {
-            let scanned = store.frames_scanned.load(Ordering::Relaxed);
-            let reads = store.stream_reads.load(Ordering::Relaxed);
+            let scanned = store.stats.frames_scanned.load(Ordering::Relaxed);
+            let reads = store.stats.stream_reads.load(Ordering::Relaxed);
             let options = ReadOptions::builder()
                 .topic(topic.to_string())
                 .after(bound.id)
                 .build();
             assert_eq!(ids(&store, options), vec![live.id]);
-            let scanned = store.frames_scanned.load(Ordering::Relaxed) - scanned;
-            let reads = store.stream_reads.load(Ordering::Relaxed) - reads;
+            let scanned = store.stats.frames_scanned.load(Ordering::Relaxed) - scanned;
+            let reads = store.stats.stream_reads.load(Ordering::Relaxed) - reads;
 
             // Two entries above the bound, of which one is expired: the 201
             // below it are never scanned, and the expired one is never read.
@@ -2386,7 +2389,7 @@ mod tests_gc_resume {
         }
         store.wait_for_gc().await;
         assert_eq!(topic_ids(&store, "test"), vec![last.id]);
-        assert_eq!(store.remove_commits.load(Ordering::Relaxed), 2);
+        assert_eq!(store.stats.remove_commits.load(Ordering::Relaxed), 2);
     }
 
     /// A topic index entry written below the trim floor -- again, a frame
@@ -2556,7 +2559,7 @@ mod tests_gc_scale {
         let start = Instant::now();
         let mut next_report = Duration::from_secs(10);
         loop {
-            let removed = store.removed_frames.load(Ordering::Relaxed);
+            let removed = store.stats.removed_frames.load(Ordering::Relaxed);
             let elapsed = start.elapsed();
             if removed >= want {
                 return (removed, elapsed);
@@ -2641,7 +2644,7 @@ mod tests_gc_scale {
             }
         }
         let elapsed = start.elapsed();
-        let removed = store.removed_frames.load(Ordering::Relaxed);
+        let removed = store.stats.removed_frames.load(Ordering::Relaxed);
 
         println!(
             "last-trim frames={n} ms={:.0} removed={removed} frames_per_s={:.0} \

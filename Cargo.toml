@@ -41,7 +41,7 @@ path = "src/main.rs"
 bytes = "1.6.0"
 cacache = { version = "13", default-features = false, features = ["tokio-runtime", "mmap"] }
 clap = { version = "4", features = ["derive"] }
-fjall = "3.0.1"
+fjall = { version = "3.0.1", features = ["metrics"] }
 futures = "0.3.31"
 scru128 = { version = "3", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -128,3 +128,8 @@ pkg-url = "{ repo }/releases/download/v{ version }/cross-stream-v{ version }-win
 [[bench]]
 name = "throughput"
 harness = false
+
+[profile.exp]
+inherits = "release"
+lto = false
+codegen-units = 16

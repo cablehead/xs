@@ -47,9 +47,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-#[cfg(test)]
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nu_protocol::engine::EngineState;
@@ -618,22 +616,148 @@ pub struct Store {
     base_engine: Option<Arc<EngineState>>,
     /// Fsync policy and dirty flag, shared by every clone and the fsync worker.
     fsync: Arc<FsyncState>,
-    /// Batches committed by [`remove_many`](Store::remove_many), so a test can
-    /// check the gc worker commits once per drain.
-    #[cfg(test)]
-    remove_commits: Arc<AtomicUsize>,
-    /// Frames removed by [`remove_many`](Store::remove_many), so a test can
-    /// watch a backlog drain without counting the index itself.
-    #[cfg(test)]
-    removed_frames: Arc<AtomicUsize>,
-    /// Frames pulled from the underlying keyspace iterators, so a test can
-    /// check a read only scans as far as it is asked to.
-    #[cfg(test)]
-    frames_scanned: Arc<AtomicUsize>,
-    /// Point reads into `stream`, so a test can check a topic scan drops an
-    /// expired id on the index value alone.
-    #[cfg(test)]
-    stream_reads: Arc<AtomicUsize>,
+    /// Counters about this store's own work, shared by every clone and by
+    /// the gc worker. See [`StoreStats`].
+    stats: Arc<StoreStats>,
+}
+
+/// Counters the store keeps about its own work, always on.
+///
+/// Relaxed atomics on paths that already touch the database, so the cost is
+/// noise next to the work being counted. Cumulative for the life of the
+/// process, with no way to reset: a caller wanting a rate subtracts two
+/// reads.
+#[derive(Debug, Default)]
+pub struct StoreStats {
+    /// Frames accepted by [`append`](Store::append), including ephemeral ones
+    /// that were broadcast but never stored.
+    pub appends: AtomicUsize,
+    /// Frames pulled from a keyspace iterator by a read. Larger than the
+    /// number returned whenever a read filters: the gap is wasted work.
+    pub frames_scanned: AtomicUsize,
+    /// Point reads into `stream`. A topic read does one per frame it returns,
+    /// so this over `frames_scanned` says how well the index is filtering.
+    pub stream_reads: AtomicUsize,
+    /// Frames removed by [`remove_many`](Store::remove_many).
+    pub removed_frames: AtomicUsize,
+    /// Batches committed by [`remove_many`](Store::remove_many). One per gc
+    /// drain that had anything to do.
+    pub remove_commits: AtomicUsize,
+    /// Times the gc worker drained its queue.
+    pub gc_drains: AtomicUsize,
+    /// Nanoseconds the gc worker spent inside a drain. Against `gc_drains`
+    /// this is the cost of retention, which is otherwise invisible.
+    pub gc_nanos: AtomicU64,
+}
+
+/// A serializable read of [`StoreStats`]. See its fields for what each counts.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StoreStatsSnapshot {
+    pub appends: u64,
+    pub frames_scanned: u64,
+    pub stream_reads: u64,
+    pub removed_frames: u64,
+    pub remove_commits: u64,
+    pub gc_drains: u64,
+    pub gc_nanos: u64,
+}
+
+impl StoreStats {
+    fn snapshot(&self) -> StoreStatsSnapshot {
+        let n = |c: &AtomicUsize| c.load(Ordering::Relaxed) as u64;
+        StoreStatsSnapshot {
+            appends: n(&self.appends),
+            frames_scanned: n(&self.frames_scanned),
+            stream_reads: n(&self.stream_reads),
+            removed_frames: n(&self.removed_frames),
+            remove_commits: n(&self.remove_commits),
+            gc_drains: n(&self.gc_drains),
+            gc_nanos: self.gc_nanos.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// Cache hit rates for one keyspace, each `None` until that layer has been
+/// asked for something.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct KeyspaceRates {
+    pub block_cache_hit: Option<f64>,
+    pub data_block_cache_hit: Option<f64>,
+    pub index_block_cache_hit: Option<f64>,
+    pub filter_block_cache_hit: Option<f64>,
+    pub table_file_cache_hit: Option<f64>,
+    /// Share of filter lookups that saved a read. Only counted when the
+    /// filter reports a miss: a filter costs nothing on a hit, so this is
+    /// what it is worth, not how often it ran.
+    pub filter_efficiency: Option<f64>,
+}
+
+/// A rate is meaningless with no observations behind it.
+fn rate(observations: usize, value: f64) -> Option<f64> {
+    (observations > 0).then_some(value)
+}
+
+/// A point-in-time read of one keyspace's cache and filter counters.
+///
+/// Every rate is a fraction in `0.0..=1.0`, or `0.0` when nothing has been
+/// asked of that layer yet. The counters are cumulative since the process
+/// started; fjall has no way to reset them, so a caller comparing two reads
+/// should subtract.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct KeyspaceMetrics {
+    pub keyspace: &'static str,
+
+    /// Hit rates, or `null` where nothing has been asked of that layer yet.
+    /// fjall returns 1.0 for a rate with no observations, which reads as a
+    /// perfect cache on a store that has done no work.
+    pub rates: KeyspaceRates,
+
+    pub filter_queries: usize,
+    pub io_skipped_by_filter: usize,
+
+    /// Blocks asked for, and how many of those reached the filesystem.
+    pub block_loads: usize,
+    pub block_load_io: usize,
+    pub data_block_io: u64,
+    pub index_block_io: u64,
+    pub filter_block_io: u64,
+}
+
+impl KeyspaceMetrics {
+    fn read(keyspace: &'static str, ks: &Keyspace) -> Self {
+        // `Keyspace::metrics` hands back an `lsm_tree::Metrics`, a type fjall
+        // does not re-export, so the reference is never named.
+        let m = ks.metrics();
+        Self {
+            keyspace,
+            rates: KeyspaceRates {
+                block_cache_hit: rate(m.block_loads(), m.block_cache_hit_rate()),
+                data_block_cache_hit: rate(
+                    m.data_block_load_count(),
+                    m.data_block_cache_hit_rate(),
+                ),
+                index_block_cache_hit: rate(
+                    m.index_block_load_count(),
+                    m.index_block_cache_hit_rate(),
+                ),
+                filter_block_cache_hit: rate(
+                    m.filter_block_load_count(),
+                    m.filter_block_cache_hit_rate(),
+                ),
+                // No public count of table opens, so borrow the block loads:
+                // no block was loaded means no file was opened either.
+                table_file_cache_hit: rate(m.block_loads(), m.table_file_cache_hit_rate()),
+                filter_efficiency: rate(m.filter_queries(), m.filter_efficiency()),
+            },
+            filter_queries: m.filter_queries(),
+            io_skipped_by_filter: m.io_skipped_by_filter(),
+            block_loads: m.block_loads(),
+            block_load_io: m.block_load_io_count(),
+            data_block_io: m.data_block_io(),
+            index_block_io: m.index_block_io(),
+            filter_block_io: m.filter_block_io(),
+        }
+    }
 }
 
 /// Joins the background workers when the last caller-held `Store` drops.
@@ -814,14 +938,7 @@ impl Store {
             rt: tokio::runtime::Handle::try_current().ok(),
             base_engine: None,
             fsync: fsync_state,
-            #[cfg(test)]
-            remove_commits: Arc::new(AtomicUsize::new(0)),
-            #[cfg(test)]
-            removed_frames: Arc::new(AtomicUsize::new(0)),
-            #[cfg(test)]
-            frames_scanned: Arc::new(AtomicUsize::new(0)),
-            #[cfg(test)]
-            stream_reads: Arc::new(AtomicUsize::new(0)),
+            stats: Arc::new(StoreStats::default()),
         };
 
         // Spawn the workers. The gc worker's clone is taken while `workers` is
@@ -847,6 +964,24 @@ impl Store {
         }));
 
         Ok(store)
+    }
+
+    /// Counters about this store's own work: appends, how much a read
+    /// scanned against how much it returned, and what retention cost.
+    pub fn stats(&self) -> StoreStatsSnapshot {
+        self.stats.snapshot()
+    }
+
+    /// Cache and filter counters for each keyspace, for tuning
+    /// `cache_size`, `max_cached_files`, and the filter and pinning policies.
+    ///
+    /// Cumulative since the process started. See [`KeyspaceMetrics`].
+    pub fn metrics(&self) -> Vec<KeyspaceMetrics> {
+        vec![
+            KeyspaceMetrics::read("stream", &self.stream),
+            KeyspaceMetrics::read("idx_topic", &self.idx_topic),
+            KeyspaceMetrics::read("idx_expiry", &self.idx_expiry),
+        ]
     }
 
     /// The [`Fsync`] policy this store was opened with.
@@ -1244,8 +1379,7 @@ impl Store {
 
     /// Fetch a single frame by ID, or `None` if no such frame exists.
     pub fn get(&self, id: &Scru128Id) -> Option<Frame> {
-        #[cfg(test)]
-        self.stream_reads.fetch_add(1, Ordering::Relaxed);
+        self.stats.stream_reads.fetch_add(1, Ordering::Relaxed);
         self.stream
             .get(id.to_bytes())
             .unwrap()
@@ -1293,8 +1427,7 @@ impl Store {
             return Ok(());
         }
         batch.commit()?;
-        #[cfg(test)]
-        self.remove_commits.fetch_add(1, Ordering::Relaxed);
+        self.stats.remove_commits.fetch_add(1, Ordering::Relaxed);
         // No inline fsync in any mode. The tombstones reach disk with the next
         // append's sync or the next tick. If power loss brings a frame back,
         // its index entries come back with it, so it is trimmed or swept
@@ -1316,8 +1449,7 @@ impl Store {
         topic: &str,
         expires_at: Option<u64>,
     ) {
-        #[cfg(test)]
-        self.removed_frames.fetch_add(1, Ordering::Relaxed);
+        self.stats.removed_frames.fetch_add(1, Ordering::Relaxed);
         let mut topic_key = idx_topic_key_prefix(topic);
         topic_key.extend(id.as_bytes());
         batch.remove(&self.stream, id.as_bytes());
@@ -1729,6 +1861,7 @@ impl Store {
             }
         }
 
+        self.stats.appends.fetch_add(1, Ordering::Relaxed);
         let _ = self.broadcast_tx.send(frame.clone());
         Ok(frame)
     }
@@ -1745,11 +1878,9 @@ impl Store {
             None => (Bound::Unbounded, Bound::Unbounded),
         };
 
-        #[cfg(test)]
-        let scanned = self.frames_scanned.clone();
+        let scanned = self.stats.clone();
         Box::new(self.stream.range(range).filter_map(move |guard| {
-            #[cfg(test)]
-            scanned.fetch_add(1, Ordering::Relaxed);
+            scanned.frames_scanned.fetch_add(1, Ordering::Relaxed);
             let (key, value) = guard.into_inner().ok()?;
             Some(deserialize_frame((key, value)))
         }))
@@ -1757,11 +1888,9 @@ impl Store {
 
     /// Iterate frames in reverse order (most recent first).
     fn iter_frames_rev(&self) -> Box<dyn Iterator<Item = Frame> + '_> {
-        #[cfg(test)]
-        let scanned = self.frames_scanned.clone();
+        let scanned = self.stats.clone();
         Box::new(self.stream.iter().rev().filter_map(move |guard| {
-            #[cfg(test)]
-            scanned.fetch_add(1, Ordering::Relaxed);
+            scanned.frames_scanned.fetch_add(1, Ordering::Relaxed);
             let (key, value) = guard.into_inner().ok()?;
             Some(deserialize_frame((key, value)))
         }))
@@ -1771,15 +1900,13 @@ impl Store {
     fn iter_frames_by_topic_rev(&self, topic: &str) -> Box<dyn Iterator<Item = Frame> + '_> {
         let prefix = idx_topic_key_prefix(topic);
         let now = now_ms();
-        #[cfg(test)]
-        let scanned = self.frames_scanned.clone();
+        let scanned = self.stats.clone();
         Box::new(
             self.idx_topic
                 .prefix(prefix)
                 .rev()
                 .filter_map(move |guard| {
-                    #[cfg(test)]
-                    scanned.fetch_add(1, Ordering::Relaxed);
+                    scanned.frames_scanned.fetch_add(1, Ordering::Relaxed);
                     self.get(&idx_topic_hit_id(guard, now)?)
                 }),
         )
@@ -1795,16 +1922,14 @@ impl Store {
         index_prefix.push(NULL_DELIMITER);
 
         let now = now_ms();
-        #[cfg(test)]
-        let scanned = self.frames_scanned.clone();
+        let scanned = self.stats.clone();
 
         Box::new(
             self.idx_topic
                 .prefix(index_prefix)
                 .rev()
                 .filter_map(move |guard| {
-                    #[cfg(test)]
-                    scanned.fetch_add(1, Ordering::Relaxed);
+                    scanned.frames_scanned.fetch_add(1, Ordering::Relaxed);
                     self.get(&idx_topic_hit_id(guard, now)?)
                 }),
         )
@@ -1818,11 +1943,9 @@ impl Store {
     ) -> Box<dyn Iterator<Item = Frame> + '_> {
         let range = idx_topic_range(idx_topic_key_prefix(topic), start);
         let now = now_ms();
-        #[cfg(test)]
-        let scanned = self.frames_scanned.clone();
+        let scanned = self.stats.clone();
         Box::new(self.idx_topic.range(range).filter_map(move |guard| {
-            #[cfg(test)]
-            scanned.fetch_add(1, Ordering::Relaxed);
+            scanned.frames_scanned.fetch_add(1, Ordering::Relaxed);
             self.get(&idx_topic_hit_id(guard, now)?)
         }))
     }
@@ -1841,12 +1964,10 @@ impl Store {
 
         let range = idx_topic_range(index_prefix, start);
         let now = now_ms();
-        #[cfg(test)]
-        let scanned = self.frames_scanned.clone();
+        let scanned = self.stats.clone();
 
         Box::new(self.idx_topic.range(range).filter_map(move |guard| {
-            #[cfg(test)]
-            scanned.fetch_add(1, Ordering::Relaxed);
+            scanned.frames_scanned.fetch_add(1, Ordering::Relaxed);
             self.get(&idx_topic_hit_id(guard, now)?)
         }))
     }
@@ -1947,6 +2068,8 @@ fn spawn_gc_worker(
                 }
             }
 
+            let drain_started = std::time::Instant::now();
+
             // Ids in this drain, so a last:n scan and a sweep never count or
             // queue a frame twice.
             let mut pending = HashSet::new();
@@ -2017,6 +2140,11 @@ fn spawn_gc_worker(
                 // moved past it. Start both scans over.
                 store.reset_gc_resume();
             }
+            store.stats.gc_drains.fetch_add(1, Ordering::Relaxed);
+            store
+                .stats
+                .gc_nanos
+                .fetch_add(drain_started.elapsed().as_nanos() as u64, Ordering::Relaxed);
             for tx in drains {
                 let _ = tx.send(());
             }

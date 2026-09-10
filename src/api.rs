@@ -77,6 +77,7 @@ enum Routes {
     Import,
     Eval,
     Version,
+    Metrics,
     NotFound,
     BadRequest(String),
 }
@@ -115,6 +116,7 @@ fn match_route(
 
     match (method, path) {
         (&Method::GET, "/version") => Routes::Version,
+        (&Method::GET, "/metrics") => Routes::Metrics,
 
         (&Method::GET, "/") => {
             let accept_type = match headers.get(ACCEPT) {
@@ -224,6 +226,7 @@ async fn handle(
 
     let res = match match_route(method, path, &headers, query) {
         Routes::Version => handle_version().await,
+        Routes::Metrics => handle_metrics(&store).await,
 
         Routes::StreamCat {
             accept_type,
@@ -417,6 +420,26 @@ async fn handle_version() -> HTTPResult {
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(full(serde_json::to_string(&version_info).unwrap()))?)
+}
+
+/// `GET /metrics`: counters for this process, as JSON.
+///
+/// Everything here is cumulative since the process started and cannot be
+/// reset, so a rate is the difference between two reads. The `keyspaces`
+/// section comes from fjall and describes cache and filter behaviour; the
+/// `store` section is xs' own view of what it spent that behaviour on.
+///
+/// Nothing here is a stream frame on purpose: metrics on the stream would be
+/// caught by the reader's own filters and TTLs.
+async fn handle_metrics(store: &Store) -> HTTPResult {
+    let body = serde_json::json!({
+        "store": store.stats(),
+        "keyspaces": store.metrics(),
+    });
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(full(serde_json::to_string(&body).unwrap()))?)
 }
 
 pub async fn serve(
