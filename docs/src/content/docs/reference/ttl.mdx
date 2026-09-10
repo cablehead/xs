@@ -48,13 +48,15 @@ above.
   wakes at most once per sweep interval, `xs serve --ttl-sweep`, default one
   second, and removes a bounded batch each time, so clearing a large backlog
   takes several passes. No read has to touch a frame for it to be removed.
-- **`last:<n>`** schedules a per-topic garbage collection when a frame is
-  appended to a topic already at its limit: the store keeps the `n` most recent
-  frames on that topic and removes the rest. Removal is asynchronous and
-  batched, so a topic can briefly hold more than `n` frames on disk, and
-  trimming a large overflow takes several passes. Reads are unaffected -- they
-  return whatever is stored. This is retention by topic, not by frame, so it
-  affects every frame that shares the topic.
+- **`last:<n>`** keeps the `n` most recent frames on a topic. An append to a
+  topic already at its limit removes the oldest frame in the same commit, so
+  the topic is never over `n` on disk. Reads are unaffected -- they return
+  whatever is stored. This is retention by topic, not by frame, so it affects
+  every frame that shares the topic, whatever ttl those frames carry.
+
+  A topic that is already well over its limit -- because `n` was lowered, or
+  because frames were restored into it -- is brought down by the background
+  worker instead, a batch at a time, since one append cannot clear it.
 
 <Aside type="caution" title="Do not put a pruning TTL on module topics">
 Processors resolve their modules **as of their own `.create` frame**: a
