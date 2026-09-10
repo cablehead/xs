@@ -56,7 +56,7 @@ use scru128::Scru128Id;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use fjall::{
-    config::{BlockSizePolicy, HashRatioPolicy},
+    config::{BlockSizePolicy, HashRatioPolicy, RestartIntervalPolicy},
     Database, Error as FjallError, Keyspace, KeyspaceCreateOptions, OwnedWriteBatch, PersistMode,
 };
 
@@ -911,8 +911,18 @@ impl Store {
                 .expect_point_read_hits(true)
         };
 
+        // An idx_topic key is `<topic>\0<id>`, so one topic repeats across
+        // every entry it has. A restart point writes a key in full instead of
+        // against the one before it, so fewer of them is a smaller index, and
+        // nothing binary-searches inside these blocks to pay for it.
+        let idx_topic_opts =
+            || idx_opts().data_block_restart_interval_policy(RestartIntervalPolicy::all(32));
+
+        // An idx_expiry key is `<expiry><id>`: consecutive keys share a prefix
+        // only when frames expire in the same millisecond, so the same change
+        // buys much less. Left at the default.
         let stream = db.keyspace("stream", stream_opts).unwrap();
-        let idx_topic = db.keyspace("idx_topic", idx_opts).unwrap();
+        let idx_topic = db.keyspace("idx_topic", idx_topic_opts).unwrap();
         let idx_expiry = db.keyspace("idx_expiry", idx_opts).unwrap();
 
         let (broadcast_tx, _) = broadcast::channel(1024);
