@@ -1,0 +1,37 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --check
+        language: system
+        pass_filenames: false
+        files: '\.rs$|Cargo\.toml$|Cargo\.lock$'
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy -- -D warnings
+        language: system
+        pass_filenames: false
+        files: '\.rs$|Cargo\.toml$|Cargo\.lock$'
+
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test
+        language: system
+        pass_filenames: false
+        files: '\.rs$|Cargo\.toml$|Cargo\.lock$'
+
+      - id: docs-check
+        name: docs check
+        entry: nu -c 'cd docs; npx astro check'
+        language: system
+        pass_filenames: false
+        files: '^docs/'
+
+      - id: docs-build
+        name: docs build
+        entry: nu -c 'cd docs; npm run build'
+        language: system
+        pass_filenames: false
+        files: '^docs/'

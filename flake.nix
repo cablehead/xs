@@ -32,6 +32,11 @@
             (craneLib.filterCargoSources path type);
         };
 
+        cargoDepsSrc = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = craneLib.filterCargoSources;
+        };
+
         commonArgs = {
           inherit src;
           strictDeps = true;
@@ -43,7 +48,11 @@
           ];
         };
 
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        # xs.nu is embedded in the final binary, but changes to it should not
+        # invalidate the cached Rust dependency build.
+        cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
+          src = cargoDepsSrc;
+        });
 
         cross-stream = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
