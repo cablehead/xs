@@ -295,7 +295,8 @@ export def .tmp-spawn [
 
     try {
       # Run the provided closure
-      do $closure
+      # Discard its output so callers may mix commands with different types.
+      do $closure | ignore
     } catch {|err|
       error make {msg: $"Error in closure: ($err.msg)"}
     }
