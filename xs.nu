@@ -110,7 +110,7 @@ export def .last [
   --follow (-f)
   --with-timestamp # include RFC3339 timestamp extracted from frame ID
 ] {
-  mut topic = null
+  mut topic: any = null
   mut count = 1
   for arg in $args {
     if ($arg | describe) == "int" {
