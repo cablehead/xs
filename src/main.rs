@@ -431,6 +431,27 @@ async fn shutdown_signal() {
     }
 }
 
+/// Upper bound on bytes `cat` coalesces into a single stdout write.
+const CAT_WRITE_BUF: usize = 256 * 1024;
+
+/// Fill `buf` with `first` plus every chunk already waiting in `receiver`,
+/// up to `CAT_WRITE_BUF`. Never waits, so a follower still sees each frame as
+/// soon as it arrives; a backlog is written in one go instead of per frame.
+fn drain_ready(
+    first: bytes::Bytes,
+    receiver: &mut tokio::sync::mpsc::Receiver<bytes::Bytes>,
+    buf: &mut Vec<u8>,
+) {
+    buf.clear();
+    buf.extend_from_slice(&first);
+    while buf.len() < CAT_WRITE_BUF {
+        match receiver.try_recv() {
+            Ok(more) => buf.extend_from_slice(&more),
+            Err(_) => break,
+        }
+    }
+}
+
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let after = if let Some(after) = &args.after {
         match scru128::Scru128Id::from_str(after) {
@@ -480,12 +501,16 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         let async_fd = AsyncFd::new(stdout_file)?;
 
         async {
+            let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
             loop {
                 tokio::select! {
+                    biased;
+
                     maybe_bytes = receiver.recv() => {
                         match maybe_bytes {
                             Some(bytes) => {
-                                if let Err(e) = stdout.write_all(&bytes).await {
+                                drain_ready(bytes, &mut receiver, &mut buf);
+                                if let Err(e) = stdout.write_all(&buf).await {
                                     if e.kind() == std::io::ErrorKind::BrokenPipe {
                                         break;
                                     }
@@ -533,8 +558,10 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     #[cfg(not(unix))]
     let result = {
         async {
+            let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
             while let Some(bytes) = receiver.recv().await {
-                stdout.write_all(&bytes).await?;
+                drain_ready(bytes, &mut receiver, &mut buf);
+                stdout.write_all(&buf).await?;
                 stdout.flush().await?;
             }
             Ok::<_, std::io::Error>(())
