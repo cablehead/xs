@@ -2833,20 +2833,38 @@ fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
     Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap())
 }
 
+/// Decode a stored frame, or stop the process.
+///
+/// A value that will not decode means the store is damaged, and there is
+/// nothing useful left for this process to do with it: every read of that
+/// frame fails the same way, and a store that keeps serving is a store that
+/// will hand someone a partial answer.
+///
+/// This aborts rather than panicking. A panic here unwinds one thread and
+/// leaves the rest running with [`write_lock`](Store::write_lock) poisoned,
+/// so every later write fails with a lock error that says nothing about
+/// corruption, and the one message that explained it has already scrolled
+/// past. Stopping is the honest outcome, and it puts the id last on stderr
+/// where an operator will find it.
 fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(
     record: (B1, B2),
 ) -> Frame {
     serde_json::from_slice(record.1.as_ref()).unwrap_or_else(|e| {
-        // Try to convert the key to a Scru128Id and print in a format that can be copied for deletion
-        let key_bytes = record.0.as_ref();
-        if key_bytes.len() == 16 {
-            if let Ok(bytes) = key_bytes.try_into() {
-                let id = Scru128Id::from_bytes(bytes);
-                eprintln!("CORRUPTED_RECORD_ID: {id}");
-            }
-        }
-        let key = std::str::from_utf8(record.0.as_ref()).unwrap();
-        let value = std::str::from_utf8(record.1.as_ref()).unwrap();
-        panic!("Failed to deserialize frame: {e} {key} {value}")
+        let key = record.0.as_ref();
+        // A `stream` key is a raw 16-byte id, so print it as an id: that is
+        // the form `xs remove` takes. Anything else is an index key, which is
+        // a topic and an id, so show it as text.
+        let key = match <[u8; 16]>::try_from(key) {
+            Ok(bytes) => Scru128Id::from_bytes(bytes).to_string(),
+            Err(_) => String::from_utf8_lossy(key).into_owned(),
+        };
+        // Lossy, and never unwrapped: the whole point of being here is that
+        // these bytes are not what they claim to be.
+        let value = String::from_utf8_lossy(record.1.as_ref());
+        eprintln!("xs: corrupt frame in the store, stopping.");
+        eprintln!("  key:   {key}");
+        eprintln!("  error: {e}");
+        eprintln!("  value: {value}");
+        std::process::abort()
     })
 }

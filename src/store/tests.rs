@@ -2,6 +2,45 @@ use crate::store::*;
 
 use std::time::Duration;
 
+/// A corrupt frame stops the process, and says which one.
+///
+/// Run in a child, because the whole point is that it aborts: a panic would
+/// unwind one thread and leave the rest running with the write lock poisoned,
+/// which is the outcome this is here to prevent.
+#[test]
+fn a_corrupt_frame_stops_the_process() {
+    use std::process::{Command, Stdio};
+
+    if std::env::var("XS_CORRUPT_CHILD").is_ok() {
+        let dir = tempfile::TempDir::new().unwrap().keep();
+        let store = Store::open(dir, StoreOptions::default()).unwrap();
+        let frame = store.append(Frame::builder("test").build()).unwrap();
+        // Something that is not a frame, under a key that is.
+        store
+            .stream
+            .insert(frame.id.to_bytes(), b"not json")
+            .unwrap();
+        let _ = store.get(&frame.id);
+        unreachable!("the store read a corrupt frame and carried on");
+    }
+
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "store::tests::a_corrupt_frame_stops_the_process"])
+        .arg("--nocapture")
+        .env("XS_CORRUPT_CHILD", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success(), "the child survived a corrupt frame");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("corrupt frame in the store"),
+        "no explanation on stderr:\n{stderr}"
+    );
+}
+
 mod tests_ensure {
     use super::*;
 
