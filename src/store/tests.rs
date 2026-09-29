@@ -3346,6 +3346,40 @@ mod tests_last_count {
         assert_count_is_honest(&store, "test");
     }
 
+    /// `last:n` trims when it is appended, not continuously. A topic grows
+    /// freely between such appends, and the next one takes it back to `n`,
+    /// counting the frames that arrived without a ttl.
+    ///
+    /// That makes one `last:n` append a way to collapse a topic on demand:
+    /// accumulate, trim, accumulate again.
+    #[tokio::test]
+    async fn a_last_n_append_collapses_whatever_accumulated() {
+        let store = store_without_tick();
+        last(&store, "test", 3);
+
+        for _ in 0..20 {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        store.wait_for_gc().await;
+        assert_eq!(
+            topic_len(&store, "test"),
+            21,
+            "frames with no ttl trimmed something",
+        );
+
+        last(&store, "test", 3);
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 3, "the trim did not collapse it");
+
+        // And it grows again from there.
+        for _ in 0..5 {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 8);
+        assert_count_is_honest(&store, "test");
+    }
+
     /// A frame removed by hand drops the topic below its cap, and the count
     /// has to follow or the topic sits one short of what was asked for,
     /// forever.
