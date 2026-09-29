@@ -2,6 +2,44 @@ use crate::store::*;
 
 use std::time::Duration;
 
+/// A corrupt frame panics, and the panic says which frame.
+#[test]
+#[should_panic(expected = "corrupt frame in the store")]
+fn a_corrupt_frame_panics_saying_which() {
+    let dir = tempfile::TempDir::new().unwrap().keep();
+    let store = Store::open(dir, StoreOptions::default()).unwrap();
+    let frame = store.append(Frame::builder("test").build()).unwrap();
+    store
+        .stream
+        .insert(frame.id.to_bytes(), b"not json")
+        .unwrap();
+    let _ = store.get(&frame.id);
+}
+
+/// A panic on a corrupt frame fails the operation that found it and nothing
+/// else. The removal below panics while holding the write lock; without
+/// [`Store::write_guard`] that poisons the lock, and the unrelated append
+/// after it fails with a lock error that says nothing about corruption.
+#[test]
+fn a_panic_on_a_corrupt_frame_does_not_jam_later_writes() {
+    let dir = tempfile::TempDir::new().unwrap().keep();
+    let store = Store::open(dir, StoreOptions::default()).unwrap();
+    let frame = store.append(Frame::builder("damaged").build()).unwrap();
+    store
+        .stream
+        .insert(frame.id.to_bytes(), b"not json")
+        .unwrap();
+
+    let remover = store.clone();
+    let id = frame.id;
+    let removed = std::thread::spawn(move || remover.remove(&id)).join();
+    assert!(removed.is_err(), "removing a corrupt frame did not panic");
+
+    store
+        .append(Frame::builder("elsewhere").build())
+        .expect("an unrelated write failed after the panic");
+}
+
 mod tests_ensure {
     use super::*;
 
@@ -2059,7 +2097,14 @@ mod tests_idx_topic_expiry {
         // without, which do not.
         let mut appended = Vec::new();
         for _ in 0..3 {
-            appended.push(append_live(&store));
+            // A cap far above what the test appends, so the topic gets a
+            // count and the append never trims: the direct last_overflow call
+            // below still has the trim to itself.
+            appended.push(
+                store
+                    .append(Frame::builder("a.b").ttl(TTL::Last(1000)).build())
+                    .unwrap(),
+            );
             appended.push(
                 store
                     .append(
@@ -2072,7 +2117,7 @@ mod tests_idx_topic_expiry {
         }
         assert_eq!(store.idx_expiry_len(), 3);
 
-        let overflow = store.last_overflow("a.b", 2, &HashSet::new(), 100);
+        let overflow = store.last_overflow("a.b", 2, &HashSet::new(), 0, 100);
         let trimmed: Vec<_> = overflow.iter().map(|frame| frame.id).collect();
         assert_eq!(
             trimmed,
@@ -2119,9 +2164,12 @@ mod tests_idx_topic_expiry {
             )
             .unwrap();
         strip_expiry_values(&store, &old);
-        let keep = append_live(&store);
+        // A cap the topic never reaches, so it has a count but no inline trim.
+        let keep = store
+            .append(Frame::builder("a.b").ttl(TTL::Last(1000)).build())
+            .unwrap();
 
-        let overflow = store.last_overflow("a.b", 1, &HashSet::new(), 100);
+        let overflow = store.last_overflow("a.b", 1, &HashSet::new(), 0, 100);
         assert_eq!(overflow.len(), 1);
         assert_eq!(overflow[0].expires_at, None);
         store
@@ -2186,8 +2234,6 @@ mod tests_idx_topic_expiry {
 /// whichever way a scan is interrupted.
 mod tests_gc_resume {
     use super::*;
-
-    use std::collections::HashSet;
 
     use tempfile::TempDir;
     use tokio::time::sleep;
@@ -2350,16 +2396,22 @@ mod tests_gc_resume {
     #[tokio::test]
     async fn test_trim_resumes_across_capped_batches() {
         let store = store_without_tick();
-        // ttl=forever, so nothing is queued for the gc worker and the test
-        // has the trim scan to itself.
+        // A cap far above what the test appends: the topic gets a count, but
+        // no append ever trims, so the direct last_overflow calls below have
+        // the trim to themselves.
         let ids: Vec<Scru128Id> = (0..10)
-            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .map(|_| {
+                store
+                    .append(Frame::builder("test").ttl(TTL::Last(1000)).build())
+                    .unwrap()
+                    .id
+            })
             .collect();
 
         let mut trimmed = Vec::new();
         let mut batches = 0;
         loop {
-            let batch = store.last_overflow("test", 2, &HashSet::new(), 3);
+            let batch = store.last_overflow("test", 2, &HashSet::new(), 0, 3);
             if batch.is_empty() {
                 break;
             }
@@ -2373,36 +2425,46 @@ mod tests_gc_resume {
         assert_eq!(topic_ids(&store, "test"), ids[8..]);
     }
 
-    /// A topic sitting below its keep count has nothing to trim, but the scan
-    /// that establishes that reaches the end of the topic, so it records where
-    /// the topic starts and the next scan does not walk the tombstones under
-    /// it again. The floor it leaves is inclusive: the oldest frame is still
-    /// there and still counts.
+    /// A topic sitting below its keep count is not scanned at all: the count
+    /// says how far over it is, and it is not over. So no floor is recorded,
+    /// because there was nothing to walk and nothing to learn.
+    ///
+    /// This used to be the other way round. The trim found the topic was
+    /// under its cap by reverse-scanning it to the end, and the one thing
+    /// that walk was good for was noticing where the topic started, so the
+    /// next one did not cross the same tombstones. Not walking beats
+    /// remembering how far you walked.
     #[tokio::test]
-    async fn test_trim_below_keep_floors_on_the_oldest_live_frame() {
+    async fn test_trim_below_keep_does_not_scan_the_topic() {
         let store = store_without_tick();
         let ids: Vec<Scru128Id> = (0..3)
-            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .map(|_| {
+                store
+                    .append(Frame::builder("test").ttl(TTL::Last(1000)).build())
+                    .unwrap()
+                    .id
+            })
             .collect();
         // A tombstone under the topic, from a path that is not a trim.
         store.remove(&ids[0]).unwrap();
 
         assert!(store
-            .last_overflow("test", 10, &HashSet::new(), 16)
+            .last_overflow("test", 10, &HashSet::new(), 0, 16)
             .is_empty());
         assert_eq!(
             store.trim_floor.lock().unwrap().get("test").copied(),
-            Some(TrimFloor {
-                id: ids[1],
-                inclusive: true,
-            }),
-            "floored on the oldest frame still on the topic",
+            None,
+            "a topic under its cap is never scanned, so there is no floor to set",
         );
 
-        // The frame it floored on is live, so a later trim still counts and
-        // takes it.
-        let last = store.append(Frame::builder("test").build()).unwrap().id;
-        let overflow = store.last_overflow("test", 2, &HashSet::new(), 16);
+        // The tombstone left by the manual remove is below the oldest live
+        // frame, and a later trim still takes that frame rather than tripping
+        // over what is under it.
+        let last = store
+            .append(Frame::builder("test").ttl(TTL::Last(1000)).build())
+            .unwrap()
+            .id;
+        let overflow = store.last_overflow("test", 2, &HashSet::new(), 0, 16);
         assert_eq!(overflow_ids(&overflow), vec![ids[1]]);
         store.remove_many(trim_removals("test", overflow)).unwrap();
         assert_eq!(topic_ids(&store, "test"), vec![ids[2], last]);
@@ -2465,11 +2527,16 @@ mod tests_gc_resume {
     async fn test_trim_after_a_manual_remove_inside_the_kept_window() {
         let store = store_without_tick();
         let ids: Vec<Scru128Id> = (0..5)
-            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .map(|_| {
+                store
+                    .append(Frame::builder("test").ttl(TTL::Last(1000)).build())
+                    .unwrap()
+                    .id
+            })
             .collect();
 
         assert_eq!(
-            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 16)),
+            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 0, 16)),
             ids[..3]
         );
         store
@@ -2479,15 +2546,20 @@ mod tests_gc_resume {
         // One of the two the trim just kept goes by hand.
         store.remove(&ids[3]).unwrap();
         assert_eq!(
-            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 16)),
+            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 0, 16)),
             Vec::<Scru128Id>::new(),
             "one frame left on the topic, nothing to trim"
         );
 
         let more: Vec<Scru128Id> = (0..2)
-            .map(|_| store.append(Frame::builder("test").build()).unwrap().id)
+            .map(|_| {
+                store
+                    .append(Frame::builder("test").ttl(TTL::Last(1000)).build())
+                    .unwrap()
+                    .id
+            })
             .collect();
-        let overflow = store.last_overflow("test", 2, &HashSet::new(), 16);
+        let overflow = store.last_overflow("test", 2, &HashSet::new(), 0, 16);
         assert_eq!(overflow_ids(&overflow), vec![ids[4]]);
         store.remove_many(trim_removals("test", overflow)).unwrap();
         assert_eq!(topic_ids(&store, "test"), more);
@@ -3064,5 +3136,538 @@ mod tests_reimport_orphans {
         assert_eq!(topic_ids(&store, "three"), vec![frame.id]);
         assert_eq!(topic_ids(&store, "two"), none());
         assert_eq!(topic_ids(&store, "one"), none());
+    }
+
+    /// A frame moving between two counted topics moves both counts: the one
+    /// it left is a frame shorter, the one it arrived on a frame longer.
+    /// Neither branch that made this function had both halves, so nothing
+    /// covered it until the two were merged.
+    #[tokio::test]
+    async fn a_move_between_counted_topics_moves_both_counts() {
+        let store = store();
+        let frame = store
+            .append(Frame::builder("src").ttl(TTL::Last(5)).build())
+            .unwrap();
+        store
+            .append(Frame::builder("dst").ttl(TTL::Last(5)).build())
+            .unwrap();
+        store.wait_for_gc().await;
+
+        let mut frame = frame;
+        frame.topic = "dst".to_string();
+        store.insert_frame(&frame).unwrap();
+
+        assert_eq!(store.count_of("src"), Some(0));
+        assert_eq!(store.count_of("dst"), Some(2));
+        store.assert_count_matches_index("src");
+        store.assert_count_matches_index("dst");
+    }
+
+    /// Arriving on a topic already at its cap trims on the same write, so the
+    /// move never leaves the destination over `n`.
+    #[tokio::test]
+    async fn a_move_that_overfills_the_new_topic_trims_on_the_same_write() {
+        let store = store();
+        let full: Vec<Frame> = (0..3)
+            .map(|_| {
+                store
+                    .append(Frame::builder("dst").ttl(TTL::Last(3)).build())
+                    .unwrap()
+            })
+            .collect();
+        let mut frame = store
+            .append(Frame::builder("src").ttl(TTL::Last(3)).build())
+            .unwrap();
+        store.wait_for_gc().await;
+
+        frame.topic = "dst".to_string();
+        store.insert_frame(&frame).unwrap();
+
+        assert_eq!(
+            topic_ids(&store, "dst"),
+            vec![full[1].id, full[2].id, frame.id],
+            "the oldest frame on the topic it arrived at was not trimmed",
+        );
+        assert_eq!(store.count_of("dst"), Some(3));
+        store.assert_count_matches_index("dst");
+        store.assert_count_matches_index("src");
+    }
+}
+
+/// The per-topic live frame count: what keeps it honest, and what it buys.
+///
+/// A count reading low is harmless, the topic trims late. A count reading
+/// high deletes frames the topic was told to keep, with no error and no
+/// trace. So every test here asks the same question of a different path: can
+/// this make the count read high.
+mod tests_last_count {
+    use super::*;
+
+    use tempfile::TempDir;
+    use tokio::time::sleep;
+
+    fn store_at(path: std::path::PathBuf) -> Store {
+        let options = StoreOptions::builder()
+            .ttl_sweep(Duration::from_secs(600))
+            .build();
+        Store::open(path, options).unwrap()
+    }
+
+    fn store_without_tick() -> Store {
+        store_at(TempDir::new().unwrap().keep())
+    }
+
+    fn last(store: &Store, topic: &str, keep: u32) -> Frame {
+        store
+            .append(Frame::builder(topic).ttl(TTL::Last(keep)).build())
+            .unwrap()
+    }
+
+    fn topic_len(store: &Store, topic: &str) -> usize {
+        let options = ReadOptions::builder().topic(topic.to_string()).build();
+        store.read_sync(options).count()
+    }
+
+    /// What the count claims, against what the topic index actually holds.
+    fn assert_count_is_honest(store: &Store, topic: &str) {
+        store.assert_count_matches_index(topic);
+    }
+
+    /// The point of all of it: a topic at its cap reads one index entry per
+    /// append, whatever its size. The old trim read `keep` of them, which at a
+    /// million-frame topic was 760 ms of gc worker time to delete one frame.
+    #[tokio::test]
+    async fn a_settled_topic_reads_one_index_entry_per_append() {
+        const KEEP: u32 = 500;
+
+        let store = store_without_tick();
+        for _ in 0..KEEP {
+            last(&store, "test", KEEP);
+        }
+        store.wait_for_gc().await;
+
+        let before = store.stats.trim_scanned.load(Ordering::Relaxed);
+        for _ in 0..100 {
+            last(&store, "test", KEEP);
+        }
+        store.wait_for_gc().await;
+        let scanned = store.stats.trim_scanned.load(Ordering::Relaxed) - before;
+
+        assert_eq!(scanned, 100, "one entry per append, not {KEEP} of them");
+        assert_eq!(topic_len(&store, "test"), KEEP as usize);
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// A topic at its cap is never over it on disk, because the append that
+    /// takes it over removes the oldest frame in the same commit.
+    #[tokio::test]
+    async fn a_settled_topic_is_never_over_its_cap() {
+        let store = store_without_tick();
+        for i in 0..50 {
+            last(&store, "test", 10);
+            let held = topic_len(&store, "test");
+            assert!(held <= 10, "held {held} after append {i}");
+        }
+        assert_eq!(topic_len(&store, "test"), 10);
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// The count is written in the same batch as the frames it counts, so a
+    /// reopened store starts from a number that was true at the last commit.
+    /// Nothing is recomputed and nothing is scanned.
+    #[tokio::test]
+    async fn the_count_survives_a_restart() {
+        let dir = TempDir::new().unwrap().keep();
+        let store = store_at(dir.clone());
+        for _ in 0..10 {
+            last(&store, "test", 4);
+        }
+        store.wait_for_gc().await;
+        store.flush().unwrap();
+        drop(store);
+
+        let store = store_at(dir);
+        assert_eq!(store.count_of("test"), Some(4), "count came back wrong");
+
+        let before = store.stats.trim_scanned.load(Ordering::Relaxed);
+        last(&store, "test", 4);
+        store.wait_for_gc().await;
+        assert_eq!(
+            store.stats.trim_scanned.load(Ordering::Relaxed) - before,
+            1,
+            "a reopened store re-derived the count instead of reading it",
+        );
+        assert_eq!(topic_len(&store, "test"), 4);
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// A topic that is already at exactly `n` when its first `last:n` arrives
+    /// still gets its count written down.
+    ///
+    /// The append derives the count, adds one, trims one, and lands back on
+    /// the number it started from. Nothing about the count changed, so the
+    /// row was skipped and the next open had to scan the topic all over
+    /// again -- every restart, not once in the store's life.
+    #[tokio::test]
+    async fn a_topic_already_at_its_cap_still_writes_its_count() {
+        let dir = TempDir::new().unwrap().keep();
+        let store = store_at(dir.clone());
+
+        // Four frames with no ttl, then the first `last:4`: the topic is at
+        // exactly its cap the moment it becomes counted.
+        for _ in 0..4 {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        last(&store, "test", 4);
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 4);
+
+        assert!(
+            store.meta.get(count_key("test")).unwrap().is_some(),
+            "the topic is counted but nothing was written down",
+        );
+        store.flush().unwrap();
+        drop(store);
+
+        let store = store_at(dir);
+        assert_eq!(
+            store.count_of("test"),
+            Some(4),
+            "the count did not come back"
+        );
+
+        let before = store.stats.trim_scanned.load(Ordering::Relaxed);
+        last(&store, "test", 4);
+        store.wait_for_gc().await;
+        assert_eq!(
+            store.stats.trim_scanned.load(Ordering::Relaxed) - before,
+            1,
+            "the reopened store scanned the topic instead of reading its count",
+        );
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// `last:n` trims when it is appended, not continuously. A topic grows
+    /// freely between such appends, and the next one takes it back to `n`,
+    /// counting the frames that arrived without a ttl.
+    ///
+    /// That makes one `last:n` append a way to collapse a topic on demand:
+    /// accumulate, trim, accumulate again.
+    #[tokio::test]
+    async fn a_last_n_append_collapses_whatever_accumulated() {
+        let store = store_without_tick();
+        last(&store, "test", 3);
+
+        for _ in 0..20 {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        store.wait_for_gc().await;
+        assert_eq!(
+            topic_len(&store, "test"),
+            21,
+            "frames with no ttl trimmed something",
+        );
+
+        last(&store, "test", 3);
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 3, "the trim did not collapse it");
+
+        // And it grows again from there.
+        for _ in 0..5 {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 8);
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// A drain that is sweeping a topic and trimming it at the same time has
+    /// to account for the sweep twice, and both corrections are needed.
+    ///
+    /// The count includes the frames the sweep is taking, so they come off it
+    /// or the trim asks for too many. They are also the oldest frames, so the
+    /// scan reaches them first, and it has to walk past them or the ones it
+    /// hands back are frames the drain is already removing.
+    ///
+    /// Drop the subtraction and the trim over-trims, which deletes frames the
+    /// topic was told to keep. Drop the skip and it under-trims and does not
+    /// retry. The numbers below separate the two: a `last:10` topic holding
+    /// 15 with 3 already being swept needs exactly 2 more, and they must not
+    /// be any of the 3.
+    #[tokio::test]
+    async fn a_trim_sharing_a_drain_with_a_sweep_accounts_for_it_once() {
+        let store = store_without_tick();
+        let ids: Vec<Scru128Id> = (0..15).map(|_| last(&store, "test", 1000).id).collect();
+        store.wait_for_gc().await;
+        assert_eq!(store.count_of("test"), Some(15));
+
+        // What a sweep in the same drain would already be removing: the three
+        // oldest, because expiry order and id order agree here.
+        let sweeping: HashSet<Scru128Id> = ids[..3].iter().copied().collect();
+
+        let overflow = store.last_overflow("test", 10, &sweeping, 3, 16);
+
+        assert_eq!(
+            overflow.len(),
+            2,
+            "asked for the wrong number: 15 held, 3 being swept, 10 to keep",
+        );
+        for frame in &overflow {
+            assert!(
+                !sweeping.contains(&frame.id),
+                "returned {} which the drain is already removing",
+                frame.id,
+            );
+        }
+        assert_eq!(
+            overflow.iter().map(|f| f.id).collect::<Vec<_>>(),
+            ids[3..5].to_vec(),
+            "took the wrong frames",
+        );
+    }
+
+    /// A removal counts against the topic only if it removed something.
+    ///
+    /// The gc worker reads the frames it is going to remove before it takes
+    /// the write lock, so an append can trim one of them in between. The
+    /// removal that follows is then asking for a frame that has already gone,
+    /// and counting it takes the topic's count below the truth. A count that
+    /// reads low never trims again, and nothing brings it back.
+    #[tokio::test]
+    async fn a_removal_of_a_frame_that_is_already_gone_does_not_count() {
+        let store = store_without_tick();
+        let ids: Vec<Scru128Id> = (0..5).map(|_| last(&store, "test", 1000).id).collect();
+        store.wait_for_gc().await;
+        assert_eq!(store.count_of("test"), Some(5));
+
+        store.remove(&ids[0]).unwrap();
+        assert_eq!(store.count_of("test"), Some(4));
+
+        // What the gc worker is holding: a removal it decided on before that
+        // frame went. Removing keys that are not there is a no-op, so the
+        // only thing at stake is the count.
+        store
+            .remove_many([Removal::Indexed {
+                id: ids[0],
+                topic: "test".to_string(),
+                expires_at: None,
+            }])
+            .unwrap();
+
+        assert_eq!(
+            store.count_of("test"),
+            Some(4),
+            "counted a frame that was already gone",
+        );
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// A frame removed by hand drops the topic below its cap, and the count
+    /// has to follow or the topic sits one short of what was asked for,
+    /// forever.
+    #[tokio::test]
+    async fn a_manual_remove_lets_the_topic_refill() {
+        let store = store_without_tick();
+        let mut ids = Vec::new();
+        for _ in 0..5 {
+            ids.push(last(&store, "test", 5).id);
+        }
+        store.wait_for_gc().await;
+        assert_eq!(store.count_of("test"), Some(5));
+
+        store.remove(&ids[2]).unwrap();
+        assert_eq!(store.count_of("test"), Some(4), "remove did not decrement");
+
+        last(&store, "test", 5);
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 5, "the topic never refilled");
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// A topic can mix ttls, and every frame on it holds one of the `keep`
+    /// slots whatever its own. So the sweeper taking an expired frame off a
+    /// `last:n` topic has to move that topic's count too.
+    #[tokio::test]
+    async fn the_sweeper_taking_a_frame_off_a_last_topic_decrements() {
+        let store = store_without_tick();
+        last(&store, "test", 4);
+        store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_millis(1)))
+                    .build(),
+            )
+            .unwrap();
+        last(&store, "test", 4);
+        store.wait_for_gc().await;
+        assert_eq!(store.count_of("test"), Some(3));
+
+        sleep(Duration::from_millis(20)).await;
+        store.sweep();
+        store.wait_for_gc().await;
+
+        assert_eq!(
+            store.count_of("test"),
+            Some(2),
+            "the sweep did not move the count",
+        );
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// Replaying a restore writes ids the store already holds. Those are
+    /// upserts: no new index entry, so nothing new to count. Counting them
+    /// would put the count above the truth, which deletes live frames.
+    #[tokio::test]
+    async fn a_replayed_restore_does_not_double_count() {
+        let store = store_without_tick();
+        let frames: Vec<Frame> = (0..3).map(|_| last(&store, "test", 3)).collect();
+        store.wait_for_gc().await;
+        assert_eq!(store.count_of("test"), Some(3));
+
+        for frame in &frames {
+            store.insert_frame(frame).unwrap();
+        }
+        assert_eq!(
+            store.count_of("test"),
+            Some(3),
+            "a replayed restore counted frames that were already there",
+        );
+        assert_eq!(topic_len(&store, "test"), 3);
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// A `last:n` put on a topic that already has frames counts them, once,
+    /// under the write lock. That is the only scan of a whole topic the design
+    /// has, and a store pays it once per topic in its whole life.
+    #[tokio::test]
+    async fn a_late_last_n_counts_what_is_already_there() {
+        let store = store_without_tick();
+        for _ in 0..20 {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        assert_eq!(
+            store.count_of("test"),
+            None,
+            "counted before it was asked to"
+        );
+
+        // The append that first asks for retention counts the 20 already
+        // there, plus itself.
+        last(&store, "test", 5);
+        assert_eq!(store.count_of("test"), Some(20));
+        store.wait_for_gc().await;
+
+        assert_eq!(topic_len(&store, "test"), 5, "the backlog never came down");
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// Dropping `n` far below what a topic holds is more than one append can
+    /// clear, so the gc worker takes the rest, in batches, until the topic is
+    /// back at its cap.
+    #[tokio::test]
+    async fn a_dropped_n_catches_up() {
+        let store = store_without_tick();
+        for _ in 0..200 {
+            last(&store, "test", 200);
+        }
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 200);
+
+        last(&store, "test", 3);
+        store.wait_for_gc().await;
+
+        assert_eq!(topic_len(&store, "test"), 3, "the drop never caught up");
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// Appends, manual removes and expiries against one topic, interleaved.
+    /// However they land, the count says what the index holds.
+    #[tokio::test]
+    async fn the_count_stays_honest_under_a_mixed_workload() {
+        let store = store_without_tick();
+        // Ask for retention up front, so the topic is counted from its first
+        // frame and every assertion below has something to check.
+        let mut ids = vec![last(&store, "test", 12).id];
+        for i in 0..60 {
+            match i % 4 {
+                0 => {
+                    store
+                        .append(
+                            Frame::builder("test")
+                                .ttl(TTL::Time(Duration::from_millis(1)))
+                                .build(),
+                        )
+                        .unwrap();
+                }
+                1 if !ids.is_empty() => {
+                    let id: Scru128Id = ids.remove(0);
+                    store.remove(&id).unwrap();
+                }
+                _ => ids.push(last(&store, "test", 12).id),
+            }
+            assert_count_is_honest(&store, "test");
+        }
+
+        sleep(Duration::from_millis(20)).await;
+        store.sweep();
+        store.wait_for_gc().await;
+        assert_count_is_honest(&store, "test");
+        assert!(topic_len(&store, "test") <= 12);
+    }
+
+    /// Several threads appending to one topic at once. The count is shared
+    /// state that decides how many frames to delete, so two writers reading
+    /// it at the same time is how a trim takes frames it was told to keep.
+    #[tokio::test]
+    async fn concurrent_writers_land_on_exactly_the_cap() {
+        let store = store_without_tick();
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let store = store.clone();
+            handles.push(std::thread::spawn(move || {
+                for _ in 0..100 {
+                    store
+                        .append(Frame::builder("test").ttl(TTL::Last(25)).build())
+                        .unwrap();
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        store.wait_for_gc().await;
+
+        assert_eq!(
+            topic_len(&store, "test"),
+            25,
+            "400 appends did not settle on 25"
+        );
+        assert_count_is_honest(&store, "test");
+    }
+
+    /// A store written before counts existed has no way to produce them, so
+    /// this build refuses it rather than guessing and deleting live frames.
+    #[test]
+    fn an_unversioned_store_refuses_to_open() {
+        let dir = TempDir::new().unwrap().keep();
+
+        // What an older xs left behind: a stream, and no meta keyspace.
+        {
+            let db = fjall::Database::builder(dir.join("fjall"))
+                .worker_threads(2)
+                .open()
+                .unwrap();
+            db.keyspace("stream", fjall::KeyspaceCreateOptions::default)
+                .unwrap();
+        }
+
+        match Store::open(dir, StoreOptions::default()) {
+            Err(StoreError::Version { found, wanted }) => {
+                assert_eq!(found, None);
+                assert_eq!(wanted, FORMAT_VERSION);
+            }
+            Err(e) => panic!("expected a version refusal, got {e}"),
+            Ok(_) => panic!("an unversioned store opened"),
+        }
     }
 }

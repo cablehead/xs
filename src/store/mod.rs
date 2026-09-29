@@ -22,6 +22,13 @@
 //! second, is set with [`StoreOptions::ttl_sweep`]). Reads never return an
 //! expired frame, even one the sweeper has not reached yet.
 //!
+//! A `last:n` topic keeps a live frame count, so an append carrying `last:n`
+//! knows how far over the topic is without scanning it, and trims in its own
+//! commit. Appends without one do not trim, so a topic can grow between them.
+//! The count is written in the same batch as the frames it counts, which is
+//! why a store written before it existed cannot be opened -- see
+//! [`StoreError::Version`].
+//!
 //! ## Durability
 //!
 //! Every append commits to the on-disk journal before it returns, so a process
@@ -65,6 +72,15 @@ use fjall::{
 pub enum StoreError {
     /// The store directory is already open in another process.
     Locked,
+    /// The store on disk was written by a different format version, and this
+    /// build cannot read it. There is no in-place upgrade.
+    Version {
+        /// The version found on disk, or `None` for a store written before
+        /// xs recorded one at all.
+        found: Option<u32>,
+        /// The version this build writes and reads.
+        wanted: u32,
+    },
     /// An error from the underlying `fjall` database.
     Other(FjallError),
 }
@@ -73,6 +89,19 @@ impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StoreError::Locked => write!(f, "Store is locked by another process"),
+            StoreError::Version { found, wanted } => {
+                let found = match found {
+                    Some(v) => v.to_string(),
+                    None => "unversioned".to_string(),
+                };
+                write!(
+                    f,
+                    "Store format {found}, this build needs {wanted}. \
+                     There is no in-place upgrade. \
+                     Ask on Discord and we will walk you through one: \
+                     https://discord.com/invite/YNbScHBHrh"
+                )
+            }
             StoreError::Other(e) => write!(f, "{e}"),
         }
     }
@@ -605,7 +634,27 @@ pub struct Store {
     /// Declared after `gc_tx` on purpose: fields drop in order, so the gc
     /// channel closes before the join, and the gc worker can exit.
     workers: Option<Arc<Workers>>,
-    append_lock: Arc<Mutex<()>>,
+    /// Serialises every write that changes a topic's live frame population,
+    /// so a `last:n` count and the frames it counts can never disagree.
+    ///
+    /// Held by [`append`](Store::append), which also assigns ids under it so
+    /// subscribers see them in order, by
+    /// [`insert_frame`](Store::insert_frame), and by
+    /// [`remove_many`](Store::remove_many). Two trims reading one count at
+    /// once is how a trim deletes frames it was told to keep.
+    write_lock: Arc<Mutex<()>>,
+    /// Small keyspace holding the format version and one row per `last:n`
+    /// topic's live frame count. See [`FORMAT_VERSION`] and [`count_key`].
+    meta: Keyspace,
+    /// Every `last:n` topic's live frame count. The arithmetic happens here;
+    /// the `meta` row is a projection of it, written in whatever batch changed
+    /// it, and read back only at open.
+    ///
+    /// A count reading low is harmless: the topic trims late. A count reading
+    /// high deletes frames the topic was told to keep, with no error and no
+    /// trace, which is why every path that moves one holds
+    /// [`write_lock`](Store::write_lock).
+    last_counts: Arc<Mutex<HashMap<String, u64>>>,
     /// Runtime handle captured at [`new`](Store::new), used to spawn the follow
     /// and heartbeat tasks from the now-sync [`read`](Store::read). `Handle` is
     /// cheaply `Clone`, so every `Store` clone shares the same runtime.
@@ -619,6 +668,52 @@ pub struct Store {
     /// Counters about this store's own work, shared by every clone and by
     /// the gc worker. See [`StoreStats`].
     stats: Arc<StoreStats>,
+}
+
+/// The store format this build writes and reads.
+///
+/// Bumped whenever an existing store stops being readable. There is no
+/// in-place upgrade: [`Store::open`] refuses anything else. Version 1 is the
+/// first to keep a live frame count per `last:n` topic, which a store written
+/// before it has no way to produce.
+const FORMAT_VERSION: u32 = 1;
+
+/// The `meta` key holding [`FORMAT_VERSION`].
+const META_VERSION: &[u8] = b"version";
+
+/// The `meta` key prefix under which each `last:n` topic's live frame count
+/// lives. A topic cannot contain a null byte, so nothing else can collide
+/// with these and `meta.prefix(COUNT_PREFIX)` finds exactly them.
+const COUNT_PREFIX: &[u8] = b"count\0";
+
+/// The `meta` key holding `topic`'s live frame count.
+fn count_key(topic: &str) -> Vec<u8> {
+    let mut key = Vec::with_capacity(COUNT_PREFIX.len() + topic.len());
+    key.extend_from_slice(COUNT_PREFIX);
+    key.extend_from_slice(topic.as_bytes());
+    key
+}
+
+/// Read every `last:n` topic's count out of `meta`. One pass over as many
+/// rows as there are such topics, which is the whole recovery story: the
+/// counts were written in the same batch as the frames they count, so they
+/// are correct as of the last commit and there is nothing to reconstruct.
+fn load_last_counts(meta: &Keyspace) -> Result<HashMap<String, u64>, FjallError> {
+    let mut counts = HashMap::new();
+    for guard in meta.prefix(COUNT_PREFIX) {
+        let (key, value) = guard.into_inner()?;
+        let Some(topic) = key.get(COUNT_PREFIX.len()..) else {
+            continue;
+        };
+        let (Ok(topic), Ok(count)) = (
+            std::str::from_utf8(topic),
+            <[u8; 8]>::try_from(value.as_ref()).map(u64::from_be_bytes),
+        ) else {
+            continue;
+        };
+        counts.insert(topic.to_owned(), count);
+    }
+    Ok(counts)
 }
 
 /// Counters the store keeps about its own work, always on.
@@ -643,6 +738,10 @@ pub struct StoreStats {
     /// Batches committed by [`remove_many`](Store::remove_many). One per gc
     /// drain that had anything to do.
     pub remove_commits: AtomicUsize,
+    /// `idx_topic` entries a `last:n` trim visited. The number this whole
+    /// design is about: it used to be `keep` on every append, and is now the
+    /// number of frames actually being removed.
+    pub trim_scanned: AtomicUsize,
     /// Times the gc worker drained its queue.
     pub gc_drains: AtomicUsize,
     /// Nanoseconds the gc worker spent inside a drain. Against `gc_drains`
@@ -658,6 +757,7 @@ pub struct StoreStatsSnapshot {
     pub stream_reads: u64,
     pub removed_frames: u64,
     pub remove_commits: u64,
+    pub trim_scanned: u64,
     pub gc_drains: u64,
     pub gc_nanos: u64,
 }
@@ -671,6 +771,7 @@ impl StoreStats {
             stream_reads: n(&self.stream_reads),
             removed_frames: n(&self.removed_frames),
             remove_commits: n(&self.remove_commits),
+            trim_scanned: n(&self.trim_scanned),
             gc_drains: n(&self.gc_drains),
             gc_nanos: self.gc_nanos.load(Ordering::Relaxed),
         }
@@ -921,9 +1022,48 @@ impl Store {
         // An idx_expiry key is `<expiry><id>`: consecutive keys share a prefix
         // only when frames expire in the same millisecond, so the same change
         // buys much less. Left at the default.
+        // Small, and read once at open. Defaults are right for it.
+        let meta_opts = KeyspaceCreateOptions::default;
+
+        // Refuse a store this build cannot read, before touching anything. A
+        // store written before `meta` existed has a stream and no meta, and
+        // its `last:n` topics have no counts, which this build has no way to
+        // reconstruct. See [`StoreError::Version`].
+        let unversioned = db.keyspace_exists("stream") && !db.keyspace_exists("meta");
+        if unversioned {
+            return Err(StoreError::Version {
+                found: None,
+                wanted: FORMAT_VERSION,
+            });
+        }
+
+        let meta = db.keyspace("meta", meta_opts).unwrap();
+        match meta.get(META_VERSION).map_err(StoreError::Other)? {
+            Some(value) => {
+                let found = <[u8; 4]>::try_from(value.as_ref())
+                    .map(u32::from_be_bytes)
+                    .unwrap_or(0);
+                if found != FORMAT_VERSION {
+                    return Err(StoreError::Version {
+                        found: Some(found),
+                        wanted: FORMAT_VERSION,
+                    });
+                }
+            }
+            // A store with a meta keyspace and no version in it is one this
+            // build just created, so stamp it.
+            None => meta
+                .insert(META_VERSION, FORMAT_VERSION.to_be_bytes())
+                .map_err(StoreError::Other)?,
+        }
+
         let stream = db.keyspace("stream", stream_opts).unwrap();
         let idx_topic = db.keyspace("idx_topic", idx_topic_opts).unwrap();
         let idx_expiry = db.keyspace("idx_expiry", idx_opts).unwrap();
+
+        // Every `last:n` topic's live frame count, read once here and kept in
+        // memory after. See [`Store::last_counts`].
+        let last_counts = load_last_counts(&meta).map_err(StoreError::Other)?;
 
         let (broadcast_tx, _) = broadcast::channel(FOLLOW_BUFFER);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
@@ -944,7 +1084,9 @@ impl Store {
             broadcast_tx,
             gc_tx,
             workers: None,
-            append_lock: Arc::new(Mutex::new(())),
+            write_lock: Arc::new(Mutex::new(())),
+            meta,
+            last_counts: Arc::new(Mutex::new(last_counts)),
             rt: tokio::runtime::Handle::try_current().ok(),
             base_engine: None,
             fsync: fsync_state,
@@ -1054,6 +1196,43 @@ impl Store {
     #[cfg(test)]
     fn sweep(&self) {
         let _ = self.gc_tx.send(GCTask::Sweep);
+    }
+
+    /// Take [`write_lock`](Store::write_lock), even if a previous holder
+    /// panicked.
+    ///
+    /// A panic while holding the lock -- a corrupt frame found mid-removal,
+    /// say -- poisons it, and a plain `unwrap` would then fail every later
+    /// write with an error that says nothing about what went wrong. Carrying
+    /// on is safe because nothing the lock guards can be left half-changed:
+    /// a batch commits all or nothing, and the in-memory counts move only
+    /// after a commit succeeds. The worst a panic leaves behind is a count
+    /// that reads low, which trims late and never deletes what it should
+    /// keep.
+    fn write_guard(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.write_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Check a topic's count against what its index actually holds.
+    ///
+    /// Takes [`write_lock`](Store::write_lock), so no writer is part way
+    /// between committing a batch and applying its count. Reading the two
+    /// without it races: the gc worker can commit a removal between them and
+    /// the numbers disagree for reasons that are nothing to do with the
+    /// invariant.
+    #[cfg(test)]
+    fn assert_count_matches_index(&self, topic: &str) {
+        let _guard = self.write_guard();
+        let (low, high) = idx_topic_range(idx_topic_key_prefix(topic), None);
+        let actual = self.idx_topic.range((low, high)).count() as u64;
+        let claimed = self.last_counts.lock().unwrap().get(topic).copied();
+        assert_eq!(
+            claimed,
+            Some(actual),
+            "the count for {topic} disagrees with its index",
+        );
     }
 
     /// Number of entries in the expiry index.
@@ -1416,30 +1595,76 @@ impl Store {
         &self,
         removals: impl IntoIterator<Item = Removal>,
     ) -> Result<(), crate::error::Error> {
+        let _guard = self.write_guard();
+        self.remove_many_locked(removals)
+    }
+
+    /// [`remove_many`](Store::remove_many), for a caller already holding
+    /// [`write_lock`](Store::write_lock).
+    ///
+    /// The gc worker decides how far over a topic is, reads the frames it is
+    /// going to take, and removes them. All three have to happen under one
+    /// hold: deciding from a count that an append then moves is how a trim
+    /// takes frames it was told to keep.
+    fn remove_many_locked(
+        &self,
+        removals: impl IntoIterator<Item = Removal>,
+    ) -> Result<(), crate::error::Error> {
         let mut batch = self.db.batch();
+        // How many frames this batch takes off each counted topic. Applied
+        // once at the end, so the row is written once however many frames on
+        // that topic the batch touches.
+        let mut taken: HashMap<String, u64> = HashMap::new();
         for removal in removals {
-            match removal {
+            // `Some(topic)` when the removal took a frame off that topic, so
+            // the topic's count should follow. Staging keys that are not
+            // there is a no-op and is how stale entries get cleaned up, so
+            // the removal runs either way; only the count is conditional.
+            let counts_against = match removal {
                 Removal::Id(id) => {
-                    if let Some(frame) = self.get(&id) {
-                        self.remove_frame_keys(
-                            &mut batch,
-                            &frame.id,
-                            &frame.topic,
-                            expires_at(&frame),
-                        );
-                    }
+                    let Some(frame) = self.get(&id) else {
+                        continue;
+                    };
+                    self.remove_frame_keys(&mut batch, &frame.id, &frame.topic, expires_at(&frame));
+                    Some(frame.topic)
                 }
                 Removal::Indexed {
                     id,
                     topic,
                     expires_at,
-                } => self.remove_frame_keys(&mut batch, &id, &topic, expires_at),
+                } => {
+                    // The gc worker reads the frames it is going to remove
+                    // before it takes the lock, so an append can trim one of
+                    // them in between. Counting a frame that has already gone
+                    // takes the topic below the truth, and a count that reads
+                    // low never trims again.
+                    //
+                    // The check reads the index, not the frame: the value is
+                    // eight bytes and the block is still warm from the scan
+                    // that produced this id.
+                    let mut key = idx_topic_key_prefix(&topic);
+                    key.extend(id.as_bytes());
+                    let present = self.idx_topic.contains_key(key)?;
+                    self.remove_frame_keys(&mut batch, &id, &topic, expires_at);
+                    present.then_some(topic)
+                }
+            };
+            if let Some(topic) = counts_against {
+                *taken.entry(topic).or_insert(0) += 1;
+            }
+        }
+        let mut edits = Vec::new();
+        for (topic, taken) in taken {
+            if let Some(count) = self.count_of(&topic) {
+                let now = count.saturating_sub(taken);
+                edits.extend(self.stage_count(&mut batch, &topic, now));
             }
         }
         if batch.is_empty() {
             return Ok(());
         }
         batch.commit()?;
+        self.apply_counts(edits);
         self.stats.remove_commits.fetch_add(1, Ordering::Relaxed);
         // No inline fsync in any mode. The tombstones reach disk with the next
         // append's sync or the next tick. If power loss brings a frame back,
@@ -1534,115 +1759,129 @@ impl Store {
         removals
     }
 
-    /// Ids on `topic` past the newest `keep`, oldest first, at most `limit` of
-    /// them, ignoring frames already in `pending` so a batch drops exactly
-    /// what applying its tasks one by one would. A full `limit` means there
-    /// may be more.
+    /// Count `topic`'s frames by walking its index.
     ///
-    /// Two bounded scans, both floored at the topic's
-    /// [`trim_floor`](Store::trim_floor), below which the topic holds nothing
-    /// but the tombstones of frames an earlier trim removed:
+    /// Called when the first `last:n` frame lands on a topic, to establish
+    /// its count. It does not record the result: the caller stages it into
+    /// the batch, and the in-memory map follows the commit.
     ///
-    /// 1. backwards from the newest entry for the `keep`-th newest live id,
-    ///    the high-water mark everything older than which is overflow;
-    /// 2. forwards from the floor for the ids to remove.
+    /// Caller must hold [`write_lock`](Store::write_lock), so nothing is
+    /// writing to the topic while this counts it. That is what makes the
+    /// count a plain scan rather than a moving target.
     ///
-    /// Taking the removals in forward order is what keeps trimming a backlog
-    /// linear. A truncated pass leaves the floor on the newest id it removed,
-    /// so the next pass starts above its own tombstones instead of walking
-    /// them to reach what it left.
+    /// The count is durable once written, so a topic is walked once in the
+    /// store's life. It is the price of putting a `last:n` on a topic that
+    /// already has frames, and it is paid by the append that does so.
+    fn derive_count(&self, topic: &str) -> u64 {
+        let (low, high) = idx_topic_range(idx_topic_key_prefix(topic), None);
+        let count = self.idx_topic.range((low, high)).count();
+        self.stats.trim_scanned.fetch_add(count, Ordering::Relaxed);
+        count as u64
+    }
+
+    /// `topic`'s count, or `None` if no `last:n` frame has ever touched it
+    /// and so there is nothing to keep.
+    fn count_of(&self, topic: &str) -> Option<u64> {
+        self.last_counts.lock().unwrap().get(topic).copied()
+    }
+
+    /// Stage `topic`'s new count on `batch`, and return what to do to the
+    /// in-memory map once the batch commits.
     ///
-    /// Both scans read index keys only. The expiry an `idx_topic` value now
-    /// carries is for the read path: a trim counts entries, so a `time:` frame
-    /// the sweeper has not reached yet still holds one of the `keep` slots,
-    /// exactly as it did when those values were empty.
-    fn last_overflow(
+    /// The map is deliberately not touched here. A count that moved for a
+    /// write that then failed to commit reads high, and a count reading high
+    /// deletes frames the topic was told to keep. So the map only ever
+    /// follows a commit that succeeded: see [`apply_counts`](Store::apply_counts).
+    ///
+    /// Nothing is staged when the value has not changed, which is the steady
+    /// state of a topic at its cap: one frame in, one frame out, the same
+    /// number. A settled topic writes this row once and then never again.
+    ///
+    /// Caller must hold [`write_lock`](Store::write_lock).
+    fn stage_count(
+        &self,
+        batch: &mut OwnedWriteBatch,
+        topic: &str,
+        now: u64,
+    ) -> Option<(String, u64)> {
+        if self.last_counts.lock().unwrap().get(topic) == Some(&now) {
+            return None;
+        }
+        batch.insert(&self.meta, count_key(topic), now.to_be_bytes());
+        Some((topic.to_owned(), now))
+    }
+
+    /// Move the in-memory counts to what a committed batch just wrote.
+    ///
+    /// Caller must hold [`write_lock`](Store::write_lock).
+    fn apply_counts(&self, edits: Vec<(String, u64)>) {
+        if edits.is_empty() {
+            return;
+        }
+        let mut counts = self.last_counts.lock().unwrap();
+        for (topic, now) in edits {
+            counts.insert(topic, now);
+        }
+    }
+
+    /// The oldest `want` frames on `topic`, forward from its trim floor.
+    ///
+    /// No reverse scan: the count already said how many are over, so this
+    /// reads only as far as the entries it is going to remove.
+    ///
+    /// Frames in `pending` are walked past, not returned: the drain is
+    /// already removing them. So this can return fewer than `want` when the
+    /// topic runs out, including when it runs out of frames that are not
+    /// pending. A short result is not an error: the gc drain takes it as the
+    /// end of the topic, and an append that got less than it needed hands the
+    /// rest to the gc worker.
+    ///
+    /// Caller must hold [`write_lock`](Store::write_lock).
+    fn oldest_on_topic(
         &self,
         topic: &str,
-        keep: u32,
+        want: usize,
         pending: &HashSet<Scru128Id>,
-        limit: usize,
     ) -> Vec<Overflow> {
         let floor = self.trim_floor.lock().unwrap().get(topic).copied();
-        // The floor is a bound on the id, so it is a bound on the key: both
-        // scans open at it and never reach the tombstones below it. See
-        // [`idx_topic_range`].
-        let (low, top) = idx_topic_range(
+        let (low, high) = idx_topic_range(
             idx_topic_key_prefix(topic),
             floor.map(|floor| (floor.id, floor.inclusive)),
         );
 
-        // The keep-th newest live id. Everything below it is overflow; fewer
-        // than keep live entries means there is nothing to trim.
-        let high = if keep == 0 {
-            top
-        } else {
-            let mut seen = 0;
-            let mut hwm = None;
-            let mut oldest = None;
-            for guard in self.idx_topic.range((low.clone(), top)).rev() {
-                // A read error is not the end of the topic: give up on this
-                // pass rather than record a floor the scan never reached.
-                let Ok(key) = guard.key() else {
-                    return Vec::new();
-                };
-                let id = idx_topic_frame_id_from_key(&key);
-                oldest = Some(id);
-                if pending.contains(&id) {
-                    continue;
-                }
-                seen += 1;
-                if seen == keep {
-                    hwm = Some(key.to_vec());
-                    break;
-                }
-            }
-            match hwm {
-                Some(key) => Bound::Excluded(key),
-                None => {
-                    // The scan reached the end of the topic without finding
-                    // `keep` live frames. Nothing to trim, but everything
-                    // below the oldest entry it saw is tombstone, so the next
-                    // scan can start there instead of walking it again.
-                    if let Some(id) = oldest {
-                        self.set_trim_floor(
-                            topic,
-                            floor,
-                            TrimFloor {
-                                id,
-                                inclusive: true,
-                            },
-                        );
-                    }
-                    return Vec::new();
-                }
-            }
-        };
-
-        let mut overflow = Vec::new();
-        let mut trimmed = None;
+        let mut overflow = Vec::with_capacity(want);
+        let mut last = None;
+        let mut scanned = 0;
         for guard in self.idx_topic.range((low, high)) {
-            // Take the value too: it carries the frame's expiry, so the removal
-            // needs no point read into `stream` to learn its keys.
+            scanned += 1;
             let Ok((key, value)) = guard.into_inner() else {
                 break;
             };
             let id = idx_topic_frame_id_from_key(&key);
+            // Walk past what the drain is already removing. The count has
+            // been told about these, so returning them would leave the trim
+            // short by however many it handed back.
             if !pending.contains(&id) {
                 overflow.push(Overflow {
                     id,
                     expires_at: idx_topic_expiry_of(&value),
                 });
             }
-            // A pending id counts: this drain removes it too, so the floor may
-            // pass it.
-            trimmed = Some(id);
-            if overflow.len() == limit {
+            // A pending id still moves the floor: this drain removes it too.
+            last = Some(id);
+            if overflow.len() == want {
                 break;
             }
         }
 
-        if let Some(id) = trimmed {
+        self.stats
+            .trim_scanned
+            .fetch_add(scanned, Ordering::Relaxed);
+
+        // Everything at or below what this pass takes is tombstone once the
+        // batch commits, so the next pass opens above it instead of walking
+        // it again.
+        if let Some(id) = last {
             self.set_trim_floor(
                 topic,
                 floor,
@@ -1653,6 +1892,47 @@ impl Store {
             );
         }
         overflow
+    }
+
+    /// The frames on `topic` over its cap, oldest first, at most `limit` of
+    /// them. A full `limit` means there are more.
+    ///
+    /// The count says how many are over, so this reads only the entries it is
+    /// going to remove: no reverse scan to find where the cut goes. That is
+    /// the whole point of keeping a count. Before it, a trim walked `keep`
+    /// index entries on every append, which at a million-frame topic was
+    /// 760 ms of gc worker time to delete one frame.
+    ///
+    /// `pending_here` is how many frames on this topic the drain is already
+    /// removing. They still hold their slot in the count until the batch
+    /// commits, so the trim has to take them off first or it removes them
+    /// twice over.
+    ///
+    /// Returns nothing for a topic with no count, which is one no `last:n`
+    /// frame has ever touched.
+    fn last_overflow(
+        &self,
+        topic: &str,
+        keep: u32,
+        pending: &HashSet<Scru128Id>,
+        pending_here: u64,
+        limit: usize,
+    ) -> Vec<Overflow> {
+        let Some(count) = self.count_of(topic) else {
+            return Vec::new();
+        };
+        // Both corrections are needed, and they are not alternatives. The
+        // count says how many frames the topic holds, including the ones this
+        // drain is already removing, so `pending_here` comes off it or the
+        // trim asks for too many and takes frames the topic was told to keep.
+        // Those same frames are the oldest, so they are the first the scan
+        // reaches, and skipping them is what makes the ones it returns real.
+        let live = count.saturating_sub(pending_here);
+        let over = live.saturating_sub(u64::from(keep));
+        if over == 0 {
+            return Vec::new();
+        }
+        self.oldest_on_topic(topic, over.min(limit as u64) as usize, pending)
     }
 
     /// Move a topic's trim floor to `to`, unless something moved it since the
@@ -1775,15 +2055,39 @@ impl Store {
     }
 
     /// Persist a frame exactly as given, including its existing
-    /// [`id`](Frame::id), without broadcasting it to live readers or scheduling
-    /// TTL garbage collection.
+    /// [`id`](Frame::id), without broadcasting it to live readers.
     ///
     /// Most callers want [`append`](Store::append) instead, which assigns a
-    /// fresh ID, handles ephemeral and `Last` retention, and notifies
-    /// subscribers. Use `insert_frame` only when you are reconstructing a stream
-    /// with predetermined IDs (for example when restoring a backup).
+    /// fresh ID and notifies subscribers. Use `insert_frame` only when you are
+    /// reconstructing a stream with predetermined IDs (for example when
+    /// restoring a backup).
+    ///
+    /// Re-importing an id the store already holds moves its index entries
+    /// rather than leaving the old ones behind, and moves the `last:n` counts
+    /// of both topics with them. A restored frame carrying `last:n` trims its
+    /// topic like an append does; one without leaves the topic as it is.
     #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
+        let _guard = self.write_guard();
+        // What this id is indexed under now, if anything. One seek, and it
+        // answers both what to clean up and whether this write adds an entry.
+        let superseded = self.get(&frame.id);
+        self.insert_frame_locked(frame, superseded)
+    }
+
+    /// Write `frame`, move whatever index entries its id already had, and keep
+    /// the `last:n` count and cap of every topic involved, all in one batch.
+    ///
+    /// `superseded` is the frame this id is replacing, which only a restore
+    /// can produce. [`append`](Store::append) mints a fresh id and passes
+    /// `None`.
+    ///
+    /// Caller must hold [`write_lock`](Store::write_lock).
+    fn insert_frame_locked(
+        &self,
+        frame: &Frame,
+        superseded: Option<Frame>,
+    ) -> Result<(), crate::error::Error> {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
 
         // Get the index topic key (also validates topic)
@@ -1795,12 +2099,6 @@ impl Store {
         // Every idx_topic entry for this frame carries the same expiry, so a
         // topic scan can drop an expired id without reading the frame.
         let idx_value = idx_topic_expiry_value(frame);
-
-        // The id may already be here under a different topic or ttl. This is
-        // an upsert, so the stream row is replaced, but the index keys carry
-        // the topic and the expiry, so the old ones would survive their frame
-        // and answer for a topic it no longer has.
-        let superseded = self.get(&frame.id);
 
         let mut batch = self.db.batch();
         batch.insert(&self.stream, frame.id.as_bytes(), encoded);
@@ -1814,7 +2112,11 @@ impl Store {
             batch.insert(&self.idx_expiry, key, frame.topic.as_bytes());
         }
 
-        if let Some(old) = superseded.as_ref().filter(|old| old.topic != frame.topic) {
+        // The id may already have been indexed under another topic. Those
+        // entries would otherwise survive their frame and answer for a topic
+        // it no longer has.
+        let moved_from = superseded.as_ref().filter(|old| old.topic != frame.topic);
+        if let Some(old) = moved_from {
             let mut old_key = idx_topic_key_prefix(&old.topic);
             old_key.extend(frame.id.as_bytes());
             // "a.b" and "a.c" share the prefix key "a.", so drop only the keys
@@ -1839,7 +2141,74 @@ impl Store {
             batch.remove(&self.idx_expiry, stale);
         }
 
-        batch.commit()?;
+        // Whether this write puts an entry on `frame.topic` that was not there
+        // before. A brand new id does; so does an id arriving from another
+        // topic. Only a replay onto the same topic does not, and counting one
+        // of those puts the count above the truth, which deletes frames the
+        // topic was told to keep.
+        let fresh = superseded.is_none() || moved_from.is_some();
+
+        let mut edits = Vec::new();
+
+        // The topic it left is now one shorter.
+        if let Some(old) = moved_from {
+            if let Some(count) = self.count_of(&old.topic) {
+                edits.extend(self.stage_count(&mut batch, &old.topic, count.saturating_sub(1)));
+            }
+        }
+
+        let keep = match frame.ttl {
+            Some(TTL::Last(keep)) => Some(keep),
+            _ => None,
+        };
+
+        // A `last:n` frame makes its topic a counted one. If this is the first
+        // the topic has seen, count what is already there, once, under the
+        // lock. Afterwards every frame moves that count whatever its own ttl:
+        // a topic can mix ttls and every entry it holds takes a `keep` slot.
+        //
+        // The derived count is not put in the map here. The map follows a
+        // commit, never precedes one -- see [`apply_counts`](Store::apply_counts).
+        // Seeding it early also hid the new count from
+        // [`stage_count`](Store::stage_count), which compares against the map
+        // and would find nothing had changed.
+        let was = match (keep, self.count_of(&frame.topic)) {
+            (_, Some(count)) => Some(count),
+            (Some(_), None) => Some(self.derive_count(&frame.topic)),
+            (None, None) => None,
+        };
+
+        let mut behind = false;
+        if let Some(was) = was {
+            let now = if fresh { was + 1 } else { was };
+
+            // Over the cap, so take the oldest frame in this same batch.
+            // Exactly one: a topic that is keeping up is over by one, and one
+            // that is further behind -- grown by appends without a `last:n`,
+            // or given a lower `n` -- is the gc worker's to bring down.
+            let over = keep.map_or(0, |keep| now.saturating_sub(u64::from(keep)));
+            let taken = if over > 0 {
+                let oldest = self.oldest_on_topic(&frame.topic, 1, &HashSet::new());
+                for old in &oldest {
+                    self.remove_frame_keys(&mut batch, &old.id, &frame.topic, old.expires_at);
+                }
+                oldest.len() as u64
+            } else {
+                0
+            };
+            behind = over > taken;
+
+            edits.extend(self.stage_count(&mut batch, &frame.topic, now - taken));
+        }
+
+        if let Err(e) = batch.commit() {
+            // The frames did not land, and neither did the counts. But the
+            // trim already moved this topic's floor past what it meant to
+            // remove, so put it back where a later trim will find them.
+            self.trim_floor.lock().unwrap().remove(&frame.topic);
+            return Err(e.into());
+        }
+        self.apply_counts(edits);
         // Both gc scans resume where they last stopped, and an id from the
         // past can land behind them. Tell them, once the entries are there to
         // be found.
@@ -1847,6 +2216,17 @@ impl Store {
             self.note_indexed_expiry(key);
         }
         self.note_indexed_topic(&frame.topic, &frame.id);
+
+        // Still over: hand the rest to the gc worker, which takes the same
+        // lock and works in batches until the topic is back at its cap.
+        if behind {
+            if let Some(keep) = keep {
+                let _ = self.gc_tx.send(GCTask::CheckLastTTL {
+                    topic: frame.topic.clone(),
+                    keep,
+                });
+            }
+        }
         self.after_commit()
     }
 
@@ -1859,7 +2239,8 @@ impl Store {
     /// - validates the topic (see [`validate_topic`]);
     /// - persists the frame, unless its [`TTL`] is [`TTL::Ephemeral`], in which
     ///   case it is only broadcast to live readers;
-    /// - schedules garbage collection for [`TTL::Last`] retention;
+    /// - for a [`TTL::Last`] frame, trims the topic back to its limit in the
+    ///   same commit;
     /// - broadcasts the frame to everyone currently in a following
     ///   [`read`](Store::read).
     ///
@@ -1886,7 +2267,7 @@ impl Store {
         // Serialize all appends to ensure ID generation, write, and broadcast
         // happen atomically. This guarantees subscribers receive frames in
         // scru128 ID order.
-        let _guard = self.append_lock.lock().unwrap();
+        let _guard = self.write_guard();
 
         frame.id = scru128::new();
 
@@ -1895,15 +2276,10 @@ impl Store {
 
         // only store the frame if it's not ephemeral
         if frame.ttl != Some(TTL::Ephemeral) {
-            self.insert_frame(&frame)?;
-
-            // If this is a Last TTL, schedule a gc task
-            if let Some(TTL::Last(n)) = frame.ttl {
-                let _ = self.gc_tx.send(GCTask::CheckLastTTL {
-                    topic: frame.topic.clone(),
-                    keep: n,
-                });
-            }
+            // A fresh id, so it cannot already be in the stream. The insert
+            // does its own `last:n` trim, and asks the gc worker for help
+            // only if one frame was not enough.
+            self.insert_frame_locked(&frame, None)?;
         }
 
         self.stats.appends.fetch_add(1, Ordering::Relaxed);
@@ -2118,6 +2494,11 @@ fn spawn_gc_worker(
             // Ids in this drain, so a last:n scan and a sweep never count or
             // queue a frame twice.
             let mut pending = HashSet::new();
+            // How many of those sit on each counted topic. A pending frame
+            // still holds its slot in the count until the batch commits, so a
+            // trim has to take them off before deciding how far over the
+            // topic is.
+            let mut pending_by_topic: HashMap<String, u64> = HashMap::new();
             let mut removals = Vec::new();
             let mut drains = Vec::new();
             let mut sweep_again = false;
@@ -2150,6 +2531,9 @@ fn spawn_gc_worker(
                         sweep_again |= expired.len() == MAX_SWEEP_PER_DRAIN;
                         for removal in expired {
                             if pending.insert(removal.id()) {
+                                if let Removal::Indexed { topic, .. } = &removal {
+                                    *pending_by_topic.entry(topic.clone()).or_insert(0) += 1;
+                                }
                                 removals.push(removal);
                             }
                         }
@@ -2159,10 +2543,18 @@ fn spawn_gc_worker(
                 taken += 1;
             }
 
+            // One hold for the whole of the rest of the drain: each trim reads
+            // a count, reads the frames that count says are over, and removes
+            // them, and an append landing between any two of those steps
+            // makes the third one wrong.
+            let write_guard = store.write_guard();
+
             // Now that every Sweep in this drain has run, so `pending` holds
             // the expired frames it is removing, trim each topic once.
             for (topic, keep) in trims {
-                let overflow = store.last_overflow(&topic, keep, &pending, MAX_TRIM_PER_DRAIN);
+                let pending_here = pending_by_topic.get(&topic).copied().unwrap_or(0);
+                let overflow =
+                    store.last_overflow(&topic, keep, &pending, pending_here, MAX_TRIM_PER_DRAIN);
                 let again = overflow.len() == MAX_TRIM_PER_DRAIN;
                 for frame in overflow {
                     if pending.insert(frame.id) {
@@ -2178,7 +2570,9 @@ fn spawn_gc_worker(
                 }
             }
 
-            if let Err(e) = store.remove_many(removals) {
+            let removed = store.remove_many_locked(removals);
+            drop(write_guard);
+            if let Err(e) = removed {
                 tracing::error!("gc remove failed: {e}");
                 // The batch did not land, so every frame this drain counted as
                 // gone is still there, below resume points that have already
@@ -2505,20 +2899,28 @@ fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
     Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap())
 }
 
+/// Decode a stored frame, or panic saying which one could not be decoded.
+///
+/// A value that will not decode means the store is damaged. Skipping it would
+/// hand the caller a partial answer with nothing to say so; panicking fails
+/// the operation that found it, loudly, and leaves the rest of the store
+/// serving. See [`Store::write_guard`] for why that panic does not also take
+/// down every later write.
 fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(
     record: (B1, B2),
 ) -> Frame {
     serde_json::from_slice(record.1.as_ref()).unwrap_or_else(|e| {
-        // Try to convert the key to a Scru128Id and print in a format that can be copied for deletion
-        let key_bytes = record.0.as_ref();
-        if key_bytes.len() == 16 {
-            if let Ok(bytes) = key_bytes.try_into() {
-                let id = Scru128Id::from_bytes(bytes);
-                eprintln!("CORRUPTED_RECORD_ID: {id}");
-            }
-        }
-        let key = std::str::from_utf8(record.0.as_ref()).unwrap();
-        let value = std::str::from_utf8(record.1.as_ref()).unwrap();
-        panic!("Failed to deserialize frame: {e} {key} {value}")
+        let key = record.0.as_ref();
+        // A `stream` key is a raw 16-byte id, so print it as an id: that is
+        // the form `xs remove` takes. Anything else is an index key, which is
+        // a topic and an id, so show it as text.
+        let key = match <[u8; 16]>::try_from(key) {
+            Ok(bytes) => Scru128Id::from_bytes(bytes).to_string(),
+            Err(_) => String::from_utf8_lossy(key).into_owned(),
+        };
+        // Lossy, and never unwrapped: the whole point of being here is that
+        // these bytes are not what they claim to be.
+        let value = String::from_utf8_lossy(record.1.as_ref());
+        panic!("corrupt frame in the store\n  key:   {key}\n  error: {e}\n  value: {value}")
     })
 }
