@@ -58,6 +58,17 @@ above.
   because frames were restored into it -- is brought down by the background
   worker instead, a batch at a time, since one append cannot clear it.
 
+<Aside type="note" title="Adding last:n to a topic that already has frames">
+To keep a topic at `n`, the store counts how many frames it holds. A topic
+counts from its first `last:n` frame, so putting a `last:n` on a topic that has
+been accumulating frames without one makes that append walk the topic to
+establish the count.
+
+It happens once for the life of the store, and writes to every topic wait while
+it runs. On a topic of a few million frames that is under a second. Capping a
+topic while it is small avoids it entirely.
+</Aside>
+
 <Aside type="caution" title="Do not put a pruning TTL on module topics">
 Processors resolve their modules **as of their own `.create` frame**: a
 service, actor, or action sees the `xs.module.<name>` versions whose frame id

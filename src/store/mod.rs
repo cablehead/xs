@@ -1734,17 +1734,11 @@ impl Store {
     /// the count is durable from here on. It is the price of putting a
     /// `last:n` on a topic that already has frames, and it is paid by the
     /// append that does so.
-    fn last_count(&self, topic: &str) -> u64 {
-        let mut counts = self.last_counts.lock().unwrap();
-        if let Some(count) = counts.get(topic) {
-            return *count;
-        }
+    fn derive_count(&self, topic: &str) -> u64 {
         let (low, high) = idx_topic_range(idx_topic_key_prefix(topic), None);
         let count = self.idx_topic.range((low, high)).count();
         self.stats.trim_scanned.fetch_add(count, Ordering::Relaxed);
-        let count = count as u64;
-        counts.insert(topic.to_owned(), count);
-        count
+        count as u64
     }
 
     /// `topic`'s count, or `None` if no `last:n` frame has ever touched it
@@ -2101,20 +2095,29 @@ impl Store {
             }
         }
 
-        // A `last:n` frame gives its topic a count the first time the topic
-        // sees one, by counting it here under the lock. Afterwards every
-        // frame moves that count whatever its own ttl: a topic can mix ttls
-        // and every entry it holds takes one of the `keep` slots.
         let keep = match frame.ttl {
-            Some(TTL::Last(keep)) => {
-                self.last_count(&frame.topic);
-                Some(keep)
-            }
+            Some(TTL::Last(keep)) => Some(keep),
             _ => None,
         };
 
+        // A `last:n` frame makes its topic a counted one. If this is the first
+        // the topic has seen, count what is already there, once, under the
+        // lock. Afterwards every frame moves that count whatever its own ttl:
+        // a topic can mix ttls and every entry it holds takes a `keep` slot.
+        //
+        // The derived count is not put in the map here. The map follows a
+        // commit, never precedes one -- see [`apply_counts`](Store::apply_counts).
+        // Seeding it early also hid the new count from
+        // [`stage_count`](Store::stage_count), which compares against the map
+        // and would find nothing had changed.
+        let was = match (keep, self.count_of(&frame.topic)) {
+            (_, Some(count)) => Some(count),
+            (Some(_), None) => Some(self.derive_count(&frame.topic)),
+            (None, None) => None,
+        };
+
         let mut behind = false;
-        if let Some(was) = self.count_of(&frame.topic) {
+        if let Some(was) = was {
             let now = if fresh { was + 1 } else { was };
 
             // Over the cap, so take the oldest frame in this same batch and

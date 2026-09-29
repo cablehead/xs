@@ -3300,6 +3300,52 @@ mod tests_last_count {
         assert_count_is_honest(&store, "test");
     }
 
+    /// A topic that is already at exactly `n` when its first `last:n` arrives
+    /// still gets its count written down.
+    ///
+    /// The append derives the count, adds one, trims one, and lands back on
+    /// the number it started from. Nothing about the count changed, so the
+    /// row was skipped and the next open had to scan the topic all over
+    /// again -- every restart, not once in the store's life.
+    #[tokio::test]
+    async fn a_topic_already_at_its_cap_still_writes_its_count() {
+        let dir = TempDir::new().unwrap().keep();
+        let store = store_at(dir.clone());
+
+        // Four frames with no ttl, then the first `last:4`: the topic is at
+        // exactly its cap the moment it becomes counted.
+        for _ in 0..4 {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+        last(&store, "test", 4);
+        store.wait_for_gc().await;
+        assert_eq!(topic_len(&store, "test"), 4);
+
+        assert!(
+            store.meta.get(count_key("test")).unwrap().is_some(),
+            "the topic is counted but nothing was written down",
+        );
+        store.flush().unwrap();
+        drop(store);
+
+        let store = store_at(dir);
+        assert_eq!(
+            store.count_of("test"),
+            Some(4),
+            "the count did not come back"
+        );
+
+        let before = store.stats.trim_scanned.load(Ordering::Relaxed);
+        last(&store, "test", 4);
+        store.wait_for_gc().await;
+        assert_eq!(
+            store.stats.trim_scanned.load(Ordering::Relaxed) - before,
+            1,
+            "the reopened store scanned the topic instead of reading its count",
+        );
+        assert_count_is_honest(&store, "test");
+    }
+
     /// A frame removed by hand drops the topic below its cap, and the count
     /// has to follow or the topic sits one short of what was asked for,
     /// forever.
