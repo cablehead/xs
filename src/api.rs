@@ -319,13 +319,17 @@ async fn handle_stream_cat(
         .body(body)?)
 }
 
-async fn handle_stream_append(
+async fn handle_stream_append<B>(
     store: &mut Store,
-    req: Request<hyper::body::Incoming>,
+    req: Request<B>,
     topic: String,
     ttl: Option<TTL>,
     with_timestamp: bool,
-) -> HTTPResult {
+) -> HTTPResult
+where
+    B: hyper::body::Body<Data = Bytes> + Unpin,
+    B::Error: Into<BoxError>,
+{
     let (parts, mut body) = req.into_parts();
 
     let hash = {
@@ -334,7 +338,7 @@ async fn handle_stream_append(
         let mut writer = None;
 
         while let Some(frame) = body.frame().await {
-            if let Ok(data) = frame?.into_data() {
+            if let Ok(data) = frame.map_err(Into::into)?.into_data() {
                 if data.is_empty() {
                     continue;
                 }
@@ -822,6 +826,54 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_handle_stream_append_body() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        async fn append(
+            store: &mut Store,
+            meta: Option<&str>,
+            chunks: Vec<&'static [u8]>,
+        ) -> serde_json::Value {
+            let stream = tokio_stream::iter(chunks.into_iter().map(|chunk| {
+                Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from_static(chunk)))
+            }));
+            let mut req = Request::post("/append/note");
+            if let Some(meta) = meta {
+                req = req.header("xs-meta", base64::prelude::BASE64_STANDARD.encode(meta));
+            }
+            let req = req.body(StreamBody::new(stream)).unwrap();
+            let response = handle_stream_append(store, req, "note".into(), None, false)
+                .await
+                .unwrap();
+            assert_eq!(StatusCode::OK, response.status());
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            serde_json::from_slice(&body).unwrap()
+        }
+
+        // No body, or only empty chunks: the frame is stored with no hash.
+        let frame = append(&mut store, None, vec![]).await;
+        assert!(frame["hash"].is_null());
+        let frame = append(&mut store, None, vec![b"", b""]).await;
+        assert!(frame["hash"].is_null());
+
+        // A body split across chunks, with empty chunks around it, lands
+        // whole in the CAS.
+        let frame = append(&mut store, None, vec![b"", b"hello ", b"", b"world"]).await;
+        let hash: ssri::Integrity = frame["hash"].as_str().unwrap().parse().unwrap();
+        assert_eq!(
+            b"hello world".to_vec(),
+            store.cas_read(&hash).await.unwrap()
+        );
+
+        // Meta and a body together.
+        let frame = append(&mut store, Some(r#"{"n":1}"#), vec![b"x"]).await;
+        assert_eq!(serde_json::json!({"n": 1}), frame["meta"]);
+        let hash: ssri::Integrity = frame["hash"].as_str().unwrap().parse().unwrap();
+        assert_eq!(b"x".to_vec(), store.cas_read(&hash).await.unwrap());
+    }
 
     #[test]
     fn test_match_route_last() {
