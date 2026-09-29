@@ -271,3 +271,38 @@ pub fn write_pipeline_to_cas(
         PipelineData::Empty => Ok(None),
     }
 }
+
+/// How long a following read waits before it checks whether it was
+/// interrupted. The wait ends the moment a frame arrives, so this bounds only
+/// how late an interrupt is noticed, not how late a frame is delivered.
+const FOLLOW_INTERRUPT_CHECK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// The next frame of a following read, or `None` when the producer is done or
+/// the read was interrupted.
+///
+/// A follow parks until the next frame lands on its topic, and on a quiet
+/// topic that never happens. An unbounded wait therefore ignores interruption
+/// completely: the thread, and the store's follow task behind it, stay parked
+/// until some unrelated append wakes them. Waiting in slices fixes that and
+/// costs nothing, because the timeout returns as soon as a frame arrives.
+///
+/// `rt` is the store's runtime. Without one there is nothing to drive the
+/// timeout on, so the wait falls back to blocking and stays uninterruptible.
+pub fn follow_recv(
+    rx: &mut tokio::sync::mpsc::Receiver<crate::store::Frame>,
+    rt: Option<&tokio::runtime::Handle>,
+    signals: &nu_protocol::Signals,
+) -> Option<crate::store::Frame> {
+    let Some(rt) = rt else {
+        return rx.blocking_recv();
+    };
+    loop {
+        if signals.interrupted() {
+            return None;
+        }
+        match rt.block_on(async { tokio::time::timeout(FOLLOW_INTERRUPT_CHECK, rx.recv()).await }) {
+            Ok(frame) => return frame,
+            Err(_elapsed) => continue,
+        }
+    }
+}

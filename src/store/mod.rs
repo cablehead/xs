@@ -994,6 +994,14 @@ impl Store {
         ]
     }
 
+    /// The runtime this store's tasks run on, if it was opened inside one.
+    ///
+    /// A following read needs it to wait on its receiver with a timeout, so
+    /// it can notice an interrupt instead of parking until the next frame.
+    pub fn runtime(&self) -> Option<tokio::runtime::Handle> {
+        self.rt.clone()
+    }
+
     /// The [`Fsync`] policy this store was opened with.
     pub fn fsync(&self) -> Fsync {
         self.fsync.mode

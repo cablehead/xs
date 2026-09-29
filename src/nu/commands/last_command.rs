@@ -1,7 +1,7 @@
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{
-    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type, Value,
+    Category, ListStream, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
 };
 
 use crate::nu::util;
@@ -90,13 +90,16 @@ impl Command for LastCommand {
                 .build();
 
             let mut rx = self.store.read(options);
+            let rt = self.store.runtime();
+            let signals = engine_state.signals().clone();
+            let waiting = signals.clone();
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    let frame = rx.blocking_recv()?; // parks off-runtime; None when producer done/cancelled
+                    let frame = util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
                     Some(util::frame_to_value(&frame, span, with_timestamp))
                 }),
                 span,
-                Signals::empty(),
+                signals,
             );
 
             return Ok(PipelineData::ListStream(stream, None));

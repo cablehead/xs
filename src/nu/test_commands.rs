@@ -763,6 +763,88 @@ mod tests {
     // socket. That runtime is only dropped when the block_on future returns,
     // which requires the forwarding loop to exit.
     //
+    // A following read has to notice interruption. Its iterator parks
+    // waiting for the next frame on the topic, and on an idle topic that wait
+    // has no end. http-nu gives each request its own `Signals` and triggers
+    // them when the client disconnects, so without this the thread and the
+    // store's follow task stay parked until some unrelated append happens to
+    // land on that topic.
+    #[test]
+    fn test_cat_follow_stops_when_interrupted() {
+        use crate::nu::commands;
+        use nu_protocol::Signals;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::cat_command::CatCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        let flag = Arc::new(AtomicBool::new(false));
+        engine.state.set_signals(Signals::new(flag.clone()));
+
+        // Nothing is ever appended to this topic, so the only way out of the
+        // follow is the signal.
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let engine_clone = engine.clone();
+        std::thread::spawn(move || {
+            let out = engine_clone.eval(PipelineData::empty(), ".cat -f -T idle".to_string());
+            let drained = out.map(|d| d.into_iter().count());
+            let _ = done_tx.send(drained.is_ok());
+        });
+
+        // Let it reach the park before interrupting.
+        std::thread::sleep(Duration::from_millis(200));
+        flag.store(true, Ordering::SeqCst);
+
+        let finished = done_rx.recv_timeout(Duration::from_secs(5));
+        assert!(
+            finished.is_ok(),
+            "a following read ignored its interrupt and stayed parked",
+        );
+    }
+
+    // `.last -f` has the same follow branch and the same wait.
+    #[test]
+    fn test_last_follow_stops_when_interrupted() {
+        use crate::nu::commands;
+        use nu_protocol::Signals;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let (store, mut engine) = setup_test_env();
+        engine
+            .add_commands(vec![Box::new(commands::last_command::LastCommand::new(
+                store.clone(),
+            ))])
+            .unwrap();
+
+        let flag = Arc::new(AtomicBool::new(false));
+        engine.state.set_signals(Signals::new(flag.clone()));
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let engine_clone = engine.clone();
+        std::thread::spawn(move || {
+            let out = engine_clone.eval(PipelineData::empty(), ".last idle -f".to_string());
+            // Assert on the count, not just that the thread ended: a bad
+            // invocation would error out at once and pass vacuously.
+            let _ = done_tx.send(out.map(|d| d.into_iter().count()));
+        });
+
+        std::thread::sleep(Duration::from_millis(200));
+        flag.store(true, Ordering::SeqCst);
+
+        let finished = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("a following read ignored its interrupt and stayed parked");
+        assert!(finished.is_ok(), ".last -f failed to run: {finished:?}");
+    }
+
     // In `--follow` mode the store's read() future parks on the broadcast
     // receiver waiting for the next append. When the ListStream consumer is
     // dropped (client disconnects, pipeline ends early), the spawned thread is

@@ -170,13 +170,16 @@ impl Command for CatCommand {
             // shared runtime; the consumer dropping the ListStream cancels it
             // (the L1 fd-leak fix). Driven off the runtime in real use.
             let mut rx = self.store.read(options);
+            let rt = self.store.runtime();
+            let signals = engine_state.signals().clone();
+            let waiting = signals.clone();
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    let frame = rx.blocking_recv()?; // parks off-runtime; None when producer done/cancelled
+                    let frame = crate::nu::util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
                     Some(to_value(&frame))
                 }),
                 span,
-                Signals::empty(),
+                signals,
             );
             return Ok(PipelineData::ListStream(stream, None));
         }
