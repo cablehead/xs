@@ -1100,8 +1100,14 @@ impl Store {
         // Only take broadcast subscription if following. We initate the subscription here to
         // ensure we don't miss any messages between historical processing and starting the
         // broadcast subscription.
+        //
+        // Subscribing under the append lock also yields `floor`: an id above
+        // every frame already appended and below every frame this subscription
+        // will receive. A follower that lags before sending anything replays
+        // from there.
         let broadcast_rx = if should_follow {
-            Some(self.broadcast_tx.subscribe())
+            let _guard = self.append_lock.lock().unwrap();
+            Some((self.broadcast_tx.subscribe(), scru128::new()))
         } else {
             None
         };
@@ -1196,7 +1202,7 @@ impl Store {
         };
 
         // Handle broadcast subscription and heartbeat
-        if let Some(broadcast_rx) = broadcast_rx {
+        if let Some((broadcast_rx, floor)) = broadcast_rx {
             let handle = self
                 .rt
                 .clone()
@@ -1205,6 +1211,7 @@ impl Store {
             {
                 let tx = tx.clone();
                 let limit = options.limit;
+                let store = self.clone();
 
                 handle.spawn(async move {
                     // If we have a done_rx, wait for historical processing
@@ -1218,8 +1225,14 @@ impl Store {
 
                     let filter = TopicFilter::from_option(options.topic.as_deref());
 
+                    // The newest frame this reader has been given (or, before
+                    // the first, the subscription floor). Broadcast frames at
+                    // or below it are duplicates of the historical scan or of
+                    // a replay.
+                    let mut last_sent = last_id.map_or(floor, |id| id.max(floor));
+
                     let mut broadcast_rx = broadcast_rx;
-                    loop {
+                    'follow: loop {
                         tokio::select! {
                             _ = tx.closed() => break,
                             r = broadcast_rx.recv() => match r {
@@ -1229,12 +1242,10 @@ impl Store {
                                         continue;
                                     }
 
-                                    // Skip if we've already seen this frame during historical scan
-                                    if let Some(last_scanned_id) = last_id {
-                                        if frame.id <= last_scanned_id {
-                                            continue;
-                                        }
+                                    if frame.id <= last_sent {
+                                        continue;
                                     }
+                                    last_sent = frame.id;
 
                                     if tx.send(frame).await.is_err() {
                                         break;
@@ -1247,18 +1258,47 @@ impl Store {
                                         }
                                     }
                                 }
-                                // Lagged is recoverable: the receiver fell behind the
-                                // broadcast channel's capacity and `skipped` messages
-                                // were dropped, but the next recv() picks up where the
-                                // channel's buffer now starts. There is no in-band way
-                                // to tell the caller a gap happened -- the read channel
-                                // only carries frames -- so this is logged instead.
+                                // The receiver fell behind the broadcast channel's
+                                // capacity and `skipped` frames were dropped from it.
+                                // Every broadcast frame is committed first, so replay
+                                // the gap from the store; the channel's remaining
+                                // backlog is then deduplicated by `last_sent`. Only
+                                // ephemeral frames, which are never stored, are lost.
                                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                                    tracing::warn!(
+                                    tracing::debug!(
                                         skipped,
-                                        "follow lagged behind the broadcast channel"
+                                        "follow lagged behind the broadcast channel, replaying"
                                     );
-                                    continue;
+                                    loop {
+                                        let store = store.clone();
+                                        let filter = filter.clone();
+                                        let after = last_sent;
+                                        let replay = tokio::task::spawn_blocking(move || {
+                                            store
+                                                .iter_for_filter(filter, Some((after, false)))
+                                                .filter(|frame| !is_expired(frame))
+                                                .take(FOLLOW_REPLAY_CHUNK)
+                                                .collect::<Vec<_>>()
+                                        })
+                                        .await;
+                                        let Ok(frames) = replay else { break 'follow };
+                                        let caught_up = frames.len() < FOLLOW_REPLAY_CHUNK;
+                                        for frame in frames {
+                                            last_sent = frame.id;
+                                            if tx.send(frame).await.is_err() {
+                                                break 'follow;
+                                            }
+                                            if let Some(limit) = limit {
+                                                count += 1;
+                                                if count >= limit {
+                                                    break 'follow;
+                                                }
+                                            }
+                                        }
+                                        if caught_up {
+                                            break;
+                                        }
+                                    }
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
@@ -2230,6 +2270,9 @@ fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
 
 const NULL_DELIMITER: u8 = 0;
 const MAX_TOPIC_LENGTH: usize = 255;
+/// Frames a lagged follower reads from the store per replay step, bounding
+/// how much a far-behind reader holds in memory at once.
+const FOLLOW_REPLAY_CHUNK: usize = 4096;
 
 /// Validate a frame topic (per ADR 0001).
 ///
