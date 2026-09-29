@@ -1793,7 +1793,12 @@ impl Store {
     /// asked only if the topic holds fewer, which the count says it does not.
     ///
     /// Caller must hold [`write_lock`](Store::write_lock).
-    fn oldest_on_topic(&self, topic: &str, want: usize) -> Vec<Overflow> {
+    fn oldest_on_topic(
+        &self,
+        topic: &str,
+        want: usize,
+        pending: &HashSet<Scru128Id>,
+    ) -> Vec<Overflow> {
         let floor = self.trim_floor.lock().unwrap().get(topic).copied();
         let (low, high) = idx_topic_range(
             idx_topic_key_prefix(topic),
@@ -1809,10 +1814,16 @@ impl Store {
                 break;
             };
             let id = idx_topic_frame_id_from_key(&key);
-            overflow.push(Overflow {
-                id,
-                expires_at: idx_topic_expiry_of(&value),
-            });
+            // Walk past what the drain is already removing. The count has
+            // been told about these, so returning them would leave the trim
+            // short by however many it handed back.
+            if !pending.contains(&id) {
+                overflow.push(Overflow {
+                    id,
+                    expires_at: idx_topic_expiry_of(&value),
+                });
+            }
+            // A pending id still moves the floor: this drain removes it too.
             last = Some(id);
             if overflow.len() == want {
                 break;
@@ -1859,18 +1870,25 @@ impl Store {
         &self,
         topic: &str,
         keep: u32,
+        pending: &HashSet<Scru128Id>,
         pending_here: u64,
         limit: usize,
     ) -> Vec<Overflow> {
         let Some(count) = self.count_of(topic) else {
             return Vec::new();
         };
+        // Both corrections are needed, and they are not alternatives. The
+        // count says how many frames the topic holds, including the ones this
+        // drain is already removing, so `pending_here` comes off it or the
+        // trim asks for too many and takes frames the topic was told to keep.
+        // Those same frames are the oldest, so they are the first the scan
+        // reaches, and skipping them is what makes the ones it returns real.
         let live = count.saturating_sub(pending_here);
         let over = live.saturating_sub(u64::from(keep));
         if over == 0 {
             return Vec::new();
         }
-        self.oldest_on_topic(topic, over.min(limit as u64) as usize)
+        self.oldest_on_topic(topic, over.min(limit as u64) as usize, pending)
     }
 
     /// Move a topic's trim floor to `to`, unless something moved it since the
@@ -2126,7 +2144,7 @@ impl Store {
             // there some other way and is the gc worker's to bring down.
             let over = keep.map_or(0, |keep| now.saturating_sub(u64::from(keep)));
             let taken = if over > 0 {
-                let oldest = self.oldest_on_topic(&frame.topic, 1);
+                let oldest = self.oldest_on_topic(&frame.topic, 1, &HashSet::new());
                 for old in &oldest {
                     self.remove_frame_keys(&mut batch, &old.id, &frame.topic, old.expires_at);
                 }
@@ -2491,7 +2509,8 @@ fn spawn_gc_worker(
             // the expired frames it is removing, trim each topic once.
             for (topic, keep) in trims {
                 let pending_here = pending_by_topic.get(&topic).copied().unwrap_or(0);
-                let overflow = store.last_overflow(&topic, keep, pending_here, MAX_TRIM_PER_DRAIN);
+                let overflow =
+                    store.last_overflow(&topic, keep, &pending, pending_here, MAX_TRIM_PER_DRAIN);
                 let again = overflow.len() == MAX_TRIM_PER_DRAIN;
                 for frame in overflow {
                     if pending.insert(frame.id) {

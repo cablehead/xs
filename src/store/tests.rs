@@ -2118,7 +2118,7 @@ mod tests_idx_topic_expiry {
         }
         assert_eq!(store.idx_expiry_len(), 3);
 
-        let overflow = store.last_overflow("a.b", 2, 0, 100);
+        let overflow = store.last_overflow("a.b", 2, &HashSet::new(), 0, 100);
         let trimmed: Vec<_> = overflow.iter().map(|frame| frame.id).collect();
         assert_eq!(
             trimmed,
@@ -2170,7 +2170,7 @@ mod tests_idx_topic_expiry {
             .append(Frame::builder("a.b").ttl(TTL::Last(1000)).build())
             .unwrap();
 
-        let overflow = store.last_overflow("a.b", 1, 0, 100);
+        let overflow = store.last_overflow("a.b", 1, &HashSet::new(), 0, 100);
         assert_eq!(overflow.len(), 1);
         assert_eq!(overflow[0].expires_at, None);
         store
@@ -2412,7 +2412,7 @@ mod tests_gc_resume {
         let mut trimmed = Vec::new();
         let mut batches = 0;
         loop {
-            let batch = store.last_overflow("test", 2, 0, 3);
+            let batch = store.last_overflow("test", 2, &HashSet::new(), 0, 3);
             if batch.is_empty() {
                 break;
             }
@@ -2449,7 +2449,9 @@ mod tests_gc_resume {
         // A tombstone under the topic, from a path that is not a trim.
         store.remove(&ids[0]).unwrap();
 
-        assert!(store.last_overflow("test", 10, 0, 16).is_empty());
+        assert!(store
+            .last_overflow("test", 10, &HashSet::new(), 0, 16)
+            .is_empty());
         assert_eq!(
             store.trim_floor.lock().unwrap().get("test").copied(),
             None,
@@ -2463,7 +2465,7 @@ mod tests_gc_resume {
             .append(Frame::builder("test").ttl(TTL::Last(1000)).build())
             .unwrap()
             .id;
-        let overflow = store.last_overflow("test", 2, 0, 16);
+        let overflow = store.last_overflow("test", 2, &HashSet::new(), 0, 16);
         assert_eq!(overflow_ids(&overflow), vec![ids[1]]);
         store.remove_many(trim_removals("test", overflow)).unwrap();
         assert_eq!(topic_ids(&store, "test"), vec![ids[2], last]);
@@ -2535,7 +2537,7 @@ mod tests_gc_resume {
             .collect();
 
         assert_eq!(
-            overflow_ids(&store.last_overflow("test", 2, 0, 16)),
+            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 0, 16)),
             ids[..3]
         );
         store
@@ -2545,7 +2547,7 @@ mod tests_gc_resume {
         // One of the two the trim just kept goes by hand.
         store.remove(&ids[3]).unwrap();
         assert_eq!(
-            overflow_ids(&store.last_overflow("test", 2, 0, 16)),
+            overflow_ids(&store.last_overflow("test", 2, &HashSet::new(), 0, 16)),
             Vec::<Scru128Id>::new(),
             "one frame left on the topic, nothing to trim"
         );
@@ -2558,7 +2560,7 @@ mod tests_gc_resume {
                     .id
             })
             .collect();
-        let overflow = store.last_overflow("test", 2, 0, 16);
+        let overflow = store.last_overflow("test", 2, &HashSet::new(), 0, 16);
         assert_eq!(overflow_ids(&overflow), vec![ids[4]]);
         store.remove_many(trim_removals("test", overflow)).unwrap();
         assert_eq!(topic_ids(&store, "test"), more);
@@ -3378,6 +3380,51 @@ mod tests_last_count {
         store.wait_for_gc().await;
         assert_eq!(topic_len(&store, "test"), 8);
         assert_count_is_honest(&store, "test");
+    }
+
+    /// A drain that is sweeping a topic and trimming it at the same time has
+    /// to account for the sweep twice, and both corrections are needed.
+    ///
+    /// The count includes the frames the sweep is taking, so they come off it
+    /// or the trim asks for too many. They are also the oldest frames, so the
+    /// scan reaches them first, and it has to walk past them or the ones it
+    /// hands back are frames the drain is already removing.
+    ///
+    /// Drop the subtraction and the trim over-trims, which deletes frames the
+    /// topic was told to keep. Drop the skip and it under-trims and does not
+    /// retry. The numbers below separate the two: a `last:10` topic holding
+    /// 15 with 3 already being swept needs exactly 2 more, and they must not
+    /// be any of the 3.
+    #[tokio::test]
+    async fn a_trim_sharing_a_drain_with_a_sweep_accounts_for_it_once() {
+        let store = store_without_tick();
+        let ids: Vec<Scru128Id> = (0..15).map(|_| last(&store, "test", 1000).id).collect();
+        store.wait_for_gc().await;
+        assert_eq!(store.count_of("test"), Some(15));
+
+        // What a sweep in the same drain would already be removing: the three
+        // oldest, because expiry order and id order agree here.
+        let sweeping: HashSet<Scru128Id> = ids[..3].iter().copied().collect();
+
+        let overflow = store.last_overflow("test", 10, &sweeping, 3, 16);
+
+        assert_eq!(
+            overflow.len(),
+            2,
+            "asked for the wrong number: 15 held, 3 being swept, 10 to keep",
+        );
+        for frame in &overflow {
+            assert!(
+                !sweeping.contains(&frame.id),
+                "returned {} which the drain is already removing",
+                frame.id,
+            );
+        }
+        assert_eq!(
+            overflow.iter().map(|f| f.id).collect::<Vec<_>>(),
+            ids[3..5].to_vec(),
+            "took the wrong frames",
+        );
     }
 
     /// A frame removed by hand drops the topic below its cap, and the count
