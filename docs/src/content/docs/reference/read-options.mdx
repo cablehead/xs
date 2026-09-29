@@ -45,6 +45,25 @@ appended. A follow can carry a heartbeat: a synthetic
 [`xs.pulse`](../topics/#system-topics) frame emitted on an interval, useful to
 keep a connection warm or to drive periodic work in a processor.
 
+### What a follow delivers
+
+A following read delivers every frame appended after it starts, in frame ID
+order, with no gaps.
+
+Live frames wait in a buffer of 4096 while the reader takes them. A reader that
+falls further behind than that has its read **ended**. A read carries frames and
+nothing else, so closing it is the only way to say that frames were missed.
+
+To resume, read again with [`after`](#where-to-start) set to the last frame ID
+you received. What you missed is still in the store and comes back as history.
+
+```sh
+xs cat ./store --follow --after 03c4tn8fzl0a0000000000000
+```
+
+Two things do not come back: ephemeral frames, which are broadcast but never
+stored, and frames a [`ttl`](../ttl/) has since removed.
+
 ## Filtering by topic
 
 `topic` restricts a read to frames whose topic matches a pattern. The pattern

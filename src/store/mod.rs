@@ -925,7 +925,7 @@ impl Store {
         let idx_topic = db.keyspace("idx_topic", idx_topic_opts).unwrap();
         let idx_expiry = db.keyspace("idx_expiry", idx_opts).unwrap();
 
-        let (broadcast_tx, _) = broadcast::channel(1024);
+        let (broadcast_tx, _) = broadcast::channel(FOLLOW_BUFFER);
         let (gc_tx, gc_rx) = mpsc::unbounded_channel();
 
         let fsync_state = Arc::new(FsyncState {
@@ -1247,18 +1247,21 @@ impl Store {
                                         }
                                     }
                                 }
-                                // Lagged is recoverable: the receiver fell behind the
-                                // broadcast channel's capacity and `skipped` messages
-                                // were dropped, but the next recv() picks up where the
-                                // channel's buffer now starts. There is no in-band way
-                                // to tell the caller a gap happened -- the read channel
-                                // only carries frames -- so this is logged instead.
+                                // The reader fell more than FOLLOW_BUFFER frames
+                                // behind and the channel overwrote what it had not
+                                // taken. Carrying on would hand it the frames after
+                                // the gap as though nothing were missing, and the
+                                // read channel carries frames only, so there is no
+                                // way to say otherwise in band. End the read instead:
+                                // a closed stream is a signal the reader cannot
+                                // mistake for a complete one. It resumes with
+                                // `after` set to the last id it received.
                                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
                                     tracing::warn!(
                                         skipped,
-                                        "follow lagged behind the broadcast channel"
+                                        "follow fell behind the live buffer, ending the read"
                                     );
-                                    continue;
+                                    break;
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
@@ -2259,6 +2262,14 @@ fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
     let id = Scru128Id::from_bytes(key[8..24].try_into().unwrap());
     (expires_at, id)
 }
+
+/// Live frames held for a following read that has not taken them yet.
+///
+/// A reader that falls further behind than this has its read ended rather
+/// than silently skipped: see the `Lagged` arm in [`read`](Store::read).
+/// Raising it buys a slow reader more room before that happens, at a frame
+/// of memory per slot per follower.
+const FOLLOW_BUFFER: usize = 4096;
 
 const NULL_DELIMITER: u8 = 0;
 const MAX_TOPIC_LENGTH: usize = 255;

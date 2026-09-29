@@ -364,6 +364,46 @@ mod tests_store {
         assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
     }
 
+    /// A reader that falls further behind than the live buffer has its read
+    /// ended, rather than being handed the frames after the gap as though
+    /// nothing were missing.
+    ///
+    /// The read channel carries frames and nothing else, so a closed stream
+    /// is the only signal available that is not a frame. It is one the reader
+    /// cannot mistake for a complete read.
+    #[tokio::test]
+    async fn test_follow_ends_when_the_reader_falls_behind() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut rx = store.read(options);
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+
+        // Overrun the buffer without taking anything. The reader is now
+        // missing frames that the channel has already overwritten.
+        for _ in 0..(FOLLOW_BUFFER * 2) {
+            store.append(Frame::builder("test").build()).unwrap();
+        }
+
+        // Drain whatever did make it through. The read has to end: a reader
+        // that keeps receiving would have no way to know it lost anything.
+        let mut received = 0;
+        loop {
+            match timeout(Duration::from_secs(5), rx.recv()).await {
+                Ok(Some(_)) => received += 1,
+                Ok(None) => break,
+                Err(_) => panic!("the read neither ended nor delivered after {received} frames"),
+            }
+        }
+
+        assert!(
+            received < FOLLOW_BUFFER * 2,
+            "delivered {received} frames, so nothing was ever dropped and the \
+             premise of this test is wrong",
+        );
+    }
+
     #[tokio::test]
     async fn test_read_follow_limit_after_subscribe() {
         let temp_dir = tempfile::tempdir().unwrap();
