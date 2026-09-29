@@ -37,3 +37,5 @@ Use `/release [version]` command to execute the automated release workflow. See 
 ## Nushell version
 
 When bumping the embedded Nushell (the `nu-*` crate versions in `Cargo.toml`), update the standalone `nu` it is tested and shipped against to match: the install version in `.github/workflows/ci.yml` (Linux, macOS, Windows steps) and `NU_VERSION` in `.github/workflows/Dockerfile.release-docker`.
+
+The same bump reworks all nu code in the repo for the new version: `xs.nu`, `examples/`, `tests/`, nu code blocks in `docs/` and `changes/` (including actor and service bodies inside `r#'...'#` strings), and nu embedded in Rust strings. Nothing may raise a parse error or deprecation warning on the new `nu`. `--ide-check` does not report deprecations; parse each piece with the xs.nu commands loaded, wrapped in `if false { ... }` so nothing runs, and read the warnings. Also grep for the deprecations listed in the release notes, since runtime-only ones do not show at parse time.

@@ -60,7 +60,7 @@ def .send [] {
 $env.BOT_TOKEN = .last discord.ws.token | .cas $in.hash
 
 {
-  start: (.last xs.service.discord.ws.active | get -i id | default "first")
+  start: (.last xs.service.discord.ws.active | get -o id | default "first")
   pulse: 1000
 
   initial: {
