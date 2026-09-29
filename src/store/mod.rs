@@ -22,11 +22,12 @@
 //! second, is set with [`StoreOptions::ttl_sweep`]). Reads never return an
 //! expired frame, even one the sweeper has not reached yet.
 //!
-//! A `last:n` topic keeps a live frame count, so an append to a topic at its
-//! limit knows to remove the oldest frame and does so in its own commit: the
-//! topic is never over `n` on disk. The count is written in the same batch as
-//! the frames it counts, which is why a store written before it existed
-//! cannot be opened -- see [`FORMAT_VERSION`].
+//! A `last:n` topic keeps a live frame count, so an append carrying `last:n`
+//! knows how far over the topic is without scanning it, and trims in its own
+//! commit. Appends without one do not trim, so a topic can grow between them.
+//! The count is written in the same batch as the frames it counts, which is
+//! why a store written before it existed cannot be opened -- see
+//! [`StoreError::Version`].
 //!
 //! ## Durability
 //!
@@ -1741,17 +1742,19 @@ impl Store {
         removals
     }
 
-    /// `topic`'s live frame count, counting it once if this is the first
-    /// `last:n` frame it has ever seen.
+    /// Count `topic`'s frames by walking its index.
+    ///
+    /// Called when the first `last:n` frame lands on a topic, to establish
+    /// its count. It does not record the result: the caller stages it into
+    /// the batch, and the in-memory map follows the commit.
     ///
     /// Caller must hold [`write_lock`](Store::write_lock), so nothing is
     /// writing to the topic while this counts it. That is what makes the
     /// count a plain scan rather than a moving target.
     ///
-    /// The scan happens once in a store's whole life, not once per process:
-    /// the count is durable from here on. It is the price of putting a
-    /// `last:n` on a topic that already has frames, and it is paid by the
-    /// append that does so.
+    /// The count is durable once written, so a topic is walked once in the
+    /// store's life. It is the price of putting a `last:n` on a topic that
+    /// already has frames, and it is paid by the append that does so.
     fn derive_count(&self, topic: &str) -> u64 {
         let (low, high) = idx_topic_range(idx_topic_key_prefix(topic), None);
         let count = self.idx_topic.range((low, high)).count();
@@ -1807,8 +1810,14 @@ impl Store {
     /// The oldest `want` frames on `topic`, forward from its trim floor.
     ///
     /// No reverse scan: the count already said how many are over, so this
-    /// reads exactly the entries it is going to remove. Returns fewer than
-    /// asked only if the topic holds fewer, which the count says it does not.
+    /// reads only as far as the entries it is going to remove.
+    ///
+    /// Frames in `pending` are walked past, not returned: the drain is
+    /// already removing them. So this can return fewer than `want` when the
+    /// topic runs out, including when it runs out of frames that are not
+    /// pending. A short result is not an error: the gc drain takes it as the
+    /// end of the topic, and an append that got less than it needed hands the
+    /// rest to the gc worker.
     ///
     /// Caller must hold [`write_lock`](Store::write_lock).
     fn oldest_on_topic(
@@ -2038,8 +2047,8 @@ impl Store {
     ///
     /// Re-importing an id the store already holds moves its index entries
     /// rather than leaving the old ones behind, and moves the `last:n` counts
-    /// of both topics with them. A restore that puts a topic over its cap
-    /// leaves the gc worker to bring it back down.
+    /// of both topics with them. A restored frame carrying `last:n` trims its
+    /// topic like an append does; one without leaves the topic as it is.
     #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
         let _guard = self.write_lock.lock().unwrap();
@@ -2156,10 +2165,10 @@ impl Store {
         if let Some(was) = was {
             let now = if fresh { was + 1 } else { was };
 
-            // Over the cap, so take the oldest frame in this same batch and
-            // the topic is never over on disk. Exactly one: a topic that is
-            // keeping up is over by one, and one that is further behind got
-            // there some other way and is the gc worker's to bring down.
+            // Over the cap, so take the oldest frame in this same batch.
+            // Exactly one: a topic that is keeping up is over by one, and one
+            // that is further behind -- grown by appends without a `last:n`,
+            // or given a lower `n` -- is the gc worker's to bring down.
             let over = keep.map_or(0, |keep| now.saturating_sub(u64::from(keep)));
             let taken = if over > 0 {
                 let oldest = self.oldest_on_topic(&frame.topic, 1, &HashSet::new());
@@ -2213,8 +2222,8 @@ impl Store {
     /// - validates the topic (see [`validate_topic`]);
     /// - persists the frame, unless its [`TTL`] is [`TTL::Ephemeral`], in which
     ///   case it is only broadcast to live readers;
-    /// - enforces [`TTL::Last`] retention in the same commit, so the topic is
-    ///   never over its limit on disk;
+    /// - for a [`TTL::Last`] frame, trims the topic back to its limit in the
+    ///   same commit;
     /// - broadcasts the frame to everyone currently in a following
     ///   [`read`](Store::read).
     ///
