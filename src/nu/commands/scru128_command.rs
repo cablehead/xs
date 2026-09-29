@@ -22,7 +22,7 @@ fn get_string_input(
     input: PipelineData,
     span: nu_protocol::Span,
 ) -> Result<String, ShellError> {
-    if let Some(id) = call.opt::<String>(engine_state, stack, 1)? {
+    if let Some(id) = call.opt::<String>(engine_state, stack, 0)? {
         Ok(id)
     } else {
         match input {
@@ -44,7 +44,7 @@ fn get_record_input(
     input: PipelineData,
     span: nu_protocol::Span,
 ) -> Result<Value, ShellError> {
-    if let Some(arg) = call.opt::<Value>(engine_state, stack, 1)? {
+    if let Some(arg) = call.opt::<Value>(engine_state, stack, 0)? {
         Ok(arg)
     } else {
         match input {
@@ -107,26 +107,67 @@ impl Command for Scru128Command {
 
     fn signature(&self) -> Signature {
         Signature::build(".id")
+            .input_output_types(vec![(Type::Nothing, Type::String)])
+            .category(Category::Experimental)
+    }
+
+    fn description(&self) -> &str {
+        "Generate a SCRU128 ID"
+    }
+
+    fn extra_description(&self) -> &str {
+        "Use `.id unpack` to read an id's components, and `.id pack` to build one from them."
+    }
+
+    fn run(
+        &self,
+        _engine_state: &EngineState,
+        _stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let span = call.head;
+        let result = crate::scru128::generate()
+            .map_err(|e| scru128_error(format!("Failed to generate ID: {e}"), span))?;
+        Ok(PipelineData::Value(Value::string(result, span), None))
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Scru128UnpackCommand;
+
+impl Scru128UnpackCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for Scru128UnpackCommand {
+    fn name(&self) -> &str {
+        ".id unpack"
+    }
+
+    fn signature(&self) -> Signature {
+        // Both input types produce a record, so nu knows the output whether
+        // the id arrives on the pipeline or as the argument. One command per
+        // subcommand is what makes that possible: a single `.id` taking the
+        // subcommand as a positional has one output type per input type, and
+        // no input has to cover generate, unpack and pack at once.
+        Signature::build(".id unpack")
             .input_output_types(vec![
-                (Type::Nothing, Type::String),
+                (Type::Nothing, Type::Record(vec![].into())),
                 (Type::String, Type::Record(vec![].into())),
-                (Type::Record(vec![].into()), Type::String),
             ])
             .optional(
-                "subcommand",
+                "id",
                 SyntaxShape::String,
-                "subcommand: 'unpack' or 'pack'",
-            )
-            .optional(
-                "input",
-                SyntaxShape::Any,
-                "input for subcommand (ID string for unpack, record for pack)",
+                "the id to unpack, if not given on the pipeline",
             )
             .category(Category::Experimental)
     }
 
     fn description(&self) -> &str {
-        "Generate SCRU128 IDs or manipulate them with unpack/pack operations"
+        "Unpack a SCRU128 ID into its components"
     }
 
     fn run(
@@ -137,45 +178,64 @@ impl Command for Scru128Command {
         input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let span = call.head;
+        let id_string = get_string_input(call, engine_state, stack, input, span)?;
+        let result = crate::scru128::unpack_to_json(&id_string)
+            .map_err(|e| scru128_error(format!("Failed to unpack ID: {e}"), span))?;
 
-        // Check if there's a subcommand
-        let subcommand: Option<String> = call.opt(engine_state, stack, 0)?;
+        let nu_value = util::json_to_value(&result, span);
+        let nu_value = add_when_field(nu_value, span);
 
-        match subcommand.as_deref() {
-            Some("unpack") => {
-                let id_string = get_string_input(call, engine_state, stack, input, span)?;
-                let result = crate::scru128::unpack_to_json(&id_string)
-                    .map_err(|e| scru128_error(format!("Failed to unpack ID: {e}"), span))?;
+        Ok(PipelineData::Value(nu_value, None))
+    }
+}
 
-                let nu_value = util::json_to_value(&result, span);
-                let nu_value = add_when_field(nu_value, span);
+#[derive(Clone, Default)]
+pub struct Scru128PackCommand;
 
-                Ok(PipelineData::Value(nu_value, None))
-            }
-            Some("pack") => {
-                let components = get_record_input(call, engine_state, stack, input, span)?;
-                let json_value = util::value_to_json(&components);
-                let json_value = drop_when_field(json_value);
+impl Scru128PackCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
-                let result = crate::scru128::pack_from_json(json_value)
-                    .map_err(|e| scru128_error(format!("Failed to pack components: {e}"), span))?;
+impl Command for Scru128PackCommand {
+    fn name(&self) -> &str {
+        ".id pack"
+    }
 
-                Ok(PipelineData::Value(Value::string(result, span), None))
-            }
-            Some(unknown) => Err(ShellError::Generic(
-                GenericError::new(
-                    "Invalid subcommand",
-                    format!("Unknown subcommand: {unknown}"),
-                    span,
-                )
-                .with_help("Available subcommands: unpack, pack"),
-            )),
-            None => {
-                let result = crate::scru128::generate()
-                    .map_err(|e| scru128_error(format!("Failed to generate ID: {e}"), span))?;
+    fn signature(&self) -> Signature {
+        Signature::build(".id pack")
+            .input_output_types(vec![
+                (Type::Nothing, Type::String),
+                (Type::Record(vec![].into()), Type::String),
+            ])
+            .optional(
+                "components",
+                SyntaxShape::Record(vec![].into()),
+                "the components to pack, if not given on the pipeline",
+            )
+            .category(Category::Experimental)
+    }
 
-                Ok(PipelineData::Value(Value::string(result, span), None))
-            }
-        }
+    fn description(&self) -> &str {
+        "Pack SCRU128 components back into an ID"
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let span = call.head;
+        let components = get_record_input(call, engine_state, stack, input, span)?;
+        let json_value = util::value_to_json(&components);
+        let json_value = drop_when_field(json_value);
+
+        let result = crate::scru128::pack_from_json(json_value)
+            .map_err(|e| scru128_error(format!("Failed to pack components: {e}"), span))?;
+
+        Ok(PipelineData::Value(Value::string(result, span), None))
     }
 }

@@ -432,6 +432,8 @@ pub fn add_core_commands(engine: &mut Engine, store: &Store) -> Result<(), Error
         Box::new(commands::get_command::GetCommand::new(store.clone())),
         Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
         Box::new(commands::scru128_command::Scru128Command::new()),
+        Box::new(commands::scru128_command::Scru128UnpackCommand::new()),
+        Box::new(commands::scru128_command::Scru128PackCommand::new()),
     ])
 }
 

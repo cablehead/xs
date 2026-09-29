@@ -48,9 +48,11 @@ mod tests {
     fn setup_scru128_test_env() -> Engine {
         let (_store, mut engine) = setup_test_env();
         engine
-            .add_commands(vec![Box::new(
-                commands::scru128_command::Scru128Command::new(),
-            )])
+            .add_commands(vec![
+                Box::new(commands::scru128_command::Scru128Command::new()),
+                Box::new(commands::scru128_command::Scru128UnpackCommand::new()),
+                Box::new(commands::scru128_command::Scru128PackCommand::new()),
+            ])
             .unwrap();
         engine
     }
@@ -625,6 +627,34 @@ mod tests {
             let id = nu_eval(&engine, PipelineData::empty(), ".id");
             assert_id_roundtrips(&engine, id.as_str().unwrap());
         }
+    }
+
+    /// `.id unpack $id` takes its id as an argument, so its pipeline input
+    /// is nothing. Nu picks an output type at parse time from the input type
+    /// alone, so the type declared for a nothing input decides what it allows
+    /// downstream. A wrong one rejects field access before the command runs.
+    #[test]
+    fn test_scru128_unpack_argument_form_parses_as_a_record() {
+        let engine = setup_scru128_test_env();
+        let id = nu_eval(&engine, PipelineData::empty(), ".id");
+        let id = id.as_str().unwrap();
+
+        // Binding the id to a variable first is what exposes it: with a
+        // literal, nu infers a type for the whole expression instead.
+        let ts = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!("let id = \"{id}\"; .id unpack $id | get ts_ms"),
+        );
+        assert!(ts.as_int().is_ok(), "ts_ms was {ts:?}");
+
+        // pack goes the other way, and has the same shape.
+        let packed = nu_eval(
+            &engine,
+            PipelineData::empty(),
+            format!("let r = (\"{id}\" | .id unpack); .id pack $r"),
+        );
+        assert_eq!(packed.as_str().unwrap(), id);
     }
 
     #[test]
