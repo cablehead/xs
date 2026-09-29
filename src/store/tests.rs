@@ -2,43 +2,42 @@ use crate::store::*;
 
 use std::time::Duration;
 
-/// A corrupt frame stops the process, and says which one.
-///
-/// Run in a child, because the whole point is that it aborts: a panic would
-/// unwind one thread and leave the rest running with the write lock poisoned,
-/// which is the outcome this is here to prevent.
+/// A corrupt frame panics, and the panic says which frame.
 #[test]
-fn a_corrupt_frame_stops_the_process() {
-    use std::process::{Command, Stdio};
+#[should_panic(expected = "corrupt frame in the store")]
+fn a_corrupt_frame_panics_saying_which() {
+    let dir = tempfile::TempDir::new().unwrap().keep();
+    let store = Store::open(dir, StoreOptions::default()).unwrap();
+    let frame = store.append(Frame::builder("test").build()).unwrap();
+    store
+        .stream
+        .insert(frame.id.to_bytes(), b"not json")
+        .unwrap();
+    let _ = store.get(&frame.id);
+}
 
-    if std::env::var("XS_CORRUPT_CHILD").is_ok() {
-        let dir = tempfile::TempDir::new().unwrap().keep();
-        let store = Store::open(dir, StoreOptions::default()).unwrap();
-        let frame = store.append(Frame::builder("test").build()).unwrap();
-        // Something that is not a frame, under a key that is.
-        store
-            .stream
-            .insert(frame.id.to_bytes(), b"not json")
-            .unwrap();
-        let _ = store.get(&frame.id);
-        unreachable!("the store read a corrupt frame and carried on");
-    }
-
-    let out = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "store::tests::a_corrupt_frame_stops_the_process"])
-        .arg("--nocapture")
-        .env("XS_CORRUPT_CHILD", "1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
+/// A panic on a corrupt frame fails the operation that found it and nothing
+/// else. The removal below panics while holding the write lock; without
+/// [`Store::write_guard`] that poisons the lock, and the unrelated append
+/// after it fails with a lock error that says nothing about corruption.
+#[test]
+fn a_panic_on_a_corrupt_frame_does_not_jam_later_writes() {
+    let dir = tempfile::TempDir::new().unwrap().keep();
+    let store = Store::open(dir, StoreOptions::default()).unwrap();
+    let frame = store.append(Frame::builder("damaged").build()).unwrap();
+    store
+        .stream
+        .insert(frame.id.to_bytes(), b"not json")
         .unwrap();
 
-    assert!(!out.status.success(), "the child survived a corrupt frame");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("corrupt frame in the store"),
-        "no explanation on stderr:\n{stderr}"
-    );
+    let remover = store.clone();
+    let id = frame.id;
+    let removed = std::thread::spawn(move || remover.remove(&id)).join();
+    assert!(removed.is_err(), "removing a corrupt frame did not panic");
+
+    store
+        .append(Frame::builder("elsewhere").build())
+        .expect("an unrelated write failed after the panic");
 }
 
 mod tests_ensure {

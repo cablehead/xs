@@ -1198,6 +1198,23 @@ impl Store {
         let _ = self.gc_tx.send(GCTask::Sweep);
     }
 
+    /// Take [`write_lock`](Store::write_lock), even if a previous holder
+    /// panicked.
+    ///
+    /// A panic while holding the lock -- a corrupt frame found mid-removal,
+    /// say -- poisons it, and a plain `unwrap` would then fail every later
+    /// write with an error that says nothing about what went wrong. Carrying
+    /// on is safe because nothing the lock guards can be left half-changed:
+    /// a batch commits all or nothing, and the in-memory counts move only
+    /// after a commit succeeds. The worst a panic leaves behind is a count
+    /// that reads low, which trims late and never deletes what it should
+    /// keep.
+    fn write_guard(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.write_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// Check a topic's count against what its index actually holds.
     ///
     /// Takes [`write_lock`](Store::write_lock), so no writer is part way
@@ -1207,7 +1224,7 @@ impl Store {
     /// invariant.
     #[cfg(test)]
     fn assert_count_matches_index(&self, topic: &str) {
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_guard();
         let (low, high) = idx_topic_range(idx_topic_key_prefix(topic), None);
         let actual = self.idx_topic.range((low, high)).count() as u64;
         let claimed = self.last_counts.lock().unwrap().get(topic).copied();
@@ -1578,7 +1595,7 @@ impl Store {
         &self,
         removals: impl IntoIterator<Item = Removal>,
     ) -> Result<(), crate::error::Error> {
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_guard();
         self.remove_many_locked(removals)
     }
 
@@ -2051,7 +2068,7 @@ impl Store {
     /// topic like an append does; one without leaves the topic as it is.
     #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_guard();
         // What this id is indexed under now, if anything. One seek, and it
         // answers both what to clean up and whether this write adds an entry.
         let superseded = self.get(&frame.id);
@@ -2250,7 +2267,7 @@ impl Store {
         // Serialize all appends to ensure ID generation, write, and broadcast
         // happen atomically. This guarantees subscribers receive frames in
         // scru128 ID order.
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_guard();
 
         frame.id = scru128::new();
 
@@ -2530,7 +2547,7 @@ fn spawn_gc_worker(
             // a count, reads the frames that count says are over, and removes
             // them, and an append landing between any two of those steps
             // makes the third one wrong.
-            let write_guard = store.write_lock.lock().unwrap();
+            let write_guard = store.write_guard();
 
             // Now that every Sweep in this drain has run, so `pending` holds
             // the expired frames it is removing, trim each topic once.
@@ -2882,19 +2899,13 @@ fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
     Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap())
 }
 
-/// Decode a stored frame, or stop the process.
+/// Decode a stored frame, or panic saying which one could not be decoded.
 ///
-/// A value that will not decode means the store is damaged, and there is
-/// nothing useful left for this process to do with it: every read of that
-/// frame fails the same way, and a store that keeps serving is a store that
-/// will hand someone a partial answer.
-///
-/// This aborts rather than panicking. A panic here unwinds one thread and
-/// leaves the rest running with [`write_lock`](Store::write_lock) poisoned,
-/// so every later write fails with a lock error that says nothing about
-/// corruption, and the one message that explained it has already scrolled
-/// past. Stopping is the honest outcome, and it puts the id last on stderr
-/// where an operator will find it.
+/// A value that will not decode means the store is damaged. Skipping it would
+/// hand the caller a partial answer with nothing to say so; panicking fails
+/// the operation that found it, loudly, and leaves the rest of the store
+/// serving. See [`Store::write_guard`] for why that panic does not also take
+/// down every later write.
 fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(
     record: (B1, B2),
 ) -> Frame {
@@ -2910,10 +2921,6 @@ fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(
         // Lossy, and never unwrapped: the whole point of being here is that
         // these bytes are not what they claim to be.
         let value = String::from_utf8_lossy(record.1.as_ref());
-        eprintln!("xs: corrupt frame in the store, stopping.");
-        eprintln!("  key:   {key}");
-        eprintln!("  error: {e}");
-        eprintln!("  value: {value}");
-        std::process::abort()
+        panic!("corrupt frame in the store\n  key:   {key}\n  error: {e}\n  value: {value}")
     })
 }
