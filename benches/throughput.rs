@@ -106,6 +106,7 @@ async fn bench_append_http(name: &str, body: bool) {
             .header("xs-meta", &meta)
             .body(Full::new(payload.clone()))
             .unwrap();
+        sender.ready().await.unwrap();
         let res = sender.send_request(req).await.unwrap();
         assert_eq!(res.status(), hyper::StatusCode::OK, "{name}");
         res.into_body().collect().await.unwrap();
