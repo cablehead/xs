@@ -1793,9 +1793,15 @@ impl Store {
         // topic scan can drop an expired id without reading the frame.
         let idx_value = idx_topic_expiry_value(frame);
 
+        // The id may already be here under a different topic or ttl. This is
+        // an upsert, so the stream row is replaced, but the index keys carry
+        // the topic and the expiry, so the old ones would survive their frame
+        // and answer for a topic it no longer has.
+        let superseded = self.get(&frame.id);
+
         let mut batch = self.db.batch();
         batch.insert(&self.stream, frame.id.as_bytes(), encoded);
-        batch.insert(&self.idx_topic, topic_key, idx_value);
+        batch.insert(&self.idx_topic, topic_key.clone(), idx_value);
         for prefix_key in &prefix_keys {
             batch.insert(&self.idx_topic, prefix_key, idx_value);
         }
@@ -1804,6 +1810,32 @@ impl Store {
         if let Some(key) = expiry_key {
             batch.insert(&self.idx_expiry, key, frame.topic.as_bytes());
         }
+
+        if let Some(old) = superseded.as_ref().filter(|old| old.topic != frame.topic) {
+            let mut old_key = idx_topic_key_prefix(&old.topic);
+            old_key.extend(frame.id.as_bytes());
+            // "a.b" and "a.c" share the prefix key "a.", so drop only the keys
+            // the write above is not putting straight back: removing and
+            // inserting one key in one batch has no defined winner.
+            for key in std::iter::once(old_key).chain(idx_topic_prefix_keys(&old.topic, &frame.id))
+            {
+                if key != topic_key && !prefix_keys.contains(&key) {
+                    batch.remove(&self.idx_topic, key);
+                }
+            }
+        }
+        // A changed ttl moves the expiry entry, because the expiry is half of
+        // its key. An unchanged one is the same key, already rewritten above
+        // with whatever topic the frame now carries.
+        if let Some(stale) = superseded
+            .as_ref()
+            .and_then(expires_at)
+            .map(|at| idx_expiry_key(at, &frame.id))
+            .filter(|stale| Some(*stale) != expiry_key)
+        {
+            batch.remove(&self.idx_expiry, stale);
+        }
+
         batch.commit()?;
         // Both gc scans resume where they last stopped, and an id from the
         // past can land behind them. Tell them, once the entries are there to

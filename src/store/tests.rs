@@ -2867,3 +2867,162 @@ mod tests_last_burst_cost {
         }
     }
 }
+
+/// Re-importing a frame under a different topic or ttl used to leave the index
+/// entries it had under the old one. [`insert_frame`](Store::insert_frame) is
+/// an upsert: the stream row is replaced, but `idx_topic` and `idx_expiry`
+/// keys carry the topic and the expiry, so the old entries outlived the frame
+/// that claimed them and answered for a topic it no longer had.
+mod tests_reimport_orphans {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    fn store() -> Store {
+        let options = StoreOptions::builder()
+            .ttl_sweep(Duration::from_secs(600))
+            .build();
+        Store::open(TempDir::new().unwrap().keep(), options).unwrap()
+    }
+
+    fn topic_ids(store: &Store, topic: &str) -> Vec<Scru128Id> {
+        let options = ReadOptions::builder().topic(topic.to_string()).build();
+        store.read_sync(options).map(|f| f.id).collect()
+    }
+
+    fn none() -> Vec<Scru128Id> {
+        Vec::new()
+    }
+
+    #[test]
+    fn reimport_under_a_new_topic_orphans_the_old_entry() {
+        let store = store();
+        let mut frame = store.append(Frame::builder("before").build()).unwrap();
+
+        // Restore the same frame with a different topic, as an import of an
+        // edited export would.
+        frame.topic = "after".to_string();
+        store.insert_frame(&frame).unwrap();
+
+        assert_eq!(topic_ids(&store, "after"), vec![frame.id]);
+        assert_eq!(
+            topic_ids(&store, "before"),
+            none(),
+            "the frame still answers to the topic it no longer has",
+        );
+    }
+
+    #[test]
+    fn reimport_with_a_new_ttl_orphans_the_old_expiry_entry() {
+        let store = store();
+        let mut frame = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_secs(600)))
+                    .build(),
+            )
+            .unwrap();
+        assert_eq!(store.idx_expiry_len(), 1);
+
+        // Re-imported as a frame that never expires.
+        frame.ttl = Some(TTL::Forever);
+        store.insert_frame(&frame).unwrap();
+
+        assert_eq!(
+            store.idx_expiry_len(),
+            0,
+            "the old expiry entry outlived the ttl that made it",
+        );
+    }
+
+    /// A dotted topic carries one prefix key per dot, and a move has to take
+    /// all of them with it.
+    #[test]
+    fn a_dotted_topic_takes_its_prefix_keys_with_it() {
+        let store = store();
+        let mut frame = store.append(Frame::builder("a.b").build()).unwrap();
+
+        frame.topic = "c.d".to_string();
+        store.insert_frame(&frame).unwrap();
+
+        assert_eq!(topic_ids(&store, "c.d"), vec![frame.id]);
+        assert_eq!(topic_ids(&store, "c.*"), vec![frame.id]);
+        assert_eq!(topic_ids(&store, "a.b"), none());
+        assert_eq!(
+            topic_ids(&store, "a.*"),
+            none(),
+            "the prefix key of the topic it left is still there",
+        );
+    }
+
+    /// The other direction of the same case: the old and new topics share
+    /// prefix keys, which the move must keep rather than drop.
+    #[test]
+    fn a_move_within_a_shared_prefix_keeps_the_shared_keys() {
+        let store = store();
+        let mut frame = store.append(Frame::builder("a.b.c").build()).unwrap();
+
+        // "a." and "a.b." are keys of both topics.
+        frame.topic = "a.b.d".to_string();
+        store.insert_frame(&frame).unwrap();
+
+        assert_eq!(topic_ids(&store, "a.b.d"), vec![frame.id]);
+        assert_eq!(topic_ids(&store, "a.b.c"), none());
+        assert_eq!(
+            topic_ids(&store, "a.b.*"),
+            vec![frame.id],
+            "a key both topics hold was dropped with the old one",
+        );
+        assert_eq!(topic_ids(&store, "a.*"), vec![frame.id]);
+    }
+
+    /// A ttl change moves the expiry entry, because the expiry is half of its
+    /// key. Through forever and back to a different one, the index holds
+    /// exactly the entry the frame currently calls for, and no more.
+    #[test]
+    fn a_ttl_moving_to_forever_and_back_moves_the_expiry_entry() {
+        let store = store();
+        let mut frame = store
+            .append(
+                Frame::builder("test")
+                    .ttl(TTL::Time(Duration::from_secs(600)))
+                    .build(),
+            )
+            .unwrap();
+        assert_eq!(store.idx_expiry_len(), 1);
+
+        frame.ttl = Some(TTL::Forever);
+        store.insert_frame(&frame).unwrap();
+        assert_eq!(store.idx_expiry_len(), 0);
+
+        frame.ttl = Some(TTL::Time(Duration::from_secs(900)));
+        store.insert_frame(&frame).unwrap();
+        assert_eq!(store.idx_expiry_len(), 1);
+
+        frame.ttl = Some(TTL::Time(Duration::from_secs(1200)));
+        store.insert_frame(&frame).unwrap();
+        assert_eq!(
+            store.idx_expiry_len(),
+            1,
+            "one frame left two entries in the expiry index",
+        );
+        assert_eq!(topic_ids(&store, "test"), vec![frame.id]);
+    }
+
+    /// Each move reads what the id holds now, not what it held when it was
+    /// appended, so the second one does not bring the first topic back.
+    #[test]
+    fn a_second_move_does_not_resurrect_the_first_topic() {
+        let store = store();
+        let mut frame = store.append(Frame::builder("one").build()).unwrap();
+
+        frame.topic = "two".to_string();
+        store.insert_frame(&frame).unwrap();
+        frame.topic = "three".to_string();
+        store.insert_frame(&frame).unwrap();
+
+        assert_eq!(topic_ids(&store, "three"), vec![frame.id]);
+        assert_eq!(topic_ids(&store, "two"), none());
+        assert_eq!(topic_ids(&store, "one"), none());
+    }
+}
