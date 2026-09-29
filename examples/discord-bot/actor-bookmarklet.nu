@@ -34,7 +34,7 @@
                     $in | .cas | from json
                 } else { {} })
 
-            $bookmarks | reject -i $message.d.message_id |
+            $bookmarks | reject -o $message.d.message_id |
                 to json -r | .append "bookmarks" --meta {id: $frame.id}
             return {next: $state}
         }
