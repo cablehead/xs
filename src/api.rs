@@ -61,6 +61,9 @@ enum Routes {
         ttl: Option<TTL>,
         with_timestamp: bool,
     },
+    StreamAppendBatch {
+        with_timestamp: bool,
+    },
     LastGet {
         topic: Option<String>,
         last: usize,
@@ -196,6 +199,10 @@ fn match_route(
             Err(e) => Routes::BadRequest(format!("Invalid frame ID: {e}")),
         },
 
+        (&Method::POST, "/append-batch") => Routes::StreamAppendBatch {
+            with_timestamp: params.contains_key("with-timestamp"),
+        },
+
         (&Method::POST, path) if path.starts_with("/append/") => {
             let topic = path.strip_prefix("/append/").unwrap().to_string();
             let with_timestamp = params.contains_key("with-timestamp");
@@ -239,6 +246,10 @@ async fn handle(
             ttl,
             with_timestamp,
         } => handle_stream_append(&mut store, req, topic, ttl, with_timestamp).await,
+
+        Routes::StreamAppendBatch { with_timestamp } => {
+            handle_stream_append_batch(&store, req.into_body(), with_timestamp).await
+        }
 
         Routes::CasGet(hash) => {
             let reader = store.cas_reader(hash).await?;
@@ -317,6 +328,63 @@ async fn handle_stream_cat(
         .status(StatusCode::OK)
         .header("Content-Type", content_type)
         .body(body)?)
+}
+
+/// One line of an `/append-batch` body.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BatchItem {
+    topic: String,
+    #[serde(default)]
+    meta: Option<serde_json::Value>,
+    #[serde(default)]
+    ttl: Option<TTL>,
+    /// A payload already in the CAS (see `POST /cas`).
+    #[serde(default)]
+    hash: Option<ssri::Integrity>,
+}
+
+/// Append every NDJSON line of the body as one contiguous, atomic run (see
+/// [`Store::append_batch`]). Responds with the stored frames as NDJSON, in
+/// order. A malformed line rejects the whole batch with 400; nothing is stored.
+async fn handle_stream_append_batch<B>(store: &Store, body: B, with_timestamp: bool) -> HTTPResult
+where
+    B: hyper::body::Body<Data = Bytes>,
+    B::Error: Into<BoxError>,
+{
+    let bytes = body.collect().await.map_err(Into::into)?.to_bytes();
+
+    let mut frames = Vec::new();
+    for (n, line) in bytes.split(|b| *b == b'\n').enumerate() {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        let item: BatchItem = match serde_json::from_slice(line) {
+            Ok(item) => item,
+            Err(e) => return response_400(format!("line {}: {e}", n + 1)),
+        };
+        frames.push(
+            Frame::builder(item.topic)
+                .maybe_meta(item.meta)
+                // Same default as a single append.
+                .ttl(item.ttl.unwrap_or_default())
+                .maybe_hash(item.hash)
+                .build(),
+        );
+    }
+
+    let frames = store.append_batch(frames)?;
+
+    let mut out = Vec::with_capacity(frames.len() * 128);
+    for frame in &frames {
+        out.extend_from_slice(serialize_frame(frame, with_timestamp).as_bytes());
+        out.push(b'\n');
+    }
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/x-ndjson")
+        .body(full(out))?)
 }
 
 async fn handle_stream_append(
@@ -866,6 +934,61 @@ mod tests {
             match_route(&Method::GET, "/last/test", &headers, Some("last=3&follow=true")),
             Routes::LastGet { topic: Some(t), last: 3, follow: true, .. } if t == "test"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_handle_stream_append_batch() {
+        use crate::store::Store;
+        use http_body_util::BodyExt;
+
+        let headers = hyper::HeaderMap::new();
+        assert!(matches!(
+            match_route(&Method::POST, "/append-batch", &headers, None),
+            Routes::StreamAppendBatch {
+                with_timestamp: false
+            }
+        ));
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        async fn post(store: &Store, body: &'static str) -> (StatusCode, Vec<serde_json::Value>) {
+            let response = handle_stream_append_batch(store, Full::new(Bytes::from(body)), false)
+                .await
+                .unwrap();
+            let status = response.status();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let frames = body
+                .split(|b| *b == b'\n')
+                .filter(|line| !line.is_empty())
+                .filter_map(|line| serde_json::from_slice(line).ok())
+                .collect();
+            (status, frames)
+        }
+
+        // Frames come back in order with ascending ids; ttl defaults to forever.
+        let (status, frames) = post(
+            &store,
+            "{\"topic\":\"a\",\"meta\":{\"n\":1}}\n\n{\"topic\":\"b\",\"ttl\":\"last:2\"}\n",
+        )
+        .await;
+        assert_eq!(StatusCode::OK, status);
+        assert_eq!(2, frames.len());
+        assert_eq!("a", frames[0]["topic"]);
+        assert_eq!(serde_json::json!({"n": 1}), frames[0]["meta"]);
+        assert_eq!("forever", frames[0]["ttl"]);
+        assert_eq!("last:2", frames[1]["ttl"]);
+        assert!(frames[0]["id"].as_str() < frames[1]["id"].as_str());
+
+        // A malformed line rejects the whole batch; nothing more is stored.
+        let (status, _) = post(&store, "{\"topic\":\"a\"}\n{\"topic\":\"a\",\"bogus\":1}\n").await;
+        assert_eq!(StatusCode::BAD_REQUEST, status);
+        let mut rx = store.read(ReadOptions::default());
+        let mut stored = 0;
+        while rx.recv().await.is_some() {
+            stored += 1;
+        }
+        assert_eq!(2, stored);
     }
 
     #[tokio::test]
