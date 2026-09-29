@@ -978,3 +978,101 @@ fn run_scru128(cmd: CommandScru128) -> Result<(), Box<dyn std::error::Error + Se
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{drain_ready, CAT_WRITE_BUF};
+
+    use bytes::Bytes;
+    use tokio::sync::mpsc;
+
+    /// A channel already holding `chunks`, so `try_recv` yields them without
+    /// waiting, as it would for a `cat` with a backlog.
+    fn queued(chunks: &[&[u8]]) -> mpsc::Receiver<Bytes> {
+        let (tx, rx) = mpsc::channel(16);
+        for chunk in chunks {
+            tx.try_send(Bytes::copy_from_slice(chunk)).unwrap();
+        }
+        rx
+    }
+
+    /// One chunk waiting means one chunk written. This is what keeps a
+    /// `--follow` responsive: the drain never waits for company.
+    #[test]
+    fn one_chunk_is_written_alone() {
+        let mut rx = queued(&[]);
+        let mut buf = Vec::new();
+        drain_ready(Bytes::from_static(b"a\n"), &mut rx, &mut buf);
+        assert_eq!(buf, b"a\n");
+    }
+
+    /// A backlog is coalesced, in the order it arrived. The whole point of
+    /// batching is that this becomes one write instead of four.
+    #[test]
+    fn a_backlog_coalesces_in_order() {
+        let mut rx = queued(&[b"b\n", b"c\n", b"d\n"]);
+        let mut buf = Vec::new();
+        drain_ready(Bytes::from_static(b"a\n"), &mut rx, &mut buf);
+        assert_eq!(buf, b"a\nb\nc\nd\n");
+    }
+
+    /// The buffer is reused across writes, so each one has to start empty.
+    /// Without the clear, every write repeats everything before it.
+    #[test]
+    fn the_buffer_does_not_carry_over_between_writes() {
+        let mut rx = queued(&[b"b\n"]);
+        let mut buf = Vec::new();
+        drain_ready(Bytes::from_static(b"a\n"), &mut rx, &mut buf);
+        assert_eq!(buf, b"a\nb\n");
+
+        drain_ready(Bytes::from_static(b"c\n"), &mut rx, &mut buf);
+        assert_eq!(buf, b"c\n", "the second write repeated the first");
+    }
+
+    /// `CAT_WRITE_BUF` says when to stop asking for more, not how much may be
+    /// written. A chunk is a whole frame, so the one the drain starts from
+    /// goes out entire even when it is bigger than the cap on its own.
+    #[test]
+    fn a_first_chunk_larger_than_the_cap_is_not_split() {
+        let big = vec![b'x'; CAT_WRITE_BUF * 2];
+        let mut rx = queued(&[]);
+        let mut buf = Vec::new();
+        drain_ready(Bytes::from(big.clone()), &mut rx, &mut buf);
+        assert_eq!(buf.len(), big.len());
+    }
+
+    /// The same for a chunk taken off the queue: the cap is checked before
+    /// asking for another, never applied to one already taken, so no write
+    /// ends mid-frame.
+    #[test]
+    fn a_queued_chunk_crossing_the_cap_is_not_truncated() {
+        let mut rx = queued(&[b"tail\n"]);
+        let mut buf = Vec::new();
+        // One byte under the cap, so the loop runs once more and the chunk it
+        // takes has nowhere to fit.
+        drain_ready(
+            Bytes::from(vec![b'x'; CAT_WRITE_BUF - 1]),
+            &mut rx,
+            &mut buf,
+        );
+        assert_eq!(
+            buf.len(),
+            CAT_WRITE_BUF - 1 + 5,
+            "the queued chunk was cut to fit the cap"
+        );
+        assert!(buf.ends_with(b"tail\n"));
+    }
+
+    /// Once the buffer is at the cap the drain stops asking, so a queued chunk
+    /// waits for the next write rather than joining this one.
+    #[test]
+    fn the_cap_stops_the_drain_asking_for_more() {
+        let mut rx = queued(&[b"next\n"]);
+        let mut buf = Vec::new();
+        drain_ready(Bytes::from(vec![b'x'; CAT_WRITE_BUF]), &mut rx, &mut buf);
+        assert_eq!(buf.len(), CAT_WRITE_BUF, "it took a chunk past the cap");
+
+        drain_ready(Bytes::from_static(b"last\n"), &mut rx, &mut buf);
+        assert_eq!(buf, b"last\nnext\n", "the held-back chunk never arrived");
+    }
+}
