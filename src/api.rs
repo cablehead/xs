@@ -329,20 +329,25 @@ async fn handle_stream_append(
     let (parts, mut body) = req.into_parts();
 
     let hash = {
-        let mut writer = store.cas_writer().await?;
-        let mut bytes_written = 0;
+        // Opened on the first non-empty chunk: a meta-only append never
+        // touches the CAS, and opening a writer creates a temp file.
+        let mut writer = None;
 
         while let Some(frame) = body.frame().await {
             if let Ok(data) = frame?.into_data() {
-                writer.write_all(&data).await?;
-                bytes_written += data.len();
+                if data.is_empty() {
+                    continue;
+                }
+                if writer.is_none() {
+                    writer = Some(store.cas_writer().await?);
+                }
+                writer.as_mut().unwrap().write_all(&data).await?;
             }
         }
 
-        if bytes_written > 0 {
-            Some(writer.commit().await?)
-        } else {
-            None
+        match writer {
+            Some(writer) => Some(writer.commit().await?),
+            None => None,
         }
     };
 
