@@ -1100,8 +1100,14 @@ impl Store {
         // Only take broadcast subscription if following. We initate the subscription here to
         // ensure we don't miss any messages between historical processing and starting the
         // broadcast subscription.
+        //
+        // Subscribing under the append lock also yields `floor`: an id above
+        // every frame already appended and below every frame this subscription
+        // will receive. A follower that lags before sending anything replays
+        // from there.
         let broadcast_rx = if should_follow {
-            Some(self.broadcast_tx.subscribe())
+            let _guard = self.append_lock.lock().unwrap();
+            Some((self.broadcast_tx.subscribe(), scru128::new()))
         } else {
             None
         };
@@ -1196,7 +1202,7 @@ impl Store {
         };
 
         // Handle broadcast subscription and heartbeat
-        if let Some(broadcast_rx) = broadcast_rx {
+        if let Some((broadcast_rx, floor)) = broadcast_rx {
             let handle = self
                 .rt
                 .clone()
@@ -1205,6 +1211,7 @@ impl Store {
             {
                 let tx = tx.clone();
                 let limit = options.limit;
+                let store = self.clone();
 
                 handle.spawn(async move {
                     // If we have a done_rx, wait for historical processing
@@ -1218,8 +1225,14 @@ impl Store {
 
                     let filter = TopicFilter::from_option(options.topic.as_deref());
 
+                    // The newest frame this reader has been given (or, before
+                    // the first, the subscription floor). Broadcast frames at
+                    // or below it are duplicates of the historical scan or of
+                    // a replay.
+                    let mut last_sent = last_id.map_or(floor, |id| id.max(floor));
+
                     let mut broadcast_rx = broadcast_rx;
-                    loop {
+                    'follow: loop {
                         tokio::select! {
                             _ = tx.closed() => break,
                             r = broadcast_rx.recv() => match r {
@@ -1229,12 +1242,10 @@ impl Store {
                                         continue;
                                     }
 
-                                    // Skip if we've already seen this frame during historical scan
-                                    if let Some(last_scanned_id) = last_id {
-                                        if frame.id <= last_scanned_id {
-                                            continue;
-                                        }
+                                    if frame.id <= last_sent {
+                                        continue;
                                     }
+                                    last_sent = frame.id;
 
                                     if tx.send(frame).await.is_err() {
                                         break;
@@ -1247,18 +1258,47 @@ impl Store {
                                         }
                                     }
                                 }
-                                // Lagged is recoverable: the receiver fell behind the
-                                // broadcast channel's capacity and `skipped` messages
-                                // were dropped, but the next recv() picks up where the
-                                // channel's buffer now starts. There is no in-band way
-                                // to tell the caller a gap happened -- the read channel
-                                // only carries frames -- so this is logged instead.
+                                // The receiver fell behind the broadcast channel's
+                                // capacity and `skipped` frames were dropped from it.
+                                // Every broadcast frame is committed first, so replay
+                                // the gap from the store; the channel's remaining
+                                // backlog is then deduplicated by `last_sent`. Only
+                                // ephemeral frames, which are never stored, are lost.
                                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                                    tracing::warn!(
+                                    tracing::debug!(
                                         skipped,
-                                        "follow lagged behind the broadcast channel"
+                                        "follow lagged behind the broadcast channel, replaying"
                                     );
-                                    continue;
+                                    loop {
+                                        let store = store.clone();
+                                        let filter = filter.clone();
+                                        let after = last_sent;
+                                        let replay = tokio::task::spawn_blocking(move || {
+                                            store
+                                                .iter_for_filter(filter, Some((after, false)))
+                                                .filter(|frame| !is_expired(frame))
+                                                .take(FOLLOW_REPLAY_CHUNK)
+                                                .collect::<Vec<_>>()
+                                        })
+                                        .await;
+                                        let Ok(frames) = replay else { break 'follow };
+                                        let caught_up = frames.len() < FOLLOW_REPLAY_CHUNK;
+                                        for frame in frames {
+                                            last_sent = frame.id;
+                                            if tx.send(frame).await.is_err() {
+                                                break 'follow;
+                                            }
+                                            if let Some(limit) = limit {
+                                                count += 1;
+                                                if count >= limit {
+                                                    break 'follow;
+                                                }
+                                            }
+                                        }
+                                        if caught_up {
+                                            break;
+                                        }
+                                    }
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
@@ -1781,6 +1821,21 @@ impl Store {
     /// with predetermined IDs (for example when restoring a backup).
     #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
+        let mut batch = self.db.batch();
+        let expiry_key = self.add_frame_to_batch(&mut batch, frame)?;
+        batch.commit()?;
+        self.note_indexed(frame, expiry_key);
+        self.after_commit()
+    }
+
+    /// Stage `frame` and its index entries in `batch`. Returns the frame's
+    /// expiry index key, if it has one, for [`note_indexed`](Store::note_indexed)
+    /// once the batch is committed.
+    fn add_frame_to_batch(
+        &self,
+        batch: &mut OwnedWriteBatch,
+        frame: &Frame,
+    ) -> Result<Option<[u8; 24]>, crate::error::Error> {
         let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
 
         // Get the index topic key (also validates topic)
@@ -1793,7 +1848,6 @@ impl Store {
         // topic scan can drop an expired id without reading the frame.
         let idx_value = idx_topic_expiry_value(frame);
 
-        let mut batch = self.db.batch();
         batch.insert(&self.stream, frame.id.as_bytes(), encoded);
         batch.insert(&self.idx_topic, topic_key, idx_value);
         for prefix_key in &prefix_keys {
@@ -1804,15 +1858,16 @@ impl Store {
         if let Some(key) = expiry_key {
             batch.insert(&self.idx_expiry, key, frame.topic.as_bytes());
         }
-        batch.commit()?;
-        // Both gc scans resume where they last stopped, and an id from the
-        // past can land behind them. Tell them, once the entries are there to
-        // be found.
+        Ok(expiry_key)
+    }
+
+    /// Both gc scans resume where they last stopped, and an id from the past
+    /// can land behind them. Tell them, once the entries are there to be found.
+    fn note_indexed(&self, frame: &Frame, expiry_key: Option<[u8; 24]>) {
         if let Some(key) = expiry_key {
             self.note_indexed_expiry(key);
         }
         self.note_indexed_topic(&frame.topic, &frame.id);
-        self.after_commit()
     }
 
     /// Append a frame to the stream and return it with its freshly assigned
@@ -1874,6 +1929,65 @@ impl Store {
         self.stats.appends.fetch_add(1, Ordering::Relaxed);
         let _ = self.broadcast_tx.send(frame.clone());
         Ok(frame)
+    }
+
+    /// Append several frames as one contiguous, atomic run.
+    ///
+    /// Behaves like calling [`append`](Store::append) once per frame, except:
+    ///
+    /// - the frames get consecutive IDs, with no other append interleaved;
+    /// - they are committed in a single write batch, so a reader sees all of
+    ///   them or none, and a failed commit (or an invalid topic anywhere in
+    ///   the input) stores none of them;
+    /// - the lock, the commit and the fsync bookkeeping are paid once per call
+    ///   instead of once per frame.
+    ///
+    /// Frames are broadcast in ID order after the commit. A following reader
+    /// whose buffer is smaller than the batch can lag; keep batches within the
+    /// broadcast capacity if every follower must see every frame live.
+    pub fn append_batch(&self, frames: Vec<Frame>) -> Result<Vec<Frame>, crate::error::Error> {
+        let _guard = self.append_lock.lock().unwrap();
+
+        let mut batch = self.db.batch();
+        let mut expiry_keys = Vec::with_capacity(frames.len());
+        let mut frames = frames;
+        for frame in frames.iter_mut() {
+            frame.id = scru128::new();
+            idx_topic_key_from_frame(frame)?;
+            if frame.ttl != Some(TTL::Ephemeral) {
+                expiry_keys.push(self.add_frame_to_batch(&mut batch, frame)?);
+            } else {
+                expiry_keys.push(None);
+            }
+        }
+        batch.commit()?;
+
+        let mut last_ttl: HashMap<&str, u32> = HashMap::new();
+        for (frame, expiry_key) in frames.iter().zip(expiry_keys) {
+            if frame.ttl == Some(TTL::Ephemeral) {
+                continue;
+            }
+            self.note_indexed(frame, expiry_key);
+            if let Some(TTL::Last(n)) = frame.ttl {
+                last_ttl.insert(&frame.topic, n);
+            }
+        }
+        // One trim per topic is enough: it runs after the whole run is in.
+        for (topic, keep) in last_ttl {
+            let _ = self.gc_tx.send(GCTask::CheckLastTTL {
+                topic: topic.to_string(),
+                keep,
+            });
+        }
+        self.after_commit()?;
+
+        self.stats
+            .appends
+            .fetch_add(frames.len(), Ordering::Relaxed);
+        for frame in &frames {
+            let _ = self.broadcast_tx.send(frame.clone());
+        }
+        Ok(frames)
     }
 
     /// Iterate frames starting from a bound.
@@ -2230,6 +2344,9 @@ fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
 
 const NULL_DELIMITER: u8 = 0;
 const MAX_TOPIC_LENGTH: usize = 255;
+/// Frames a lagged follower reads from the store per replay step, bounding
+/// how much a far-behind reader holds in memory at once.
+const FOLLOW_REPLAY_CHUNK: usize = 4096;
 
 /// Validate a frame topic (per ADR 0001).
 ///

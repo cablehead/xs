@@ -251,6 +251,81 @@ mod tests_store {
     }
 
     #[tokio::test]
+    async fn test_follow_replays_frames_dropped_by_lag() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+
+        // Same overrun as test_follow_recovers_from_lag, but a lagged follow
+        // must deliver every stored frame, once and in order, not skip ahead.
+        let options = ReadOptions::builder()
+            .new(true)
+            .follow(FollowOption::On)
+            .build();
+        let mut rx = store.read(options);
+
+        let mut want = Vec::new();
+        for _ in 0..2000 {
+            want.push(store.append(Frame::builder("filler").build()).unwrap().id);
+        }
+        // A batch larger than the broadcast channel overruns it on its own.
+        let batch = (0..3000).map(|_| Frame::builder("batch").build()).collect();
+        want.extend(store.append_batch(batch).unwrap().iter().map(|f| f.id));
+
+        let mut got = Vec::new();
+        while got.len() < want.len() {
+            let frame = timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .expect("follow stalled")
+                .expect("follow ended");
+            got.push(frame.id);
+        }
+        assert_eq!(want, got);
+    }
+
+    #[tokio::test]
+    async fn test_append_batch() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+
+        let before = store.append(Frame::builder("x").build()).unwrap();
+        let frames = store
+            .append_batch(vec![
+                Frame::builder("a")
+                    .meta(serde_json::json!({"n": 1}))
+                    .build(),
+                Frame::builder("b").ttl(TTL::Last(1)).build(),
+                Frame::builder("a")
+                    .meta(serde_json::json!({"n": 3}))
+                    .build(),
+            ])
+            .unwrap();
+
+        async fn all(store: &Store) -> Vec<Frame> {
+            let mut rx = store.read(ReadOptions::default());
+            let mut frames = Vec::new();
+            while let Some(frame) = rx.recv().await {
+                frames.push(frame);
+            }
+            frames
+        }
+
+        // Fresh, ascending ids, stored as returned, right after `before`.
+        assert!(frames.windows(2).all(|w| w[0].id < w[1].id));
+        let mut want = vec![before];
+        want.extend(frames.iter().cloned());
+        assert_eq!(want, all(&store).await);
+
+        // An invalid topic anywhere rejects the whole batch.
+        assert!(store
+            .append_batch(vec![
+                Frame::builder("a").build(),
+                Frame::builder("").build(),
+            ])
+            .is_err());
+        assert_eq!(want, all(&store).await);
+    }
+
+    #[tokio::test]
     async fn test_read_limit_nofollow() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
