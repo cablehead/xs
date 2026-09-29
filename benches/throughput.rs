@@ -5,6 +5,10 @@
 // Dimensions, each over N tiny frames:
 //
 //   append        raw store writes (the floor for everything else)
+//   append-http   meta-only POST /append over the unix socket, one request
+//                 at a time on a kept-open connection; append plus the cost
+//                 of HTTP (unix only)
+//   append-http-body  same, with a small body that lands in the CAS
 //   replay        historical read_sync scan (what `start: "first"` leans on)
 //   replay-topic  topic-filtered scan: idx_topic walk + a point-read per
 //                 matching frame (half the stream matches)
@@ -56,6 +60,57 @@ fn bench_append() {
     let start = Instant::now();
     seed(&store, N, 1);
     report("append", N, start.elapsed());
+}
+
+/// Append N frames through the HTTP API: serve the store on its unix
+/// socket, then POST /append one request at a time on a single connection.
+/// Each frame carries meta; with `body` it also carries a small payload.
+#[cfg(unix)]
+async fn bench_append_http(name: &str, body: bool) {
+    use base64::Engine as _;
+    use http_body_util::{BodyExt, Full};
+    use hyper::body::Bytes;
+
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+    let sock = store.path.join("sock");
+    let engine = xs::nu::Engine::new().unwrap();
+    drop(tokio::spawn(xs::api::serve(store, engine, None)));
+
+    let start = Instant::now();
+    let stream = loop {
+        match tokio::net::UnixStream::connect(&sock).await {
+            Ok(stream) => break stream,
+            Err(_) if start.elapsed() < Duration::from_secs(10) => {
+                tokio::time::sleep(Duration::from_millis(10)).await
+            }
+            Err(e) => panic!("{name}: server never came up: {e}"),
+        }
+    };
+    let (mut sender, conn) =
+        hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream))
+            .await
+            .unwrap();
+    drop(tokio::spawn(conn));
+
+    let meta = base64::prelude::BASE64_STANDARD.encode(r#"{"n":1}"#);
+    let payload = if body {
+        Bytes::from_static(b"hello")
+    } else {
+        Bytes::new()
+    };
+
+    let start = Instant::now();
+    for _ in 0..N {
+        let req = hyper::Request::post("http://localhost/append/ev")
+            .header("xs-meta", &meta)
+            .body(Full::new(payload.clone()))
+            .unwrap();
+        let res = sender.send_request(req).await.unwrap();
+        assert_eq!(res.status(), hyper::StatusCode::OK, "{name}");
+        res.into_body().collect().await.unwrap();
+    }
+    report(name, N, start.elapsed());
 }
 
 fn bench_replay() {
@@ -160,6 +215,11 @@ fn main() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
+        #[cfg(unix)]
+        {
+            bench_append_http("append-http", false).await;
+            bench_append_http("append-http-body", true).await;
+        }
         run_actor_bench("actor-state", &actor_closure(false, false, N), 1).await;
         run_actor_bench("actor-mixed", &actor_closure(false, false, N / 10), 10).await;
         run_actor_bench("actor-filtered", &actor_closure(false, true, N / 10), 10).await;
