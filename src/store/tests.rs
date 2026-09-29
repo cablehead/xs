@@ -3427,6 +3427,42 @@ mod tests_last_count {
         );
     }
 
+    /// A removal counts against the topic only if it removed something.
+    ///
+    /// The gc worker reads the frames it is going to remove before it takes
+    /// the write lock, so an append can trim one of them in between. The
+    /// removal that follows is then asking for a frame that has already gone,
+    /// and counting it takes the topic's count below the truth. A count that
+    /// reads low never trims again, and nothing brings it back.
+    #[tokio::test]
+    async fn a_removal_of_a_frame_that_is_already_gone_does_not_count() {
+        let store = store_without_tick();
+        let ids: Vec<Scru128Id> = (0..5).map(|_| last(&store, "test", 1000).id).collect();
+        store.wait_for_gc().await;
+        assert_eq!(store.count_of("test"), Some(5));
+
+        store.remove(&ids[0]).unwrap();
+        assert_eq!(store.count_of("test"), Some(4));
+
+        // What the gc worker is holding: a removal it decided on before that
+        // frame went. Removing keys that are not there is a no-op, so the
+        // only thing at stake is the count.
+        store
+            .remove_many([Removal::Indexed {
+                id: ids[0],
+                topic: "test".to_string(),
+                expires_at: None,
+            }])
+            .unwrap();
+
+        assert_eq!(
+            store.count_of("test"),
+            Some(4),
+            "counted a frame that was already gone",
+        );
+        assert_count_is_honest(&store, "test");
+    }
+
     /// A frame removed by hand drops the topic below its cap, and the count
     /// has to follow or the topic sits one short of what was asked for,
     /// forever.

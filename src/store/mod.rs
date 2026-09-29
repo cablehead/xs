@@ -1598,24 +1598,42 @@ impl Store {
         // that topic the batch touches.
         let mut taken: HashMap<String, u64> = HashMap::new();
         for removal in removals {
-            let topic = match removal {
+            // `Some(topic)` when the removal took a frame off that topic, so
+            // the topic's count should follow. Staging keys that are not
+            // there is a no-op and is how stale entries get cleaned up, so
+            // the removal runs either way; only the count is conditional.
+            let counts_against = match removal {
                 Removal::Id(id) => {
                     let Some(frame) = self.get(&id) else {
                         continue;
                     };
                     self.remove_frame_keys(&mut batch, &frame.id, &frame.topic, expires_at(&frame));
-                    frame.topic
+                    Some(frame.topic)
                 }
                 Removal::Indexed {
                     id,
                     topic,
                     expires_at,
                 } => {
+                    // The gc worker reads the frames it is going to remove
+                    // before it takes the lock, so an append can trim one of
+                    // them in between. Counting a frame that has already gone
+                    // takes the topic below the truth, and a count that reads
+                    // low never trims again.
+                    //
+                    // The check reads the index, not the frame: the value is
+                    // eight bytes and the block is still warm from the scan
+                    // that produced this id.
+                    let mut key = idx_topic_key_prefix(&topic);
+                    key.extend(id.as_bytes());
+                    let present = self.idx_topic.contains_key(key)?;
                     self.remove_frame_keys(&mut batch, &id, &topic, expires_at);
-                    topic
+                    present.then_some(topic)
                 }
             };
-            *taken.entry(topic).or_insert(0) += 1;
+            if let Some(topic) = counts_against {
+                *taken.entry(topic).or_insert(0) += 1;
+            }
         }
         let mut edits = Vec::new();
         for (topic, taken) in taken {
