@@ -1,7 +1,7 @@
 [package]
 name = "cross-stream"
 edition = "2021"
-version = "0.14.1-dev"
+version = "0.14.1"
 rust-version = "1.96.1"
 description = "An event stream store for personal, local-first use, specializing in event sourcing."
 license = "MIT"
