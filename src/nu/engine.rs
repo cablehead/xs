@@ -7,7 +7,7 @@ use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Command, EngineState, Redirection, Stack, StateWorkingSet};
 use nu_protocol::engine::{Job, ThreadJob};
 use nu_protocol::shell_error::generic::GenericError;
-use nu_protocol::{OutDest, PipelineData, ShellError, Span, Value};
+use nu_protocol::{OutDest, PipelineData, PipelineExecutionData, ShellError, Span, Value};
 
 use std::sync::{Arc, Mutex};
 
@@ -209,6 +209,21 @@ impl Engine {
         pipeline_input: Option<PipelineData>,
         job_name: impl Into<String>,
     ) -> Result<PipelineData, Box<ShellError>> {
+        self.run_closure_in_job_with_exit(closure, args, pipeline_input, job_name)
+            .map(|exec_data| exec_data.body)
+    }
+
+    /// Like `run_closure_in_job`, but keep the exit status guards of the
+    /// pipeline's external commands. The caller drains `body` and then checks
+    /// `exit` with `nu_protocol::process::check_exit_status_future`, which is
+    /// how nu reports an external that exited non-zero mid-pipeline.
+    pub fn run_closure_in_job_with_exit(
+        &mut self,
+        closure: &nu_protocol::engine::Closure,
+        args: Vec<Value>,
+        pipeline_input: Option<PipelineData>,
+        job_name: impl Into<String>,
+    ) -> Result<PipelineExecutionData, Box<ShellError>> {
         let job_display_name = job_name.into(); // Convert job_name early for error messages
 
         // -- create & register job (boilerplate) ---
@@ -307,7 +322,7 @@ impl Engine {
         }
 
         self.state.current_job.background_thread_job = saved_bg_job;
-        eval_res.map(|exec_data| exec_data.body).map_err(Box::new)
+        eval_res.map_err(Box::new)
     }
 
     /// Evaluate a closure WITHOUT creating and registering a fresh

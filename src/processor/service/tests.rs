@@ -1299,6 +1299,106 @@ async fn test_external_command_error_message() {
     assert!(error_msg.contains("help:"), "Should include help text");
 }
 
+/// An external that exits non-zero fails the pipeline, as nu's pipefail does:
+/// `.fin.error`, no restart. Its output before the exit still lands.
+#[tokio::test]
+async fn test_external_nonzero_exit_is_fin_error() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        });
+    }
+
+    #[cfg(windows)]
+    let script = r#"{ run: {|| ^cmd /c "echo hi & exit 3" | lines | each {|l| {line: $l} } } }"#;
+    #[cfg(not(windows))]
+    let script = r#"{ run: {|| ^sh -c "echo hi; exit 3" | lines | each {|l| {line: $l} } } }"#;
+    let spawn_frame = store
+        .append(
+            Frame::builder("xs.service.exiter.create")
+                .hash(store.cas_insert(script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options);
+
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.exiter.active"
+    );
+    assert_eq!(recver.recv().await.unwrap().topic, "exiter.recv");
+
+    let fin = recver.recv().await.unwrap();
+    assert_eq!(fin.topic, "xs.service.exiter.fin.error");
+    let meta = fin.meta.unwrap();
+    assert_eq!(meta["source_id"], spawn_frame.id.to_string());
+    let message = meta["message"].as_str().unwrap();
+    assert!(message.contains("exited with code 3"), "message: {message}");
+
+    // Past the 1s restart gap: no second .active.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_no_more_frames(&mut recver).await;
+}
+
+/// The same pipeline with an external that exits zero is a clean completion
+/// and restarts under the default policy.
+#[tokio::test]
+async fn test_external_zero_exit_restarts() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        });
+    }
+
+    #[cfg(windows)]
+    let script = r#"{ run: {|| ^cmd /c "echo hi" | lines | each {|l| {line: $l} } } }"#;
+    #[cfg(not(windows))]
+    let script = r#"{ run: {|| ^sh -c "echo hi" | lines | each {|l| {line: $l} } } }"#;
+    store
+        .append(
+            Frame::builder("xs.service.cleaner.create")
+                .hash(store.cas_insert(script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .build();
+    let mut recver = store.read(options);
+
+    for _ in 0..2 {
+        assert_eq!(
+            recver.recv().await.unwrap().topic,
+            "xs.service.cleaner.active"
+        );
+        assert_eq!(recver.recv().await.unwrap().topic, "cleaner.recv");
+    }
+
+    store
+        .append(Frame::builder("xs.service.cleaner.term").build())
+        .unwrap();
+    loop {
+        let frame = recver.recv().await.unwrap();
+        assert_ne!(frame.topic, "xs.service.cleaner.fin.error");
+        if frame.topic == "xs.service.cleaner.fin.term" {
+            break;
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_graceful_shutdown_via_xs_stopping() {
     let store = setup_test_env();
