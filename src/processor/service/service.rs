@@ -569,18 +569,16 @@ fn run_pipeline(
     task: &mut Task,
     input_pipeline: PipelineData,
 ) -> Result<(), String> {
-    let pipeline = task
+    let exec_data = task
         .engine
-        .run_closure_in_job(
+        .run_closure_in_job_with_exit(
             &task.run_closure,
             vec![],
             Some(input_pipeline),
             task.id.to_string(),
         )
-        .map_err(|e| {
-            let working_set = nu_protocol::engine::StateWorkingSet::new(&task.engine.state);
-            nu_protocol::format_cli_error(None, &working_set, &*e, None)
-        })?;
+        .map_err(|e| format_err(&task.engine, &e))?;
+    let pipeline = exec_data.body;
 
     let suffix = task
         .return_options
@@ -637,7 +635,21 @@ fn run_pipeline(
             }
         }
     }
-    Ok(())
+
+    // The pipeline drained; now check its externals' exit statuses, as nu's
+    // pipefail does. A non-zero exit is an error, not a clean completion.
+    // SIGPIPE is not an error. When the job was interrupted (term, replace,
+    // xs.stopping) its externals were killed on purpose, so skip the check.
+    if task.engine.state.signals().interrupted() {
+        return Ok(());
+    }
+    nu_protocol::process::check_exit_status_future(exec_data.exit)
+        .map_err(|e| format_err(&task.engine, &e))
+}
+
+fn format_err(engine: &nu::Engine, e: &nu_protocol::ShellError) -> String {
+    let working_set = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+    nu_protocol::format_cli_error(None, &working_set, e, None)
 }
 
 pub(crate) fn value_to_event(
