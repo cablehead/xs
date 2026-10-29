@@ -229,7 +229,9 @@ one second and restarts the pipeline. No lifecycle frame is emitted for this
 internal restart, the service is still considered “running.” This is the
 default <code dir="auto">restart: "on-success"</code> policy.</p>
 <p>A pipeline that errors is not restarted under any policy. The service emits
-<code dir="auto">xs.service.&#x3C;name>.fin.error</code> and stays down.</p>
+<code dir="auto">xs.service.&#x3C;name>.fin.error</code> and stays down. An external command that exits
+non-zero counts as an error, even mid-pipeline, as in
+<code dir="auto">^my-tool | lines | each { from json }</code>.</p>
 <p><code dir="auto">restart: "never"</code> makes a clean completion terminal. The service emits
 <code dir="auto">xs.service.&#x3C;name>.fin.ok</code> and stops, and it stays down across xs restarts like
 any other <code dir="auto">fin.*</code>. Use it when the pipeline ending is the point, such as a
