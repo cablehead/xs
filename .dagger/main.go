@@ -56,7 +56,9 @@ func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory, version stri
 		# Only the known libproc failure is recoverable. Any other non-zero exit
 		# must fail the step, never fall through to package an empty tarball.
 		if [ "$status" -ne 0 ]; then
-			if grep -q "osx_libproc_bindings.rs.*No such file" build.log; then
+			# rustc has said "couldn't read `…osx_libproc_bindings.rs`: No such
+			# file" and "couldn't find file `…osx_libproc_bindings.rs`".
+			if grep -q "osx_libproc_bindings.rs" build.log; then
 				echo "Detected libproc issue, applying fix..."
 
 				# Find the libproc source file - try both possible paths
