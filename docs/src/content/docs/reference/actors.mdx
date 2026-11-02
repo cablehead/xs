@@ -182,9 +182,9 @@ Actors can produce output in two ways:
 
 <Aside type="note" title="Keep actors quick">
 Actors are short-lived choke points, like actors in an async framework: they
-apply business logic to one frame at a time, in order, and should finish in a
-few milliseconds. Each step mints the state of things as of that point in the
-stream, and since only one instance of an actor runs at a time, there is no
+apply business logic serially, one frame at a time, in order, and should finish
+in a few milliseconds. Each step mints the state of things as of that point in
+the stream, and since only one instance of an actor runs at a time, there is no
 race in applying that logic.
 
 A step's `.append` calls are held until the closure returns, then written
