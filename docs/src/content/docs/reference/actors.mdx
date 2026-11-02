@@ -182,8 +182,10 @@ Actors can produce output in two ways:
 
 <Aside type="note" title="Keep actors quick">
 Actors are short-lived choke points, like actors in an async framework: they
-apply logic to one frame at a time, in order, and should finish in a few
-milliseconds.
+apply business logic to one frame at a time, in order, and should finish in a
+few milliseconds. Each step mints the state of things as of that point in the
+stream, and since only one instance of an actor runs at a time, there is no
+race in applying that logic.
 
 A step's `.append` calls are held until the closure returns, then written
 together with its `out` frame in a single commit. A reader sees all of them or
@@ -192,32 +194,22 @@ none are written. `--ttl ephemeral` frames are held too (they are broadcast,
 not stored), so an actor cannot report progress mid-step.
 
 For long work, such as a slow external call, use a
-[service](../services/) that follows the stream. A service's appends land
-immediately:
+[service](../services/) that follows the stream. Its appends land
+immediately, and `generate` carries state from one frame to the next:
 
 ```nushell
 {
   run: {||
     .cat --follow --new -T job.start
-    | each {|frame|
-        "working" | .append job.progress --ttl ephemeral
+    | generate {|frame, n = 0|
+        $"job ($n + 1): working" | .append job.progress --ttl ephemeral
         # ... long-running work, appending progress as it goes ...
-        "done" | .append job.result
+        $"job ($n + 1): done" | .append job.result
+        {next: ($n + 1)}
       }
     | ignore
   }
 }
-```
-
-Inside `run`, use `generate` to carry state from one frame to the next:
-
-```nushell
-.cat --follow --new -T job.start
-| generate {|frame, n = 0|
-    $"job ($n + 1) started" | .append job.progress
-    {next: ($n + 1)}
-  }
-| ignore
 ```
 </Aside>
 
