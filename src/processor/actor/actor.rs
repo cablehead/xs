@@ -254,12 +254,12 @@ impl Actor {
         };
 
         // Process buffered appends and the additional frame
-        let output_to_process: Vec<_> = {
+        let mut output_to_process: Vec<_> = {
             let mut output = self.output.lock().unwrap();
             output.drain(..).chain(additional_frame).collect()
         };
 
-        for mut output_frame in output_to_process {
+        for output_frame in output_to_process.iter_mut() {
             let meta_obj = output_frame
                 .meta
                 .get_or_insert_with(|| serde_json::Value::Object(Default::default()))
@@ -274,8 +274,15 @@ impl Actor {
                 "frame_id".to_string(),
                 serde_json::Value::String(frame.id.to_string()),
             );
+        }
 
-            let _ = store.append(output_frame);
+        // One write for the whole step: other appends can't land between
+        // these frames, and a reader sees all of them or none. A failed write
+        // stops the actor, as a closure error does.
+        if !output_to_process.is_empty() {
+            store
+                .append_many(output_to_process)
+                .map_err(|e| format!("Failed to append actor output: {e}"))?;
         }
 
         Ok(should_continue)
@@ -285,7 +292,7 @@ impl Actor {
     /// blocking_recv (no async runtime hop) and evaluates each inline -- the
     /// per-frame async->worker->oneshot round trip is gone. State is threaded
     /// here and passed by `&mut` into `process_frame`. All store ops on this
-    /// path (`append`, `cas_insert_sync`) are synchronous.
+    /// path (`append`, `append_many`, `cas_insert_sync`) are synchronous.
     fn run_blocking(mut self, mut recver: mpsc::Receiver<Frame>, store: Store) {
         // One long-lived background job, so per-frame eval can skip job churn.
         self.engine.attach_background_job("actor");

@@ -3066,3 +3066,129 @@ mod tests_reimport_orphans {
         assert_eq!(topic_ids(&store, "one"), none());
     }
 }
+
+mod tests_append_many {
+    use super::*;
+    use tempfile::TempDir;
+    use tokio::sync::mpsc::Receiver;
+
+    /// Follow the store and consume the threshold marker.
+    async fn follow(store: &Store) -> Receiver<Frame> {
+        let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
+        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+        rx
+    }
+
+    /// Assert no frame is broadcast within a short window.
+    async fn assert_no_broadcast(rx: &mut Receiver<Frame>) {
+        if let Ok(frame) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
+            panic!("unexpected broadcast: {frame:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_append_many_writes_and_broadcasts_in_order() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+        let mut rx = follow(&store).await;
+
+        let frames = store
+            .append_many(vec![
+                Frame::builder("batch.a").build(),
+                Frame::builder("batch.b").ttl(TTL::Last(5)).build(),
+                Frame::builder("batch.a").build(),
+            ])
+            .unwrap();
+        assert_eq!(frames.len(), 3);
+        assert!(frames.windows(2).all(|w| w[0].id < w[1].id));
+
+        for frame in &frames {
+            assert_eq!(rx.recv().await.unwrap(), *frame);
+            assert_eq!(store.get(&frame.id), Some(frame.clone()));
+        }
+        assert_no_broadcast(&mut rx).await;
+
+        let stored: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
+        assert_eq!(stored, frames);
+        let by_topic: Vec<Frame> = store
+            .read_sync(ReadOptions::builder().topic("batch.a".to_string()).build())
+            .collect();
+        assert_eq!(by_topic, vec![frames[0].clone(), frames[2].clone()]);
+    }
+
+    #[tokio::test]
+    async fn test_append_many_invalid_frame_writes_nothing() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+        let mut rx = follow(&store).await;
+
+        let result = store.append_many(vec![
+            Frame::builder("batch.ok").build(),
+            Frame::builder("batch\0bad").build(),
+            Frame::builder("batch.ok").build(),
+        ]);
+        assert!(result.is_err());
+
+        assert_eq!(store.read_sync(ReadOptions::default()).count(), 0);
+        assert_no_broadcast(&mut rx).await;
+    }
+
+    #[tokio::test]
+    async fn test_append_many_invalid_ephemeral_frame_writes_nothing() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+        let mut rx = follow(&store).await;
+
+        let result = store.append_many(vec![
+            Frame::builder("batch.ok").build(),
+            Frame::builder("batch\0bad").ttl(TTL::Ephemeral).build(),
+        ]);
+        assert!(result.is_err());
+
+        assert_eq!(store.read_sync(ReadOptions::default()).count(), 0);
+        assert_no_broadcast(&mut rx).await;
+    }
+
+    #[tokio::test]
+    async fn test_append_many_ephemeral_broadcast_not_stored() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+        let mut rx = follow(&store).await;
+
+        let frames = store
+            .append_many(vec![
+                Frame::builder("batch.kept").build(),
+                Frame::builder("batch.live").ttl(TTL::Ephemeral).build(),
+                Frame::builder("batch.kept").build(),
+            ])
+            .unwrap();
+
+        for frame in &frames {
+            assert_eq!(rx.recv().await.unwrap(), *frame);
+        }
+        assert_no_broadcast(&mut rx).await;
+
+        let stored: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
+        assert_eq!(stored, vec![frames[0].clone(), frames[2].clone()]);
+        assert_eq!(store.get(&frames[1].id), None);
+    }
+
+    #[tokio::test]
+    async fn test_append_many_all_ephemeral() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.keep()).unwrap();
+        let mut rx = follow(&store).await;
+
+        let frames = store
+            .append_many(vec![
+                Frame::builder("batch.live").ttl(TTL::Ephemeral).build(),
+                Frame::builder("batch.live").ttl(TTL::Ephemeral).build(),
+            ])
+            .unwrap();
+
+        for frame in &frames {
+            assert_eq!(rx.recv().await.unwrap(), *frame);
+        }
+        assert_eq!(store.read_sync(ReadOptions::default()).count(), 0);
+    }
+}

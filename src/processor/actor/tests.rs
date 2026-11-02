@@ -2148,3 +2148,95 @@ async fn test_topics_filter_pulse_still_ticks() {
     }
     assert_eq!(data_topics, vec!["noise", "ev"]);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_actor_output_is_contiguous_with_concurrent_writer() {
+    let (store, _temp_dir) = setup_test_environment().await;
+    let options = ReadOptions::builder().follow(FollowOption::On).build();
+    let mut recver = store.read(options);
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+
+    store
+        .append(
+            Frame::builder("xs.actor.burst.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              topics: ["tick"]
+                              run: {|frame, state = null|
+                                if $frame.topic != "tick" { {next: $state} } else {
+                                  "a" | .append burst.a
+                                  "b" | .append burst.b
+                                  "c" | .append burst.c
+                                  {out: {done: true}, next: $state}
+                                }
+                              }
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.burst.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.burst.active");
+    drop(recver);
+
+    // Another writer appends as fast as it can while the actor works. The
+    // actor reads only "tick", and the writer stops well short of the follow
+    // buffer, so neither can make the actor's read fall behind.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let writer = {
+        let store = store.clone();
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            for _ in 0..2000 {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                store.append(Frame::builder("noise").build()).unwrap();
+            }
+        })
+    };
+
+    let ticks = 20;
+    for _ in 0..ticks {
+        store.append(Frame::builder("tick").build()).unwrap();
+    }
+
+    // Poll rather than follow: the writer can outrun a following reader
+    let out_topic = ReadOptions::builder()
+        .topic("burst.out".to_string())
+        .build();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while store.read_sync(out_topic.clone()).count() < ticks {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for actor output"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    writer.join().unwrap();
+
+    // Each tick's output is one run in the stream: burst.a, burst.b, burst.c,
+    // burst.out, with no other frame between them
+    let stream: Vec<Frame> = store.read_sync(ReadOptions::default()).collect();
+    let mut runs = 0;
+    for (i, frame) in stream.iter().enumerate() {
+        if frame.topic != "burst.a" {
+            continue;
+        }
+        let run: Vec<&Frame> = stream[i..i + 4].iter().collect();
+        let topics: Vec<&str> = run.iter().map(|f| f.topic.as_str()).collect();
+        assert_eq!(topics, ["burst.a", "burst.b", "burst.c", "burst.out"]);
+        let trigger = &run[0].meta.as_ref().unwrap()["frame_id"];
+        assert!(run
+            .iter()
+            .all(|f| &f.meta.as_ref().unwrap()["frame_id"] == trigger));
+        runs += 1;
+    }
+    assert_eq!(runs, ticks);
+}
