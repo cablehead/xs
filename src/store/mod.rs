@@ -1792,17 +1792,8 @@ impl Store {
     /// with predetermined IDs (for example when restoring a backup).
     #[tracing::instrument(skip(self))]
     pub fn insert_frame(&self, frame: &Frame) -> Result<(), crate::error::Error> {
-        let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
-
-        // Get the index topic key (also validates topic)
+        // Validate the topic before reading or queueing anything
         let topic_key = idx_topic_key_from_frame(frame)?;
-
-        // Get prefix index keys for hierarchical queries
-        let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
-
-        // Every idx_topic entry for this frame carries the same expiry, so a
-        // topic scan can drop an expired id without reading the frame.
-        let idx_value = idx_topic_expiry_value(frame);
 
         // The id may already be here under a different topic or ttl. This is
         // an upsert, so the stream row is replaced, but the index keys carry
@@ -1811,16 +1802,8 @@ impl Store {
         let superseded = self.get(&frame.id);
 
         let mut batch = self.db.batch();
-        batch.insert(&self.stream, frame.id.as_bytes(), encoded);
-        batch.insert(&self.idx_topic, topic_key.clone(), idx_value);
-        for prefix_key in &prefix_keys {
-            batch.insert(&self.idx_topic, prefix_key, idx_value);
-        }
-        // A time: frame is also indexed by its expiry, for the sweeper
-        let expiry_key = expires_at(frame).map(|at| idx_expiry_key(at, &frame.id));
-        if let Some(key) = expiry_key {
-            batch.insert(&self.idx_expiry, key, frame.topic.as_bytes());
-        }
+        let expiry_key = self.insert_frame_keys(&mut batch, frame)?;
+        let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
 
         if let Some(old) = superseded.as_ref().filter(|old| old.topic != frame.topic) {
             let mut old_key = idx_topic_key_prefix(&old.topic);
@@ -1848,14 +1831,50 @@ impl Store {
         }
 
         batch.commit()?;
-        // Both gc scans resume where they last stopped, and an id from the
-        // past can land behind them. Tell them, once the entries are there to
-        // be found.
+        self.note_indexed(frame, expiry_key);
+        self.after_commit()
+    }
+
+    /// Queue the stream entry and index keys of a frame for insertion on
+    /// `batch`, validating its topic first. Returns the frame's expiry index
+    /// key, `Some` only for a `time:` frame. Nothing is done about an earlier
+    /// frame under the same id: that is [`insert_frame`](Store::insert_frame)'s
+    /// job.
+    fn insert_frame_keys(
+        &self,
+        batch: &mut OwnedWriteBatch,
+        frame: &Frame,
+    ) -> Result<Option<[u8; 24]>, crate::error::Error> {
+        // Get the index topic key (also validates topic)
+        let topic_key = idx_topic_key_from_frame(frame)?;
+        let encoded: Vec<u8> = serde_json::to_vec(&frame).unwrap();
+
+        // Every idx_topic entry for this frame carries the same expiry, so a
+        // topic scan can drop an expired id without reading the frame.
+        let idx_value = idx_topic_expiry_value(frame);
+
+        batch.insert(&self.stream, frame.id.as_bytes(), encoded);
+        batch.insert(&self.idx_topic, topic_key, idx_value);
+        // Prefix index keys for hierarchical queries
+        for prefix_key in idx_topic_prefix_keys(&frame.topic, &frame.id) {
+            batch.insert(&self.idx_topic, prefix_key, idx_value);
+        }
+        // A time: frame is also indexed by its expiry, for the sweeper
+        let expiry_key = expires_at(frame).map(|at| idx_expiry_key(at, &frame.id));
+        if let Some(key) = expiry_key {
+            batch.insert(&self.idx_expiry, key, frame.topic.as_bytes());
+        }
+        Ok(expiry_key)
+    }
+
+    /// Note a committed frame's index entries. Both gc scans resume where
+    /// they last stopped, and an id from the past, or a short `time:` ttl, can
+    /// land behind them. Tell them, once the entries are there to be found.
+    fn note_indexed(&self, frame: &Frame, expiry_key: Option<[u8; 24]>) {
         if let Some(key) = expiry_key {
             self.note_indexed_expiry(key);
         }
         self.note_indexed_topic(&frame.topic, &frame.id);
-        self.after_commit()
     }
 
     /// Append a frame to the stream and return it with its freshly assigned
@@ -1890,33 +1909,77 @@ impl Store {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn append(&self, mut frame: Frame) -> Result<Frame, crate::error::Error> {
+    pub fn append(&self, frame: Frame) -> Result<Frame, crate::error::Error> {
+        let mut frames = self.append_many(vec![frame])?;
+        Ok(frames
+            .pop()
+            .expect("append_many returns one frame per input"))
+    }
+
+    /// Append several frames as one write and return them with their freshly
+    /// assigned [`id`](Frame::id)s, in order.
+    ///
+    /// Each frame is handled as [`append`](Store::append) handles one, but
+    /// together: the frames get consecutive ids with no other append between
+    /// them, every topic is validated before anything is written, and the
+    /// non-ephemeral frames are committed in a single batch. Only once that
+    /// commit succeeds are the frames broadcast, in order, and `last:n`
+    /// retention scheduled.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any topic is invalid or the write fails. Either
+    /// way nothing is stored and nothing is broadcast. Under
+    /// [`Fsync::Always`], a failed sync after the commit also returns an
+    /// error: the frames are written but not broadcast.
+    pub fn append_many(&self, mut frames: Vec<Frame>) -> Result<Vec<Frame>, crate::error::Error> {
         // Serialize all appends to ensure ID generation, write, and broadcast
         // happen atomically. This guarantees subscribers receive frames in
         // scru128 ID order.
         let _guard = self.append_lock.lock().unwrap();
 
-        frame.id = scru128::new();
+        for frame in frames.iter_mut() {
+            frame.id = scru128::new();
+        }
 
-        // Check for null byte in topic (in case we're not storing the frame)
-        idx_topic_key_from_frame(&frame)?;
+        // Queue the frames that are not ephemeral, and check the topic of
+        // every frame. An invalid one returns here, before the commit, so the
+        // batch is dropped with nothing written.
+        let mut batch = self.db.batch();
+        let mut stored = Vec::new();
+        for frame in &frames {
+            if frame.ttl == Some(TTL::Ephemeral) {
+                idx_topic_key_from_frame(frame)?;
+            } else {
+                let expiry_key = self.insert_frame_keys(&mut batch, frame)?;
+                stored.push((frame, expiry_key));
+            }
+        }
+        if !stored.is_empty() {
+            batch.commit()?;
+            for (frame, expiry_key) in &stored {
+                self.note_indexed(frame, *expiry_key);
+            }
+            self.after_commit()?;
 
-        // only store the frame if it's not ephemeral
-        if frame.ttl != Some(TTL::Ephemeral) {
-            self.insert_frame(&frame)?;
-
-            // If this is a Last TTL, schedule a gc task
-            if let Some(TTL::Last(n)) = frame.ttl {
-                let _ = self.gc_tx.send(GCTask::CheckLastTTL {
-                    topic: frame.topic.clone(),
-                    keep: n,
-                });
+            // If a frame has a Last TTL, schedule a gc task
+            for (frame, _) in &stored {
+                if let Some(TTL::Last(n)) = frame.ttl {
+                    let _ = self.gc_tx.send(GCTask::CheckLastTTL {
+                        topic: frame.topic.clone(),
+                        keep: n,
+                    });
+                }
             }
         }
 
-        self.stats.appends.fetch_add(1, Ordering::Relaxed);
-        let _ = self.broadcast_tx.send(frame.clone());
-        Ok(frame)
+        self.stats
+            .appends
+            .fetch_add(frames.len(), Ordering::Relaxed);
+        for frame in &frames {
+            let _ = self.broadcast_tx.send(frame.clone());
+        }
+        Ok(frames)
     }
 
     /// Iterate frames starting from a bound.
