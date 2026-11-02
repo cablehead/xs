@@ -180,6 +180,39 @@ Actors can produce output in two ways:
 }
 ```
 
+<Aside type="note" title="Keep actors quick">
+Actors are short-lived choke points, like actors in an async framework: they
+apply business logic serially, one frame at a time, in order, and should finish
+in a few milliseconds. Each step mints the state of things as of that point in
+the stream, and since only one instance of an actor runs at a time, there is no
+race in applying that logic.
+
+A step's `.append` calls are held until the closure returns, then written
+together with its `out` frame in a single commit. A reader sees all of them or
+none, and no other writer's frames land between them. If the closure errors,
+none are written. `--ttl ephemeral` frames are held too (they are broadcast,
+not stored), so an actor cannot report progress mid-step.
+
+For long work, such as a slow external call, use a
+[service](../services/) that follows the stream. Its appends land
+immediately, and `generate` carries state from one frame to the next:
+
+```nushell
+{
+  run: {||
+    .cat --follow --new -T job.start
+    | generate {|frame, n = 0|
+        $"job ($n + 1): working" | .append job.progress --ttl ephemeral
+        # ... long-running work, appending progress as it goes ...
+        $"job ($n + 1): done" | .append job.result
+        {next: ($n + 1)}
+      }
+    | ignore
+  }
+}
+```
+</Aside>
+
 All output frames automatically include:
 
 - `actor_id`: ID of the actor that created the frame
