@@ -180,21 +180,25 @@ Actors can produce output in two ways:
 }
 ```
 
-<Aside type="note" title="Appends land when the closure returns">
-Frames from explicit `.append` calls are buffered and committed together with
-the `out` frame once the closure returns, so the effects of each input frame
-land as one batch. This includes `--ttl ephemeral` frames, so an actor cannot
-report progress while it is still working on a frame.
+<Aside type="note" title="Keep actors quick">
+Actors are short-lived choke points, like actors in an async framework: they
+apply logic to one frame at a time, in order, and should finish in a few
+milliseconds.
 
-For work that should be visible as it runs, such as a long external call, use
-a [service](../services/) that follows the stream. A service's appends land
+A step's `.append` calls are held until the closure returns, then written
+together with its `out` frame in a single commit. A reader sees all of them or
+none, and no other writer's frames land between them. If the closure errors,
+none are written. `--ttl ephemeral` frames are held too (they are broadcast,
+not stored), so an actor cannot report progress mid-step.
+
+For long work, such as a slow external call, use a
+[service](../services/) that follows the stream. A service's appends land
 immediately:
 
 ```nushell
 {
   run: {||
-    .cat --follow --new -T "job.*"
-    | where {|frame| $frame.topic == "job.start" }
+    .cat --follow --new -T job.start
     | each {|frame|
         "working" | .append job.progress --ttl ephemeral
         # ... long-running work, appending progress as it goes ...
@@ -205,8 +209,16 @@ immediately:
 }
 ```
 
-A service has no state threading of its own: use `generate` instead of `each`
-to carry state from one frame to the next.
+Inside `run`, use `generate` to carry state from one frame to the next:
+
+```nushell
+.cat --follow --new -T job.start
+| generate {|frame, n = 0|
+    $"job ($n + 1) started" | .append job.progress
+    {next: ($n + 1)}
+  }
+| ignore
+```
 </Aside>
 
 All output frames automatically include:
