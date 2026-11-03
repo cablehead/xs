@@ -293,7 +293,12 @@ impl Actor {
     /// per-frame async->worker->oneshot round trip is gone. State is threaded
     /// here and passed by `&mut` into `process_frame`. All store ops on this
     /// path (`append`, `append_many`, `cas_insert_sync`) are synchronous.
-    fn run_blocking(mut self, mut recver: mpsc::Receiver<Frame>, store: Store) {
+    fn run_blocking(
+        mut self,
+        mut recver: mpsc::Receiver<Frame>,
+        options: ReadOptions,
+        store: Store,
+    ) {
         // One long-lived background job, so per-frame eval can skip job churn.
         self.engine.attach_background_job("actor");
         let mut state = self.initial_state.clone();
@@ -302,7 +307,48 @@ impl Actor {
         let term_topic = format!("xs.actor.{}.term", self.topic);
         let store = &store;
 
-        while let Some(frame) = recver.blocking_recv() {
+        // The id of the last stored frame taken from the read, so a read the
+        // store ends can be resumed after it. Synthetic frames (xs.threshold,
+        // xs.pulse) carry fresh ids and are not counted.
+        let mut last_id: Option<Scru128Id> = None;
+        // Set after a resume: the resumed read replays nothing the actor has
+        // seen, but still ends its history with an xs.threshold, which the
+        // actor already had.
+        let mut skip_threshold = false;
+
+        'read: loop {
+            let Some(frame) = recver.blocking_recv() else {
+                // The store ended the read while the actor still wants frames:
+                // the follow fell more than the live buffer behind, typically
+                // while a slow closure replayed a long history. Resume after
+                // the last frame taken, with the state as it is.
+                let resume = ReadOptions {
+                    new: false,
+                    from: None,
+                    // Nothing taken yet: from the start the actor asked for,
+                    // or, for `start: "new"`, from its registration.
+                    after: last_id.or(options.after).or(options.new.then_some(self.id)),
+                    ..options.clone()
+                };
+                tracing::warn!(
+                    actor = %self.topic,
+                    after = ?resume.after,
+                    "actor read ended, resuming"
+                );
+                recver = store.read(resume);
+                skip_threshold = true;
+                continue 'read;
+            };
+
+            if frame.topic == "xs.threshold" {
+                if skip_threshold {
+                    skip_threshold = false;
+                    continue;
+                }
+            } else if frame.topic != "xs.pulse" {
+                last_id = Some(frame.id);
+            }
+
             // Skip lifecycle activity that occurred before this actor was registered
             if (frame.topic == create_topic || frame.topic == term_topic) && frame.id <= self.id {
                 continue;
@@ -384,7 +430,7 @@ impl Actor {
         // loop on a dedicated OS thread that drains it with blocking_recv.
         // This keeps the synchronous nushell eval off the tokio runtime
         // without paying a per-frame thread handoff.
-        let recver = store.read(options);
+        let recver = store.read(options.clone());
 
         let _ = store.append(
             Frame::builder(format!("xs.actor.{}.active", self.topic))
@@ -399,7 +445,7 @@ impl Actor {
         std::thread::Builder::new()
             .name(format!("actor-{}", self.topic))
             .spawn(move || {
-                self.run_blocking(recver, store_for_loop);
+                self.run_blocking(recver, options, store_for_loop);
             })
             .map_err(|e| Error::from(format!("Failed to spawn actor thread: {e}")))?;
 

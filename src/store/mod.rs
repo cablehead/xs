@@ -2340,7 +2340,7 @@ fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
 /// than silently skipped: see the `Lagged` arm in [`read`](Store::read).
 /// Raising it buys a slow reader more room before that happens, at a frame
 /// of memory per slot per follower.
-const FOLLOW_BUFFER: usize = 4096;
+pub(crate) const FOLLOW_BUFFER: usize = 4096;
 
 const NULL_DELIMITER: u8 = 0;
 const MAX_TOPIC_LENGTH: usize = 255;

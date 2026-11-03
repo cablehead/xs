@@ -1403,6 +1403,89 @@ async fn test_non_record_return_error() {
     assert_no_more_frames(&mut recver).await;
 }
 
+/// An actor that replays a long history and writes a frame for each one
+/// overruns the store's live buffer before it gets to follow: its own output
+/// piles up there while it is still in history. The store ends such a read;
+/// the actor has to resume it, or it stops seeing frames with no error.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_actor_resumes_after_replay_overruns_live_buffer() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let history = crate::store::FOLLOW_BUFFER + 500;
+    for _ in 0..history {
+        store.append(Frame::builder("pew").build()).unwrap();
+    }
+
+    store
+        .append(
+            Frame::builder("xs.actor.count.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = 0|
+                                if $frame.topic == "xs.threshold" {
+                                  {out: {threshold: $state}, next: $state}
+                                } else if $frame.topic in ["pew" "marker"] {
+                                  {out: {count: ($state + 1)}, next: ($state + 1)}
+                                } else {
+                                  {next: $state}
+                                }
+                              }
+                              start: "first"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .new(true)
+        .follow(FollowOption::On)
+        .topic("count.out".to_string())
+        .build();
+    let mut recver = store.read(options);
+
+    // Wait for the replay to finish, then append one frame live.
+    let mut thresholds = 0;
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(120), recver.recv())
+            .await
+            .expect("the replay did not finish")
+            .expect("read ended");
+        let meta = frame.meta.unwrap();
+        if meta.get("threshold").is_some() {
+            thresholds += 1;
+            assert_eq!(meta["threshold"], history as u64);
+            break;
+        }
+    }
+
+    // The marker has to reach the actor, counted once, after every pew.
+    let marker = store.append(Frame::builder("marker").build()).unwrap();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), recver.recv())
+            .await
+            .expect("the actor never saw the live frame")
+            .expect("read ended");
+        let meta = frame.meta.unwrap();
+        if meta.get("threshold").is_some() {
+            thresholds += 1;
+        }
+        if meta["frame_id"] == marker.id.to_string() {
+            assert_eq!(meta["count"], history as u64 + 1);
+            break;
+        }
+    }
+    assert_eq!(
+        thresholds, 1,
+        "a resumed read handed the actor a second threshold"
+    );
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
