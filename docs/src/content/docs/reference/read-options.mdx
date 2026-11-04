@@ -50,9 +50,28 @@ keep a connection warm or to drive periodic work in a processor.
 A following read delivers every frame appended after it starts, in frame ID
 order, with no gaps.
 
+The read sends the stored frames first, straight from the store. Frames
+appended while it does are read from the store afterwards, so a slow replay
+cannot fall behind. Then `xs.threshold`, then live frames.
+
 Live frames wait in a buffer of 4096 while the reader takes them. A reader that
-falls further behind than that has its read **ended**. A read carries frames and
-nothing else, so closing it is the only way to say that frames were missed.
+falls further behind than that is slower than the stream. Its read ends with a
+last frame that says so:
+
+```
+topic: xs.lagged
+meta:  {skipped: 506}
+```
+
+Every reader in xs treats `xs.lagged` as an error:
+
+| Reader | On `xs.lagged` |
+| ------ | -------------- |
+| actor | stops with `xs.actor.<name>.fin.error` |
+| service | stops with `xs.service.<name>.fin.error` (the control read or the duplex input) |
+| `.cat -f`, `.last -f` | the stream ends with an error |
+| `xs cat -f`, `xs last -f` | prints the frame, then exits 1 with the reason on stderr |
+| HTTP API | sends the frame as the last line, then the trailer `xs-lagged: N` (when the request sends `TE: trailers`), then closes |
 
 To resume, read again with [`after`](#where-to-start) set to the last frame ID
 you received. What you missed is still in the store and comes back as history.
@@ -61,8 +80,8 @@ you received. What you missed is still in the store and comes back as history.
 xs cat ./store --follow --after 03c4tn8fzl0a0000000000000
 ```
 
-Two things do not come back: ephemeral frames, which are broadcast but never
-stored, and frames a [`ttl`](../ttl/) has since removed.
+Ephemeral frames, which are broadcast but never stored, do not come back, and
+neither do frames a [`ttl`](../ttl/) has since removed.
 
 ## Filtering by topic
 
@@ -72,8 +91,8 @@ is described under [Topics](../topics/#wildcard-queries). A frame matched by
 more than one pattern in a list is returned once.
 
 Filtering preserves the chronological ordering of the read and does not change
-the threshold boundary. Synthetic control frames (`xs.threshold` and heartbeat
-`xs.pulse`) are always delivered to a following read; the filter applies only
+the threshold boundary. Synthetic control frames (`xs.threshold`, heartbeat
+`xs.pulse` and `xs.lagged`) are always delivered to a following read; the filter applies only
 to stored and broadcast frames.
 
 ## Output

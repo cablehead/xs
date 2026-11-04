@@ -129,6 +129,7 @@ default `forever`. See [TTL](../ttl/).
 | `xs.start` | System initialization complete |
 | `xs.threshold` | Stream processing threshold marker |
 | `xs.pulse` | Synthetic pulse events (configurable interval) |
+| `xs.lagged` | Last frame of a following read that fell behind the live stream; `meta.skipped` is how many it missed ([Read Options](../read-options/#what-a-follow-delivers)) |
 | `xs.stopping` | Server-wide shutdown signal |
 
 ## Output suffix customization

@@ -36,7 +36,7 @@ macro_rules! validate_actor_output_frames {
         let state_frame: Option<&Frame> = $state_frame; // Explicit type for state_frame
         $(
             validate_actor_output_frame!(
-                $recver.recv().await.unwrap(),
+                $recver.recv().await.unwrap().unwrap(),
                 $topic,
                 $handler,
                 $trigger,
@@ -104,7 +104,7 @@ async fn test_register_invalid_closure_no_args() {
     let mut recver = store.read(options);
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.threshold".to_string()
     );
 
@@ -118,12 +118,12 @@ async fn test_register_invalid_closure_no_args() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.invalid.create".to_string()
     );
 
     validate_frame!(
-        recver.recv().await.unwrap(), {
+        recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.invalid.invalid",
         handler: frame_actor,
         error: "Closure must accept exactly 2 params",
@@ -139,7 +139,7 @@ async fn test_register_invalid_closure_old_one_arg() {
     let mut recver = store.read(options);
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.threshold".to_string()
     );
 
@@ -158,12 +158,12 @@ async fn test_register_invalid_closure_old_one_arg() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.invalid.create".to_string()
     );
 
     validate_frame!(
-        recver.recv().await.unwrap(), {
+        recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.invalid.invalid",
         handler: frame_actor,
         error: "Closure must accept exactly 2 params",
@@ -179,7 +179,7 @@ async fn test_register_parse_error() {
     let mut recver = store.read(options);
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.threshold".to_string()
     );
 
@@ -207,13 +207,13 @@ async fn test_register_parse_error() {
 
     // Ensure the register frame is processed
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.invalid.create".to_string()
     );
 
     // Expect an inactive frame to be appended
     validate_frame!(
-        recver.recv().await.unwrap(), {
+        recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.invalid.invalid",
         handler: frame_actor,
         error: "Parse error", // Expecting parse error details
@@ -230,7 +230,7 @@ async fn test_no_self_loop() {
     let mut recver = store.read(options);
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.threshold".to_string()
     );
 
@@ -248,16 +248,22 @@ async fn test_no_self_loop() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.echo.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.echo.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.echo.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.echo.active"
+    );
 
     // note we don't see an echo of the echo.active frame
 
     // Trigger the actor
     store.append(Frame::builder("a-frame").build()).unwrap();
     // we should see the trigger, and then a single echo
-    assert_eq!(recver.recv().await.unwrap().topic, "a-frame");
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.out");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "a-frame");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "echo.out");
 
     assert_no_more_frames(&mut recver).await;
 }
@@ -273,9 +279,9 @@ async fn test_essentials() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "pew");
-    assert_eq!(recver.recv().await.unwrap().topic, "pew");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "pew");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "pew");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Create a pointer frame that contains indicates we've processed pew1
     let _pointer_frame = store
@@ -313,18 +319,21 @@ async fn test_essentials() {
 
     // Start actor
     let frame_actor = store.append(actor_proto.clone()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "action.out"); // The pointer frame
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.action.create");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "action.out"); // The pointer frame
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.action.create"
+    );
 
     // Assert active frame has the correct meta
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "xs.actor.action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["actor_id"], frame_actor.id.to_string());
     assert_eq!(meta["start"]["after"], pew1.id.to_string());
 
     // Should process frame2 (since pew1 was before the start point)
-    validate_frame!(recver.recv().await.unwrap(), {
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {
         topic: "action.out",
         handler: &frame_actor,
         trigger: &pew2,
@@ -336,9 +345,12 @@ async fn test_essentials() {
     store
         .append(Frame::builder("xs.actor.action.term").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.action.term");
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.action.term"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.action.fin.term"
     );
 
@@ -346,20 +358,23 @@ async fn test_essentials() {
 
     // Restart actor
     let frame_actor_2 = store.append(actor_proto.clone()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.action.create");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.action.create"
+    );
 
     // Assert active frame has the correct meta
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "xs.actor.action.active");
     let meta = frame.meta.unwrap();
     assert_eq!(meta["actor_id"], frame_actor_2.id.to_string());
     assert_eq!(meta["start"]["after"], pew2.id.to_string());
 
     let pew3 = store.append(Frame::builder("pew").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "pew");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "pew");
 
     // Should resume processing from pew3 on
-    validate_frame!(recver.recv().await.unwrap(), {
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {
         topic: "action.out",
         handler: &frame_actor_2,
         trigger: &pew3,
@@ -374,16 +389,16 @@ async fn test_unregister_on_error() {
 
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // This frame will trigger the error when the actor comes online
     let frame_trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {topic: "trigger"});
 
     // add an additional frame, which shouldn't be processed, as the actor should immediately
     // unregister
     let _ = store.append(Frame::builder("trigger").build()).unwrap();
-    validate_frame!(recver.recv().await.unwrap(), {topic: "trigger"});
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {topic: "trigger"});
 
     // Start actor
     let frame_actor = store
@@ -407,11 +422,17 @@ async fn test_unregister_on_error() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.error.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.error.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.error.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.error.active"
+    );
 
     // Expect an inactive frame to be appended
-    validate_frame!(recver.recv().await.unwrap(), {
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.error.fin.error",
         handler: &frame_actor,
         trigger: &frame_trigger,
@@ -428,7 +449,7 @@ async fn test_return_options() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register actor with return_options
     let actor_proto = Frame::builder("xs.actor.echo.create")
@@ -456,15 +477,21 @@ async fn test_return_options() {
         .build();
 
     let frame_actor = store.append(actor_proto).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.echo.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.echo.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.echo.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.echo.active"
+    );
 
     // Send first ping
     let frame1 = store.append(Frame::builder("ping").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ping");
 
     // Check response has custom suffix and right meta
-    let response1 = recver.recv().await.unwrap();
+    let response1 = recver.recv().await.unwrap().unwrap();
     assert_eq!(response1.topic, "echo.warble");
     assert_eq!(response1.ttl, Some(TTL::Last(1)));
     let meta = response1.meta.unwrap();
@@ -473,9 +500,9 @@ async fn test_return_options() {
 
     // Send second ping - should only see newest response due to Last(1)
     let frame2 = store.append(Frame::builder("ping").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ping");
 
-    let response2 = recver.recv().await.unwrap();
+    let response2 = recver.recv().await.unwrap().unwrap();
     assert_eq!(response2.topic, "echo.warble");
     let meta = response2.meta.unwrap();
     assert_eq!(meta["frame_id"], frame2.id.to_string());
@@ -486,6 +513,7 @@ async fn test_return_options() {
     let recver = store.read(options);
     use tokio_stream::StreamExt;
     let frames: Vec<_> = tokio_stream::wrappers::ReceiverStream::new(recver)
+        .map(Result::unwrap)
         .filter(|f| f.topic == "echo.warble")
         .collect::<Vec<_>>()
         .await;
@@ -503,7 +531,7 @@ async fn test_binary_return_value() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register actor that returns binary msgpack data
     let actor_proto = Frame::builder("xs.actor.binary.create")
@@ -527,15 +555,21 @@ async fn test_binary_return_value() {
         .build();
 
     let frame_actor = store.append(actor_proto).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.binary.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.binary.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.binary.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.binary.active"
+    );
 
     // Send trigger frame
     let trigger_frame = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
     // Check that the binary output frame was created
-    let output_frame = recver.recv().await.unwrap();
+    let output_frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(output_frame.topic, "binary.out");
 
     // Verify metadata
@@ -571,7 +605,7 @@ async fn test_custom_append() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     let actor_proto = Frame::builder("xs.actor.action.create")
         .hash(
@@ -594,11 +628,17 @@ async fn test_custom_append() {
 
     // Start actor
     let frame_actor = store.append(actor_proto.clone()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.action.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.action.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.action.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.action.active"
+    );
 
     let trigger_frame = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
     validate_actor_output_frames!(
         recver,
@@ -618,7 +658,7 @@ async fn test_actor_replacement() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register first actor
     let _ = store
@@ -642,8 +682,14 @@ async fn test_actor_replacement() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.active"
+    );
 
     // Register second actor for same topic
     let actor2 = store
@@ -667,10 +713,13 @@ async fn test_actor_replacement() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.create"
+    );
     let topics: HashSet<_> = [
-        recver.recv().await.unwrap().topic,
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
     ]
     .into_iter()
     .collect();
@@ -684,10 +733,10 @@ async fn test_actor_replacement() {
 
     // Send trigger - should be handled by actor2
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
     // Verify actor2 processed it
-    let response = recver.recv().await.unwrap();
+    let response = recver.recv().await.unwrap().unwrap();
     assert_eq!(response.topic, "h.out");
     let meta = response.meta.as_ref().unwrap();
     assert_eq!(meta["actor_id"], actor2.id.to_string());
@@ -707,7 +756,7 @@ async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // First .create: a valid actor that echoes its trigger.
     let good_hash = store
@@ -729,15 +778,24 @@ async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.active"
+    );
 
     // Second .create: a closure with the wrong signature, will parse-fail.
     let bad_hash = store.cas_insert(r#"{run: {|| 42}}"#).await.unwrap();
     let _create_bad = store
         .append(Frame::builder("xs.actor.h.create").hash(bad_hash).build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.create"
+    );
 
     // Expected sequence (order between .replaced and .invalid can vary
     // since they're emitted by different tasks): the running actor sees
@@ -747,7 +805,7 @@ async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
     // new .active.
     let mut topics = std::collections::HashSet::new();
     for _ in 0..3 {
-        topics.insert(recver.recv().await.unwrap().topic);
+        topics.insert(recver.recv().await.unwrap().unwrap().topic);
     }
     assert!(topics.contains("xs.actor.h.replaced"));
     assert!(topics.contains("xs.actor.h.invalid"));
@@ -756,8 +814,8 @@ async fn inv3_live_hot_replace_broken_falls_back_to_confirmed() {
     // The fallback spawned a new instance running the good script, so a
     // trigger should still be handled.
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
-    let resp = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
+    let resp = recver.recv().await.unwrap().unwrap();
     assert_eq!(resp.topic, "h.out");
     let meta = resp.meta.as_ref().unwrap();
     assert_eq!(meta["frame_id"], trigger.id.to_string());
@@ -771,7 +829,7 @@ async fn test_actor_with_module() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register a VFS module via *.nu topic
     store
@@ -792,7 +850,10 @@ async fn test_actor_with_module() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.mymod");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.module.mymod"
+    );
 
     // Create actor that uses the VFS module
     let actor_script = r#"{
@@ -814,15 +875,21 @@ async fn test_actor_with_module() -> Result<(), Error> {
         .unwrap();
 
     // Wait for actor registration
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.test.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.test.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.test.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.test.active"
+    );
 
     // Send trigger frame
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
     // Get actor output
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content
@@ -837,7 +904,7 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     let _ = store
         .append(
@@ -846,7 +913,7 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "abc.init");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "abc.init");
 
     let _ = store
         .append(
@@ -855,7 +922,7 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "abc.delta");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "abc.delta");
 
     let frame_actor = store
         .append(
@@ -885,15 +952,21 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
         .unwrap();
 
     // Wait for actor registration
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.test.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.test.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.test.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.test.active"
+    );
 
     // Send trigger frame
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
     // Get actor output
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content shows the env var value
@@ -901,10 +974,10 @@ async fn test_actor_preserve_env() -> Result<(), Error> {
 
     // Send trigger frame
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
     // Get actor output
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     validate_actor_output_frame!(&output, "test.out", frame_actor, trigger, None);
 
     // Verify output content shows the env var value
@@ -919,7 +992,7 @@ async fn test_state_threading() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor with counter state: emits current state on trigger, increments
     let frame_actor = store
@@ -946,41 +1019,41 @@ async fn test_state_threading() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.active"
     );
 
     // First trigger: state=0 emitted, state becomes 1
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 0);
 
     // Send a non-trigger frame, should be skipped (no output), state preserved
     store.append(Frame::builder("noise").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "noise");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "noise");
 
     assert_no_more_frames(&mut recver).await;
 
     // Second trigger: state=1 emitted, state becomes 2
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 1);
 
     // Third trigger: state=2 emitted, state becomes 3
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     let meta = output.meta.as_ref().unwrap();
     assert_eq!(meta["actor_id"], frame_actor.id.to_string());
@@ -994,7 +1067,7 @@ async fn test_out_only_stops() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor returns {out: "goodbye"}, emits output then self-terminates
     let frame_actor = store
@@ -1020,21 +1093,21 @@ async fn test_out_only_stops() {
     // Append a trigger before the actor starts processing (start: "first")
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.stopper.create"
     );
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.stopper.active"
     );
 
     // Should see output, then unregistered
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "stopper.out");
     assert_eq!(output.meta.as_ref().unwrap()["msg"], "goodbye");
 
-    validate_frame!(recver.recv().await.unwrap(), {
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.stopper.fin.ok",
         handler: &frame_actor,
         trigger: &trigger,
@@ -1048,7 +1121,7 @@ async fn test_nothing_stops() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor returns null, self-terminates with no output
     let frame_actor = store
@@ -1073,17 +1146,17 @@ async fn test_nothing_stops() {
 
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.stopper.create"
     );
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.stopper.active"
     );
 
     // Should see unregistered (no output frame)
-    validate_frame!(recver.recv().await.unwrap(), {
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.stopper.fin.ok",
         handler: &frame_actor,
         trigger: &trigger,
@@ -1097,7 +1170,7 @@ async fn test_extra_keys_error() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor returns record with extra keys, should error
     let frame_actor = store
@@ -1121,11 +1194,17 @@ async fn test_extra_keys_error() {
         .unwrap();
 
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.bad.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.bad.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.bad.create"
+    );
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.bad.active"
+    );
 
-    validate_frame!(recver.recv().await.unwrap(), {
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.bad.fin.error",
         handler: &frame_actor,
         trigger: &trigger,
@@ -1140,7 +1219,7 @@ async fn test_initial_config() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor with initial: 10, closure default state = 0
     // initial overrides the default
@@ -1169,27 +1248,27 @@ async fn test_initial_config() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.active"
     );
 
     // First trigger: should emit 10 (from initial), not 0 (from default)
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 10);
 
     // Second trigger: should emit 11
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 11);
 
@@ -1201,7 +1280,7 @@ async fn test_initial_config_required_state() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor with 2 required params and initial provided
     store
@@ -1229,19 +1308,19 @@ async fn test_initial_config_required_state() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.active"
     );
 
     // First trigger: should emit 100
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 100);
 
@@ -1253,7 +1332,7 @@ async fn test_required_state_defaults_to_null() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor with 2 required params but no initial, state defaults to null
     store
@@ -1279,22 +1358,28 @@ async fn test_required_state_defaults_to_null() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.test.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.test.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.test.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.test.active"
+    );
 
     // First trigger: state is null, emits true
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "test.out");
     assert_eq!(output.meta.as_ref().unwrap()["is_null"], true);
 
     // Second trigger: state is 42, emits false
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "test.out");
     assert_eq!(output.meta.as_ref().unwrap()["is_null"], false);
 
@@ -1306,7 +1391,7 @@ async fn test_default_param_value() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor with no initial config, closure default state = 42
     store
@@ -1333,27 +1418,27 @@ async fn test_default_param_value() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.counter.active"
     );
 
     // First trigger: should emit 42 (from closure default)
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 42);
 
     // Second trigger: should emit 43
     store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
 
-    let output = recver.recv().await.unwrap();
+    let output = recver.recv().await.unwrap().unwrap();
     assert_eq!(output.topic, "counter.out");
     assert_eq!(output.meta.as_ref().unwrap()["count"], 43);
 
@@ -1365,7 +1450,7 @@ async fn test_non_record_return_error() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Actor returns a bare string, not a valid return shape
     let frame_actor = store
@@ -1389,11 +1474,17 @@ async fn test_non_record_return_error() {
         .unwrap();
 
     let trigger = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.bad.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.bad.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.bad.create"
+    );
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.bad.active"
+    );
 
-    validate_frame!(recver.recv().await.unwrap(), {
+    validate_frame!(recver.recv().await.unwrap().unwrap(), {
         topic: "xs.actor.bad.fin.error",
         handler: &frame_actor,
         trigger: &trigger,
@@ -1403,7 +1494,155 @@ async fn test_non_record_return_error() {
     assert_no_more_frames(&mut recver).await;
 }
 
-async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
+/// An actor that replays a long history and writes a frame for each one
+/// used to overrun the store's live buffer before it got to follow: its own
+/// output piled up there while it was still in history, and the store ended
+/// its read with no error (#169). The store now subscribes only after the
+/// stored frames are sent (ADR 0008), so the replay holds nothing in the live
+/// buffer, and a live frame after it is counted exactly once.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_actor_replay_does_not_overrun_live_buffer() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let history = crate::store::FOLLOW_BUFFER + 500;
+    for _ in 0..history {
+        store.append(Frame::builder("pew").build()).unwrap();
+    }
+
+    store
+        .append(
+            Frame::builder("xs.actor.count.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = 0|
+                                if $frame.topic == "xs.threshold" {
+                                  {out: {threshold: $state}, next: $state}
+                                } else if $frame.topic in ["pew" "marker"] {
+                                  {out: {count: ($state + 1)}, next: ($state + 1)}
+                                } else {
+                                  {next: $state}
+                                }
+                              }
+                              start: "first"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .new(true)
+        .follow(FollowOption::On)
+        .topic("count.out,xs.actor.count.fin.*".to_string())
+        .build();
+    let mut recver = store.read(options);
+
+    // Wait for the replay to finish, then append one frame live.
+    let mut thresholds = 0;
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(120), recver.recv())
+            .await
+            .expect("the replay did not finish")
+            .expect("read ended")
+            .unwrap();
+        assert_eq!(frame.topic, "count.out", "the actor stopped: {frame:?}");
+        let meta = frame.meta.unwrap();
+        if meta.get("threshold").is_some() {
+            thresholds += 1;
+            assert_eq!(meta["threshold"], history as u64);
+            break;
+        }
+    }
+
+    // The marker has to reach the actor, counted once, after every pew.
+    let marker = store.append(Frame::builder("marker").build()).unwrap();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), recver.recv())
+            .await
+            .expect("the actor never saw the live frame")
+            .expect("read ended")
+            .unwrap();
+        assert_eq!(frame.topic, "count.out", "the actor stopped: {frame:?}");
+        let meta = frame.meta.unwrap();
+        if meta.get("threshold").is_some() {
+            thresholds += 1;
+        }
+        if meta["frame_id"] == marker.id.to_string() {
+            assert_eq!(meta["count"], history as u64 + 1);
+            break;
+        }
+    }
+    assert_eq!(thresholds, 1, "the actor saw a second threshold");
+}
+
+/// An actor that falls more than the live buffer behind while live gets
+/// `xs.lagged` from the store, and stops with an error rather than carry on
+/// with frames missing.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_actor_stops_with_error_when_it_falls_behind_live() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let options = ReadOptions::builder()
+        .new(true)
+        .follow(FollowOption::On)
+        .topic("xs.actor.slow.*".to_string())
+        .build();
+    let mut recver = store.read(options);
+
+    store
+        .append(
+            Frame::builder("xs.actor.slow.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = null|
+                                if $frame.topic == "slow" { sleep 3sec }
+                                {next: $state}
+                              }
+                              start: "new"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.slow.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.slow.active"
+    );
+
+    // Hold the actor in its closure while more than the buffer piles up.
+    store.append(Frame::builder("slow").build()).unwrap();
+    for _ in 0..(crate::store::FOLLOW_BUFFER + 200) {
+        store.append(Frame::builder("filler").build()).unwrap();
+    }
+
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(30), recver.recv())
+        .await
+        .expect("the actor never stopped")
+        .expect("read ended")
+        .unwrap();
+    assert_eq!(frame.topic, "xs.actor.slow.fin.error");
+    let error = frame.meta.unwrap()["error"].as_str().unwrap().to_string();
+    assert!(
+        error.contains("fell behind the live stream"),
+        "unexpected error: {error}"
+    );
+}
+
+async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<crate::store::ReadItem>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
     tokio::select! {
@@ -1422,7 +1661,7 @@ async fn test_record_out_goes_to_meta() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register actor that returns a record as out
     store
@@ -1450,11 +1689,11 @@ async fn test_record_out_goes_to_meta() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.metaout.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.metaout.active"
     );
 
@@ -1466,10 +1705,10 @@ async fn test_record_out_goes_to_meta() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "sale");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "sale");
 
     // The output frame should have the record in meta, not in CAS
-    let out_frame = recver.recv().await.unwrap();
+    let out_frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(out_frame.topic, "metaout.out");
     assert!(
         out_frame.hash.is_none(),
@@ -1490,7 +1729,7 @@ async fn test_non_record_out_errors_without_cas_target() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register actor that returns a string as out (non-record, no target: "cas")
     store
@@ -1512,15 +1751,21 @@ async fn test_non_record_out_errors_without_cas_target() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.strerr.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.strerr.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.strerr.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.strerr.active"
+    );
 
     // Trigger the actor
     store.append(Frame::builder("ping").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ping");
 
     // Should unregister with an error because non-record out needs target: "cas"
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "xs.actor.strerr.fin.error");
     let meta = frame.meta.as_ref().unwrap();
     let error = meta["error"].as_str().unwrap();
@@ -1538,7 +1783,7 @@ async fn test_cas_target_allows_non_record_out() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register actor with target: "cas" that returns a string
     store
@@ -1561,15 +1806,21 @@ async fn test_cas_target_allows_non_record_out() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.cascfg.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.cascfg.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.cascfg.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.cascfg.active"
+    );
 
     // Trigger the actor
     store.append(Frame::builder("ping").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ping");
 
     // Output should be in CAS
-    let out_frame = recver.recv().await.unwrap();
+    let out_frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(out_frame.topic, "cascfg.out");
     assert!(out_frame.hash.is_some(), "CAS target should store in CAS");
     let content = store.cas_read(&out_frame.hash.unwrap()).await.unwrap();
@@ -1621,14 +1872,14 @@ async fn test_unregistered_actor_not_restarted_on_replay() {
     // History replays, then the threshold. The actor must not start again, so
     // no `greeter.active` frame should follow.
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.greeter.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.greeter.fin.term"
     );
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
     assert_no_more_frames(&mut recver).await;
 }
 
@@ -1673,16 +1924,16 @@ async fn inv2_actor_with_active_resumes_on_replay() {
     // History replays the seeded .create and .active, threshold, then the
     // dispatcher should restart the actor and emit a fresh .active.
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.greeter.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.greeter.active"
     );
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
     // The fresh dispatcher emits a new .active for the restart.
-    let restart_active = recver.recv().await.unwrap();
+    let restart_active = recver.recv().await.unwrap().unwrap();
     assert_eq!(restart_active.topic, "xs.actor.greeter.active");
     let meta = restart_active.meta.unwrap();
     assert_eq!(meta["actor_id"], create.id.to_string());
@@ -1694,7 +1945,7 @@ async fn inv4_actor_term_emits_fin_term() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     let create = store
         .append(
@@ -1709,19 +1960,22 @@ async fn inv4_actor_term_emits_fin_term() {
         )
         .unwrap();
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.tunable.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.tunable.active"
     );
 
     store
         .append(Frame::builder("xs.actor.tunable.term").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tunable.term");
-    let fin = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.tunable.term"
+    );
+    let fin = recver.recv().await.unwrap().unwrap();
     assert_eq!(fin.topic, "xs.actor.tunable.fin.term");
     let meta = fin.meta.as_ref().unwrap();
     // I6: the ack points back to the originating create.
@@ -1736,7 +1990,7 @@ async fn inv6_actor_acks_carry_source_pointer() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // (1) .active: emitted on successful spawn.
     let create = store
@@ -1751,8 +2005,11 @@ async fn inv6_actor_acks_carry_source_pointer() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tr.create");
-    let active = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.tr.create"
+    );
+    let active = recver.recv().await.unwrap().unwrap();
     assert_eq!(active.topic, "xs.actor.tr.active");
     assert_eq!(
         active.meta.as_ref().unwrap()["actor_id"],
@@ -1763,8 +2020,11 @@ async fn inv6_actor_acks_carry_source_pointer() {
     store
         .append(Frame::builder("xs.actor.tr.term").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tr.term");
-    let fin = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.tr.term"
+    );
+    let fin = recver.recv().await.unwrap().unwrap();
     assert_eq!(fin.topic, "xs.actor.tr.fin.term");
     assert_eq!(
         fin.meta.as_ref().unwrap()["actor_id"],
@@ -1779,8 +2039,11 @@ async fn inv6_actor_acks_carry_source_pointer() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.tr.create");
-    let invalid = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.tr.create"
+    );
+    let invalid = recver.recv().await.unwrap().unwrap();
     assert_eq!(invalid.topic, "xs.actor.tr.invalid");
     assert_eq!(
         invalid.meta.as_ref().unwrap()["actor_id"],
@@ -1796,7 +2059,7 @@ async fn inv8_actor_single_live_instance_per_topic_root() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Two creates for the same topic root. Only the second should handle
     // any post-replacement triggers.
@@ -1818,8 +2081,14 @@ async fn inv8_actor_single_live_instance_per_topic_root() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.active"
+    );
 
     let second = store
         .append(
@@ -1839,19 +2108,22 @@ async fn inv8_actor_single_live_instance_per_topic_root() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.h.create");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.h.create"
+    );
 
     // Old emits .replaced, new emits .active (order may interleave).
     let mut acks = std::collections::HashSet::new();
-    acks.insert(recver.recv().await.unwrap().topic);
-    acks.insert(recver.recv().await.unwrap().topic);
+    acks.insert(recver.recv().await.unwrap().unwrap().topic);
+    acks.insert(recver.recv().await.unwrap().unwrap().topic);
     assert!(acks.contains("xs.actor.h.replaced"));
     assert!(acks.contains("xs.actor.h.active"));
 
     // Trigger: only ONE response, from the second actor.
     let _trig = store.append(Frame::builder("trigger").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "trigger");
-    let out = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "trigger");
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "h.out");
     let meta = out.meta.unwrap();
     assert_eq!(meta["actor_id"], second.id.to_string());
@@ -1880,13 +2152,13 @@ async fn test_topics_filter_exact() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Backlog with mixed topics
     store.append(Frame::builder("ev").build()).unwrap();
     store.append(Frame::builder("noise").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ev");
-    assert_eq!(recver.recv().await.unwrap().topic, "noise");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ev");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "noise");
 
     // The topics filter is applied at the read level; synthetic frames
     // (xs.threshold here, since start is "first") bypass it, so the closure
@@ -1914,11 +2186,17 @@ async fn test_topics_filter_exact() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.active"
+    );
 
     // Only the backlog "ev" frame reaches the closure
-    let out = recver.recv().await.unwrap();
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "filter.out");
     assert_eq!(out.meta.as_ref().unwrap()["seen"], "ev");
 
@@ -1926,9 +2204,9 @@ async fn test_topics_filter_exact() {
     // processed
     store.append(Frame::builder("noise").build()).unwrap();
     store.append(Frame::builder("ev").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "noise");
-    assert_eq!(recver.recv().await.unwrap().topic, "ev");
-    let out = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "noise");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ev");
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "filter.out");
     assert_eq!(out.meta.as_ref().unwrap()["seen"], "ev");
 
@@ -1940,7 +2218,7 @@ async fn test_topics_filter_prefix_wildcard() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // topics also accepts a single comma-separated string of patterns
     store
@@ -1962,8 +2240,14 @@ async fn test_topics_filter_prefix_wildcard() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.active"
+    );
 
     // "game.move" itself does not match "game.move.*" (mirrors
     // ReadOptions::topic semantics), nor do unrelated topics.
@@ -1972,17 +2256,17 @@ async fn test_topics_filter_prefix_wildcard() {
     store
         .append(Frame::builder("game.move.abc").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "game.move");
-    assert_eq!(recver.recv().await.unwrap().topic, "other");
-    assert_eq!(recver.recv().await.unwrap().topic, "game.move.abc");
-    let out = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "game.move");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "other");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "game.move.abc");
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "filter.out");
     assert_eq!(out.meta.as_ref().unwrap()["seen"], "game.move.abc");
 
     // The second pattern from the comma string works too
     store.append(Frame::builder("game.create").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "game.create");
-    let out = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "game.create");
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "filter.out");
     assert_eq!(out.meta.as_ref().unwrap()["seen"], "game.create");
 
@@ -1994,7 +2278,7 @@ async fn test_no_topics_processes_all() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     store
         .append(
@@ -2014,19 +2298,25 @@ async fn test_no_topics_processes_all() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.all.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.all.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.all.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.all.active"
+    );
 
     // Without a topics filter every frame reaches the closure, as before
     store.append(Frame::builder("ev").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ev");
-    let out = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ev");
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "all.out");
     assert_eq!(out.meta.as_ref().unwrap()["seen"], "ev");
 
     store.append(Frame::builder("noise").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "noise");
-    let out = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "noise");
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "all.out");
     assert_eq!(out.meta.as_ref().unwrap()["seen"], "noise");
 
@@ -2038,7 +2328,7 @@ async fn test_topics_filter_lifecycle_frames_still_work() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     store
         .append(
@@ -2059,8 +2349,14 @@ async fn test_topics_filter_lifecycle_frames_still_work() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.active"
+    );
 
     // The actor's own lifecycle topics are added to its read filter, so a
     // .term frame still terminates it even though "xs.actor.filter.term"
@@ -2068,9 +2364,12 @@ async fn test_topics_filter_lifecycle_frames_still_work() {
     store
         .append(Frame::builder("xs.actor.filter.term").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.term");
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.term"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.filter.fin.term"
     );
 
@@ -2082,7 +2381,7 @@ async fn test_topics_filter_pulse_still_ticks() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Heartbeat xs.pulse frames are synthesized per-read and bypass topic
     // filtering, so a pulse-configured actor still ticks under a filter.
@@ -2109,11 +2408,17 @@ async fn test_topics_filter_pulse_still_ticks() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.filter.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.filter.active"
+    );
 
     // First output should be a pulse tick
-    let out = recver.recv().await.unwrap();
+    let out = recver.recv().await.unwrap().unwrap();
     assert_eq!(out.topic, "filter.out");
     assert_eq!(out.meta.as_ref().unwrap()["tick"], true);
 
@@ -2134,7 +2439,7 @@ async fn test_topics_filter_pulse_still_ticks() {
     let mut data_topics = Vec::new();
     let mut saw_seen_ev = false;
     while !saw_seen_ev {
-        let frame = recver.recv().await.unwrap();
+        let frame = recver.recv().await.unwrap().unwrap();
         if frame.topic == "filter.out" {
             let meta = frame.meta.as_ref().unwrap();
             if meta.get("tick").is_some() {
@@ -2154,7 +2459,7 @@ async fn test_actor_output_is_contiguous_with_concurrent_writer() {
     let (store, _temp_dir) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     store
         .append(
@@ -2180,8 +2485,14 @@ async fn test_actor_output_is_contiguous_with_concurrent_writer() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.burst.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.burst.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.burst.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.burst.active"
+    );
     drop(recver);
 
     // Another writer appends as fast as it can while the actor works. The

@@ -48,8 +48,19 @@ def _cat [options: record] {
   ] | compact | flatten
 
   xs cat (xs-addr) ...$params | lines | each {|x|
-    $x | from json | if $with_ts { into datetime timestamp } else { }
+    $x | from json | lagged-error | if $with_ts { into datetime timestamp } else { }
   }
+}
+
+# A following read ends with xs.lagged when the reader fell behind the live
+# stream (ADR 0008): raise it as an error, as the embedded .cat -f does.
+def lagged-error [] {
+  let frame = $in
+  if $frame.topic? == "xs.lagged" {
+    let skipped = $frame.meta?.skipped? | default "an unknown number of"
+    error make {msg: $"xs.lagged: fell behind the live stream: ($skipped) frames skipped"}
+  }
+  $frame
 }
 
 export def .cat [
@@ -128,7 +139,7 @@ export def .last [
   ] | compact | flatten
 
   let result = xs last (xs-addr) ...$cli_args | lines | each {|x|
-    $x | from json | if $with_timestamp { into datetime timestamp } else { }
+    $x | from json | lagged-error | if $with_timestamp { into datetime timestamp } else { }
   }
   if $count <= 1 { $result | first } else { $result }
 }

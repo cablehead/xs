@@ -332,13 +332,17 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
     }
 
     loop {
+        // Set when the send read falls behind the live stream: the input
+        // then ends, and the run below stops with that error instead of
+        // finishing (ADR 0008).
+        let input_lag: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
         let input_pipeline = if task.duplex {
             let options = ReadOptions::builder()
                 .follow(FollowOption::On)
                 .after(start_id)
                 .build();
             let send_rx = store.read(options);
-            build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx).await
+            build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx, input_lag.clone()).await
         } else {
             PipelineData::empty()
         };
@@ -361,19 +365,19 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                 biased;
                 maybe = control_rx.recv() => {
                     match maybe {
-                        Some(frame) if frame.topic == terminate_topic => {
+                        Some(Ok(frame)) if frame.topic == terminate_topic => {
                             task.engine.state.signals().trigger();
                             task.engine.kill_job_by_name(&task.id.to_string());
                             let _ = (&mut done_rx).await;
                             break 'ctrl LoopOutcome::Terminate;
                         }
-                        Some(frame) if frame.topic == "xs.stopping" => {
+                        Some(Ok(frame)) if frame.topic == "xs.stopping" => {
                             task.engine.state.signals().trigger();
                             task.engine.kill_job_by_name(&task.id.to_string());
                             let _ = (&mut done_rx).await;
                             break 'ctrl LoopOutcome::Shutdown;
                         }
-                        Some(frame) if frame.topic == spawn_topic => {
+                        Some(Ok(frame)) if frame.topic == spawn_topic => {
                             if let Some(hash) = frame.hash.clone() {
                                 if let Ok(mut reader) = store.cas_reader(hash).await {
                                     let mut script = String::new();
@@ -420,11 +424,22 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                                 }
                             }
                         }
-                        Some(_) => {}
+                        // The control read fell behind the live stream and
+                        // missed frames, maybe a .term: stop the service.
+                        Some(Err(err)) => {
+                            task.engine.state.signals().trigger();
+                            task.engine.kill_job_by_name(&task.id.to_string());
+                            let _ = (&mut done_rx).await;
+                            break 'ctrl LoopOutcome::Error(format!("control read {err}"));
+                        }
+                        Some(Ok(_)) => {}
                         None => break 'ctrl LoopOutcome::Error("control".into()),
                     }
                 }
                 res = &mut done_rx => {
+                    if let Some(err) = input_lag.lock().unwrap().take() {
+                        break 'ctrl LoopOutcome::Error(format!("send read {err}"));
+                    }
                     break 'ctrl match res.unwrap_or(Err("thread failed".into())) {
                         Ok(()) => match task.restart {
                             RestartPolicy::OnSuccess => LoopOutcome::Continue,
@@ -507,7 +522,8 @@ async fn build_input_pipeline(
     store: Store,
     loop_ctx: &ServiceLoop,
     task: &Task,
-    rx: tokio::sync::mpsc::Receiver<Frame>,
+    rx: tokio::sync::mpsc::Receiver<crate::store::ReadItem>,
+    lag: Arc<std::sync::Mutex<Option<String>>>,
 ) -> PipelineData {
     let topic = format!("{loop_topic}.send", loop_topic = loop_ctx.topic);
     let signals = task.engine.state.signals().clone();
@@ -518,7 +534,16 @@ async fn build_input_pipeline(
         }
 
         match rx.try_recv() {
-            Ok(frame) => {
+            // The send read fell behind the live stream: the service's input
+            // has a gap. The input ends here and the run loop stops the
+            // service with the error (ADR 0008). An error item in the stream
+            // would not do it: `each` turns it into a value and the run
+            // finishes as if nothing happened.
+            Ok(Err(err)) => {
+                *lag.lock().unwrap() = Some(err.to_string());
+                return None;
+            }
+            Ok(Ok(frame)) => {
                 if frame.topic == topic {
                     if let Some(hash) = frame.hash {
                         if let Ok(bytes) = store.cas_read_sync(&hash) {

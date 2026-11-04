@@ -27,7 +27,7 @@ async fn setup_test_environment() -> (Store, TempDir) {
     (store, temp_dir)
 }
 
-async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
+async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<crate::store::ReadItem>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
     tokio::select! {
@@ -180,7 +180,7 @@ async fn test_module_registered_in_vfs() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Append a nu module frame
     let module_content = r#"export def greet [name: string] { $"hello ($name)" }"#;
@@ -192,7 +192,10 @@ async fn test_module_registered_in_vfs() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.testmod");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.module.testmod"
+    );
 
     // Register an actor that uses the module
     let actor_script = r#"{
@@ -211,11 +214,11 @@ async fn test_module_registered_in_vfs() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.vfstest.create"
     );
 
-    let next = recver.recv().await.unwrap();
+    let next = recver.recv().await.unwrap().unwrap();
     if next.topic == "xs.actor.vfstest.invalid" {
         let meta = next.meta.as_ref().unwrap();
         panic!("actor unregistered with error: {}", meta["error"]);
@@ -224,10 +227,10 @@ async fn test_module_registered_in_vfs() {
 
     // Trigger the actor
     store.append(Frame::builder("ping").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ping");
 
     // Handler should output the greeting
-    let out_frame = recver.recv().await.unwrap();
+    let out_frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(out_frame.topic, "vfstest.out");
     assert_eq!(out_frame.meta.as_ref().unwrap()["greeting"], "hello world");
 
@@ -240,7 +243,7 @@ async fn test_module_dot_path_maps_to_directory() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register a module with dotted name: mylib.utils.nu
     let module_content = r#"export def add [a: int, b: int] { $a + $b }"#;
@@ -252,7 +255,10 @@ async fn test_module_dot_path_maps_to_directory() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.mylib.utils");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.module.mylib.utils"
+    );
 
     // Actor uses xs/mylib/utils (dots become slashes)
     let actor_script = r#"{
@@ -271,19 +277,19 @@ async fn test_module_dot_path_maps_to_directory() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.dotpath.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.dotpath.active"
     );
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ping");
 
-    let out_frame = recver.recv().await.unwrap();
+    let out_frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(out_frame.topic, "dotpath.out");
     assert_eq!(out_frame.meta.as_ref().unwrap()["result"], 7);
 
@@ -296,7 +302,7 @@ async fn test_live_module_registration() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Append module in live phase
     let module_content = r#"export def double [x: int] { $x * 2 }"#;
@@ -308,7 +314,10 @@ async fn test_live_module_registration() {
         )
         .unwrap();
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.mathlib");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.module.mathlib"
+    );
 
     // Now register an actor that uses the live-registered module
     let actor_script = r#"{
@@ -327,19 +336,19 @@ async fn test_live_module_registration() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.livemod.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.actor.livemod.active"
     );
 
     // Trigger
     store.append(Frame::builder("ping").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "ping");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "ping");
 
-    let out_frame = recver.recv().await.unwrap();
+    let out_frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(out_frame.topic, "livemod.out");
     assert_eq!(out_frame.meta.as_ref().unwrap()["result"], 42);
 
@@ -352,7 +361,7 @@ async fn test_multiple_modules_shared_parent() {
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
 
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Register two modules that share a parent directory: myapp.utils and myapp.helpers
     let utils_content = r#"export def add [a: int, b: int] { $a + $b }"#;
@@ -363,7 +372,10 @@ async fn test_multiple_modules_shared_parent() {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.module.myapp.utils");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.module.myapp.utils"
+    );
 
     let helpers_content = r#"export def double [x: int] { $x * 2 }"#;
     store
@@ -374,7 +386,7 @@ async fn test_multiple_modules_shared_parent() {
         )
         .unwrap();
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.module.myapp.helpers"
     );
 
@@ -396,11 +408,11 @@ async fn test_multiple_modules_shared_parent() {
         .unwrap();
 
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.action.sharedcmd.create"
     );
 
-    let next = recver.recv().await.unwrap();
+    let next = recver.recv().await.unwrap().unwrap();
     if next.topic == "xs.action.sharedcmd.invalid" {
         let meta = next.meta.as_ref().unwrap();
         panic!("command parse error: {}", meta["error"]);
@@ -411,9 +423,12 @@ async fn test_multiple_modules_shared_parent() {
     store
         .append(Frame::builder("sharedcmd.call").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "sharedcmd.call");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "sharedcmd.call"
+    );
 
-    let out_frame = recver.recv().await.unwrap();
+    let out_frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(out_frame.topic, "sharedcmd.response");
     let content = store.cas_read(&out_frame.hash.unwrap()).await.unwrap();
     let content_str = std::str::from_utf8(&content).unwrap();
