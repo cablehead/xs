@@ -91,7 +91,7 @@ pub(crate) fn emit_event(
     source_id: Scru128Id,
     return_opts: Option<&ReturnOptions>,
     kind: ServiceEventKind,
-) -> Result<ServiceEvent, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<ServiceEvent, crate::Error> {
     let frame = match &kind {
         ServiceEventKind::Running => store.append(
             Frame::builder(format!("xs.service.{}.active", loop_ctx.topic))
@@ -202,7 +202,7 @@ fn specialize(
     base: &nu::Engine,
     store: &Store,
     create_id: Scru128Id,
-) -> Result<nu::Engine, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<nu::Engine, crate::Error> {
     let mut engine = base.clone();
     let modules = store.nu_modules_at(&create_id);
     nu::load_modules(&mut engine.state, store, &modules)?;

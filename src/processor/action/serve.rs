@@ -181,7 +181,7 @@ async fn execute_action(action: Action, frame: &Frame, store: &Store) -> Result<
                     }
                 }
 
-                Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
+                Ok(()) as Result<(), crate::Error>
             }
             Err(err) => {
                 // Emit error event instead of propagating
@@ -199,7 +199,7 @@ async fn execute_action(action: Action, frame: &Frame, store: &Store) -> Result<
                     .build(),
                 );
 
-                Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
+                Ok(()) as Result<(), crate::Error>
             }
         }
     })
@@ -275,7 +275,7 @@ struct TopicState {
     frames: HashMap<scru128::Scru128Id, crate::store::Frame>,
 }
 
-pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run(store: Store) -> Result<(), crate::Error> {
     let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
     let mut lifecycle = LifecycleReader::new(rx);
     let mut states: HashMap<String, TopicState> = HashMap::new();

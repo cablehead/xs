@@ -12,7 +12,7 @@ struct Scru128Components {
     node: String,
 }
 
-pub fn generate() -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub fn generate() -> Result<String, crate::Error> {
     let id = scru128::new();
     Ok(id.to_string())
 }
@@ -26,9 +26,7 @@ fn components_of(scru_id: Scru128Id) -> Scru128Components {
     }
 }
 
-fn id_of(
-    components: Scru128Components,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+fn id_of(components: Scru128Components) -> Result<String, crate::Error> {
     let entropy = u32::from_str_radix(&components.node, 16)?;
     let scru_id = Scru128Id::try_from_fields(
         components.ts_ms,
@@ -39,7 +37,7 @@ fn id_of(
     Ok(scru_id.to_string())
 }
 
-pub fn unpack(input: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub fn unpack(input: &str) -> Result<String, crate::Error> {
     let id = if input == "-" {
         let mut buffer = String::new();
         io::stdin().read_to_string(&mut buffer)?;
@@ -52,21 +50,17 @@ pub fn unpack(input: &str) -> Result<String, Box<dyn std::error::Error + Send + 
     Ok(serde_json::to_string_pretty(&components_of(scru_id))?)
 }
 
-pub fn unpack_to_json(
-    input: &str,
-) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+pub fn unpack_to_json(input: &str) -> Result<serde_json::Value, crate::Error> {
     let scru_id = Scru128Id::from_str(input)?;
     Ok(serde_json::to_value(components_of(scru_id))?)
 }
 
-pub fn pack_from_json(
-    json: serde_json::Value,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub fn pack_from_json(json: serde_json::Value) -> Result<String, crate::Error> {
     let components: Scru128Components = serde_json::from_value(json)?;
     id_of(components)
 }
 
-pub fn pack() -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub fn pack() -> Result<String, crate::Error> {
     let mut buffer = String::new();
     io::stdin().read_to_string(&mut buffer)?;
 

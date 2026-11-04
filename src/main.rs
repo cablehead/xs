@@ -202,9 +202,7 @@ struct CommandLast {
 }
 
 impl CommandLast {
-    fn parse_args(
-        &self,
-    ) -> Result<(Option<String>, usize), Box<dyn std::error::Error + Send + Sync>> {
+    fn parse_args(&self) -> Result<(Option<String>, usize), xs::Error> {
         let mut topic: Option<String> = None;
         let mut count: usize = 1;
 
@@ -272,7 +270,7 @@ fn format_connection_error(addr: &str) -> String {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), xs::Error> {
     // Install the default rustls crypto provider first
     rustls::crypto::ring::default_provider()
         .install_default()
@@ -323,7 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-async fn serve(args: CommandServe) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn serve(args: CommandServe) -> Result<(), xs::Error> {
     xs::trace::init();
 
     tracing::trace!("Starting server with path: {:?}", args.path);
@@ -455,7 +453,7 @@ fn drain_ready(
     None
 }
 
-async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn cat(args: CommandCat) -> Result<(), xs::Error> {
     let after = if let Some(after) = &args.after {
         match scru128::Scru128Id::from_str(after) {
             Ok(id) => Some(id),
@@ -605,7 +603,7 @@ use std::io::IsTerminal;
 use tokio::io::stdin;
 use tokio::io::AsyncRead;
 
-async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn append(args: CommandAppend) -> Result<(), xs::Error> {
     let meta = args
         .meta
         .as_ref()
@@ -639,7 +637,7 @@ async fn append(args: CommandAppend) -> Result<(), Box<dyn std::error::Error + S
     Ok(())
 }
 
-async fn cas(args: CommandCas) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn cas(args: CommandCas) -> Result<(), xs::Error> {
     let integrity = ssri::Integrity::from_str(&args.hash)?;
     let mut stdout = tokio::io::stdout();
     xs::client::cas_get(&args.addr, integrity, &mut stdout).await?;
@@ -647,7 +645,7 @@ async fn cas(args: CommandCas) -> Result<(), Box<dyn std::error::Error + Send + 
     Ok(())
 }
 
-async fn cas_post(args: CommandCasPost) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn cas_post(args: CommandCasPost) -> Result<(), xs::Error> {
     let input: Box<dyn AsyncRead + Unpin + Send> = if !std::io::stdin().is_terminal() {
         Box::new(stdin())
     } else {
@@ -659,12 +657,12 @@ async fn cas_post(args: CommandCasPost) -> Result<(), Box<dyn std::error::Error 
     Ok(())
 }
 
-async fn remove(args: CommandRemove) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn remove(args: CommandRemove) -> Result<(), xs::Error> {
     xs::client::remove(&args.addr, &args.id).await?;
     Ok(())
 }
 
-async fn last(args: CommandLast) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn last(args: CommandLast) -> Result<(), xs::Error> {
     let (topic, count) = args.parse_args()?;
     xs::client::last(
         &args.addr,
@@ -676,7 +674,7 @@ async fn last(args: CommandLast) -> Result<(), Box<dyn std::error::Error + Send 
     .await
 }
 
-async fn get(args: CommandGet) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn get(args: CommandGet) -> Result<(), xs::Error> {
     let response = xs::client::get(&args.addr, &args.id, args.with_timestamp).await?;
     tokio::io::stdout().write_all(&response).await?;
     Ok(())
@@ -689,7 +687,7 @@ struct CommandImport {
     addr: String,
 }
 
-async fn import(args: CommandImport) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn import(args: CommandImport) -> Result<(), xs::Error> {
     let input: Box<dyn AsyncRead + Unpin + Send> = if !std::io::stdin().is_terminal() {
         Box::new(stdin())
     } else {
@@ -708,13 +706,13 @@ struct CommandVersion {
     addr: String,
 }
 
-async fn version(args: CommandVersion) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn version(args: CommandVersion) -> Result<(), xs::Error> {
     let response = xs::client::version(&args.addr).await?;
     println!("{}", String::from_utf8_lossy(&response));
     Ok(())
 }
 
-async fn eval(args: CommandEval) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn eval(args: CommandEval) -> Result<(), xs::Error> {
     use tokio::io::{stdin, AsyncReadExt};
 
     // Read script content
@@ -897,10 +895,7 @@ fn find_paths() -> Result<(PathBuf, PathBuf), String> {
     }
 }
 
-fn install(
-    lib_path: Option<PathBuf>,
-    autoload_path: Option<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn install(lib_path: Option<PathBuf>, autoload_path: Option<PathBuf>) -> Result<(), xs::Error> {
     // Use explicit paths if provided, otherwise discover them
     let (xs_path, stub_path) = match (lib_path, autoload_path) {
         (Some(lib), Some(auto)) => (lib, auto),
@@ -937,7 +932,7 @@ fn install(
     Ok(())
 }
 
-fn clean() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn clean() -> Result<(), xs::Error> {
     use std::collections::BTreeSet;
 
     let mut targets = BTreeSet::new();
@@ -975,7 +970,7 @@ fn clean() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn run_nu(cmd: CommandNu) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn run_nu(cmd: CommandNu) -> Result<(), xs::Error> {
     if cmd.clean {
         clean()
     } else if cmd.install {
@@ -986,7 +981,7 @@ fn run_nu(cmd: CommandNu) -> Result<(), Box<dyn std::error::Error + Send + Sync>
     }
 }
 
-fn run_scru128(cmd: CommandScru128) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn run_scru128(cmd: CommandScru128) -> Result<(), xs::Error> {
     match cmd.command {
         Some(Scru128Command::Unpack { id }) => {
             let result = xs::scru128::unpack(&id)?;

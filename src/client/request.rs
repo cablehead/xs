@@ -3,7 +3,7 @@ use hyper::{Method, Request};
 use hyper_util::rt::TokioIo;
 
 use super::connect::connect;
-use super::types::{BoxError, RequestParts};
+use super::types::RequestParts;
 
 pub async fn request<B>(
     addr: &str,
@@ -12,10 +12,10 @@ pub async fn request<B>(
     query: Option<&str>,
     body: B,
     headers: Option<Vec<(String, String)>>,
-) -> Result<hyper::Response<hyper::body::Incoming>, BoxError>
+) -> Result<hyper::Response<hyper::body::Incoming>, crate::Error>
 where
     B: hyper::body::Body<Data = hyper::body::Bytes> + Send + 'static,
-    B::Error: Into<BoxError> + Send,
+    B::Error: Into<crate::Error> + Send,
 {
     let parts = RequestParts::parse(addr, path, query)?;
     let stream = connect(&parts).await?;
