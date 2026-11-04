@@ -431,8 +431,6 @@ async fn shutdown_signal() {
     }
 }
 
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
-
 /// Upper bound on bytes `cat` coalesces into a single stdout write.
 const CAT_WRITE_BUF: usize = 256 * 1024;
 
@@ -442,9 +440,9 @@ const CAT_WRITE_BUF: usize = 256 * 1024;
 /// Returns the error the read ended with, if it is among what was ready.
 fn drain_ready(
     first: bytes::Bytes,
-    receiver: &mut tokio::sync::mpsc::Receiver<Result<bytes::Bytes, BoxError>>,
+    receiver: &mut tokio::sync::mpsc::Receiver<Result<bytes::Bytes, xs::Error>>,
     buf: &mut Vec<u8>,
-) -> Option<BoxError> {
+) -> Option<xs::Error> {
     buf.clear();
     buf.extend_from_slice(&first);
     while buf.len() < CAT_WRITE_BUF {
@@ -1015,7 +1013,7 @@ mod tests {
 
     /// A channel already holding `chunks`, so `try_recv` yields them without
     /// waiting, as it would for a `cat` with a backlog.
-    fn queued(chunks: &[&[u8]]) -> mpsc::Receiver<Result<Bytes, super::BoxError>> {
+    fn queued(chunks: &[&[u8]]) -> mpsc::Receiver<Result<Bytes, xs::Error>> {
         let (tx, rx) = mpsc::channel(16);
         for chunk in chunks {
             tx.try_send(Ok(Bytes::copy_from_slice(chunk))).unwrap();

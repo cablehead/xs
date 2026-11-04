@@ -18,10 +18,7 @@ pub async fn cat(
     options: ReadOptions,
     sse: bool,
     with_timestamp: bool,
-) -> Result<
-    Receiver<Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>,
-    Box<dyn std::error::Error + Send + Sync>,
-> {
+) -> Result<Receiver<Result<Bytes, crate::error::Error>>, crate::error::Error> {
     // Convert any usize limit to u64
     let mut query_parts = Vec::new();
     if options != ReadOptions::default() {
