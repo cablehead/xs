@@ -293,7 +293,7 @@ impl Actor {
     /// per-frame async->worker->oneshot round trip is gone. State is threaded
     /// here and passed by `&mut` into `process_frame`. All store ops on this
     /// path (`append`, `append_many`, `cas_insert_sync`) are synchronous.
-    fn run_blocking(mut self, mut recver: mpsc::Receiver<Frame>, store: Store) {
+    fn run_blocking(mut self, mut recver: mpsc::Receiver<crate::store::ReadItem>, store: Store) {
         // One long-lived background job, so per-frame eval can skip job churn.
         self.engine.attach_background_job("actor");
         let mut state = self.initial_state.clone();
@@ -302,21 +302,24 @@ impl Actor {
         let term_topic = format!("xs.actor.{}.term", self.topic);
         let store = &store;
 
-        while let Some(frame) = recver.blocking_recv() {
-            // The store ends the read after this: the actor fell behind the
-            // live stream and missed frames. Stop with an error rather than
-            // carry on as though nothing were missing.
-            if let Some(err) = crate::store::lagged_error(&frame) {
-                let _ = store.append(
-                    Frame::builder(format!("xs.actor.{}.fin.error", self.topic))
-                        .meta(serde_json::json!({
-                            "actor_id": self.id.to_string(),
-                            "error": err,
-                        }))
-                        .build(),
-                );
-                break;
-            }
+        while let Some(item) = recver.blocking_recv() {
+            // The read ended early: the actor fell behind the live stream and
+            // missed frames. Stop with an error rather than carry on as though
+            // nothing were missing.
+            let frame = match item {
+                Ok(frame) => frame,
+                Err(err) => {
+                    let _ = store.append(
+                        Frame::builder(format!("xs.actor.{}.fin.error", self.topic))
+                            .meta(serde_json::json!({
+                                "actor_id": self.id.to_string(),
+                                "error": err.to_string(),
+                            }))
+                            .build(),
+                    );
+                    break;
+                }
+            };
 
             // Skip lifecycle activity that occurred before this actor was registered
             if (frame.topic == create_topic || frame.topic == term_topic) && frame.id <= self.id {

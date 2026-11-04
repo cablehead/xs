@@ -279,6 +279,14 @@ async fn handle(
     res.or_else(|e| response_500(e.to_string()))
 }
 
+/// A read's item as the frame sent to a client. A Rust error cannot cross
+/// the wire, so a read that ended early ends its stream with the frame that
+/// stands for the error: `xs.lagged` (ADR 0008). Clients turn it back into
+/// the error with [`ReadError::from_frame`](crate::store::ReadError::from_frame).
+fn on_the_wire(item: crate::store::ReadItem) -> Frame {
+    item.unwrap_or_else(|err| err.to_frame())
+}
+
 async fn handle_stream_cat(
     store: &mut Store,
     options: ReadOptions,
@@ -286,7 +294,7 @@ async fn handle_stream_cat(
     with_timestamp: bool,
 ) -> HTTPResult {
     let rx = store.read(options);
-    let stream = ReceiverStream::new(rx);
+    let stream = ReceiverStream::new(rx).map(on_the_wire);
 
     let accept_type_clone = accept_type.clone();
     let stream = stream.map(move |frame| {
@@ -604,11 +612,13 @@ async fn handle_last_get(
             .build(),
     );
 
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(move |frame| {
-        let mut bytes = serialize_frame(&frame, with_timestamp).into_bytes();
-        bytes.push(b'\n');
-        Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
-    });
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
+        .map(on_the_wire)
+        .map(move |frame| {
+            let mut bytes = serialize_frame(&frame, with_timestamp).into_bytes();
+            bytes.push(b'\n');
+            Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
+        });
 
     Ok(Response::builder()
         .status(StatusCode::OK)

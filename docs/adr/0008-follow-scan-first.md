@@ -51,7 +51,7 @@ The order and the skipping of repeats work as today: stored frames, then `xs.thr
 
 ### Falling behind while live is an error
 
-Once the reader is past the stored frames, letting 4096 new frames pile up means it is slower than the stream. The store then ends its read with a last frame that says so, instead of closing it silently:
+Once the reader is past the stored frames, letting 4096 new frames pile up means it is slower than the stream. The store then ends its read with an error, instead of closing it silently. In process, the read's last item is `Err(ReadError::Lagged { skipped })`; over the HTTP API, where an error cannot go, it is a last frame:
 
 ```
 topic: xs.lagged
@@ -72,14 +72,14 @@ Every reader in xs turns that into an error (see Consequences). There is no retr
 
 - The actor no longer needs #169's reopening. Its test (an actor reading `FOLLOW_BUFFER + 500` stored frames, then counting a new frame exactly once) carries over as a case that must pass.
 - Every reader that follows the stream gets the change: actors, services, supervisors, `xs cat -f`, `.cat -f`, `.last -f`.
-- `xs.lagged` is a new frame, and every reader in xs ends with an error on it, with one message: `fell behind the live stream: N frames skipped` (`store::lagged_error`).
+- `Store::read` yields `Result<Frame, ReadError>`: readers in process use `item?`, with no topic checks. On the wire the error is the `xs.lagged` frame; the client turns it back into the error. One message everywhere: `fell behind the live stream: N frames skipped`.
 
-| reader | on `xs.lagged` |
+| reader | on falling behind |
 |---|---|
 | actor | `xs.actor.<name>.fin.error` |
 | service, on its control read or its duplex input | `xs.service.<name>.fin.error` |
 | actor, service and action supervisors | return the error instead of stopping silently |
 | `.cat -f`, `.last -f` (built in, and in `xs.nu`) | the stream's last item is the error |
 | `xs cat -f`, `xs last -f` | print the frame, then exit 1 with the message on stderr |
-| HTTP API | sends the frame as the last one, then closes; a client of its own does the same check |
+| HTTP API | sends `xs.lagged` as the last frame, then closes; a client of its own checks for it |
 

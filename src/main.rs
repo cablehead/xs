@@ -437,19 +437,23 @@ const CAT_WRITE_BUF: usize = 256 * 1024;
 /// Fill `buf` with `first` plus every chunk already waiting in `receiver`,
 /// up to `CAT_WRITE_BUF`. Never waits, so a follower still sees each frame as
 /// soon as it arrives; a backlog is written in one go instead of per frame.
+/// `first`, then whatever else is ready, up to `CAT_WRITE_BUF`, into `buf`.
+/// Returns the error the read ended with, if it is among what was ready.
 fn drain_ready(
     first: bytes::Bytes,
-    receiver: &mut tokio::sync::mpsc::Receiver<bytes::Bytes>,
+    receiver: &mut tokio::sync::mpsc::Receiver<Result<bytes::Bytes, xs::ReadError>>,
     buf: &mut Vec<u8>,
-) {
+) -> Option<xs::ReadError> {
     buf.clear();
     buf.extend_from_slice(&first);
     while buf.len() < CAT_WRITE_BUF {
         match receiver.try_recv() {
-            Ok(more) => buf.extend_from_slice(&more),
+            Ok(Ok(more)) => buf.extend_from_slice(&more),
+            Ok(Err(err)) => return Some(err),
             Err(_) => break,
         }
     }
+    None
 }
 
 async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -486,7 +490,8 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .build();
     let mut receiver = xs::client::cat(&args.addr, options, args.sse, args.with_timestamp).await?;
     let mut stdout = tokio::io::stdout();
-    let mut lag = xs::client::LagWatch::default();
+    // The error the read ended with, if it ended early (ADR 0008).
+    let mut ended = None;
 
     #[cfg(unix)]
     let result = {
@@ -507,11 +512,10 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
                 tokio::select! {
                     biased;
 
-                    maybe_bytes = receiver.recv() => {
-                        match maybe_bytes {
-                            Some(bytes) => {
-                                drain_ready(bytes, &mut receiver, &mut buf);
-                                lag.observe(&buf);
+                    item = receiver.recv() => {
+                        match item {
+                            Some(Ok(bytes)) => {
+                                ended = drain_ready(bytes, &mut receiver, &mut buf);
                                 if let Err(e) = stdout.write_all(&buf).await {
                                     if e.kind() == std::io::ErrorKind::BrokenPipe {
                                         break;
@@ -519,6 +523,13 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
                                     return Err(e);
                                 }
                                 stdout.flush().await?;
+                                if ended.is_some() {
+                                    break;
+                                }
+                            }
+                            Some(Err(err)) => {
+                                ended = Some(err);
+                                break;
                             }
                             None => break,
                         }
@@ -561,11 +572,20 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     let result = {
         async {
             let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
-            while let Some(bytes) = receiver.recv().await {
-                drain_ready(bytes, &mut receiver, &mut buf);
-                lag.observe(&buf);
+            while let Some(item) = receiver.recv().await {
+                let bytes = match item {
+                    Ok(bytes) => bytes,
+                    Err(err) => {
+                        ended = Some(err);
+                        break;
+                    }
+                };
+                ended = drain_ready(bytes, &mut receiver, &mut buf);
                 stdout.write_all(&buf).await?;
                 stdout.flush().await?;
+                if ended.is_some() {
+                    break;
+                }
             }
             Ok::<_, std::io::Error>(())
         }
@@ -573,7 +593,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     };
 
     match result {
-        Ok(_) => match lag.finish() {
+        Ok(_) => match ended {
             Some(err) => Err(err.into()),
             None => Ok(()),
         },
@@ -994,10 +1014,10 @@ mod tests {
 
     /// A channel already holding `chunks`, so `try_recv` yields them without
     /// waiting, as it would for a `cat` with a backlog.
-    fn queued(chunks: &[&[u8]]) -> mpsc::Receiver<Bytes> {
+    fn queued(chunks: &[&[u8]]) -> mpsc::Receiver<Result<Bytes, xs::ReadError>> {
         let (tx, rx) = mpsc::channel(16);
         for chunk in chunks {
-            tx.try_send(Bytes::copy_from_slice(chunk)).unwrap();
+            tx.try_send(Ok(Bytes::copy_from_slice(chunk))).unwrap();
         }
         rx
     }

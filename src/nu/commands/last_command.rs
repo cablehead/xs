@@ -95,8 +95,8 @@ impl Command for LastCommand {
             let waiting = signals.clone();
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    let frame = util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
-                    Some(util::follow_value(&frame, span, |f| {
+                    let item = util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
+                    Some(util::follow_value(&item, span, |f| {
                         util::frame_to_value(f, span, with_timestamp)
                     }))
                 }),
@@ -119,7 +119,9 @@ impl Command for LastCommand {
 
         let mut rx = self.store.read(options);
         let frames: Vec<Value> = std::iter::from_fn(move || {
-            let frame = rx.blocking_recv()?; // None when the producer finishes replay
+            // None when the producer finishes replay; a read that does not
+            // follow never ends with an error.
+            let frame = rx.blocking_recv()?.ok()?;
             Some(util::frame_to_value(&frame, span, with_timestamp))
         })
         .collect();

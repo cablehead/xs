@@ -175,8 +175,8 @@ impl Command for CatCommand {
             let waiting = signals.clone();
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
-                    let frame = crate::nu::util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
-                    Some(crate::nu::util::follow_value(&frame, span, to_value))
+                    let item = crate::nu::util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
+                    Some(crate::nu::util::follow_value(&item, span, to_value))
                 }),
                 span,
                 signals,
@@ -192,7 +192,9 @@ impl Command for CatCommand {
         let mut rx = self.store.read(options);
         let stream = ListStream::new(
             std::iter::from_fn(move || {
-                let frame = rx.blocking_recv()?; // None when the producer finishes replay
+                // None when the producer finishes replay; a read that does not
+                // follow never ends with an error.
+                let frame = rx.blocking_recv()?.ok()?;
                 Some(to_value(&frame))
             }),
             span,

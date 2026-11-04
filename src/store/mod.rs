@@ -229,8 +229,8 @@ impl Pattern {
 /// into individual [`Pattern`]s.
 ///
 /// Note that synthetic control frames emitted by a following read --
-/// `xs.threshold`, heartbeat `xs.pulse`, and `xs.lagged` -- are delivered
-/// directly on the read channel and are never subject to this filter.
+/// `xs.threshold` and heartbeat `xs.pulse` -- are delivered directly on the
+/// read channel and are never subject to this filter.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TopicFilter {
     /// Match every topic (no filter, or some element was `*`).
@@ -1076,9 +1076,10 @@ impl Store {
     /// closes the channel. With [`FollowOption::On`] it instead keeps the
     /// channel open and streams new appends as they arrive. When following, a
     /// single ephemeral `xs.threshold` frame is emitted to mark the boundary
-    /// between replayed history and live events. A follower that falls more
-    /// than 4096 frames behind live gets an ephemeral `xs.lagged`
-    /// frame, with `{"skipped": n}` as its meta, and then the read ends.
+    /// between replayed history and live events. Each item is a frame, or, as
+    /// the last item before the channel closes, the [`ReadError`] that ended
+    /// the read: a follower more than 4096 frames behind live gets
+    /// [`ReadError::Lagged`].
     ///
     /// The returned [`Receiver`](tokio::sync::mpsc::Receiver) is bounded;
     /// dropping it stops the read. For a blocking, non-async caller use
@@ -1089,7 +1090,8 @@ impl Store {
     ///
     /// # async fn run(store: Store) {
     /// let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
-    /// while let Some(frame) = rx.recv().await {
+    /// while let Some(item) = rx.recv().await {
+    ///     let Ok(frame) = item else { break }; // fell behind live
     ///     if frame.topic == "xs.threshold" {
     ///         // caught up to live; everything after this is new
     ///         continue;
@@ -1099,7 +1101,7 @@ impl Store {
     /// # }
     /// ```
     #[tracing::instrument(skip(self))]
-    pub fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<Frame> {
+    pub fn read(&self, options: ReadOptions) -> tokio::sync::mpsc::Receiver<ReadItem> {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         let should_follow = matches!(
@@ -1175,7 +1177,7 @@ impl Store {
                                         }
                                     }
 
-                                    if tx.send(frame).await.is_err() {
+                                    if tx.send(Ok(frame)).await.is_err() {
                                         break;
                                     }
 
@@ -1194,18 +1196,13 @@ impl Store {
                                 // than the stream, and a retry would not help.
                                 // Carrying on would hand it the frames after the
                                 // gap as though nothing were missing. End the read
-                                // with an `xs.lagged` frame that says so (ADR 0008).
+                                // with an error that says so (ADR 0008).
                                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
                                     tracing::warn!(
                                         skipped,
                                         "follow fell behind the live buffer, ending the read"
                                     );
-                                    let lagged = Frame::builder("xs.lagged")
-                                        .id(scru128::new())
-                                        .ttl(TTL::Ephemeral)
-                                        .meta(serde_json::json!({ "skipped": skipped }))
-                                        .build();
-                                    let _ = tx.send(lagged).await;
+                                    let _ = tx.send(Err(ReadError::Lagged { skipped })).await;
                                     break;
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
@@ -1227,7 +1224,7 @@ impl Store {
                                     .id(scru128::new())
                                     .ttl(TTL::Ephemeral)
                                     .build();
-                                if heartbeat_tx.send(frame).await.is_err() {
+                                if heartbeat_tx.send(Ok(frame)).await.is_err() {
                                     break;
                                 }
                             }
@@ -1255,7 +1252,7 @@ impl Store {
         &self,
         options: &ReadOptions,
         follow: bool,
-        tx: &mpsc::Sender<Frame>,
+        tx: &mpsc::Sender<ReadItem>,
     ) -> Option<FollowFrom> {
         let filter = TopicFilter::from_option(options.topic.as_deref());
         let mut last_id = None;
@@ -1285,7 +1282,7 @@ impl Store {
             for frame in frames.into_iter().rev() {
                 last_id = Some(frame.id);
                 count += 1;
-                tx.blocking_send(frame).ok()?;
+                tx.blocking_send(Ok(frame)).ok()?;
             }
         } else {
             // Normal forward iteration
@@ -1322,7 +1319,7 @@ impl Store {
             .id(scru128::new())
             .ttl(TTL::Ephemeral)
             .build();
-        tx.blocking_send(threshold).ok()?;
+        tx.blocking_send(Ok(threshold)).ok()?;
 
         Some(FollowFrom {
             broadcast_rx,
@@ -1341,7 +1338,7 @@ impl Store {
         limit: Option<usize>,
         last_id: &mut Option<Scru128Id>,
         count: &mut usize,
-        tx: &mpsc::Sender<Frame>,
+        tx: &mpsc::Sender<ReadItem>,
     ) -> bool {
         for frame in self.iter_for_filter(filter, start) {
             if is_expired(&frame) {
@@ -1351,7 +1348,7 @@ impl Store {
                 return false;
             }
             *last_id = Some(frame.id);
-            if tx.blocking_send(frame).is_err() {
+            if tx.blocking_send(Ok(frame)).is_err() {
                 return false;
             }
             *count += 1;
@@ -2394,29 +2391,61 @@ fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
 ///
 /// A following read subscribes only after it has sent the stored frames, so
 /// this covers the catch-up and live frames, not the replay (ADR 0008). A
-/// reader that falls further behind than this has its read ended with an
-/// `xs.lagged` frame rather than silently skipped: see the `Lagged` arm in
+/// reader that falls further behind than this has its read ended with
+/// [`ReadError::Lagged`] rather than silently skipped: see the `Lagged` arm in
 /// [`read`](Store::read). Raising it buys a slow reader more room before that
 /// happens, at a frame of memory per slot per follower.
 pub(crate) const FOLLOW_BUFFER: usize = 4096;
 
-/// The error for an `xs.lagged` frame, or `None` for any other frame.
-///
-/// A following read that falls more than [`FOLLOW_BUFFER`] frames behind the
-/// live stream ends with `xs.lagged` (ADR 0008), its last frame. Every reader
-/// in xs turns it into an error with this message: actors and services stop
-/// with it, `.cat -f` and `.last -f` raise it, and `xs cat -f` and
-/// `xs last -f` print it and exit non-zero. The HTTP API sends the frame as it
-/// is, so clients of their own can do the same.
-pub fn lagged_error(frame: &Frame) -> Option<String> {
-    if frame.topic != "xs.lagged" {
-        return None;
+/// What [`Store::read`] yields: a frame, or the error that ended the read.
+pub type ReadItem = Result<Frame, ReadError>;
+
+/// Why a following read ended before its reader dropped it (ADR 0008).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadError {
+    /// The reader fell more than [`FOLLOW_BUFFER`] frames behind the live
+    /// stream; `skipped` frames went by unseen.
+    Lagged { skipped: u64 },
+}
+
+impl std::fmt::Display for ReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadError::Lagged { skipped } => {
+                write!(f, "fell behind the live stream: {skipped} frames skipped")
+            }
+        }
     }
-    let skipped = frame.meta.as_ref().and_then(|meta| meta.get("skipped"));
-    Some(format!(
-        "fell behind the live stream: {} frames skipped",
-        skipped.map_or("an unknown number of".to_string(), |n| n.to_string())
-    ))
+}
+
+impl std::error::Error for ReadError {}
+
+impl ReadError {
+    /// The error as the last frame of a stream over the wire, where a Rust
+    /// error cannot go: `xs.lagged`, with `{"skipped": n}` as its meta.
+    pub fn to_frame(&self) -> Frame {
+        match self {
+            ReadError::Lagged { skipped } => Frame::builder("xs.lagged")
+                .id(scru128::new())
+                .ttl(TTL::Ephemeral)
+                .meta(serde_json::json!({ "skipped": skipped }))
+                .build(),
+        }
+    }
+
+    /// The error a frame from the wire stands for, if it is one.
+    pub fn from_frame(frame: &Frame) -> Option<ReadError> {
+        if frame.topic != "xs.lagged" {
+            return None;
+        }
+        let skipped = frame
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("skipped"))
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0);
+        Some(ReadError::Lagged { skipped })
+    }
 }
 
 /// What a following read's scan of the stored frames hands the follow task:

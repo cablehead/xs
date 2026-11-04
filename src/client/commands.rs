@@ -10,15 +10,16 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::Receiver;
 use tokio_util::io::ReaderStream;
 
+use super::records::Records;
 use super::request;
-use crate::store::{ReadOptions, TTL};
+use crate::store::{ReadError, ReadOptions, TTL};
 
 pub async fn cat(
     addr: &str,
     options: ReadOptions,
     sse: bool,
     with_timestamp: bool,
-) -> Result<Receiver<Bytes>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Receiver<Result<Bytes, ReadError>>, Box<dyn std::error::Error + Send + Sync>> {
     // Convert any usize limit to u64
     let mut query_parts = Vec::new();
     if options != ReadOptions::default() {
@@ -47,14 +48,23 @@ pub async fn cat(
     let (_parts, mut body) = res.into_parts();
     let (tx, rx) = tokio::sync::mpsc::channel(100);
 
+    // Whole records, as the server sent them; a read that ended early ends
+    // with its error.
     tokio::spawn(async move {
+        let mut records = Records::new(sse);
         while let Some(frame_result) = body.frame().await {
             match frame_result {
                 Ok(frame) => {
-                    if let Ok(bytes) = frame.into_data() {
-                        if tx.send(bytes).await.is_err() {
-                            break;
-                        }
+                    let Ok(bytes) = frame.into_data() else {
+                        continue;
+                    };
+                    let (whole, err) = records.push(&bytes);
+                    if !whole.is_empty() && tx.send(Ok(whole.into())).await.is_err() {
+                        return;
+                    }
+                    if let Some(err) = err {
+                        let _ = tx.send(Err(err)).await;
+                        return;
                     }
                 }
                 Err(e) => {
@@ -62,6 +72,10 @@ pub async fn cat(
                     break;
                 }
             }
+        }
+        let rest = records.finish();
+        if !rest.is_empty() {
+            let _ = tx.send(Ok(rest.into())).await;
         }
     });
 
@@ -252,20 +266,22 @@ pub async fn last(
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
-    let mut lag = super::LagWatch::default();
+    let mut records = Records::new(false);
 
     while let Some(frame) = body.frame().await {
         let frame = frame?;
         if let Ok(chunk) = frame.into_data() {
-            lag.observe(&chunk);
-            stdout.write_all(&chunk).await?;
+            let (whole, err) = records.push(&chunk);
+            stdout.write_all(&whole).await?;
+            if let Some(err) = err {
+                stdout.flush().await?;
+                return Err(err.into());
+            }
         }
     }
+    stdout.write_all(&records.finish()).await?;
     stdout.flush().await?;
-    match lag.finish() {
-        Some(err) => Err(err.into()),
-        None => Ok(()),
-    }
+    Ok(())
 }
 
 pub async fn import<R>(
@@ -319,20 +335,22 @@ pub async fn eval(
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
-    let mut lag = super::LagWatch::default();
+    let mut records = Records::new(false);
 
     while let Some(frame) = body.frame().await {
         let frame = frame?;
         if let Ok(chunk) = frame.into_data() {
-            lag.observe(&chunk);
-            stdout.write_all(&chunk).await?;
+            let (whole, err) = records.push(&chunk);
+            stdout.write_all(&whole).await?;
+            if let Some(err) = err {
+                stdout.flush().await?;
+                return Err(err.into());
+            }
         }
     }
+    stdout.write_all(&records.finish()).await?;
     stdout.flush().await?;
-    match lag.finish() {
-        Some(err) => Err(err.into()),
-        None => Ok(()),
-    }
+    Ok(())
 }
 
 #[cfg(test)]

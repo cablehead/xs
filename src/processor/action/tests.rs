@@ -10,7 +10,7 @@ async fn test_action_with_pipeline() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Define the action
     let frame_action = store.append(
@@ -31,8 +31,14 @@ async fn test_action_with_pipeline() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.active"
+    );
 
     // Call the action
     let frame_call = store.append(
@@ -41,10 +47,10 @@ async fn test_action_with_pipeline() -> Result<(), Error> {
             .meta(json!({"args": {"n": 3}}))
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "echo.call");
 
     // Validate the response event with all outputs
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "echo.response");
     let meta = frame.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta["action_id"], frame_action.id.to_string());
@@ -65,7 +71,7 @@ async fn test_action_error_handling() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Define action that will error with invalid access
     let frame_action = store
@@ -86,11 +92,11 @@ async fn test_action_error_handling() -> Result<(), Error> {
         )
         .unwrap();
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.action.will_error.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.action.will_error.active"
     );
 
@@ -103,10 +109,13 @@ async fn test_action_error_handling() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "will_error.call");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "will_error.call"
+    );
 
     // Should get error event
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "will_error.error");
     let meta = frame.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta["action_id"], frame_action.id.to_string());
@@ -122,7 +131,7 @@ async fn test_action_single_value() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Define the action
     let frame_action = store.append(
@@ -140,20 +149,20 @@ async fn test_action_single_value() -> Result<(), Error> {
             .build(),
     )?;
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.action.single.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.action.single.active"
     );
 
     // Call the action
     let frame_call = store.append(Frame::builder("single.call").build())?;
-    assert_eq!(recver.recv().await.unwrap().topic, "single.call");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "single.call");
 
     // Expect single response event
-    let frame_resp = recver.recv().await.unwrap();
+    let frame_resp = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame_resp.topic, "single.response");
     let meta_resp = frame_resp.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta_resp["action_id"], frame_action.id.to_string());
@@ -174,7 +183,7 @@ async fn test_action_empty_output() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Define the action
     let frame_action = store.append(
@@ -190,15 +199,21 @@ async fn test_action_empty_output() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.empty.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.empty.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.empty.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.empty.active"
+    );
 
     // Call the action
     let frame_call = store.append(Frame::builder("empty.call").build())?;
-    assert_eq!(recver.recv().await.unwrap().topic, "empty.call");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "empty.call");
 
     // Expect single response event with no hash
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "empty.response");
     let meta = frame.meta.as_ref().expect("Meta should be present");
     assert_eq!(meta["action_id"], frame_action.id.to_string());
@@ -214,7 +229,7 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Define the action that outputs a simple pipeline of 1, 2, 3
     let frame_action = store.append(
@@ -234,22 +249,22 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
             .build(),
     )?;
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.action.numbers.create"
     );
     assert_eq!(
-        recver.recv().await.unwrap().topic,
+        recver.recv().await.unwrap().unwrap().topic,
         "xs.action.numbers.active"
     );
 
     // Call the action
     let frame_call = store.append(Frame::builder("numbers.call").build())?;
-    assert_eq!(recver.recv().await.unwrap().topic, "numbers.call");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "numbers.call");
 
     let expected_meta = json!({"action_id": frame_action.id, "frame_id": frame_call.id});
 
     // Expect sum event from tee side pipeline
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "sum");
     assert_eq!(frame.meta.unwrap(), expected_meta);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
@@ -257,7 +272,7 @@ async fn test_action_tee_and_append() -> Result<(), Error> {
     assert_eq!(content_str, "6");
 
     // Then expect response with the collected pipeline
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "numbers.response");
     assert_eq!(frame.meta.unwrap(), expected_meta);
     let content = store.cas_read(&frame.hash.unwrap()).await?;
@@ -274,7 +289,7 @@ async fn test_action_record_output_goes_to_meta() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     let frame_action = store.append(
         Frame::builder("xs.action.rec.create")
@@ -289,13 +304,19 @@ async fn test_action_record_output_goes_to_meta() -> Result<(), Error> {
             )
             .build(),
     )?;
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.rec.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.rec.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.rec.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.rec.active"
+    );
 
     let frame_call = store.append(Frame::builder("rec.call").build())?;
-    assert_eq!(recver.recv().await.unwrap().topic, "rec.call");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "rec.call");
 
-    let frame = recver.recv().await.unwrap();
+    let frame = recver.recv().await.unwrap().unwrap();
     assert_eq!(frame.topic, "rec.response");
     assert!(frame.hash.is_none(), "record output should not use CAS");
     let meta = frame.meta.unwrap();
@@ -316,7 +337,7 @@ async fn inv4_action_term_removes_action_and_blocks_calls() -> Result<(), Error>
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Define a passing-through action.
     let define = store
@@ -330,8 +351,11 @@ async fn inv4_action_term_removes_action_and_blocks_calls() -> Result<(), Error>
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.create");
-    let ready = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.create"
+    );
+    let ready = recver.recv().await.unwrap().unwrap();
     assert_eq!(ready.topic, "xs.action.echo.active");
     assert_eq!(
         ready.meta.as_ref().unwrap()["action_id"],
@@ -340,8 +364,8 @@ async fn inv4_action_term_removes_action_and_blocks_calls() -> Result<(), Error>
 
     // A call before term works.
     let call = store.append(Frame::builder("echo.call").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
-    let resp = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "echo.call");
+    let resp = recver.recv().await.unwrap().unwrap();
     assert_eq!(resp.topic, "echo.response");
     let _ = call;
 
@@ -349,13 +373,16 @@ async fn inv4_action_term_removes_action_and_blocks_calls() -> Result<(), Error>
     store
         .append(Frame::builder("xs.action.echo.term").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.term");
-    let fin = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.term"
+    );
+    let fin = recver.recv().await.unwrap().unwrap();
     assert_eq!(fin.topic, "xs.action.echo.fin.term");
 
     // A call after term lands as a frame but produces no response or error.
     store.append(Frame::builder("echo.call").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "echo.call");
     assert_no_more_frames(&mut recver).await;
     Ok(())
 }
@@ -368,7 +395,7 @@ async fn inv6_action_acks_carry_source_pointer() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     // Good define -> .active.
     let define = store
@@ -378,8 +405,11 @@ async fn inv6_action_acks_carry_source_pointer() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.tr.create");
-    let active = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.tr.create"
+    );
+    let active = recver.recv().await.unwrap().unwrap();
     assert_eq!(active.topic, "xs.action.tr.active");
     assert_eq!(
         active.meta.as_ref().unwrap()["action_id"],
@@ -391,8 +421,11 @@ async fn inv6_action_acks_carry_source_pointer() -> Result<(), Error> {
     let term = store
         .append(Frame::builder("xs.action.tr.term").build())
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.tr.term");
-    let fin = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.tr.term"
+    );
+    let fin = recver.recv().await.unwrap().unwrap();
     assert_eq!(fin.topic, "xs.action.tr.fin.term");
     assert_eq!(fin.meta.as_ref().unwrap()["frame_id"], term.id.to_string());
 
@@ -404,8 +437,11 @@ async fn inv6_action_acks_carry_source_pointer() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.tr.create");
-    let invalid = recver.recv().await.unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.tr.create"
+    );
+    let invalid = recver.recv().await.unwrap().unwrap();
     assert_eq!(invalid.topic, "xs.action.tr.invalid");
     assert_eq!(
         invalid.meta.as_ref().unwrap()["action_id"],
@@ -423,7 +459,7 @@ async fn inv8_action_single_live_instance_per_name() -> Result<(), Error> {
     let (_dir, store) = setup_test_environment().await;
     let options = ReadOptions::builder().follow(FollowOption::On).build();
     let mut recver = store.read(options);
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
     let _first = store
         .append(
@@ -438,8 +474,14 @@ async fn inv8_action_single_live_instance_per_name() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.active"
+    );
 
     let second = store
         .append(
@@ -454,14 +496,20 @@ async fn inv8_action_single_live_instance_per_name() -> Result<(), Error> {
                 .build(),
         )
         .unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.create");
-    assert_eq!(recver.recv().await.unwrap().topic, "xs.action.echo.active");
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.action.echo.active"
+    );
 
     // A call: the response should reference the SECOND definition's id,
     // not the first. There is no second response from the old one.
     let call = store.append(Frame::builder("echo.call").build()).unwrap();
-    assert_eq!(recver.recv().await.unwrap().topic, "echo.call");
-    let resp = recver.recv().await.unwrap();
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "echo.call");
+    let resp = recver.recv().await.unwrap().unwrap();
     assert_eq!(resp.topic, "echo.response");
     let meta = resp.meta.as_ref().unwrap();
     assert_eq!(meta["action_id"], second.id.to_string());
@@ -471,7 +519,7 @@ async fn inv8_action_single_live_instance_per_name() -> Result<(), Error> {
     Ok(())
 }
 
-async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
+async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<crate::store::ReadItem>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);
     tokio::select! {
