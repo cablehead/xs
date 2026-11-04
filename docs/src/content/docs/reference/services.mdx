@@ -189,7 +189,9 @@ Plus the runtime emits:
 - `xs.service.<name>.fin.ok`, the pipeline ran to completion under
   `restart: "never"`. Under the default policy a clean completion restarts
   and emits nothing.
-- `xs.service.<name>.fin.error`, runtime crash in the script.
+- `xs.service.<name>.fin.error`, runtime crash in the script, or the
+  service fell behind the live stream (its read ended with
+  [`xs.lagged`](../read-options/#what-a-follow-delivers)).
 - `xs.service.<name>.replaced`, hot-reloaded by a newer `.create`.
 - `xs.service.<name>.stopped`, xs is shutting down (`xs.stopping`). The
   service was alive; it will resume on the next start.

@@ -111,7 +111,7 @@ pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + 
     let mut states: HashMap<String, TopicState> = HashMap::new();
     let mut active: HashMap<String, JoinHandle<()>> = HashMap::new();
 
-    while let Some(event) = lifecycle.recv().await {
+    while let Some(event) = lifecycle.recv().await? {
         match event {
             Lifecycle::Historical(frame) => {
                 if let Some((topic, ev)) = event_from_frame(&frame) {

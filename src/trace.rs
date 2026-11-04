@@ -350,7 +350,14 @@ pub async fn log_stream(store: Store) {
         .new(true)
         .build();
     let mut recver = store.read(options);
-    while let Some(frame) = recver.recv().await {
+    while let Some(item) = recver.recv().await {
+        let frame = match item {
+            Ok(frame) => frame,
+            Err(err) => {
+                eprintln!("log stream ended: {err}");
+                break;
+            }
+        };
         let now = Utc::now().with_timezone(&Local);
         let formatted_time = now.format("%H:%M:%S%.3f").to_string();
         let id = frame.id.to_string();

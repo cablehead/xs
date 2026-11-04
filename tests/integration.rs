@@ -289,6 +289,39 @@ async fn test_eval_integration() {
 }
 
 #[tokio::test]
+async fn test_eval_stream_error_fails_the_command() {
+    // An error in a streamed result ends the response with its message
+    // (the xs-error trailer); it used to print `null` and exit 0.
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+    let mut child = spawn_xs_supervisor(store_path).await;
+    wait_until_ready(store_path).await;
+
+    let output = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "eval",
+        store_path,
+        "-c",
+        "[1 2] | each {|x| if $x == 2 { error make {msg: 'boom'} } else { $x } }"
+    )
+    .stdout_capture()
+    .stderr_capture()
+    .unchecked()
+    .run()
+    .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "1");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("boom"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_eval_streaming_behavior() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let store_path = temp_dir.path();

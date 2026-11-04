@@ -48,7 +48,8 @@
 //!
 //! // Replay history, then follow live appends to drive a UI.
 //! let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
-//! while let Some(frame) = rx.recv().await {
+//! while let Some(item) = rx.recv().await {
+//!     let frame = item?; // a read that falls behind live ends with an error
 //!     println!("{} {}", frame.id, frame.topic);
 //! }
 //! # Ok(())
@@ -85,7 +86,10 @@ pub mod store;
 pub mod trace;
 
 pub use error::Error;
-pub use store::{FollowOption, Frame, Fsync, ReadOptions, Store, StoreError, StoreOptions, TTL};
+pub use store::{
+    FollowOption, Frame, Fsync, ReadError, ReadItem, ReadOptions, Store, StoreError, StoreOptions,
+    TTL,
+};
 
 /// Time-sortable, 128-bit unique identifier used to order [`Frame`]s.
 ///

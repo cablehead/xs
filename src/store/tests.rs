@@ -183,9 +183,11 @@ mod tests_store {
 
         // Pulses are live frames and can interleave with real frames once we
         // cross the threshold, so skip them when asserting on real frames.
-        async fn next_frame(recver: &mut tokio::sync::mpsc::Receiver<Frame>) -> Frame {
+        async fn next_frame(
+            recver: &mut tokio::sync::mpsc::Receiver<crate::store::ReadItem>,
+        ) -> Frame {
             loop {
-                let frame = recver.recv().await.unwrap();
+                let frame = recver.recv().await.unwrap().unwrap();
                 if frame.topic != "xs.pulse" {
                     return frame;
                 }
@@ -208,22 +210,36 @@ mod tests_store {
         assert_eq!(f4, next_frame(&mut recver).await);
 
         // Assert we see some heartbeats
-        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
-        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        assert_eq!(
+            "xs.pulse".to_string(),
+            recver.recv().await.unwrap().unwrap().topic
+        );
+        assert_eq!(
+            "xs.pulse".to_string(),
+            recver.recv().await.unwrap().unwrap().topic
+        );
 
         // Assert we see some heartbeats
-        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
-        assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
+        assert_eq!(
+            "xs.pulse".to_string(),
+            recver.recv().await.unwrap().unwrap().topic
+        );
+        assert_eq!(
+            "xs.pulse".to_string(),
+            recver.recv().await.unwrap().unwrap().topic
+        );
     }
 
+    /// A `new` follow subscribes when the read is made, so it has no stored
+    /// frames to send and no catch-up: every frame after that point comes
+    /// through its live buffer. Outrun it before it is ever polled and the
+    /// read ends with `xs.lagged`; it does not skip ahead to the frames after
+    /// the gap (ADR 0008).
     #[tokio::test]
-    async fn test_follow_recovers_from_lag() {
+    async fn test_follow_new_ends_with_lagged_when_outrun_before_its_first_poll() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep()).unwrap();
 
-        // `new` skips historical replay, so the follow task subscribes to the
-        // broadcast channel and does nothing else until we drive the runtime
-        // by awaiting `rx`. That leaves a window to outrun it.
         let options = ReadOptions::builder()
             .new(true)
             .follow(FollowOption::On)
@@ -231,23 +247,29 @@ mod tests_store {
         let mut rx = store.read(options);
 
         // append() is synchronous and never yields, so all of these land
-        // before the follow task is ever polled. The broadcast channel holds
-        // 1024, so this overruns it and the follow's receiver falls behind.
-        for _ in 0..2000 {
+        // before the follow task is polled.
+        for _ in 0..(FOLLOW_BUFFER + 500) {
             store.append(Frame::builder("filler").build()).unwrap();
         }
         let marker = store.append(Frame::builder("marker").build()).unwrap();
 
-        // A lagged follow should skip ahead, not end: we should still reach
-        // the marker appended after the overrun, not a closed channel.
-        let mut saw_marker = false;
-        while let Some(frame) = rx.recv().await {
-            if frame.id == marker.id {
-                saw_marker = true;
-                break;
+        let mut received = Vec::new();
+        let mut ended = None;
+        loop {
+            match timeout(Duration::from_secs(5), rx.recv()).await {
+                Ok(Some(Ok(frame))) => received.push(frame),
+                Ok(Some(Err(err))) => ended = Some(err),
+                Ok(None) => break,
+                Err(_) => panic!("the read neither ended nor delivered"),
             }
         }
-        assert!(saw_marker, "follow ended instead of recovering from a lag");
+
+        assert_eq!(ended, Some(ReadError::Lagged { skipped: 501 }));
+        assert_eq!(
+            ended.unwrap().to_string(),
+            "fell behind the live stream: 501 frames skipped"
+        );
+        assert!(received.iter().all(|frame| frame.id != marker.id));
     }
 
     #[tokio::test]
@@ -265,8 +287,8 @@ mod tests_store {
         let mut rx = store.read(options);
 
         // Assert we get the first 2 items
-        assert_eq!(Some(frame1.clone()), rx.recv().await);
-        assert_eq!(Some(frame2.clone()), rx.recv().await);
+        assert_eq!(Some(Ok(frame1.clone())), rx.recv().await);
+        assert_eq!(Some(Ok(frame2.clone())), rx.recv().await);
 
         // Assert the channel is closed
         assert_eq!(None, rx.recv().await);
@@ -274,8 +296,8 @@ mod tests_store {
         // Read with after
         let options = ReadOptions::builder().after(frame1.id).build();
         let mut rx = store.read(options);
-        assert_eq!(Some(frame2), rx.recv().await);
-        assert_eq!(Some(frame3), rx.recv().await);
+        assert_eq!(Some(Ok(frame2)), rx.recv().await);
+        assert_eq!(Some(Ok(frame3)), rx.recv().await);
         assert_eq!(None, rx.recv().await);
     }
 
@@ -296,8 +318,8 @@ mod tests_store {
         let mut rx = store.read(options);
 
         // Assert we get the last 2 items in chronological order
-        assert_eq!(Some(frame4), rx.recv().await);
-        assert_eq!(Some(frame5), rx.recv().await);
+        assert_eq!(Some(Ok(frame4)), rx.recv().await);
+        assert_eq!(Some(Ok(frame5)), rx.recv().await);
 
         // Assert the channel is closed
         assert_eq!(None, rx.recv().await);
@@ -323,8 +345,8 @@ mod tests_store {
         let mut rx = store.read(options);
 
         // Assert we get the last 2 topic.a items in chronological order
-        assert_eq!(Some(a2), rx.recv().await);
-        assert_eq!(Some(a3), rx.recv().await);
+        assert_eq!(Some(Ok(a2)), rx.recv().await);
+        assert_eq!(Some(Ok(a3)), rx.recv().await);
 
         // Assert the channel is closed
         assert_eq!(None, rx.recv().await);
@@ -343,8 +365,8 @@ mod tests_store {
             .build();
         let mut rx = store.read(options);
 
-        assert_eq!(Some(frame1), rx.recv().await);
-        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(Some(Ok(frame1)), rx.recv().await);
+        assert_eq!(rx.recv().await.unwrap().unwrap().topic, "xs.threshold");
     }
 
     #[tokio::test]
@@ -360,25 +382,22 @@ mod tests_store {
             .build();
         let mut rx = store.read(options);
 
-        assert_eq!(Some(frame1), rx.recv().await);
-        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(Some(Ok(frame1)), rx.recv().await);
+        assert_eq!(rx.recv().await.unwrap().unwrap().topic, "xs.threshold");
     }
 
-    /// A reader that falls further behind than the live buffer has its read
-    /// ended, rather than being handed the frames after the gap as though
-    /// nothing were missing.
-    ///
-    /// The read channel carries frames and nothing else, so a closed stream
-    /// is the only signal available that is not a frame. It is one the reader
-    /// cannot mistake for a complete read.
+    /// A reader that falls further behind than the live buffer while live has
+    /// its read ended, rather than being handed the frames after the gap as
+    /// though nothing were missing. The last frame it gets is `xs.lagged`,
+    /// saying how many it missed.
     #[tokio::test]
-    async fn test_follow_ends_when_the_reader_falls_behind() {
+    async fn test_follow_ends_with_lagged_when_the_reader_falls_behind() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
         let options = ReadOptions::builder().follow(FollowOption::On).build();
         let mut rx = store.read(options);
-        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(rx.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
         // Overrun the buffer without taking anything. The reader is now
         // missing frames that the channel has already overwritten.
@@ -386,22 +405,137 @@ mod tests_store {
             store.append(Frame::builder("test").build()).unwrap();
         }
 
-        // Drain whatever did make it through. The read has to end: a reader
-        // that keeps receiving would have no way to know it lost anything.
-        let mut received = 0;
+        // Drain whatever did make it through, up to the end of the read.
+        let mut received = Vec::new();
+        let mut ended = None;
         loop {
             match timeout(Duration::from_secs(5), rx.recv()).await {
-                Ok(Some(_)) => received += 1,
+                Ok(Some(Ok(frame))) => received.push(frame),
+                Ok(Some(Err(err))) => ended = Some(err),
                 Ok(None) => break,
-                Err(_) => panic!("the read neither ended nor delivered after {received} frames"),
+                Err(_) => panic!(
+                    "the read neither ended nor delivered after {} frames",
+                    received.len()
+                ),
             }
         }
 
+        let Some(ReadError::Lagged { skipped }) = ended else {
+            panic!("the read ended without an error");
+        };
+        let skipped = skipped as usize;
+        assert!(skipped > 0);
+        assert!(received.iter().all(|frame| frame.topic == "test"));
+        assert!(received.len() + skipped <= FOLLOW_BUFFER * 2);
+    }
+
+    /// Frames appended while a slow follower is still taking the stored
+    /// frames are not held in its live buffer (ADR 0008): it subscribes only
+    /// after the stored frames are sent, and reads what was appended meanwhile
+    /// from the store. More than FOLLOW_BUFFER of them would otherwise overrun
+    /// the buffer before the follower got to live.
+    #[tokio::test]
+    async fn test_follow_reads_frames_appended_during_replay_from_the_store() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        // More than the read channel holds, so the scan blocks on the reader.
+        let mut expected: Vec<Scru128Id> = (0..300)
+            .map(|_| store.append(Frame::builder("stored").build()).unwrap().id)
+            .collect();
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut rx = store.read(options);
+        let first = rx.recv().await.unwrap().unwrap();
+        assert_eq!(first.id, expected[0]);
+
+        // Append while the follower is still in the stored frames.
+        for _ in 0..(FOLLOW_BUFFER + 500) {
+            expected.push(store.append(Frame::builder("during").build()).unwrap().id);
+        }
+
+        // Every frame once, in order, and then the threshold.
+        let mut got = vec![first.id];
+        loop {
+            let frame = timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .expect("the replay stalled")
+                .expect("the read ended during the replay")
+                .unwrap();
+            if frame.topic == "xs.threshold" {
+                break;
+            }
+            got.push(frame.id);
+        }
+        assert_eq!(got, expected);
+
+        // And the read is live after it.
+        let live = store.append(Frame::builder("live").build()).unwrap();
+        let frame = timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("the live frame never arrived")
+            .unwrap()
+            .unwrap();
+        assert_eq!(frame.id, live.id);
+    }
+
+    /// Frames appended throughout a follower's replay, including while it
+    /// subscribes and catches up, are each delivered once and in order.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_follow_delivers_concurrent_appends_once_in_order() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+
+        for _ in 0..1000 {
+            store.append(Frame::builder("stored").build()).unwrap();
+        }
+
+        let options = ReadOptions::builder().follow(FollowOption::On).build();
+        let mut rx = store.read(options);
+
+        let appender = {
+            let store = store.clone();
+            std::thread::spawn(move || {
+                for _ in 0..3000 {
+                    store.append(Frame::builder("during").build()).unwrap();
+                }
+            })
+        };
+
+        let mut got = Vec::new();
+        let mut thresholds = 0;
+        while got.len() < 4000 {
+            let frame = timeout(Duration::from_secs(10), rx.recv())
+                .await
+                .expect("the read stalled")
+                .expect("the read ended")
+                .unwrap();
+            if frame.topic == "xs.threshold" {
+                thresholds += 1;
+                continue;
+            }
+            got.push(frame.id);
+        }
+        appender.join().unwrap();
+
+        // The threshold may not have come yet if the catch-up took the rest.
+        if thresholds == 0 {
+            assert_eq!(rx.recv().await.unwrap().unwrap().topic, "xs.threshold");
+            thresholds += 1;
+        }
         assert!(
-            received < FOLLOW_BUFFER * 2,
-            "delivered {received} frames, so nothing was ever dropped and the \
-             premise of this test is wrong",
+            timeout(Duration::from_millis(100), rx.recv())
+                .await
+                .is_err(),
+            "a frame was delivered twice"
         );
+
+        let stored: Vec<Scru128Id> = store
+            .read_sync(ReadOptions::default())
+            .map(|frame| frame.id)
+            .collect();
+        assert_eq!(got, stored);
+        assert_eq!(thresholds, 1);
     }
 
     #[tokio::test]
@@ -420,8 +554,8 @@ mod tests_store {
         let mut rx = store.read(options);
 
         // Assert we get one item then threshold
-        assert_eq!(Some(frame1), rx.recv().await);
-        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(Some(Ok(frame1)), rx.recv().await);
+        assert_eq!(rx.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
         // Assert nothing is immediately available
         assert!(timeout(Duration::from_millis(100), rx.recv())
@@ -433,7 +567,7 @@ mod tests_store {
         let _frame3 = store.append(Frame::builder("test").build()).unwrap();
 
         // Assert we get one more item (limit was 2, we got frame1 + frame2)
-        assert_eq!(Some(frame2), rx.recv().await);
+        assert_eq!(Some(Ok(frame2)), rx.recv().await);
 
         // Assert the rx is closed
         assert_eq!(None, rx.recv().await);
@@ -460,9 +594,9 @@ mod tests_store {
 
         // We should only get exactly 3 frames, even though follow is enabled
         // and there are 5 frames available
-        assert_eq!(Some(frame1), rx.recv().await);
-        assert_eq!(Some(frame2), rx.recv().await);
-        assert_eq!(Some(frame3), rx.recv().await);
+        assert_eq!(Some(Ok(frame1)), rx.recv().await);
+        assert_eq!(Some(Ok(frame2)), rx.recv().await);
+        assert_eq!(Some(Ok(frame3)), rx.recv().await);
 
         // This should complete quickly if the channel is actually closed
         assert_eq!(
@@ -672,22 +806,31 @@ mod tests_topic {
         // Wildcard "user.*" should match user.profile and user.settings, not "user"
         let options = ReadOptions::builder().topic("user.*".to_string()).build();
         let rx = store.read(options);
-        let frames: Vec<_> =
-            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        let frames: Vec<_> = tokio_stream::StreamExt::collect(tokio_stream::StreamExt::map(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+            Result::unwrap,
+        ))
+        .await;
         assert_eq!(frames, vec![user_profile, user_settings]);
 
         // Exact "user" should only match "user"
         let options = ReadOptions::builder().topic("user".to_string()).build();
         let rx = store.read(options);
-        let frames: Vec<_> =
-            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        let frames: Vec<_> = tokio_stream::StreamExt::collect(tokio_stream::StreamExt::map(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+            Result::unwrap,
+        ))
+        .await;
         assert_eq!(frames, vec![user]);
 
         // "*" should match all
         let options = ReadOptions::builder().topic("*".to_string()).build();
         let rx = store.read(options);
-        let frames: Vec<_> =
-            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        let frames: Vec<_> = tokio_stream::StreamExt::collect(tokio_stream::StreamExt::map(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+            Result::unwrap,
+        ))
+        .await;
         assert_eq!(frames.len(), 4);
         assert_eq!(frames[3], order);
     }
@@ -710,8 +853,11 @@ mod tests_topic {
         // "user.*" matches all three (they all start with "user.")
         let options = ReadOptions::builder().topic("user.*".to_string()).build();
         let rx = store.read(options);
-        let frames: Vec<_> =
-            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        let frames: Vec<_> = tokio_stream::StreamExt::collect(tokio_stream::StreamExt::map(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+            Result::unwrap,
+        ))
+        .await;
         assert_eq!(
             frames,
             vec![user_a_msg.clone(), user_a_notes.clone(), user_b_msg]
@@ -720,8 +866,11 @@ mod tests_topic {
         // "user.a.*" matches only user.a.* topics
         let options = ReadOptions::builder().topic("user.a.*".to_string()).build();
         let rx = store.read(options);
-        let frames: Vec<_> =
-            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        let frames: Vec<_> = tokio_stream::StreamExt::collect(tokio_stream::StreamExt::map(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+            Result::unwrap,
+        ))
+        .await;
         assert_eq!(frames, vec![user_a_msg, user_a_notes]);
     }
 
@@ -737,7 +886,7 @@ mod tests_topic {
         let mut rx = store.read(options);
 
         // Wait for threshold
-        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(rx.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
         // Append frames after subscribing
         let user_profile = store
@@ -749,8 +898,8 @@ mod tests_topic {
             .unwrap();
 
         // Should receive user.profile and user.settings, not order
-        assert_eq!(rx.recv().await, Some(user_profile));
-        assert_eq!(rx.recv().await, Some(user_settings));
+        assert_eq!(rx.recv().await, Some(Ok(user_profile)));
+        assert_eq!(rx.recv().await, Some(Ok(user_settings)));
     }
 
     #[test]
@@ -786,8 +935,11 @@ mod tests_topic {
 
         let options = ReadOptions::builder().topic("foo".to_string()).build();
         let rx = store.read(options);
-        let frames: Vec<_> =
-            tokio_stream::StreamExt::collect(tokio_stream::wrappers::ReceiverStream::new(rx)).await;
+        let frames: Vec<_> = tokio_stream::StreamExt::collect(tokio_stream::StreamExt::map(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+            Result::unwrap,
+        ))
+        .await;
         assert_eq!(frames, vec![foo1, foo2]);
     }
 
@@ -805,13 +957,16 @@ mod tests_topic {
             .build();
         let mut rx = store.read(options);
 
-        assert_eq!(rx.recv().await, Some(foo1));
-        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold".to_string());
+        assert_eq!(rx.recv().await, Some(Ok(foo1)));
+        assert_eq!(
+            rx.recv().await.unwrap().unwrap().topic,
+            "xs.threshold".to_string()
+        );
 
         let foo2 = store.append(Frame::builder("foo").build()).unwrap();
         let _bar2 = store.append(Frame::builder("bar").build()).unwrap();
 
-        assert_eq!(rx.recv().await, Some(foo2));
+        assert_eq!(rx.recv().await, Some(Ok(foo2)));
     }
 }
 
@@ -852,6 +1007,7 @@ mod tests_ttl_expire {
         let recver = store.read(ReadOptions::default());
         assert_eq!(
             tokio_stream::wrappers::ReceiverStream::new(recver)
+                .map(Result::unwrap)
                 .collect::<Vec<Frame>>()
                 .await,
             vec![permanent_frame.clone(), expiring_frame.clone()]
@@ -864,6 +1020,7 @@ mod tests_ttl_expire {
         let recver = store.read(ReadOptions::default());
         assert_eq!(
             tokio_stream::wrappers::ReceiverStream::new(recver)
+                .map(Result::unwrap)
                 .collect::<Vec<Frame>>()
                 .await,
             vec![permanent_frame]
@@ -1263,7 +1420,7 @@ mod tests_append_race {
         let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
 
         // Wait for threshold marker
-        let threshold = rx.recv().await.unwrap();
+        let threshold = rx.recv().await.unwrap().unwrap();
         assert_eq!(threshold.topic, "xs.threshold");
 
         let num_threads = 8;
@@ -1307,7 +1464,7 @@ mod tests_append_race {
                 break;
             }
             match tokio::time::timeout(Duration::from_secs(5), rx.recv()).await {
-                Ok(Some(frame)) if frame.topic == "race-test" => {
+                Ok(Some(Ok(frame))) if frame.topic == "race-test" => {
                     received.push(frame);
                 }
                 Ok(Some(_)) => {
@@ -1743,17 +1900,17 @@ mod tests_topic_filter {
         let mut recver = store.read(options);
 
         for want in [&frames[0], &frames[2], &frames[4], &frames[5]] {
-            assert_eq!(recver.recv().await.unwrap().id, want.id);
+            assert_eq!(recver.recv().await.unwrap().unwrap().id, want.id);
         }
         // The synthetic threshold frame is delivered despite the filter
-        assert_eq!(recver.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
 
         // Follow phase: only matching live appends come through
         store.append(Frame::builder("noise").build()).unwrap();
         let live = store
             .append(Frame::builder("game.move.left").build())
             .unwrap();
-        assert_eq!(recver.recv().await.unwrap().id, live.id);
+        assert_eq!(recver.recv().await.unwrap().unwrap().id, live.id);
     }
 
     #[tokio::test]
@@ -1765,8 +1922,8 @@ mod tests_topic_filter {
             .topic("noise,game.create".to_string())
             .build();
         let mut recver = store.read(options);
-        assert_eq!(recver.recv().await.unwrap().id, frames[1].id);
-        assert_eq!(recver.recv().await.unwrap().id, frames[5].id);
+        assert_eq!(recver.recv().await.unwrap().unwrap().id, frames[1].id);
+        assert_eq!(recver.recv().await.unwrap().unwrap().id, frames[5].id);
         assert!(recver.recv().await.is_none());
     }
 }
@@ -3073,14 +3230,14 @@ mod tests_append_many {
     use tokio::sync::mpsc::Receiver;
 
     /// Follow the store and consume the threshold marker.
-    async fn follow(store: &Store) -> Receiver<Frame> {
+    async fn follow(store: &Store) -> Receiver<crate::store::ReadItem> {
         let mut rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
-        assert_eq!(rx.recv().await.unwrap().topic, "xs.threshold");
+        assert_eq!(rx.recv().await.unwrap().unwrap().topic, "xs.threshold");
         rx
     }
 
     /// Assert no frame is broadcast within a short window.
-    async fn assert_no_broadcast(rx: &mut Receiver<Frame>) {
+    async fn assert_no_broadcast(rx: &mut Receiver<crate::store::ReadItem>) {
         if let Ok(frame) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
             panic!("unexpected broadcast: {frame:?}");
         }
@@ -3103,7 +3260,7 @@ mod tests_append_many {
         assert!(frames.windows(2).all(|w| w[0].id < w[1].id));
 
         for frame in &frames {
-            assert_eq!(rx.recv().await.unwrap(), *frame);
+            assert_eq!(rx.recv().await.unwrap().unwrap(), *frame);
             assert_eq!(store.get(&frame.id), Some(frame.clone()));
         }
         assert_no_broadcast(&mut rx).await;
@@ -3164,7 +3321,7 @@ mod tests_append_many {
             .unwrap();
 
         for frame in &frames {
-            assert_eq!(rx.recv().await.unwrap(), *frame);
+            assert_eq!(rx.recv().await.unwrap().unwrap(), *frame);
         }
         assert_no_broadcast(&mut rx).await;
 
@@ -3187,7 +3344,7 @@ mod tests_append_many {
             .unwrap();
 
         for frame in &frames {
-            assert_eq!(rx.recv().await.unwrap(), *frame);
+            assert_eq!(rx.recv().await.unwrap().unwrap(), *frame);
         }
         assert_eq!(store.read_sync(ReadOptions::default()).count(), 0);
     }

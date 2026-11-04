@@ -272,6 +272,24 @@ pub fn write_pipeline_to_cas(
     }
 }
 
+/// A following read's item as a nushell value. A read that falls behind the
+/// live stream ends with an error (ADR 0008): it becomes an error value, so
+/// `.cat -f` and `.last -f` fail the pipeline instead of ending as though the
+/// stream were done.
+pub fn follow_value(
+    item: &crate::store::ReadItem,
+    span: Span,
+    to_value: impl FnOnce(&Frame) -> Value,
+) -> Value {
+    match item {
+        Ok(frame) => to_value(frame),
+        Err(err) => Value::error(
+            ShellError::Generic(GenericError::new("xs.lagged", err.to_string(), span)),
+            span,
+        ),
+    }
+}
+
 /// How long a following read waits before it checks whether it was
 /// interrupted. The wait ends the moment a frame arrives, so this bounds only
 /// how late an interrupt is noticed, not how late a frame is delivered.
@@ -289,10 +307,10 @@ const FOLLOW_INTERRUPT_CHECK: std::time::Duration = std::time::Duration::from_mi
 /// `rt` is the store's runtime. Without one there is nothing to drive the
 /// timeout on, so the wait falls back to blocking and stays uninterruptible.
 pub fn follow_recv(
-    rx: &mut tokio::sync::mpsc::Receiver<crate::store::Frame>,
+    rx: &mut tokio::sync::mpsc::Receiver<crate::store::ReadItem>,
     rt: Option<&tokio::runtime::Handle>,
     signals: &nu_protocol::Signals,
-) -> Option<crate::store::Frame> {
+) -> Option<crate::store::ReadItem> {
     let Some(rt) = rt else {
         return rx.blocking_recv();
     };
@@ -301,8 +319,33 @@ pub fn follow_recv(
             return None;
         }
         match rt.block_on(async { tokio::time::timeout(FOLLOW_INTERRUPT_CHECK, rx.recv()).await }) {
-            Ok(frame) => return frame,
+            Ok(item) => return item,
             Err(_elapsed) => continue,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn follow_value_turns_a_lag_into_an_error() {
+        let span = Span::test_data();
+        let lagged = Err(crate::store::ReadError::Lagged { skipped: 7 });
+        let value = follow_value(&lagged, span, |_| unreachable!());
+        let Value::Error { error, .. } = value else {
+            panic!("expected an error value, got {value:?}");
+        };
+        let shown = format!("{error:?}");
+        assert!(shown.contains("xs.lagged"), "{shown}");
+        assert!(
+            shown.contains("fell behind the live stream: 7 frames skipped"),
+            "{shown}"
+        );
+
+        let note = Ok(Frame::builder("note").build());
+        let value = follow_value(&note, span, |f| Value::string(f.topic.clone(), span));
+        assert_eq!(value.as_str().unwrap(), "note");
     }
 }

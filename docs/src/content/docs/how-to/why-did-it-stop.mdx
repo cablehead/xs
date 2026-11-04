@@ -12,7 +12,7 @@ meta to know what happened:
 | ----- | ------------- | ---------------- |
 | `xs.<kind>.<name>.fin.term` | User appended `term` | No |
 | `xs.<kind>.<name>.fin.ok` | Self-terminated cleanly (actor returned no `next`; service script exited and isn't auto-restarting) | No |
-| `xs.<kind>.<name>.fin.error` | Runtime crash | No |
+| `xs.<kind>.<name>.fin.error` | Runtime crash, or it fell behind the live stream (`meta.message` says which) | No |
 | `xs.<kind>.<name>.invalid` | Script failed to parse at create time (never started) | No (and the previous good version is kept as the fallback) |
 | `xs.<kind>.<name>.replaced` | A newer `create` displaced it | A new instance is starting now |
 | `xs.<kind>.<name>.stopped` | xs is shutting down (`xs.stopping`) | Yes, when xs starts back up |
@@ -26,7 +26,9 @@ meta to know what happened:
 ```
 
 If you see `fin.error`, the script crashed; the `meta.message` field has
-the error text.
+the error text. A message of `fell behind the live stream: N frames skipped`
+means the script was slower than the frames arriving on its read; see
+[What a follow delivers](../../reference/read-options/#what-a-follow-delivers).
 
 If you see `fin.term`, you (or some other appender) asked for the stop.
 

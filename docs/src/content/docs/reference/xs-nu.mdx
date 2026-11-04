@@ -56,6 +56,12 @@ pattern, a comma-separated list, or a Nushell list of strings. Two flags are
 Nushell-only: `--detail` (`-d`) includes all frame fields, and
 `--with-timestamp` returns the timestamp as a native `datetime`.
 
+With `--follow`, a reader that falls behind the live stream gets an error
+(`xs.lagged: fell behind the live stream: N frames skipped`) in place of its
+last frame; see [What a follow delivers](../read-options/#what-a-follow-delivers).
+`.last --follow` does the same, as do the built-in `.cat` and `.last` inside
+actors, services and `xs eval`.
+
 ```nushell
 .cat --topic note
 .cat -f --topic note    # Follow new notes

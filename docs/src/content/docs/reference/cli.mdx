@@ -101,6 +101,10 @@ boundary work.
 | `--with-timestamp`              | [`with-timestamp`](../read-options/#output)     |
 | `--sse`                         | Use Server-Sent Events format (output, not a read option) |
 
+A follow that falls behind the live stream ends with an
+[`xs.lagged`](../read-options/#what-a-follow-delivers) frame: `xs cat` prints
+it, then exits 1 with the reason on stderr. `xs last --follow` does the same.
+
 Examples:
 
 ```sh
