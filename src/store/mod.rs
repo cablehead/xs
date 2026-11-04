@@ -2400,6 +2400,25 @@ fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
 /// happens, at a frame of memory per slot per follower.
 pub(crate) const FOLLOW_BUFFER: usize = 4096;
 
+/// The error for an `xs.lagged` frame, or `None` for any other frame.
+///
+/// A following read that falls more than [`FOLLOW_BUFFER`] frames behind the
+/// live stream ends with `xs.lagged` (ADR 0008), its last frame. Every reader
+/// in xs turns it into an error with this message: actors and services stop
+/// with it, `.cat -f` and `.last -f` raise it, and `xs cat -f` and
+/// `xs last -f` print it and exit non-zero. The HTTP API sends the frame as it
+/// is, so clients of their own can do the same.
+pub fn lagged_error(frame: &Frame) -> Option<String> {
+    if frame.topic != "xs.lagged" {
+        return None;
+    }
+    let skipped = frame.meta.as_ref().and_then(|meta| meta.get("skipped"));
+    Some(format!(
+        "fell behind the live stream: {} frames skipped",
+        skipped.map_or("an unknown number of".to_string(), |n| n.to_string())
+    ))
+}
+
 /// What a following read's scan of the stored frames hands the follow task:
 /// the live subscription, taken after the first scan, the last id sent, and
 /// the count so far against `limit`.

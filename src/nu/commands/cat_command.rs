@@ -176,7 +176,7 @@ impl Command for CatCommand {
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
                     let frame = crate::nu::util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
-                    Some(to_value(&frame))
+                    Some(crate::nu::util::follow_value(&frame, span, to_value))
                 }),
                 span,
                 signals,

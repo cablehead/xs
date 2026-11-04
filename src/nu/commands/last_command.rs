@@ -96,7 +96,9 @@ impl Command for LastCommand {
             let stream = ListStream::new(
                 std::iter::from_fn(move || {
                     let frame = util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
-                    Some(util::frame_to_value(&frame, span, with_timestamp))
+                    Some(util::follow_value(&frame, span, |f| {
+                        util::frame_to_value(f, span, with_timestamp)
+                    }))
                 }),
                 span,
                 signals,

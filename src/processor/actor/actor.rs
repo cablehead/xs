@@ -306,7 +306,7 @@ impl Actor {
             // The store ends the read after this: the actor fell behind the
             // live stream and missed frames. Stop with an error rather than
             // carry on as though nothing were missing.
-            if let Some(err) = crate::processor::lagged_error(&frame) {
+            if let Some(err) = crate::store::lagged_error(&frame) {
                 let _ = store.append(
                     Frame::builder(format!("xs.actor.{}.fin.error", self.topic))
                         .meta(serde_json::json!({

@@ -3,23 +3,8 @@ pub mod actor;
 pub mod lifecycle;
 pub mod service;
 
-use crate::store::Frame;
+use crate::store::{lagged_error, Frame};
 use tokio::sync::mpsc;
-
-/// The error for an `xs.lagged` frame, or `None` for any other frame. The
-/// store ends a following read with `xs.lagged` when the reader fell more than
-/// its live buffer behind and missed frames (ADR 0008). Readers that act on
-/// the stream stop with this error rather than carry on.
-pub(crate) fn lagged_error(frame: &Frame) -> Option<String> {
-    if frame.topic != "xs.lagged" {
-        return None;
-    }
-    let skipped = frame.meta.as_ref().and_then(|meta| meta.get("skipped"));
-    Some(format!(
-        "fell behind the live stream: {} frames skipped",
-        skipped.map_or("an unknown number of".to_string(), |n| n.to_string())
-    ))
-}
 
 pub enum Lifecycle {
     Historical(Frame),

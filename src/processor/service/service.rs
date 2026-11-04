@@ -1,7 +1,8 @@
 use scru128::Scru128Id;
 use tokio::task::JoinHandle;
 
-use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Signals, Span, Value};
+use nu_protocol::shell_error::generic::GenericError;
+use nu_protocol::{ByteStream, ByteStreamType, PipelineData, ShellError, Signals, Span, Value};
 use std::io::Read;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -426,7 +427,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                             task.engine.state.signals().trigger();
                             task.engine.kill_job_by_name(&task.id.to_string());
                             let _ = (&mut done_rx).await;
-                            let err = crate::processor::lagged_error(&frame).unwrap_or_default();
+                            let err = crate::store::lagged_error(&frame).unwrap_or_default();
                             break 'ctrl LoopOutcome::Error(format!("control read {err}"));
                         }
                         Some(_) => {}
@@ -528,11 +529,19 @@ async fn build_input_pipeline(
 
         match rx.try_recv() {
             Ok(frame) => {
+                // The send read fell behind the live stream: the service's
+                // input has a gap, so it fails rather than carry on (ADR 0008).
+                if let Some(err) = crate::store::lagged_error(&frame) {
+                    return Some(Err(ShellError::Generic(GenericError::new_internal(
+                        "xs.lagged",
+                        err,
+                    ))));
+                }
                 if frame.topic == topic {
                     if let Some(hash) = frame.hash {
                         if let Ok(bytes) = store.cas_read_sync(&hash) {
                             if let Ok(content) = String::from_utf8(bytes) {
-                                return Some(content);
+                                return Some(Ok(content));
                             }
                         }
                     }
@@ -548,7 +557,7 @@ async fn build_input_pipeline(
         }
     });
 
-    ByteStream::from_iter(
+    ByteStream::from_result_iter(
         iter,
         Span::unknown(),
         task.engine.state.signals().clone(),

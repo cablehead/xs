@@ -252,15 +252,20 @@ pub async fn last(
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
+    let mut lag = super::LagWatch::default();
 
     while let Some(frame) = body.frame().await {
         let frame = frame?;
         if let Ok(chunk) = frame.into_data() {
+            lag.observe(&chunk);
             stdout.write_all(&chunk).await?;
         }
     }
     stdout.flush().await?;
-    Ok(())
+    match lag.finish() {
+        Some(err) => Err(err.into()),
+        None => Ok(()),
+    }
 }
 
 pub async fn import<R>(
@@ -314,15 +319,20 @@ pub async fn eval(
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
+    let mut lag = super::LagWatch::default();
 
     while let Some(frame) = body.frame().await {
         let frame = frame?;
         if let Ok(chunk) = frame.into_data() {
+            lag.observe(&chunk);
             stdout.write_all(&chunk).await?;
         }
     }
     stdout.flush().await?;
-    Ok(())
+    match lag.finish() {
+        Some(err) => Err(err.into()),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]

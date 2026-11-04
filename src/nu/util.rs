@@ -272,6 +272,20 @@ pub fn write_pipeline_to_cas(
     }
 }
 
+/// A following read's frame as a nushell value. The read's last frame is
+/// `xs.lagged` when the reader fell behind the live stream (ADR 0008): that
+/// one becomes an error value, so `.cat -f` and `.last -f` fail the pipeline
+/// instead of ending as though the stream were done.
+pub fn follow_value(frame: &Frame, span: Span, to_value: impl FnOnce(&Frame) -> Value) -> Value {
+    match crate::store::lagged_error(frame) {
+        Some(msg) => Value::error(
+            ShellError::Generic(GenericError::new("xs.lagged", msg, span)),
+            span,
+        ),
+        None => to_value(frame),
+    }
+}
+
 /// How long a following read waits before it checks whether it was
 /// interrupted. The wait ends the moment a frame arrives, so this bounds only
 /// how late an interrupt is noticed, not how late a frame is delivered.
@@ -304,5 +318,32 @@ pub fn follow_recv(
             Ok(frame) => return frame,
             Err(_elapsed) => continue,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn follow_value_turns_xs_lagged_into_an_error() {
+        let span = Span::test_data();
+        let lagged = Frame::builder("xs.lagged")
+            .meta(serde_json::json!({ "skipped": 7 }))
+            .build();
+        let value = follow_value(&lagged, span, |_| unreachable!());
+        let Value::Error { error, .. } = value else {
+            panic!("expected an error value, got {value:?}");
+        };
+        let shown = format!("{error:?}");
+        assert!(shown.contains("xs.lagged"), "{shown}");
+        assert!(
+            shown.contains("fell behind the live stream: 7 frames skipped"),
+            "{shown}"
+        );
+
+        let note = Frame::builder("note").build();
+        let value = follow_value(&note, span, |f| Value::string(f.topic.clone(), span));
+        assert_eq!(value.as_str().unwrap(), "note");
     }
 }

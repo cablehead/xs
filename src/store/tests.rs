@@ -216,14 +216,16 @@ mod tests_store {
         assert_eq!("xs.pulse".to_string(), recver.recv().await.unwrap().topic);
     }
 
+    /// A `new` follow subscribes when the read is made, so it has no stored
+    /// frames to send and no catch-up: every frame after that point comes
+    /// through its live buffer. Outrun it before it is ever polled and the
+    /// read ends with `xs.lagged`; it does not skip ahead to the frames after
+    /// the gap (ADR 0008).
     #[tokio::test]
-    async fn test_follow_recovers_from_lag() {
+    async fn test_follow_new_ends_with_lagged_when_outrun_before_its_first_poll() {
         let temp_dir = TempDir::new().unwrap();
         let store = Store::new(temp_dir.keep()).unwrap();
 
-        // `new` skips historical replay, so the follow task subscribes to the
-        // broadcast channel and does nothing else until we drive the runtime
-        // by awaiting `rx`. That leaves a window to outrun it.
         let options = ReadOptions::builder()
             .new(true)
             .follow(FollowOption::On)
@@ -231,23 +233,28 @@ mod tests_store {
         let mut rx = store.read(options);
 
         // append() is synchronous and never yields, so all of these land
-        // before the follow task is ever polled. The broadcast channel holds
-        // 1024, so this overruns it and the follow's receiver falls behind.
-        for _ in 0..2000 {
+        // before the follow task is polled.
+        for _ in 0..(FOLLOW_BUFFER + 500) {
             store.append(Frame::builder("filler").build()).unwrap();
         }
         let marker = store.append(Frame::builder("marker").build()).unwrap();
 
-        // A lagged follow should skip ahead, not end: we should still reach
-        // the marker appended after the overrun, not a closed channel.
-        let mut saw_marker = false;
-        while let Some(frame) = rx.recv().await {
-            if frame.id == marker.id {
-                saw_marker = true;
-                break;
+        let mut received = Vec::new();
+        loop {
+            match timeout(Duration::from_secs(5), rx.recv()).await {
+                Ok(Some(frame)) => received.push(frame),
+                Ok(None) => break,
+                Err(_) => panic!("the read neither ended nor delivered"),
             }
         }
-        assert!(saw_marker, "follow ended instead of recovering from a lag");
+
+        let lagged = received.pop().expect("the read ended with no frames");
+        assert_eq!(lagged.topic, "xs.lagged");
+        assert_eq!(
+            lagged_error(&lagged).as_deref(),
+            Some("fell behind the live stream: 501 frames skipped")
+        );
+        assert!(received.iter().all(|frame| frame.id != marker.id));
     }
 
     #[tokio::test]

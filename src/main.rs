@@ -486,6 +486,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
         .build();
     let mut receiver = xs::client::cat(&args.addr, options, args.sse, args.with_timestamp).await?;
     let mut stdout = tokio::io::stdout();
+    let mut lag = xs::client::LagWatch::default();
 
     #[cfg(unix)]
     let result = {
@@ -510,6 +511,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
                         match maybe_bytes {
                             Some(bytes) => {
                                 drain_ready(bytes, &mut receiver, &mut buf);
+                                lag.observe(&buf);
                                 if let Err(e) = stdout.write_all(&buf).await {
                                     if e.kind() == std::io::ErrorKind::BrokenPipe {
                                         break;
@@ -561,6 +563,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
             let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
             while let Some(bytes) = receiver.recv().await {
                 drain_ready(bytes, &mut receiver, &mut buf);
+                lag.observe(&buf);
                 stdout.write_all(&buf).await?;
                 stdout.flush().await?;
             }
@@ -570,7 +573,10 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
     };
 
     match result {
-        Ok(_) => Ok(()),
+        Ok(_) => match lag.finish() {
+            Some(err) => Err(err.into()),
+            None => Ok(()),
+        },
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
         Err(e) => Err(e.into()),
     }
