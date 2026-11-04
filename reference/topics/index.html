@@ -200,7 +200,11 @@ default <code dir="auto">forever</code>. See <a href="../ttl/">TTL</a>.</p>
 
 
 
-<table><thead><tr><th>Topic</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">xs.start</code></td><td>System initialization complete</td></tr><tr><td><code dir="auto">xs.threshold</code></td><td>Stream processing threshold marker</td></tr><tr><td><code dir="auto">xs.pulse</code></td><td>Synthetic pulse events (configurable interval)</td></tr><tr><td><code dir="auto">xs.stopping</code></td><td>Server-wide shutdown signal</td></tr></tbody></table>
+
+
+
+
+<table><thead><tr><th>Topic</th><th>Description</th></tr></thead><tbody><tr><td><code dir="auto">xs.start</code></td><td>System initialization complete</td></tr><tr><td><code dir="auto">xs.threshold</code></td><td>Stream processing threshold marker</td></tr><tr><td><code dir="auto">xs.pulse</code></td><td>Synthetic pulse events (configurable interval)</td></tr><tr><td><code dir="auto">xs.lagged</code></td><td>Last frame of a following read that fell behind the live stream; <code dir="auto">meta.skipped</code> is how many it missed (<a href="../read-options/#what-a-follow-delivers">Read Options</a>)</td></tr><tr><td><code dir="auto">xs.stopping</code></td><td>Server-wide shutdown signal</td></tr></tbody></table>
 <h2 id="output-suffix-customization">Output suffix customization</h2>
 <p>Output suffixes can be changed via <code dir="auto">return_options.suffix</code>:</p>
 <ul>

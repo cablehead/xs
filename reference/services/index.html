@@ -278,7 +278,9 @@ known-good <code dir="auto">create</code> as a fallback.</li>
 <li><code dir="auto">xs.service.&#x3C;name>.fin.ok</code>, the pipeline ran to completion under
 <code dir="auto">restart: "never"</code>. Under the default policy a clean completion restarts
 and emits nothing.</li>
-<li><code dir="auto">xs.service.&#x3C;name>.fin.error</code>, runtime crash in the script.</li>
+<li><code dir="auto">xs.service.&#x3C;name>.fin.error</code>, runtime crash in the script, or the
+service fell behind the live stream (its read ended with
+<a href="../read-options/#what-a-follow-delivers"><code dir="auto">xs.lagged</code></a>).</li>
 <li><code dir="auto">xs.service.&#x3C;name>.replaced</code>, hot-reloaded by a newer <code dir="auto">.create</code>.</li>
 <li><code dir="auto">xs.service.&#x3C;name>.stopped</code>, xs is shutting down (<code dir="auto">xs.stopping</code>). The
 service was alive; it will resume on the next start.</li>

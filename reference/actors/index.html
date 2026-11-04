@@ -251,7 +251,9 @@ services:</p>
 <p>Plus the runtime emits:</p>
 <ul>
 <li><code dir="auto">xs.actor.&#x3C;name>.fin.ok</code> when the actor self-terminates (returns no <code dir="auto">next</code>).</li>
-<li><code dir="auto">xs.actor.&#x3C;name>.fin.error</code> on a runtime crash.</li>
+<li><code dir="auto">xs.actor.&#x3C;name>.fin.error</code> on a runtime crash, or when the actor fell
+behind the live stream (its read ended with
+<a href="../read-options/#what-a-follow-delivers"><code dir="auto">xs.lagged</code></a>).</li>
 <li><code dir="auto">xs.actor.&#x3C;name>.replaced</code> when a newer <code dir="auto">xs.actor.&#x3C;name>.create</code> displaces it.</li>
 </ul>
 <p>See the <a href="../lifecycle/">lifecycle reference</a> for the full event list, the

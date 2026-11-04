@@ -141,22 +141,57 @@ keep a connection warm or to drive periodic work in a processor.</p>
 <h3 id="what-a-follow-delivers">What a follow delivers</h3>
 <p>A following read delivers every frame appended after it starts, in frame ID
 order, with no gaps.</p>
+<p>The read sends the stored frames first, straight from the store. Frames
+appended while it does are read from the store afterwards, so a slow replay
+cannot fall behind. Then <code dir="auto">xs.threshold</code>, then live frames.</p>
 <p>Live frames wait in a buffer of 4096 while the reader takes them. A reader that
-falls further behind than that has its read <strong>ended</strong>. A read carries frames and
-nothing else, so closing it is the only way to say that frames were missed.</p>
+falls further behind than that is slower than the stream. Its read ends with a
+last frame that says so:</p>
+<div class="expressive-code"><link rel="stylesheet" href="/xs/_astro/ec.c3kn2.css"><script type="module" src="/xs/_astro/ec.8zarh.js"></script><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="plaintext"><code><div class="ec-line"><div class="code"><span style="--0:#f8f8f2;--1:#575279">topic: xs.lagged</span></div></div><div class="ec-line"><div class="code"><span style="--0:#f8f8f2;--1:#575279">meta:  {skipped: 506}</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="topic: xs.laggedmeta:  {skipped: 506}"><div></div></button></div></figure></div>
+<p>Every reader in xs treats <code dir="auto">xs.lagged</code> as an error:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Reader</th><th>On <code dir="auto">xs.lagged</code></th></tr></thead><tbody><tr><td>actor</td><td>stops with <code dir="auto">xs.actor.&#x3C;name>.fin.error</code></td></tr><tr><td>service</td><td>stops with <code dir="auto">xs.service.&#x3C;name>.fin.error</code> (the control read or the duplex input)</td></tr><tr><td><code dir="auto">.cat -f</code>, <code dir="auto">.last -f</code></td><td>the stream ends with an error</td></tr><tr><td><code dir="auto">xs cat -f</code>, <code dir="auto">xs last -f</code></td><td>prints the frame, then exits 1 with the reason on stderr</td></tr><tr><td>HTTP API</td><td>sends the frame as the last line, then the trailer <code dir="auto">xs-lagged: N</code> (when the request sends <code dir="auto">TE: trailers</code>), then closes</td></tr></tbody></table>
 <p>To resume, read again with <a href="#where-to-start"><code dir="auto">after</code></a> set to the last frame ID
 you received. What you missed is still in the store and comes back as history.</p>
-<div class="expressive-code"><link rel="stylesheet" href="/xs/_astro/ec.c3kn2.css"><script type="module" src="/xs/_astro/ec.8zarh.js"></script><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">cat</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--follow</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--after</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">03c4tn8fzl0a0000000000000</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs cat ./store --follow --after 03c4tn8fzl0a0000000000000"><div></div></button></div></figure></div>
-<p>Two things do not come back: ephemeral frames, which are broadcast but never
-stored, and frames a <a href="../ttl/"><code dir="auto">ttl</code></a> has since removed.</p>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#50FA7B;--1:#8A5351">xs</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">cat</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">./store</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--follow</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#BD93F9;--1:#286983">--after</span><span style="--0:#F8F8F2;--1:#575279"> </span><span style="--0:#F1FA8C;--1:#855A1E">03c4tn8fzl0a0000000000000</span></div></div></code></pre><div class="copy"><button title="Copy to clipboard" data-copied="Copied!" data-code="xs cat ./store --follow --after 03c4tn8fzl0a0000000000000"><div></div></button></div></figure></div>
+<p>Ephemeral frames, which are broadcast but never stored, do not come back, and
+neither do frames a <a href="../ttl/"><code dir="auto">ttl</code></a> has since removed.</p>
 <h2 id="filtering-by-topic">Filtering by topic</h2>
 <p><code dir="auto">topic</code> restricts a read to frames whose topic matches a pattern. The pattern
 language (exact, <code dir="auto">prefix.*</code> wildcards, <code dir="auto">*</code> for all, and comma-separated lists)
 is described under <a href="../topics/#wildcard-queries">Topics</a>. A frame matched by
 more than one pattern in a list is returned once.</p>
 <p>Filtering preserves the chronological ordering of the read and does not change
-the threshold boundary. Synthetic control frames (<code dir="auto">xs.threshold</code> and heartbeat
-<code dir="auto">xs.pulse</code>) are always delivered to a following read; the filter applies only
+the threshold boundary. Synthetic control frames (<code dir="auto">xs.threshold</code>, heartbeat
+<code dir="auto">xs.pulse</code> and <code dir="auto">xs.lagged</code>) are always delivered to a following read; the filter applies only
 to stored and broadcast frames.</p>
 <h2 id="output">Output</h2>
 <p><code dir="auto">with-timestamp</code> adds an RFC3339 timestamp to each frame, extracted from its
