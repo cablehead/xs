@@ -303,6 +303,21 @@ impl Actor {
         let store = &store;
 
         while let Some(frame) = recver.blocking_recv() {
+            // The store ends the read after this: the actor fell behind the
+            // live stream and missed frames. Stop with an error rather than
+            // carry on as though nothing were missing.
+            if let Some(err) = crate::processor::lagged_error(&frame) {
+                let _ = store.append(
+                    Frame::builder(format!("xs.actor.{}.fin.error", self.topic))
+                        .meta(serde_json::json!({
+                            "actor_id": self.id.to_string(),
+                            "error": err,
+                        }))
+                        .build(),
+                );
+                break;
+            }
+
             // Skip lifecycle activity that occurred before this actor was registered
             if (frame.topic == create_topic || frame.topic == term_topic) && frame.id <= self.id {
                 continue;

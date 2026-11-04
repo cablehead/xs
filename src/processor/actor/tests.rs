@@ -1403,6 +1403,145 @@ async fn test_non_record_return_error() {
     assert_no_more_frames(&mut recver).await;
 }
 
+/// An actor that replays a long history and writes a frame for each one
+/// used to overrun the store's live buffer before it got to follow: its own
+/// output piled up there while it was still in history, and the store ended
+/// its read with no error (#169). The store now subscribes only after the
+/// stored frames are sent (ADR 0008), so the replay holds nothing in the live
+/// buffer, and a live frame after it is counted exactly once.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_actor_replay_does_not_overrun_live_buffer() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let history = crate::store::FOLLOW_BUFFER + 500;
+    for _ in 0..history {
+        store.append(Frame::builder("pew").build()).unwrap();
+    }
+
+    store
+        .append(
+            Frame::builder("xs.actor.count.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = 0|
+                                if $frame.topic == "xs.threshold" {
+                                  {out: {threshold: $state}, next: $state}
+                                } else if $frame.topic in ["pew" "marker"] {
+                                  {out: {count: ($state + 1)}, next: ($state + 1)}
+                                } else {
+                                  {next: $state}
+                                }
+                              }
+                              start: "first"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+
+    let options = ReadOptions::builder()
+        .new(true)
+        .follow(FollowOption::On)
+        .topic("count.out,xs.actor.count.fin.*".to_string())
+        .build();
+    let mut recver = store.read(options);
+
+    // Wait for the replay to finish, then append one frame live.
+    let mut thresholds = 0;
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(120), recver.recv())
+            .await
+            .expect("the replay did not finish")
+            .expect("read ended");
+        assert_eq!(frame.topic, "count.out", "the actor stopped: {frame:?}");
+        let meta = frame.meta.unwrap();
+        if meta.get("threshold").is_some() {
+            thresholds += 1;
+            assert_eq!(meta["threshold"], history as u64);
+            break;
+        }
+    }
+
+    // The marker has to reach the actor, counted once, after every pew.
+    let marker = store.append(Frame::builder("marker").build()).unwrap();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), recver.recv())
+            .await
+            .expect("the actor never saw the live frame")
+            .expect("read ended");
+        assert_eq!(frame.topic, "count.out", "the actor stopped: {frame:?}");
+        let meta = frame.meta.unwrap();
+        if meta.get("threshold").is_some() {
+            thresholds += 1;
+        }
+        if meta["frame_id"] == marker.id.to_string() {
+            assert_eq!(meta["count"], history as u64 + 1);
+            break;
+        }
+    }
+    assert_eq!(thresholds, 1, "the actor saw a second threshold");
+}
+
+/// An actor that falls more than the live buffer behind while live gets
+/// `xs.lagged` from the store, and stops with an error rather than carry on
+/// with frames missing.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_actor_stops_with_error_when_it_falls_behind_live() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let options = ReadOptions::builder()
+        .new(true)
+        .follow(FollowOption::On)
+        .topic("xs.actor.slow.*".to_string())
+        .build();
+    let mut recver = store.read(options);
+
+    store
+        .append(
+            Frame::builder("xs.actor.slow.create")
+                .hash(
+                    store
+                        .cas_insert(
+                            r#"{
+                              run: {|frame, state = null|
+                                if $frame.topic == "slow" { sleep 3sec }
+                                {next: $state}
+                              }
+                              start: "new"
+                            }"#,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.slow.create");
+    assert_eq!(recver.recv().await.unwrap().topic, "xs.actor.slow.active");
+
+    // Hold the actor in its closure while more than the buffer piles up.
+    store.append(Frame::builder("slow").build()).unwrap();
+    for _ in 0..(crate::store::FOLLOW_BUFFER + 200) {
+        store.append(Frame::builder("filler").build()).unwrap();
+    }
+
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(30), recver.recv())
+        .await
+        .expect("the actor never stopped")
+        .expect("read ended");
+    assert_eq!(frame.topic, "xs.actor.slow.fin.error");
+    let error = frame.meta.unwrap()["error"].as_str().unwrap().to_string();
+    assert!(
+        error.contains("fell behind the live stream"),
+        "unexpected error: {error}"
+    );
+}
+
 async fn assert_no_more_frames(recver: &mut tokio::sync::mpsc::Receiver<Frame>) {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(50));
     tokio::pin!(timeout);

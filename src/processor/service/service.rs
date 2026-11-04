@@ -420,6 +420,15 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                                 }
                             }
                         }
+                        // The control read fell behind the live stream and
+                        // missed frames, maybe a .term: stop the service.
+                        Some(frame) if frame.topic == "xs.lagged" => {
+                            task.engine.state.signals().trigger();
+                            task.engine.kill_job_by_name(&task.id.to_string());
+                            let _ = (&mut done_rx).await;
+                            let err = crate::processor::lagged_error(&frame).unwrap_or_default();
+                            break 'ctrl LoopOutcome::Error(format!("control read {err}"));
+                        }
                         Some(_) => {}
                         None => break 'ctrl LoopOutcome::Error("control".into()),
                     }

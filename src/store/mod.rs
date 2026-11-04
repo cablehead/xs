@@ -229,8 +229,8 @@ impl Pattern {
 /// into individual [`Pattern`]s.
 ///
 /// Note that synthetic control frames emitted by a following read --
-/// `xs.threshold` and heartbeat `xs.pulse` -- are delivered directly on the
-/// read channel and are never subject to this filter.
+/// `xs.threshold`, heartbeat `xs.pulse`, and `xs.lagged` -- are delivered
+/// directly on the read channel and are never subject to this filter.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TopicFilter {
     /// Match every topic (no filter, or some element was `*`).
@@ -1076,7 +1076,9 @@ impl Store {
     /// closes the channel. With [`FollowOption::On`] it instead keeps the
     /// channel open and streams new appends as they arrive. When following, a
     /// single ephemeral `xs.threshold` frame is emitted to mark the boundary
-    /// between replayed history and live events.
+    /// between replayed history and live events. A follower that falls more
+    /// than 4096 frames behind live gets an ephemeral `xs.lagged`
+    /// frame, with `{"skipped": n}` as its meta, and then the read ends.
     ///
     /// The returned [`Receiver`](tokio::sync::mpsc::Receiver) is bounded;
     /// dropping it stops the read. For a blocking, non-async caller use
@@ -1105,106 +1107,35 @@ impl Store {
             FollowOption::On | FollowOption::WithHeartbeat(_)
         );
 
-        // Only take broadcast subscription if following. We initate the subscription here to
-        // ensure we don't miss any messages between historical processing and starting the
-        // broadcast subscription.
-        let broadcast_rx = if should_follow {
-            Some(self.broadcast_tx.subscribe())
+        // A following read's scan of the stored frames hands the follow task
+        // its live subscription once those frames are sent. With `new` there
+        // is nothing stored to send, so it subscribes here and goes live at
+        // once.
+        let (follow_tx, follow_rx) = tokio::sync::oneshot::channel::<FollowFrom>();
+        if options.new {
+            if should_follow {
+                let _ = follow_tx.send(FollowFrom {
+                    broadcast_rx: self.broadcast_tx.subscribe(),
+                    last_id: None,
+                    count: 0,
+                });
+            }
         } else {
-            None
-        };
-
-        // Only create done channel if we're doing historical processing
-        let done_rx = if !options.new {
-            let (done_tx, done_rx) = tokio::sync::oneshot::channel();
-            let tx_clone = tx.clone();
+            let tx = tx.clone();
             let store = self.clone();
             let options = options.clone();
-            let should_follow_clone = should_follow;
 
-            // Spawn OS thread to handle historical events
+            // The scan blocks on the store and on a reader slow to take
+            // frames, so it runs on an OS thread.
             std::thread::spawn(move || {
-                let mut last_id = None;
-                let mut count = 0;
-
-                // Handle --last N: get the N most recent frames
-                let filter = TopicFilter::from_option(options.topic.as_deref());
-
-                if let Some(last_n) = options.last {
-                    let iter = store.iter_for_filter_rev(filter);
-
-                    // Collect last N frames (in reverse order), skipping expired
-                    let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
-                    for frame in iter {
-                        if is_expired(&frame) {
-                            continue;
-                        }
-                        frames.push(frame);
-                        if frames.len() >= last_n {
-                            break;
-                        }
-                    }
-
-                    // Reverse to chronological order and send
-                    for frame in frames.into_iter().rev() {
-                        last_id = Some(frame.id);
-                        count += 1;
-                        if tx_clone.blocking_send(frame).is_err() {
-                            return;
-                        }
-                    }
-                } else {
-                    // Normal forward iteration
-                    // Determine start bound: from (inclusive) takes precedence over after (exclusive)
-                    let start_bound = options
-                        .from
-                        .map(|id| (id, true))
-                        .or_else(|| options.after.map(|id| (id, false)));
-
-                    let iter = store.iter_for_filter(filter, start_bound);
-
-                    for frame in iter {
-                        if is_expired(&frame) {
-                            continue;
-                        }
-
-                        last_id = Some(frame.id);
-
-                        if let Some(limit) = options.limit {
-                            if count >= limit {
-                                return; // Exit early if limit reached
-                            }
-                        }
-
-                        if tx_clone.blocking_send(frame).is_err() {
-                            return;
-                        }
-                        count += 1;
-                    }
+                if let Some(from) = store.scan_stored(&options, should_follow, &tx) {
+                    let _ = follow_tx.send(from);
                 }
-
-                // Send threshold message if following
-                if should_follow_clone {
-                    let threshold = Frame::builder("xs.threshold")
-                        .id(scru128::new())
-                        .ttl(TTL::Ephemeral)
-                        .build();
-                    if tx_clone.blocking_send(threshold).is_err() {
-                        return;
-                    }
-                }
-
-                // Signal completion with the last seen ID and count
-                let _ = done_tx.send((last_id, count));
             });
+        }
 
-            Some(done_rx)
-        } else {
-            None
-        };
-
-        // Handle broadcast subscription and heartbeat
-        if let Some(broadcast_rx) = broadcast_rx {
+        // Handle the live frames and heartbeat
+        if should_follow {
             let handle = self
                 .rt
                 .clone()
@@ -1213,20 +1144,20 @@ impl Store {
             {
                 let tx = tx.clone();
                 let limit = options.limit;
+                let filter = TopicFilter::from_option(options.topic.as_deref());
 
                 handle.spawn(async move {
-                    // If we have a done_rx, wait for historical processing
-                    let (last_id, mut count) = match done_rx {
-                        Some(done_rx) => match done_rx.await {
-                            Ok((id, count)) => (id, count),
-                            Err(_) => return, // Historical processing failed/cancelled
-                        },
-                        None => (None, 0),
+                    // Wait for the stored frames and the threshold to be sent.
+                    // An error means the read ended during the scan.
+                    let Ok(FollowFrom {
+                        mut broadcast_rx,
+                        last_id,
+                        mut count,
+                    }) = follow_rx.await
+                    else {
+                        return;
                     };
 
-                    let filter = TopicFilter::from_option(options.topic.as_deref());
-
-                    let mut broadcast_rx = broadcast_rx;
                     loop {
                         tokio::select! {
                             _ = tx.closed() => break,
@@ -1237,7 +1168,7 @@ impl Store {
                                         continue;
                                     }
 
-                                    // Skip if we've already seen this frame during historical scan
+                                    // Skip if the scan of stored frames already sent it
                                     if let Some(last_scanned_id) = last_id {
                                         if frame.id <= last_scanned_id {
                                             continue;
@@ -1257,18 +1188,24 @@ impl Store {
                                 }
                                 // The reader fell more than FOLLOW_BUFFER frames
                                 // behind and the channel overwrote what it had not
-                                // taken. Carrying on would hand it the frames after
-                                // the gap as though nothing were missing, and the
-                                // read channel carries frames only, so there is no
-                                // way to say otherwise in band. End the read instead:
-                                // a closed stream is a signal the reader cannot
-                                // mistake for a complete one. It resumes with
-                                // `after` set to the last id it received.
+                                // taken. The stored frames were read before
+                                // subscribing, so this buffer covered only the
+                                // catch-up and live frames: the reader is slower
+                                // than the stream, and a retry would not help.
+                                // Carrying on would hand it the frames after the
+                                // gap as though nothing were missing. End the read
+                                // with an `xs.lagged` frame that says so (ADR 0008).
                                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
                                     tracing::warn!(
                                         skipped,
                                         "follow fell behind the live buffer, ending the read"
                                     );
+                                    let lagged = Frame::builder("xs.lagged")
+                                        .id(scru128::new())
+                                        .ttl(TTL::Ephemeral)
+                                        .meta(serde_json::json!({ "skipped": skipped }))
+                                        .build();
+                                    let _ = tx.send(lagged).await;
                                     break;
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
@@ -1301,6 +1238,125 @@ impl Store {
         }
 
         rx
+    }
+
+    /// Send the stored frames a read asks for, on the calling thread. For a
+    /// following read, then subscribe to live frames, send what was stored
+    /// since the first scan began, then `xs.threshold`, and return the
+    /// subscription for the follow task. `None` when the read is over: it
+    /// does not follow, `limit` was reached, or the reader went away.
+    ///
+    /// The subscription is taken after the first scan, not before (ADR 0008).
+    /// A reader that appends while it works through the stored frames would
+    /// otherwise pile its own frames up in the live buffer and overrun it.
+    /// Frames appended during the first scan are read from the store by the
+    /// catch-up scan instead; the live buffer only has to cover that.
+    fn scan_stored(
+        &self,
+        options: &ReadOptions,
+        follow: bool,
+        tx: &mpsc::Sender<Frame>,
+    ) -> Option<FollowFrom> {
+        let filter = TopicFilter::from_option(options.topic.as_deref());
+        let mut last_id = None;
+        let mut count = 0;
+
+        // Where the catch-up scan starts when the first sent nothing.
+        let catch_up_from;
+
+        if let Some(last_n) = options.last {
+            // Handle --last N: get the N most recent frames. The newest frame
+            // before the scan bounds the catch-up when none of them match.
+            catch_up_from = self.iter_frames_rev().next().map(|frame| (frame.id, false));
+
+            // Collect last N frames (in reverse order), skipping expired
+            let mut frames: Vec<Frame> = Vec::with_capacity(last_n);
+            for frame in self.iter_for_filter_rev(filter.clone()) {
+                if is_expired(&frame) {
+                    continue;
+                }
+                frames.push(frame);
+                if frames.len() >= last_n {
+                    break;
+                }
+            }
+
+            // Reverse to chronological order and send
+            for frame in frames.into_iter().rev() {
+                last_id = Some(frame.id);
+                count += 1;
+                tx.blocking_send(frame).ok()?;
+            }
+        } else {
+            // Normal forward iteration
+            // Determine start bound: from (inclusive) takes precedence over after (exclusive)
+            catch_up_from = options
+                .from
+                .map(|id| (id, true))
+                .or_else(|| options.after.map(|id| (id, false)));
+            if !self.send_scan(
+                filter.clone(),
+                catch_up_from,
+                options.limit,
+                &mut last_id,
+                &mut count,
+                tx,
+            ) {
+                return None;
+            }
+        }
+
+        if !follow {
+            return None;
+        }
+
+        // Subscribe, then catch up from the store. A frame appended in between
+        // is in both; the follow task skips it by `last_id`.
+        let broadcast_rx = self.broadcast_tx.subscribe();
+        let start = last_id.map(|id| (id, false)).or(catch_up_from);
+        if !self.send_scan(filter, start, options.limit, &mut last_id, &mut count, tx) {
+            return None;
+        }
+
+        let threshold = Frame::builder("xs.threshold")
+            .id(scru128::new())
+            .ttl(TTL::Ephemeral)
+            .build();
+        tx.blocking_send(threshold).ok()?;
+
+        Some(FollowFrom {
+            broadcast_rx,
+            last_id,
+            count,
+        })
+    }
+
+    /// Send the stored frames matching `filter` from `start` on, skipping
+    /// expired ones. `last_id` and `count` carry across scans. Returns false
+    /// when the read is over: `limit` was reached or the reader went away.
+    fn send_scan(
+        &self,
+        filter: TopicFilter,
+        start: Option<(Scru128Id, bool)>,
+        limit: Option<usize>,
+        last_id: &mut Option<Scru128Id>,
+        count: &mut usize,
+        tx: &mpsc::Sender<Frame>,
+    ) -> bool {
+        for frame in self.iter_for_filter(filter, start) {
+            if is_expired(&frame) {
+                continue;
+            }
+            if limit.is_some_and(|limit| *count >= limit) {
+                return false;
+            }
+            *last_id = Some(frame.id);
+            if tx.blocking_send(frame).is_err() {
+                return false;
+            }
+            *count += 1;
+        }
+        true
     }
 
     /// Replay matching historical frames as a blocking iterator.
@@ -2336,11 +2392,22 @@ fn idx_expiry_parse_key(key: &[u8]) -> (u64, Scru128Id) {
 
 /// Live frames held for a following read that has not taken them yet.
 ///
-/// A reader that falls further behind than this has its read ended rather
-/// than silently skipped: see the `Lagged` arm in [`read`](Store::read).
-/// Raising it buys a slow reader more room before that happens, at a frame
-/// of memory per slot per follower.
-const FOLLOW_BUFFER: usize = 4096;
+/// A following read subscribes only after it has sent the stored frames, so
+/// this covers the catch-up and live frames, not the replay (ADR 0008). A
+/// reader that falls further behind than this has its read ended with an
+/// `xs.lagged` frame rather than silently skipped: see the `Lagged` arm in
+/// [`read`](Store::read). Raising it buys a slow reader more room before that
+/// happens, at a frame of memory per slot per follower.
+pub(crate) const FOLLOW_BUFFER: usize = 4096;
+
+/// What a following read's scan of the stored frames hands the follow task:
+/// the live subscription, taken after the first scan, the last id sent, and
+/// the count so far against `limit`.
+struct FollowFrom {
+    broadcast_rx: broadcast::Receiver<Frame>,
+    last_id: Option<Scru128Id>,
+    count: usize,
+}
 
 const NULL_DELIMITER: u8 = 0;
 const MAX_TOPIC_LENGTH: usize = 255;
