@@ -58,7 +58,7 @@ topic: xs.lagged
 meta:  {skipped: 506}
 ```
 
-An actor or service turns that into its usual error. There is no retry and no setting: the buffer only has to cover the catch-up, which is short unless more than 4096 frames arrive while it runs. An actor reading back its own output writes nothing for it, so for actors this only happens to a reader that cannot keep up with the live stream, and a retry would not help. A store shutting down still ends the read as today.
+Every reader in xs turns that into an error (see Consequences). There is no retry and no setting: the buffer only has to cover the catch-up, which is short unless more than 4096 frames arrive while it runs. An actor reading back its own output writes nothing for it, so for actors this only happens to a reader that cannot keep up with the live stream, and a retry would not help. A store shutting down still ends the read as today.
 
 ## Considered
 
@@ -71,5 +71,15 @@ An actor or service turns that into its usual error. There is no retry and no se
 ## Consequences
 
 - The actor no longer needs #169's reopening. Its test (an actor reading `FOLLOW_BUFFER + 500` stored frames, then counting a new frame exactly once) carries over as a case that must pass.
-- Every reader that follows the stream gets the change: actors, services, supervisors, `xs cat -f`.
-- `xs.lagged` is a new frame: a reader that cares can watch for it.
+- Every reader that follows the stream gets the change: actors, services, supervisors, `xs cat -f`, `.cat -f`, `.last -f`.
+- `xs.lagged` is a new frame, and every reader in xs ends with an error on it, with one message: `fell behind the live stream: N frames skipped` (`store::lagged_error`).
+
+| reader | on `xs.lagged` |
+|---|---|
+| actor | `xs.actor.<name>.fin.error` |
+| service, on its control read or its duplex input | `xs.service.<name>.fin.error` |
+| actor, service and action supervisors | return the error instead of stopping silently |
+| `.cat -f`, `.last -f` (built in, and in `xs.nu`) | the stream's last item is the error |
+| `xs cat -f`, `xs last -f` | print the frame, then exit 1 with the message on stderr |
+| HTTP API | sends the frame as the last one, then closes; a client of its own does the same check |
+

@@ -247,7 +247,9 @@ Actors share the unified lifecycle vocabulary documented in the
 Plus the runtime emits:
 
 - `xs.actor.<name>.fin.ok` when the actor self-terminates (returns no `next`).
-- `xs.actor.<name>.fin.error` on a runtime crash.
+- `xs.actor.<name>.fin.error` on a runtime crash, or when the actor fell
+  behind the live stream (its read ended with
+  [`xs.lagged`](../read-options/#what-a-follow-delivers)).
 - `xs.actor.<name>.replaced` when a newer `xs.actor.<name>.create` displaces it.
 
 See the [lifecycle reference](../lifecycle/) for the full event list, the
