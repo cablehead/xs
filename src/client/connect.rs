@@ -13,9 +13,9 @@ use crate::listener::WinUnixStream as UnixStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
-use super::types::{BoxError, ConnectionKind, RequestParts};
+use super::types::{ConnectionKind, RequestParts};
 
-async fn create_tls_connector() -> Result<TlsConnector, BoxError> {
+async fn create_tls_connector() -> Result<TlsConnector, crate::Error> {
     let mut root_store = RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let config = ClientConfig::builder()
@@ -26,7 +26,7 @@ async fn create_tls_connector() -> Result<TlsConnector, BoxError> {
 
 /// Get the secret key or generate a new one.
 /// Uses IROH_SECRET environment variable if available, otherwise generates a new one.
-fn get_or_create_secret() -> Result<SecretKey, BoxError> {
+fn get_or_create_secret() -> Result<SecretKey, crate::Error> {
     match std::env::var("IROH_SECRET") {
         Ok(secret) => {
             use std::str::FromStr;
@@ -34,7 +34,7 @@ fn get_or_create_secret() -> Result<SecretKey, BoxError> {
                 Box::new(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!("Invalid secret key: {e}"),
-                )) as BoxError
+                )) as crate::Error
             })
         }
         Err(_) => {
@@ -48,7 +48,7 @@ fn get_or_create_secret() -> Result<SecretKey, BoxError> {
     }
 }
 
-pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError> {
+pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, crate::Error> {
     match &parts.connection {
         ConnectionKind::Unix(path) => {
             let stream = UnixStream::connect(path).await?;
@@ -71,11 +71,12 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
             // Create an iroh endpoint for connecting
             let endpoint = crate::listener::bind_iroh_endpoint(vec![], secret_key)
                 .await
-                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
+                .map_err(|e| Box::new(std::io::Error::other(e)) as crate::Error)?;
 
             // Parse the ticket string to get the EndpointTicket, then extract EndpointAddr
             let node_ticket: EndpointTicket = ticket.parse().map_err(|e| {
-                Box::new(std::io::Error::other(format!("Invalid ticket format: {e}"))) as BoxError
+                Box::new(std::io::Error::other(format!("Invalid ticket format: {e}")))
+                    as crate::Error
             })?;
             let node_addr = node_ticket.endpoint_addr().clone();
 
@@ -101,7 +102,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
                             tokio::time::sleep(backoff).await;
                             backoff *= 2;
                         } else {
-                            return Err(Box::new(std::io::Error::other(e)) as BoxError);
+                            return Err(Box::new(std::io::Error::other(e)) as crate::Error);
                         }
                     }
                 }
@@ -114,7 +115,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
             let (mut send_stream, recv_stream) = conn
                 .open_bi()
                 .await
-                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
+                .map_err(|e| Box::new(std::io::Error::other(e)) as crate::Error)?;
 
             // Send the handshake (connecting side sends first)
             #[allow(unused_imports)]
@@ -122,7 +123,7 @@ pub async fn connect(parts: &RequestParts) -> Result<AsyncReadWriteBox, BoxError
             send_stream
                 .write_all(&HANDSHAKE)
                 .await
-                .map_err(|e| Box::new(std::io::Error::other(e)) as BoxError)?;
+                .map_err(|e| Box::new(std::io::Error::other(e)) as crate::Error)?;
 
             tracing::info!("Handshake sent successfully");
 

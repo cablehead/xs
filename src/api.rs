@@ -25,8 +25,7 @@ use crate::listener::Listener;
 use crate::nu;
 use crate::store::{self, FollowOption, Frame, ReadOptions, Store, TTL};
 
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
-type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
+type HTTPResult = Result<Response<BoxBody<Bytes, crate::Error>>, crate::Error>;
 
 /// Serialize a frame to JSON, optionally including a timestamp extracted from the scru128 ID
 fn serialize_frame(frame: &Frame, with_timestamp: bool) -> String {
@@ -355,7 +354,7 @@ async fn handle_stream_cat(
     let stream = futures::StreamExt::flat_map(ReceiverStream::new(rx), move |item| {
         futures::stream::iter(body_frames(item, &encode))
     })
-    .map(Ok::<_, BoxError>);
+    .map(Ok::<_, crate::Error>);
 
     let body = StreamBody::new(stream).boxed();
 
@@ -380,7 +379,7 @@ async fn handle_stream_append<B>(
 ) -> HTTPResult
 where
     B: hyper::body::Body<Data = Bytes> + Unpin,
-    B::Error: Into<BoxError>,
+    B::Error: Into<crate::Error>,
 {
     let (parts, mut body) = req.into_parts();
 
@@ -507,7 +506,7 @@ pub async fn serve(
     store: Store,
     engine: nu::Engine,
     expose: Option<String>,
-) -> Result<(), BoxError> {
+) -> Result<(), crate::Error> {
     let path = store.path.join("sock").to_string_lossy().to_string();
     let listener = Listener::bind(&path).await?;
 
@@ -552,7 +551,7 @@ async fn listener_loop(
     mut listener: Listener,
     store: Store,
     engine: nu::Engine,
-) -> Result<(), BoxError> {
+) -> Result<(), crate::Error> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
@@ -664,7 +663,7 @@ async fn handle_last_get(
     let stream = futures::StreamExt::flat_map(ReceiverStream::new(rx), move |item| {
         futures::stream::iter(body_frames(item, &encode))
     })
-    .map(Ok::<_, BoxError>);
+    .map(Ok::<_, crate::Error>);
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -708,13 +707,13 @@ fn response_500(message: String) -> HTTPResult {
         .body(body)?)
 }
 
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, BoxError> {
+fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, crate::Error> {
     Full::new(chunk.into())
         .map_err(|never| match never {})
         .boxed()
 }
 
-fn empty() -> BoxBody<Bytes, BoxError> {
+fn empty() -> BoxBody<Bytes, crate::Error> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
@@ -781,9 +780,7 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                                 }
                             }
                             Err(e) => {
-                                let _ = tx.blocking_send(Err(
-                                    Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-                                ));
+                                let _ = tx.blocking_send(Err(Box::new(e) as crate::Error));
                                 break;
                             }
                         }
@@ -834,9 +831,7 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
                             }
                         }
                         Err(e) => {
-                            let _ = tx.blocking_send(Err(
-                                Box::new(e) as Box<dyn std::error::Error + Send + Sync>
-                            ));
+                            let _ = tx.blocking_send(Err(Box::new(e) as crate::Error));
                             break;
                         }
                     }
@@ -919,7 +914,7 @@ mod tests {
             chunks: Vec<&'static [u8]>,
         ) -> serde_json::Value {
             let stream = tokio_stream::iter(chunks.into_iter().map(|chunk| {
-                Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from_static(chunk)))
+                Ok::<_, crate::Error>(hyper::body::Frame::data(Bytes::from_static(chunk)))
             }));
             let mut req = Request::post("/append/note");
             if let Some(meta) = meta {

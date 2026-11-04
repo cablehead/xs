@@ -1953,7 +1953,7 @@ impl Store {
     /// ```no_run
     /// use xs::{Store, Frame, TTL};
     ///
-    /// # async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # async fn run(store: Store) -> Result<(), xs::Error> {
     /// let hash = store.cas_insert("hello clipboard").await?;
     /// let frame = store.append(
     ///     Frame::builder("clip.add").hash(hash).ttl(TTL::Last(100)).build(),

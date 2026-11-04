@@ -37,7 +37,7 @@ async fn handle_spawn_event(
     frame: Frame,
     active: &mut HashMap<String, JoinHandle<()>>,
     store: Store,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), crate::Error> {
     let key = topic.to_string();
     if let Some(handle) = active.get(&key) {
         if handle.is_finished() {
@@ -105,7 +105,7 @@ struct TopicState {
 
 use std::str::FromStr;
 
-pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run(store: Store) -> Result<(), crate::Error> {
     let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
     let mut lifecycle = LifecycleReader::new(rx);
     let mut states: HashMap<String, TopicState> = HashMap::new();

@@ -1,7 +1,5 @@
 use base64::prelude::*;
 
-pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
-
 /// Check if a string looks like a Windows absolute path (e.g., "C:\..." or "D:\...")
 fn is_windows_path(s: &str) -> bool {
     let bytes = s.as_bytes();
@@ -28,11 +26,7 @@ pub struct RequestParts {
 }
 
 impl RequestParts {
-    pub fn parse(
-        addr: &str,
-        path: &str,
-        query: Option<&str>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn parse(addr: &str, path: &str, query: Option<&str>) -> Result<Self, crate::Error> {
         // Iroh case
         if addr.starts_with("iroh://") {
             let ticket = addr.strip_prefix("iroh://").unwrap_or(addr);

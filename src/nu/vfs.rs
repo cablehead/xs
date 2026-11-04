@@ -18,7 +18,7 @@ pub fn load_modules(
     engine_state: &mut EngineState,
     store: &Store,
     modules: &HashMap<String, ssri::Integrity>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), crate::Error> {
     for (name, hash) in modules {
         if name.is_empty() {
             continue;
@@ -46,7 +46,7 @@ fn register_module(
     engine_state: &mut EngineState,
     name: &str,
     content: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), crate::Error> {
     let module_path = name.replace('.', "/");
 
     let mut working_set = StateWorkingSet::new(engine_state);

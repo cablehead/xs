@@ -146,7 +146,7 @@ fn iroh_relay_disabled() -> bool {
 pub(crate) async fn bind_iroh_endpoint(
     alpns: Vec<Vec<u8>>,
     secret_key: SecretKey,
-) -> Result<Endpoint, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Endpoint, crate::Error> {
     if iroh_relay_disabled() {
         Endpoint::builder(iroh::endpoint::presets::Minimal)
             .alpns(alpns)

@@ -33,7 +33,7 @@
 //! ```no_run
 //! use xs::{Store, Frame, ReadOptions, FollowOption};
 //!
-//! # async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! # async fn run() -> Result<(), xs::Error> {
 //! // Open (or create) a store backed by a directory on disk.
 //! let store = Store::new("./clipboard-store".into())?;
 //!

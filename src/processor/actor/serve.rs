@@ -17,7 +17,7 @@ async fn try_start_actor(
     frame: &Frame,
     store: &Store,
     name: &str,
-) -> Result<StartOutcome, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<StartOutcome, crate::Error> {
     match Actor::from_frame(frame, store).await {
         Ok(actor) => {
             actor.spawn(store.clone()).await?;
@@ -107,7 +107,7 @@ async fn execute_pick(
     state: &TopicState,
     topic: &str,
     store: &Store,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), crate::Error> {
     let (id, fallback) = match pick {
         ThresholdPick::None => return Ok(()),
         ThresholdPick::Start { id, fallback } => (id, fallback),
@@ -126,7 +126,7 @@ async fn execute_pick(
     Ok(())
 }
 
-pub async fn run(store: Store) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run(store: Store) -> Result<(), crate::Error> {
     let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
     let mut lifecycle = LifecycleReader::new(rx);
     let mut states: HashMap<String, TopicState> = HashMap::new();

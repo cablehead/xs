@@ -84,7 +84,7 @@ pub async fn append<R>(
     meta: Option<&serde_json::Value>,
     ttl: Option<TTL>,
     with_timestamp: bool,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
+) -> Result<Bytes, crate::Error>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -105,7 +105,7 @@ where
     let mapped_stream = reader_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| Box::new(e) as crate::Error)
     });
     let body = StreamBody::new(mapped_stream);
 
@@ -132,7 +132,7 @@ pub async fn cas_get<W>(
     addr: &str,
     integrity: Integrity,
     writer: &mut W,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+) -> Result<(), crate::Error>
 where
     W: AsyncWrite + Unpin,
 {
@@ -155,7 +155,7 @@ where
                         return Err(Box::new(crate::error::NotFound));
                     }
                     // Also check for IO not found errors in the chain
-                    let boxed_err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
+                    let boxed_err: crate::Error = Box::new(e);
                     if crate::error::has_not_found_io_error(&boxed_err) {
                         return Err(Box::new(crate::error::NotFound));
                     }
@@ -189,10 +189,7 @@ where
     }
 }
 
-pub async fn cas_post<R>(
-    addr: &str,
-    data: R,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
+pub async fn cas_post<R>(addr: &str, data: R) -> Result<Bytes, crate::Error>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -200,7 +197,7 @@ where
     let mapped_stream = reader_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| Box::new(e) as crate::Error)
     });
     let body = StreamBody::new(mapped_stream);
 
@@ -209,11 +206,7 @@ where
     Ok(body)
 }
 
-pub async fn get(
-    addr: &str,
-    id: &str,
-    with_timestamp: bool,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn get(addr: &str, id: &str, with_timestamp: bool) -> Result<Bytes, crate::Error> {
     let query = if with_timestamp {
         Some("with-timestamp")
     } else {
@@ -224,7 +217,7 @@ pub async fn get(
     Ok(body)
 }
 
-pub async fn remove(addr: &str, id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn remove(addr: &str, id: &str) -> Result<(), crate::Error> {
     let _ = request::request(addr, Method::DELETE, id, None, empty(), None).await?;
     Ok(())
 }
@@ -235,7 +228,7 @@ pub async fn last(
     last: usize,
     follow: bool,
     with_timestamp: bool,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), crate::Error> {
     let mut query_parts = Vec::new();
     if last != 1 {
         query_parts.push(format!("last={last}"));
@@ -285,10 +278,7 @@ pub async fn last(
     Ok(())
 }
 
-pub async fn import<R>(
-    addr: &str,
-    data: R,
-) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>>
+pub async fn import<R>(addr: &str, data: R) -> Result<Bytes, crate::Error>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -296,7 +286,7 @@ where
     let mapped_stream = reader_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| Box::new(e) as crate::Error)
     });
     let body = StreamBody::new(mapped_stream);
 
@@ -305,7 +295,7 @@ where
     Ok(body)
 }
 
-pub async fn version(addr: &str) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn version(addr: &str) -> Result<Bytes, crate::Error> {
     match request::request(addr, Method::GET, "version", None, empty(), None).await {
         Ok(res) => {
             let body = res.collect().await?.to_bytes();
@@ -339,16 +329,13 @@ fn lagged(frame: hyper::body::Frame<Bytes>) -> Option<ReadError> {
     Some(ReadError::Lagged { skipped })
 }
 
-fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+fn empty() -> BoxBody<Bytes, crate::Error> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
 }
 
-pub async fn eval(
-    addr: &str,
-    script: String,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn eval(addr: &str, script: String) -> Result<(), crate::Error> {
     let res = request::request(
         addr,
         Method::POST,
