@@ -44,7 +44,7 @@ flowchart LR
 |---|---|---|
 | frames held while the reader works through the stored frames | everything appended meanwhile, up to 4096 | none |
 | frames appended meanwhile | in the buffer, which can overrun | read from the store afterwards |
-| what the buffer has to cover | the whole time spent on the stored frames | only the short catch-up afterwards |
+| what the buffer has to cover | the whole time spent on the stored frames | only the catch-up afterwards |
 | extra work for a reader that appends nothing | none | another look at the store, which finds nothing |
 
 The order and the skipping of repeats work as today: stored frames, then `xs.threshold`, then new ones, and a new frame already sent in the catch-up is skipped.
@@ -58,7 +58,7 @@ topic: xs.lagged
 meta:  {skipped: 506}
 ```
 
-An actor or service turns that into its usual error. There is no retry and no setting: reading the stored frames can no longer overrun the buffer, so this only happens to a reader that cannot keep up, and a retry would not help. A store shutting down still ends the read as today.
+An actor or service turns that into its usual error. There is no retry and no setting: the buffer only has to cover the catch-up, which is short unless more than 4096 frames arrive while it runs. An actor reading back its own output writes nothing for it, so for actors this only happens to a reader that cannot keep up with the live stream, and a retry would not help. A store shutting down still ends the read as today.
 
 ## Considered
 
