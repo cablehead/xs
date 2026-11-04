@@ -1767,3 +1767,72 @@ async fn test_serve_append_tags_service_id() {
         "service never appended an `out` frame to assert on"
     );
 }
+
+#[tokio::test]
+async fn test_duplex_service_stops_with_error_when_its_input_falls_behind_live() {
+    let store = setup_test_env();
+
+    {
+        let store = store.clone();
+        drop(tokio::spawn(async move {
+            crate::processor::service::run(store).await.unwrap();
+        }));
+    }
+
+    let options = ReadOptions::builder()
+        .follow(FollowOption::On)
+        .new(true)
+        .topic("xs.service.lagger.*".to_string())
+        .build();
+    let mut recver = store.read(options);
+
+    // The service holds on its first input, so its read of the stream
+    // stops taking frames.
+    let script = r#"{ run: {|| each {|x| if $x == "slow" { sleep 3sec }; $"echo: ($x)" } }, duplex: true, return_options: { target: "cas" } }"#;
+    store
+        .append(
+            Frame::builder("xs.service.lagger.create".to_string())
+                .maybe_hash(store.cas_insert(script).await.ok())
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.lagger.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().topic,
+        "xs.service.lagger.active"
+    );
+
+    store
+        .append(
+            Frame::builder("lagger.send")
+                .maybe_hash(store.cas_insert("slow").await.ok())
+                .build(),
+        )
+        .unwrap();
+    // While it waits, more than the buffer arrives. The appends yield, so
+    // the supervisor and this test's reader keep up: only the service,
+    // held in its closure, falls behind.
+    for _ in 0..(crate::store::FOLLOW_BUFFER + 200) {
+        store.append(Frame::builder("filler").build()).unwrap();
+        tokio::task::yield_now().await;
+    }
+
+    let fin = loop {
+        let frame = tokio::time::timeout(Duration::from_secs(30), recver.recv())
+            .await
+            .expect("the service never stopped")
+            .expect("read ended");
+        if frame.topic.starts_with("xs.service.lagger.fin") {
+            break frame;
+        }
+    };
+    assert_eq!(fin.topic, "xs.service.lagger.fin.error");
+    let message = fin.meta.unwrap()["message"].as_str().unwrap().to_string();
+    assert!(
+        message.contains("fell behind the live stream"),
+        "message: {message}"
+    );
+}

@@ -1,8 +1,7 @@
 use scru128::Scru128Id;
 use tokio::task::JoinHandle;
 
-use nu_protocol::shell_error::generic::GenericError;
-use nu_protocol::{ByteStream, ByteStreamType, PipelineData, ShellError, Signals, Span, Value};
+use nu_protocol::{ByteStream, ByteStreamType, PipelineData, Signals, Span, Value};
 use std::io::Read;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -333,13 +332,17 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
     }
 
     loop {
+        // Set when the send read falls behind the live stream: the input
+        // then ends, and the run below stops with that error instead of
+        // finishing (ADR 0008).
+        let input_lag: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
         let input_pipeline = if task.duplex {
             let options = ReadOptions::builder()
                 .follow(FollowOption::On)
                 .after(start_id)
                 .build();
             let send_rx = store.read(options);
-            build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx).await
+            build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx, input_lag.clone()).await
         } else {
             PipelineData::empty()
         };
@@ -435,6 +438,9 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                     }
                 }
                 res = &mut done_rx => {
+                    if let Some(err) = input_lag.lock().unwrap().take() {
+                        break 'ctrl LoopOutcome::Error(format!("send read {err}"));
+                    }
                     break 'ctrl match res.unwrap_or(Err("thread failed".into())) {
                         Ok(()) => match task.restart {
                             RestartPolicy::OnSuccess => LoopOutcome::Continue,
@@ -518,6 +524,7 @@ async fn build_input_pipeline(
     loop_ctx: &ServiceLoop,
     task: &Task,
     rx: tokio::sync::mpsc::Receiver<Frame>,
+    lag: Arc<std::sync::Mutex<Option<String>>>,
 ) -> PipelineData {
     let topic = format!("{loop_topic}.send", loop_topic = loop_ctx.topic);
     let signals = task.engine.state.signals().clone();
@@ -530,18 +537,19 @@ async fn build_input_pipeline(
         match rx.try_recv() {
             Ok(frame) => {
                 // The send read fell behind the live stream: the service's
-                // input has a gap, so it fails rather than carry on (ADR 0008).
+                // input has a gap. The input ends here and the run loop
+                // stops the service with the error (ADR 0008). An error item
+                // in the stream would not do it: `each` turns it into a
+                // value and the run finishes as if nothing happened.
                 if let Some(err) = crate::store::lagged_error(&frame) {
-                    return Some(Err(ShellError::Generic(GenericError::new_internal(
-                        "xs.lagged",
-                        err,
-                    ))));
+                    *lag.lock().unwrap() = Some(err);
+                    return None;
                 }
                 if frame.topic == topic {
                     if let Some(hash) = frame.hash {
                         if let Ok(bytes) = store.cas_read_sync(&hash) {
                             if let Ok(content) = String::from_utf8(bytes) {
-                                return Some(Ok(content));
+                                return Some(content);
                             }
                         }
                     }
@@ -557,7 +565,7 @@ async fn build_input_pipeline(
         }
     });
 
-    ByteStream::from_result_iter(
+    ByteStream::from_iter(
         iter,
         Span::unknown(),
         task.engine.state.signals().clone(),
