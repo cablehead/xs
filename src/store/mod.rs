@@ -2432,20 +2432,6 @@ impl ReadError {
                 .build(),
         }
     }
-
-    /// The error a frame from the wire stands for, if it is one.
-    pub fn from_frame(frame: &Frame) -> Option<ReadError> {
-        if frame.topic != "xs.lagged" {
-            return None;
-        }
-        let skipped = frame
-            .meta
-            .as_ref()
-            .and_then(|meta| meta.get("skipped"))
-            .and_then(|n| n.as_u64())
-            .unwrap_or(0);
-        Some(ReadError::Lagged { skipped })
-    }
 }
 
 /// What a following read's scan of the stored frames hands the follow task:

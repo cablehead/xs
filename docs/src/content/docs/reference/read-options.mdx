@@ -71,7 +71,7 @@ Every reader in xs treats `xs.lagged` as an error:
 | service | stops with `xs.service.<name>.fin.error` (the control read or the duplex input) |
 | `.cat -f`, `.last -f` | the stream ends with an error |
 | `xs cat -f`, `xs last -f` | prints the frame, then exits 1 with the reason on stderr |
-| HTTP API | sends the frame as the last one, then closes |
+| HTTP API | sends the frame as the last line, then the trailer `xs-lagged: N` (when the request sends `TE: trailers`), then closes |
 
 To resume, read again with [`after`](#where-to-start) set to the last frame ID
 you received. What you missed is still in the store and comes back as history.

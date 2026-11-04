@@ -10,7 +10,6 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::Receiver;
 use tokio_util::io::ReaderStream;
 
-use super::records::Records;
 use super::request;
 use crate::store::{ReadError, ReadOptions, TTL};
 
@@ -19,7 +18,10 @@ pub async fn cat(
     options: ReadOptions,
     sse: bool,
     with_timestamp: bool,
-) -> Result<Receiver<Result<Bytes, ReadError>>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<
+    Receiver<Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>,
+    Box<dyn std::error::Error + Send + Sync>,
+> {
     // Convert any usize limit to u64
     let mut query_parts = Vec::new();
     if options != ReadOptions::default() {
@@ -34,48 +36,44 @@ pub async fn cat(
         Some(query_parts.join("&"))
     };
 
-    let headers = if sse {
-        Some(vec![(
-            "Accept".to_string(),
-            "text/event-stream".to_string(),
-        )])
-    } else {
-        None
-    };
+    let mut headers = vec![trailers()];
+    if sse {
+        headers.push(("Accept".to_string(), "text/event-stream".to_string()));
+    }
 
-    let res = request::request(addr, Method::GET, "", query.as_deref(), empty(), headers).await?;
+    let res = request::request(
+        addr,
+        Method::GET,
+        "",
+        query.as_deref(),
+        empty(),
+        Some(headers),
+    )
+    .await?;
 
     let (_parts, mut body) = res.into_parts();
     let (tx, rx) = tokio::sync::mpsc::channel(100);
 
-    // Whole records, as the server sent them; a read that ended early ends
-    // with its error.
+    // The server's bytes, as they arrive; a read that fell behind ends with
+    // its error, from the `xs-lagged` trailer (ADR 0008), and a broken
+    // connection with its own.
     tokio::spawn(async move {
-        let mut records = Records::new(sse);
-        while let Some(frame_result) = body.frame().await {
-            match frame_result {
-                Ok(frame) => {
-                    let Ok(bytes) = frame.into_data() else {
-                        continue;
-                    };
-                    let (whole, err) = records.push(&bytes);
-                    if !whole.is_empty() && tx.send(Ok(whole.into())).await.is_err() {
-                        return;
-                    }
-                    if let Some(err) = err {
-                        let _ = tx.send(Err(err)).await;
-                        return;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error reading body: {e}");
-                    break;
-                }
+        while let Some(frame) = body.frame().await {
+            let item = match frame {
+                Ok(frame) => match frame.into_data() {
+                    Ok(bytes) => Ok(bytes),
+                    Err(frame) => match lagged(frame) {
+                        Some(err) => Err(err.into()),
+                        None => continue,
+                    },
+                },
+                // A broken connection ends the read with its error too.
+                Err(e) => Err(e.into()),
+            };
+            let end = item.is_err();
+            if tx.send(item).await.is_err() || end {
+                return;
             }
-        }
-        let rest = records.finish();
-        if !rest.is_empty() {
-            let _ = tx.send(Ok(rest.into())).await;
         }
     });
 
@@ -262,24 +260,30 @@ pub async fn last(
         None => "last".to_string(),
     };
 
-    let res = request::request(addr, Method::GET, &path, query.as_deref(), empty(), None).await?;
+    let res = request::request(
+        addr,
+        Method::GET,
+        &path,
+        query.as_deref(),
+        empty(),
+        Some(vec![trailers()]),
+    )
+    .await?;
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
-    let mut records = Records::new(false);
 
     while let Some(frame) = body.frame().await {
-        let frame = frame?;
-        if let Ok(chunk) = frame.into_data() {
-            let (whole, err) = records.push(&chunk);
-            stdout.write_all(&whole).await?;
-            if let Some(err) = err {
-                stdout.flush().await?;
-                return Err(err.into());
+        match frame?.into_data() {
+            Ok(chunk) => stdout.write_all(&chunk).await?,
+            Err(frame) => {
+                if let Some(err) = lagged(frame) {
+                    stdout.flush().await?;
+                    return Err(err.into());
+                }
             }
         }
     }
-    stdout.write_all(&records.finish()).await?;
     stdout.flush().await?;
     Ok(())
 }
@@ -321,6 +325,23 @@ pub async fn version(addr: &str) -> Result<Bytes, Box<dyn std::error::Error + Se
     }
 }
 
+/// Asks the server for trailers: it sends them only when asked.
+fn trailers() -> (String, String) {
+    ("TE".to_string(), "trailers".to_string())
+}
+
+/// The read's error, if `frame` is the `xs-lagged` trailer (ADR 0008).
+fn lagged(frame: hyper::body::Frame<Bytes>) -> Option<ReadError> {
+    let trailers = frame.into_trailers().ok()?;
+    let skipped = trailers
+        .get(crate::api::LAGGED_TRAILER)?
+        .to_str()
+        .ok()?
+        .parse()
+        .ok()?;
+    Some(ReadError::Lagged { skipped })
+}
+
 fn empty() -> BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
@@ -331,24 +352,35 @@ pub async fn eval(
     addr: &str,
     script: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let res = request::request(addr, Method::POST, "eval", None, script, None).await?;
+    let res = request::request(
+        addr,
+        Method::POST,
+        "eval",
+        None,
+        script,
+        Some(vec![trailers()]),
+    )
+    .await?;
 
     let mut body = res.into_body();
     let mut stdout = tokio::io::stdout();
-    let mut records = Records::new(false);
 
     while let Some(frame) = body.frame().await {
-        let frame = frame?;
-        if let Ok(chunk) = frame.into_data() {
-            let (whole, err) = records.push(&chunk);
-            stdout.write_all(&whole).await?;
-            if let Some(err) = err {
-                stdout.flush().await?;
-                return Err(err.into());
+        match frame?.into_data() {
+            Ok(chunk) => stdout.write_all(&chunk).await?,
+            Err(frame) => {
+                // The script's error, sent after its output (api.rs).
+                let error = frame.into_trailers().ok().and_then(|t| {
+                    let v = t.get(crate::api::ERROR_TRAILER)?;
+                    Some(v.to_str().ok()?.to_string())
+                });
+                if let Some(error) = error {
+                    stdout.flush().await?;
+                    return Err(error.into());
+                }
             }
         }
     }
-    stdout.write_all(&records.finish()).await?;
     stdout.flush().await?;
     Ok(())
 }
@@ -356,6 +388,17 @@ pub async fn eval(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lagged_trailer_is_the_read_error() {
+        let mut trailers = hyper::HeaderMap::new();
+        trailers.insert(crate::api::LAGGED_TRAILER, 506.into());
+        assert!(matches!(
+            lagged(hyper::body::Frame::trailers(trailers)),
+            Some(ReadError::Lagged { skipped: 506 })
+        ));
+        assert!(lagged(hyper::body::Frame::data(Bytes::from("{}"))).is_none());
+    }
     use std::str::FromStr;
     use tempfile::TempDir;
 

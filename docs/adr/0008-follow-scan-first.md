@@ -72,7 +72,7 @@ Every reader in xs turns that into an error (see Consequences). There is no retr
 
 - The actor no longer needs #169's reopening. Its test (an actor reading `FOLLOW_BUFFER + 500` stored frames, then counting a new frame exactly once) carries over as a case that must pass.
 - Every reader that follows the stream gets the change: actors, services, supervisors, `xs cat -f`, `.cat -f`, `.last -f`.
-- `Store::read` yields `Result<Frame, ReadError>`: readers in process use `item?`, with no topic checks. On the wire the error is the `xs.lagged` frame; the client turns it back into the error. One message everywhere: `fell behind the live stream: N frames skipped`.
+- `Store::read` yields `Result<Frame, ReadError>`: readers in process use `item?`, with no topic checks. On the wire the error is the `xs.lagged` frame, the last line, then an `xs-lagged: N` trailer, which the CLI reads. One message everywhere: `fell behind the live stream: N frames skipped`.
 
 | reader | on falling behind |
 |---|---|
@@ -81,5 +81,5 @@ Every reader in xs turns that into an error (see Consequences). There is no retr
 | actor, service and action supervisors | return the error instead of stopping silently |
 | `.cat -f`, `.last -f` (built in, and in `xs.nu`) | the stream's last item is the error |
 | `xs cat -f`, `xs last -f` | print the frame, then exit 1 with the message on stderr |
-| HTTP API | sends `xs.lagged` as the last frame, then closes; a client of its own checks for it |
+| HTTP API | sends `xs.lagged` as the last line, then the trailer `xs-lagged: N`, then closes |
 

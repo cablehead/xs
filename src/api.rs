@@ -279,12 +279,55 @@ async fn handle(
     res.or_else(|e| response_500(e.to_string()))
 }
 
-/// A read's item as the frame sent to a client. A Rust error cannot cross
-/// the wire, so a read that ended early ends its stream with the frame that
-/// stands for the error: `xs.lagged` (ADR 0008). Clients turn it back into
-/// the error with [`ReadError::from_frame`](crate::store::ReadError::from_frame).
-fn on_the_wire(item: crate::store::ReadItem) -> Frame {
-    item.unwrap_or_else(|err| err.to_frame())
+/// The trailer that says a read ended because the reader fell behind the
+/// live stream: `xs-lagged: <frames skipped>` (ADR 0008).
+pub const LAGGED_TRAILER: &str = "xs-lagged";
+
+/// The trailer that carries an `eval` script's error.
+pub const ERROR_TRAILER: &str = "xs-error";
+
+/// A nushell error's own words: the innermost error, past the wrappers
+/// (`each` wraps what its closure raised), with a generic error's details.
+fn error_text(error: &nu_protocol::ShellError) -> String {
+    match error {
+        nu_protocol::ShellError::Generic(g) if g.msg.is_empty() => g.error.to_string(),
+        nu_protocol::ShellError::Generic(g) => format!("{}: {}", g.error, g.msg),
+        nu_protocol::ShellError::EvalBlockWithInput { sources, .. } if !sources.is_empty() => {
+            error_text(&sources[0])
+        }
+        other => other.to_string(),
+    }
+}
+
+/// Text as a header value: visible ASCII only, anything else as a space.
+fn header_text(text: &str) -> hyper::header::HeaderValue {
+    let clean: String = text
+        .chars()
+        .map(|c| if c.is_ascii_graphic() { c } else { ' ' })
+        .collect();
+    hyper::header::HeaderValue::from_str(clean.trim())
+        .unwrap_or(hyper::header::HeaderValue::from_static("error"))
+}
+
+/// A read's item as body frames. A read that fell behind ends with the
+/// `xs.lagged` line, which line readers (curl, nu) see, then the
+/// `xs-lagged` trailer, which the CLI reads instead of parsing lines.
+fn body_frames(
+    item: crate::store::ReadItem,
+    encode: &impl Fn(&Frame) -> Vec<u8>,
+) -> Vec<hyper::body::Frame<Bytes>> {
+    match item {
+        Ok(frame) => vec![hyper::body::Frame::data(Bytes::from(encode(&frame)))],
+        Err(err) => {
+            let crate::store::ReadError::Lagged { skipped } = &err;
+            let mut trailers = hyper::HeaderMap::new();
+            trailers.insert(LAGGED_TRAILER, (*skipped).into());
+            vec![
+                hyper::body::Frame::data(Bytes::from(encode(&err.to_frame()))),
+                hyper::body::Frame::trailers(trailers),
+            ]
+        }
+    }
 }
 
 async fn handle_stream_cat(
@@ -294,25 +337,25 @@ async fn handle_stream_cat(
     with_timestamp: bool,
 ) -> HTTPResult {
     let rx = store.read(options);
-    let stream = ReceiverStream::new(rx).map(on_the_wire);
 
     let accept_type_clone = accept_type.clone();
-    let stream = stream.map(move |frame| {
-        let bytes = match accept_type_clone {
-            AcceptType::Ndjson => {
-                let mut encoded = serialize_frame(&frame, with_timestamp).into_bytes();
-                encoded.push(b'\n');
-                encoded
-            }
-            AcceptType::EventStream => format!(
-                "id: {id}\ndata: {data}\n\n",
-                id = frame.id,
-                data = serialize_frame(&frame, with_timestamp)
-            )
-            .into_bytes(),
-        };
-        Ok(hyper::body::Frame::data(Bytes::from(bytes)))
-    });
+    let encode = move |frame: &Frame| match accept_type_clone {
+        AcceptType::Ndjson => {
+            let mut encoded = serialize_frame(frame, with_timestamp).into_bytes();
+            encoded.push(b'\n');
+            encoded
+        }
+        AcceptType::EventStream => format!(
+            "id: {id}\ndata: {data}\n\n",
+            id = frame.id,
+            data = serialize_frame(frame, with_timestamp)
+        )
+        .into_bytes(),
+    };
+    let stream = futures::StreamExt::flat_map(ReceiverStream::new(rx), move |item| {
+        futures::stream::iter(body_frames(item, &encode))
+    })
+    .map(Ok::<_, BoxError>);
 
     let body = StreamBody::new(stream).boxed();
 
@@ -324,6 +367,7 @@ async fn handle_stream_cat(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", content_type)
+        .header("Trailer", LAGGED_TRAILER)
         .body(body)?)
 }
 
@@ -612,17 +656,20 @@ async fn handle_last_get(
             .build(),
     );
 
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
-        .map(on_the_wire)
-        .map(move |frame| {
-            let mut bytes = serialize_frame(&frame, with_timestamp).into_bytes();
-            bytes.push(b'\n');
-            Ok::<_, BoxError>(hyper::body::Frame::data(Bytes::from(bytes)))
-        });
+    let encode = move |frame: &Frame| {
+        let mut bytes = serialize_frame(frame, with_timestamp).into_bytes();
+        bytes.push(b'\n');
+        bytes
+    };
+    let stream = futures::StreamExt::flat_map(ReceiverStream::new(rx), move |item| {
+        futures::stream::iter(body_frames(item, &encode))
+    })
+    .map(Ok::<_, BoxError>);
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/x-ndjson")
+        .header("Trailer", LAGGED_TRAILER)
         .body(StreamBody::new(stream).boxed())?)
 }
 
@@ -764,6 +811,16 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
             // Spawn sync task to iterate stream and send JSONL to channel
             std::thread::spawn(move || {
                 for value in stream.into_iter() {
+                    // An error in the stream (a lagging `.cat -f`, say) ends
+                    // the response with its message as a trailer; turned
+                    // into JSON it would be `null` (util.rs value_to_json).
+                    if let nu_protocol::Value::Error { error, .. } = &value {
+                        let mut trailers = hyper::HeaderMap::new();
+                        let text = error_text(error);
+                        trailers.insert(ERROR_TRAILER, header_text(&text));
+                        let _ = tx.blocking_send(Ok(hyper::body::Frame::trailers(trailers)));
+                        break;
+                    }
                     let json = nu::value_to_json(&value);
                     match serde_json::to_vec(&json) {
                         Ok(mut json_bytes) => {
@@ -791,6 +848,7 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/x-ndjson")
+                .header("Trailer", ERROR_TRAILER)
                 .body(body)?)
         }
         nu_protocol::PipelineData::Value(value, ..) => {
@@ -836,6 +894,19 @@ async fn handle_eval(store: &Store, body: hyper::body::Incoming) -> HTTPResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lag_ends_with_the_line_then_the_trailer() {
+        let encode = |frame: &Frame| frame.topic.clone().into_bytes();
+        let frames = body_frames(
+            Err(crate::store::ReadError::Lagged { skipped: 506 }),
+            &encode,
+        );
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].data_ref().unwrap().as_ref(), b"xs.lagged");
+        let trailers = frames[1].trailers_ref().unwrap();
+        assert_eq!(trailers.get(LAGGED_TRAILER).unwrap(), "506");
+    }
 
     #[tokio::test]
     async fn test_handle_stream_append_body() {

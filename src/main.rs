@@ -431,19 +431,20 @@ async fn shutdown_signal() {
     }
 }
 
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
 /// Upper bound on bytes `cat` coalesces into a single stdout write.
 const CAT_WRITE_BUF: usize = 256 * 1024;
 
 /// Fill `buf` with `first` plus every chunk already waiting in `receiver`,
 /// up to `CAT_WRITE_BUF`. Never waits, so a follower still sees each frame as
 /// soon as it arrives; a backlog is written in one go instead of per frame.
-/// `first`, then whatever else is ready, up to `CAT_WRITE_BUF`, into `buf`.
 /// Returns the error the read ended with, if it is among what was ready.
 fn drain_ready(
     first: bytes::Bytes,
-    receiver: &mut tokio::sync::mpsc::Receiver<Result<bytes::Bytes, xs::ReadError>>,
+    receiver: &mut tokio::sync::mpsc::Receiver<Result<bytes::Bytes, BoxError>>,
     buf: &mut Vec<u8>,
-) -> Option<xs::ReadError> {
+) -> Option<BoxError> {
     buf.clear();
     buf.extend_from_slice(&first);
     while buf.len() < CAT_WRITE_BUF {
@@ -594,7 +595,7 @@ async fn cat(args: CommandCat) -> Result<(), Box<dyn std::error::Error + Send + 
 
     match result {
         Ok(_) => match ended {
-            Some(err) => Err(err.into()),
+            Some(err) => Err(err),
             None => Ok(()),
         },
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
@@ -1014,7 +1015,7 @@ mod tests {
 
     /// A channel already holding `chunks`, so `try_recv` yields them without
     /// waiting, as it would for a `cat` with a backlog.
-    fn queued(chunks: &[&[u8]]) -> mpsc::Receiver<Result<Bytes, xs::ReadError>> {
+    fn queued(chunks: &[&[u8]]) -> mpsc::Receiver<Result<Bytes, super::BoxError>> {
         let (tx, rx) = mpsc::channel(16);
         for chunk in chunks {
             tx.try_send(Ok(Bytes::copy_from_slice(chunk))).unwrap();
