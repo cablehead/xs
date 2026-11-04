@@ -1,50 +1,75 @@
 # 0008: Follow: scan first, subscribe after, error on a live lag
 
-A following read (`follow` on) replays history and then delivers live frames. Today `Store::read` takes its broadcast subscription before the historical scan, so nothing appended during the scan is missed, and drains it only once the scan is done. The subscription holds at most `FOLLOW_BUFFER` (4096) frames. If more arrive before the reader drains them, the follow task gets `Lagged` and ends the read by closing the channel.
+A reader that follows the stream (`xs cat -f`, every actor, service and supervisor) gets two things on one channel: first every frame already stored, then each new frame as it is appended.
+
+## How it works today
+
+```mermaid
+sequenceDiagram
+  participant R as the reader
+  participant S as the store
+  participant B as live buffer, 4096 frames
+  S->>B: 1. start holding new frames for the reader
+  S->>R: 2. send every stored frame, one at a time, as fast as the reader takes them
+  Note over B: new frames pile up here until 2 is done
+  B->>R: 3. send the held frames, then each new one
+```
+
+Step 1 comes first so that nothing appended during step 2 is missed. The buffer holds at most 4096 frames. If more pile up, the store ends the read and closes the channel, with no error.
 
 ## The problem
 
-The reader paces the scan: the scan thread blocks on `blocking_send` until the reader takes each frame. So everything appended while a slow reader replays piles up in its subscription.
+The reader sets the pace of step 2. So anything appended while a slow reader is still in step 2 piles up in its buffer.
 
-An actor with `start: "first"` that writes a frame per frame it replays writes as many frames as there are in history. On any store past 4096 frames, its own output overruns its own subscription on its first start, every time. Its read ends; the actor loop takes the closed channel as the end and goes quiet: no `fin.error`, the thread idle, appends still landing. Seen in production on xs 0.14.1 ([#169](https://github.com/cablehead/xs/pull/169)).
+| reader | frames it appends during step 2 | on a store of 5,000 frames |
+|---|---|---|
+| an actor with `start: "first"` that writes one frame per frame it reads | as many as there are stored | the buffer overruns on every first start |
+| an actor that writes rarely | a few | fine, unless a burst of appends arrives during a slow step 2 |
 
-For actors that write rarely, the same lag is a rare footgun: a slow closure or a burst of appends freezes the actor with no word.
+When the buffer overruns, the actor stops getting frames and says nothing: no `fin.error`, its thread idle, new frames still landing. Seen in production on xs 0.14.1 ([#169](https://github.com/cablehead/xs/pull/169)).
 
 ## Decision
 
-### Scan first, subscribe after
-
-A following read scans history with no subscription, then subscribes, then scans again from the last id it sent, then goes live:
+### 1. Read the stored frames first, then start holding new ones
 
 ```mermaid
 flowchart LR
-    S1["scan history (no subscription)"] --> Sub["subscribe"]
-    Sub --> S2["scan after the last id sent"]
-    S2 --> T["xs.threshold"]
-    T --> L["live: skip frames at or below the last id scanned"]
+    A["1. send every stored frame (nothing held)"] --> B["2. start holding new frames"]
+    B --> C["3. send the frames stored since 1 began"]
+    C --> D["xs.threshold"]
+    D --> E["4. send the held frames, then each new one"]
 ```
 
-- No subscription is held while a slow reader replays, so nothing piles up during the replay. Frames appended meanwhile, the reader's own output included, are read from the store in the second scan.
-- The second scan only has to be covered by the subscription for what arrives while it runs. For an actor reading back its own output, that is nothing: it writes nothing for its own frames.
-- Order and dedupe hold as today: history, then `xs.threshold`, then live, with live frames at or below the last scanned id skipped.
-- The normal case costs one extra scan, which finds nothing when nothing was appended during the first.
+| | today | with this |
+|---|---|---|
+| frames held while the reader replays history | everything appended meanwhile, up to 4096 | none |
+| frames appended during the replay | in the buffer, can overrun it | read from the store in step 3 |
+| what the buffer has to cover | the whole replay | only step 3 |
+| extra work for a reader that writes nothing | none | one more look at the store, which finds nothing |
 
-### A lag while live is an error
+Order and duplicates are handled as today: stored frames, then `xs.threshold`, then live, and a live frame already sent in step 3 is skipped.
 
-If a read lags while live, it is the reader that cannot keep up with the live stream. The store ends the read with an error the reader can see, rather than closing the channel silently: a final `xs.lagged` frame carrying how many frames it skipped, then the close. An actor or service turns that into its usual error.
+### 2. Falling behind while live is an error
 
-No retries and no option: a lag on start is not possible with scan-first, so a lag means the reader is slower than the live stream, and retrying cannot help. `Closed` (the store shutting down) still ends the read as today.
+After step 4, a reader that lets 4096 new frames pile up is slower than the stream itself. The store ends its read with a last frame saying so, instead of closing silently:
+
+```
+topic: xs.lagged
+meta:  {skipped: 506}
+```
+
+then closes. An actor or service turns that into its usual error. There is no retry and no setting: with step 1, this cannot happen while replaying, so it only happens to a reader that cannot keep up, and retrying would not help. A store shutting down still ends the read as today.
 
 ## Considered
 
 | approach | why not |
 |---|---|
-| Resume in the actor after the read ends ([#169](https://github.com/cablehead/xs/pull/169)) | fixes actors only; services and supervisors follow the same way. It also cannot tell a lag from the store closing, so on shutdown it reopens in a loop. |
-| On a lag, rescan from the last id sent, then subscribe again | a per-frame writer on a large store lags again and again: about one catch-up per 4096 frames of history (100 for a 400,000-frame store) |
-| A catch-up count as a read option | the count needed grows with the store, which no operator can set sensibly; with scan-first, only live lags remain, where a retry cannot help |
+| the actor reopens its read when it ends ([#169](https://github.com/cablehead/xs/pull/169)) | fixes actors only; services and supervisors follow the same way. It cannot tell an overrun from the store shutting down, so on shutdown it reopens in a loop |
+| on an overrun, read the missed frames from the store, then hold new ones again | an actor that writes one frame per frame overruns again and again: about one retry per 4096 stored frames (100 for a store of 400,000) |
+| a setting for how many retries | the number needed grows with the store, so no operator can set it; with step 1, only live overruns remain, where a retry cannot help |
 
 ## Consequences
 
-- #169's resume logic in the actor is not needed. Its test, an actor replaying `FOLLOW_BUFFER + 500` frames and then counting one live frame once, carries over as the case that must pass.
-- Every following reader gets the change: actors, services, supervisors and `xs cat -f`.
-- `xs.lagged` is new: readers that care can watch for it; the processors turn it into their usual error.
+- The actor no longer needs #169's reopening. Its test (an actor reading `FOLLOW_BUFFER + 500` stored frames, then counting one new frame exactly once) carries over as a case that must pass.
+- Every following reader gets the change: actors, services, supervisors, `xs cat -f`.
+- `xs.lagged` is a new frame: readers that care can watch for it.
