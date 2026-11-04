@@ -19,7 +19,7 @@ Step 1 comes first so that nothing appended during step 2 is missed. The buffer 
 
 ## The problem
 
-The reader sets the pace of step 2. So anything appended while a slow reader is still in step 2 piles up in its buffer.
+Anything an actor appends while it is still working through the stored frames is held in its buffer, waiting for it to finish reading them.
 
 | reader | frames it appends during step 2 | on a store of 5,000 frames |
 |---|---|---|
