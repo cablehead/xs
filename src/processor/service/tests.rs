@@ -1591,6 +1591,25 @@ async fn test_service_watch_drives_frames() {
                 out = Some(f);
                 break;
             }
+            // The service stopped before it could watch: say why at once,
+            // rather than waiting out the deadline for a frame that cannot
+            // come.
+            Ok(Some(Ok(f))) if f.topic == "xs.service.diffwatch.fin.error" => {
+                let message = f
+                    .meta
+                    .as_ref()
+                    .and_then(|m| m["message"].as_str())
+                    .unwrap_or("(no message)");
+                let hint = if message.contains("Too many open files") {
+                    "\nThis machine has run out of file-watch handles (inotify): \
+                     an environment limit, not an xs bug. Check \
+                     /proc/sys/fs/inotify/max_user_instances and max_user_watches, \
+                     and what else on the machine holds watches."
+                } else {
+                    ""
+                };
+                panic!("the watch service stopped before watching anything: {message}{hint}");
+            }
             Ok(Some(_)) => continue,
             _ => continue,
         }
