@@ -513,19 +513,24 @@ async fn cat(args: CommandCat) -> Result<(), xs::Error> {
     let mut ended = None;
 
     // On unix, watch stdout so a closed pipe ends a quiet follow at once
-    // (`xs cat -f | head -1`). epoll refuses regular files and /dev/null
-    // (EPERM), and those never close, so they need no watch.
+    // (`xs cat -f | head -1`). Only what a reader can close is watched: a
+    // pipe, a socket, a terminal. A regular file or /dev/null never closes,
+    // and the kernel refuses to watch one (EPERM from Linux's epoll, EINVAL
+    // from macOS's kqueue), so those get the plain write loop.
     #[cfg(unix)]
     let watch = {
         use nix::unistd::dup;
+        use std::io::IsTerminal;
+        use std::os::unix::fs::FileTypeExt;
         use std::os::unix::io::AsFd;
         use tokio::io::unix::AsyncFd;
 
         let stdout_file = std::fs::File::from(dup(std::io::stdout().as_fd())?);
-        match AsyncFd::new(stdout_file) {
-            Ok(fd) => Some(fd),
-            Err(e) if e.raw_os_error() == Some(nix::errno::Errno::EPERM as i32) => None,
-            Err(e) => return Err(e.into()),
+        let kind = stdout_file.metadata()?.file_type();
+        if kind.is_fifo() || kind.is_socket() || stdout_file.is_terminal() {
+            Some(AsyncFd::new(stdout_file)?)
+        } else {
+            None
         }
     };
 
