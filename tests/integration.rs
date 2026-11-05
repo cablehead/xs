@@ -556,7 +556,7 @@ async fn test_eval_cat_streaming() {
         .expect("Timeout reading initial frame")
         .expect("Failed to read initial frame");
     assert!(result > 0, "Should read initial frame");
-    let initial_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    let initial_frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(initial_frame["topic"], "stream.test");
 
     // Read threshold frame (indicates caught up to real-time)
@@ -566,7 +566,7 @@ async fn test_eval_cat_streaming() {
         .expect("Timeout reading threshold")
         .expect("Failed to read threshold");
     assert!(result > 0, "Should read threshold frame");
-    let threshold_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    let threshold_frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(
         threshold_frame["topic"], "xs.threshold",
         "Should receive threshold frame indicating caught up"
@@ -590,7 +590,7 @@ async fn test_eval_cat_streaming() {
         .expect("Timeout reading streamed frame")
         .expect("Failed to read streamed frame");
     assert!(result > 0, "Should read streamed frame");
-    let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    let streamed_frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(streamed_frame["topic"], "stream.test");
 
     // .cat --new starts at end (skip for now - can block)
@@ -616,7 +616,7 @@ async fn test_eval_cat_streaming() {
     let frames: Vec<serde_json::Value> = output
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|l| serde_json::from_str(l).expect(&format!("Failed to parse JSON: {}", l)))
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|_| panic!("Failed to parse JSON: {}", l)))
         .collect();
     assert_eq!(frames.len(), 1, "Should respect --limit flag");
 
@@ -698,7 +698,7 @@ async fn test_eval_last_follow() {
         .expect("Timeout waiting for current last frame")
         .expect("Failed to read current last frame");
     assert!(result > 0, "Should receive current last frame");
-    let last_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    let last_frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(
         last_frame["topic"], "last.test",
         "First frame from .last --follow should be the current last"
@@ -711,7 +711,7 @@ async fn test_eval_last_follow() {
         .expect("Timeout waiting for xs.threshold")
         .expect("Failed to read xs.threshold");
     assert!(result > 0, "Should receive xs.threshold");
-    let threshold_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    let threshold_frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(
         threshold_frame["topic"], "xs.threshold",
         "Should receive xs.threshold marker after historical frames"
@@ -735,7 +735,7 @@ async fn test_eval_last_follow() {
         .expect("Timeout waiting for streamed frame")
         .expect("Failed to read streamed frame");
     assert!(result > 0, "Should receive streamed frame");
-    let streamed_frame: serde_json::Value = serde_json::from_str(&line.trim()).unwrap();
+    let streamed_frame: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(streamed_frame["topic"], "last.test");
 
     // Clean up

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 cargo fmt --check
-cargo clippy -- -D warnings
+cargo clippy --all-targets -- -D warnings
 cargo t
 
 # Check documentation
