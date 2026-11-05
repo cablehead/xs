@@ -159,6 +159,89 @@ async fn test_cat_sse_format() {
     child.kill().await.unwrap();
 }
 
+/// `xs cat` into a regular file or /dev/null. epoll refuses those (EPERM),
+/// so the closed-pipe watch must step aside rather than fail the command.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_cat_writes_to_a_file_and_dev_null() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+    let mut child = spawn_xs_supervisor(store_path).await;
+    wait_until_ready(store_path).await;
+
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "note"
+    )
+    .stdin_bytes(b"hello")
+    .run()
+    .unwrap();
+
+    let out = temp_dir.path().join("out.ndjson");
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "cat",
+        store_path,
+        "-T",
+        "note"
+    )
+    .stdout_path(&out)
+    .run()
+    .expect("xs cat > file");
+    let written = std::fs::read_to_string(&out).unwrap();
+    let frame: Frame = serde_json::from_str(written.lines().next().unwrap()).unwrap();
+    assert_eq!(frame.topic, "note");
+
+    cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
+        .stdout_path("/dev/null")
+        .run()
+        .expect("xs cat > /dev/null");
+
+    child.kill().await.unwrap();
+}
+
+/// A follow with nothing new to send still ends once its reader closes the
+/// pipe (`xs cat -f | head -1`): what the watch on stdout is for.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_cat_follow_ends_when_its_reader_closes() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+    let mut child = spawn_xs_supervisor(store_path).await;
+    wait_until_ready(store_path).await;
+
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "note"
+    )
+    .stdin_bytes(b"hello")
+    .run()
+    .unwrap();
+
+    let mut cat = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
+        .arg("cat")
+        .arg(store_path)
+        .arg("-f")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(cat.stdout.take().unwrap()).lines();
+    lines.next_line().await.unwrap().expect("the stored frame");
+    drop(lines);
+
+    let status = timeout(Duration::from_secs(10), cat.wait())
+        .await
+        .expect("xs cat -f kept running after its reader closed")
+        .unwrap();
+    assert!(status.success(), "{status}");
+
+    child.kill().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_eval_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
