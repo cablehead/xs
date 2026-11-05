@@ -23,7 +23,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Run clippy
-      run: cargo clippy --all-targets --verbose
+      run: cargo clippy --all-targets --verbose -- -D warnings
     - name: Install nu (Linux)
       if: runner.os == 'Linux'
       run: |
