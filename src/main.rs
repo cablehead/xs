@@ -453,6 +453,28 @@ fn drain_ready(
     None
 }
 
+/// Writes what the read sends to stdout until it ends, with no watch on
+/// stdout. Returns the error the read ended with, if it ended early.
+async fn copy_out(
+    receiver: &mut tokio::sync::mpsc::Receiver<Result<bytes::Bytes, xs::Error>>,
+    stdout: &mut tokio::io::Stdout,
+) -> std::io::Result<Option<xs::Error>> {
+    let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
+    while let Some(item) = receiver.recv().await {
+        let bytes = match item {
+            Ok(bytes) => bytes,
+            Err(err) => return Ok(Some(err)),
+        };
+        let ended = drain_ready(bytes, receiver, &mut buf);
+        stdout.write_all(&buf).await?;
+        stdout.flush().await?;
+        if ended.is_some() {
+            return Ok(ended);
+        }
+    }
+    Ok(None)
+}
+
 async fn cat(args: CommandCat) -> Result<(), xs::Error> {
     let after = if let Some(after) = &args.after {
         match scru128::Scru128Id::from_str(after) {
@@ -490,104 +512,99 @@ async fn cat(args: CommandCat) -> Result<(), xs::Error> {
     // The error the read ended with, if it ended early (ADR 0008).
     let mut ended = None;
 
+    // On unix, watch stdout so a closed pipe ends a quiet follow at once
+    // (`xs cat -f | head -1`). epoll refuses regular files and /dev/null
+    // (EPERM), and those never close, so they need no watch.
     #[cfg(unix)]
-    let result = {
+    let watch = {
         use nix::unistd::dup;
-        use std::io::Write;
         use std::os::unix::io::AsFd;
         use tokio::io::unix::AsyncFd;
 
-        let stdout_handle = std::io::stdout();
-        // Create a duplicate of the file descriptor so we can check it separately
-        let dup_fd = dup(stdout_handle.as_fd())?;
-        let stdout_file = std::fs::File::from(dup_fd);
-        let async_fd = AsyncFd::new(stdout_file)?;
+        let stdout_file = std::fs::File::from(dup(std::io::stdout().as_fd())?);
+        match AsyncFd::new(stdout_file) {
+            Ok(fd) => Some(fd),
+            Err(e) if e.raw_os_error() == Some(nix::errno::Errno::EPERM as i32) => None,
+            Err(e) => return Err(e.into()),
+        }
+    };
 
-        async {
-            let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
-            loop {
-                tokio::select! {
-                    biased;
+    #[cfg(unix)]
+    let result = match watch {
+        Some(async_fd) => {
+            use std::io::Write;
 
-                    item = receiver.recv() => {
-                        match item {
-                            Some(Ok(bytes)) => {
-                                ended = drain_ready(bytes, &mut receiver, &mut buf);
-                                if let Err(e) = stdout.write_all(&buf).await {
-                                    if e.kind() == std::io::ErrorKind::BrokenPipe {
+            async {
+                let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
+                loop {
+                    tokio::select! {
+                        biased;
+
+                        item = receiver.recv() => {
+                            match item {
+                                Some(Ok(bytes)) => {
+                                    ended = drain_ready(bytes, &mut receiver, &mut buf);
+                                    if let Err(e) = stdout.write_all(&buf).await {
+                                        if e.kind() == std::io::ErrorKind::BrokenPipe {
+                                            break;
+                                        }
+                                        return Err(e);
+                                    }
+                                    stdout.flush().await?;
+                                    if ended.is_some() {
                                         break;
                                     }
-                                    return Err(e);
                                 }
-                                stdout.flush().await?;
-                                if ended.is_some() {
+                                Some(Err(err)) => {
+                                    ended = Some(err);
                                     break;
                                 }
+                                None => break,
                             }
-                            Some(Err(err)) => {
-                                ended = Some(err);
+                        },
+
+                        Ok(mut guard) = async_fd.writable() => {
+                            // On Linux, after the read end of a pipe closes, the kernel keeps EPOLLOUT
+                            // set together with ERR/HUP, so AsyncFd wakes immediately and will re-poll
+                            // unless all readiness bits are cleared.
+                            let ready = guard.ready();
+
+                            // Tokio exposes "write closed" (EPOLLHUP/ERR) via is_write_closed().
+                            // If set, the output is definitely gone and we should exit.
+                            if ready.is_write_closed() {
                                 break;
                             }
-                            None => break,
+
+                            // Platform differences:
+                            //   - macOS/BSD: a zero-length write to a closed pipe returns EPIPE.
+                            //   - Linux: a zero-length write to a closed pipe just returns 0 (no error).
+                            // Check both: treat either a closed write side or EPIPE as termination.
+                            match guard.try_io(|inner| inner.get_ref().write(&[])) {
+                                Ok(Err(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => break,
+                                Ok(Err(e)) => return Err(e), // genuine error
+                                _ => {} // success or WouldBlock
+                            }
+
+                            // Always clear exactly the bits we observed: Linux will keep signaling
+                            // WRITABLE together with HUP/ERR, and not clearing all of them causes a
+                            // spin loop.
+                            guard.clear_ready_matching(ready);
                         }
-                    },
-
-                    Ok(mut guard) = async_fd.writable() => {
-                        // On Linux, after the read end of a pipe closes, the kernel keeps EPOLLOUT
-                        // set together with ERR/HUP, so AsyncFd wakes immediately and will re-poll
-                        // unless all readiness bits are cleared.
-                        let ready = guard.ready();
-
-                        // Tokio exposes "write closed" (EPOLLHUP/ERR) via is_write_closed().
-                        // If set, the output is definitely gone and we should exit.
-                        if ready.is_write_closed() {
-                            break;
-                        }
-
-                        // Platform differences:
-                        //   - macOS/BSD: a zero-length write to a closed pipe returns EPIPE.
-                        //   - Linux: a zero-length write to a closed pipe just returns 0 (no error).
-                        // Check both—treat either a closed write side or EPIPE as termination.
-                        match guard.try_io(|inner| inner.get_ref().write(&[])) {
-                            Ok(Err(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => break,
-                            Ok(Err(e)) => return Err(e), // genuine error
-                            _ => {} // success or WouldBlock
-                        }
-
-                        // Always clear exactly the bits we observed—Linux will keep signaling WRITABLE
-                        // together with HUP/ERR, and not clearing all of them causes a spin loop.
-                        guard.clear_ready_matching(ready);
                     }
                 }
+                Ok::<_, std::io::Error>(())
             }
-            Ok::<_, std::io::Error>(())
+            .await
         }
-        .await
+        None => copy_out(&mut receiver, &mut stdout)
+            .await
+            .map(|e| ended = e),
     };
 
     #[cfg(not(unix))]
-    let result = {
-        async {
-            let mut buf = Vec::with_capacity(CAT_WRITE_BUF);
-            while let Some(item) = receiver.recv().await {
-                let bytes = match item {
-                    Ok(bytes) => bytes,
-                    Err(err) => {
-                        ended = Some(err);
-                        break;
-                    }
-                };
-                ended = drain_ready(bytes, &mut receiver, &mut buf);
-                stdout.write_all(&buf).await?;
-                stdout.flush().await?;
-                if ended.is_some() {
-                    break;
-                }
-            }
-            Ok::<_, std::io::Error>(())
-        }
+    let result = copy_out(&mut receiver, &mut stdout)
         .await
-    };
+        .map(|e| ended = e);
 
     match result {
         Ok(_) => match ended {
