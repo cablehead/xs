@@ -13,12 +13,14 @@ pub enum Lifecycle {
     Live(Frame),
 }
 
-/// A supervisor's view of the stream: every frame, by phase.
+/// Reads the stream for a supervisor: the frames already stored, then
+/// `xs.threshold`, then each new frame, each one tagged with which of those
+/// it is (`Lifecycle::Historical`, `Threshold`, `Live`).
 ///
-/// When the store ends the read because the supervisor fell behind the live
-/// stream (ADR 0008), the reader opens it again after the last frame it
-/// handed out, so the frames it missed come from the store and it carries
-/// on (ADR 0009). Nothing is handed out twice and nothing is skipped.
+/// If the supervisor falls too far behind new frames, the store ends the
+/// read (ADR 0008). This reader then opens it again just after the last
+/// frame it returned, so the frames it missed are read from the store
+/// (ADR 0009). No frame is returned twice or skipped.
 pub struct LifecycleReader {
     store: Store,
     rx: mpsc::Receiver<ReadItem>,
@@ -47,7 +49,8 @@ impl LifecycleReader {
         )
     }
 
-    /// The next frame, by phase. `Ok(None)` when the read ends.
+    /// The next frame, tagged stored, threshold or live. `Ok(None)` when
+    /// the read ends.
     pub async fn recv(&mut self) -> Result<Option<Lifecycle>, crate::error::Error> {
         loop {
             let Some(item) = self.rx.recv().await else {
@@ -69,8 +72,9 @@ impl LifecycleReader {
         }
     }
 
-    /// The frame's phase, or `None` for a repeated `xs.threshold`: a reopened
-    /// read marks the boundary again, and the supervisor is already past it.
+    /// Tag the frame stored, threshold or live. `None` for a second
+    /// `xs.threshold`: a reopened read sends one again, but the supervisor
+    /// is already past it.
     fn classify(&mut self, frame: Frame) -> Option<Lifecycle> {
         if frame.topic == "xs.threshold" {
             if self.past_threshold {
@@ -99,9 +103,9 @@ mod tests {
     use std::time::Duration;
     use tokio::time::timeout;
 
-    /// A supervisor that falls behind the live stream reads what it missed
-    /// from the store and carries on (ADR 0009): every frame once, in order,
-    /// and the one appended after the burst still arrives.
+    /// A supervisor that falls behind new frames reads the ones it missed
+    /// from the store and continues (ADR 0009): each frame arrives once, in
+    /// order, including the one appended after the burst.
     #[tokio::test]
     async fn test_supervisor_catches_up_after_falling_behind_live() {
         let temp_dir = tempfile::tempdir().unwrap();
