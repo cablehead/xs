@@ -8,7 +8,7 @@ use tokio::task::JoinHandle;
 use crate::processor::lifecycle::{Event, Slots, ThresholdPick};
 use crate::processor::service::service;
 use crate::processor::{Lifecycle, LifecycleReader};
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{Frame, Store};
 
 async fn try_start(
     topic: &str,
@@ -106,8 +106,7 @@ struct TopicState {
 use std::str::FromStr;
 
 pub async fn run(store: Store) -> Result<(), crate::Error> {
-    let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
-    let mut lifecycle = LifecycleReader::new(rx);
+    let mut lifecycle = LifecycleReader::follow(&store);
     let mut states: HashMap<String, TopicState> = HashMap::new();
     let mut active: HashMap<String, JoinHandle<()>> = HashMap::new();
 
