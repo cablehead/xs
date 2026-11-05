@@ -6,7 +6,7 @@ use crate::error::Error;
 use crate::nu;
 use crate::nu::{value_to_json, ReturnOptions};
 use crate::processor::{Lifecycle, LifecycleReader};
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{Frame, Store};
 
 #[derive(Clone)]
 struct Action {
@@ -276,8 +276,7 @@ struct TopicState {
 }
 
 pub async fn run(store: Store) -> Result<(), crate::Error> {
-    let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
-    let mut lifecycle = LifecycleReader::new(rx);
+    let mut lifecycle = LifecycleReader::follow(&store);
     let mut states: HashMap<String, TopicState> = HashMap::new();
     let mut active: HashMap<String, Action> = HashMap::new();
 

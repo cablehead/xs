@@ -78,7 +78,7 @@ Every reader in xs turns that into an error (see Consequences). There is no retr
 |---|---|
 | actor | `xs.actor.<name>.fin.error` |
 | service, on its control read or its duplex input | `xs.service.<name>.fin.error` |
-| actor, service and action supervisors | return the error instead of stopping silently |
+| actor, service and action supervisors | return the error instead of stopping silently (superseded by [ADR 0009](0009-supervisors-catch-up.md): they catch up from the store) |
 | `.cat -f`, `.last -f` (built in, and in `xs.nu`) | the stream's last item is the error |
 | `xs cat -f`, `xs last -f` | print the frame, then exit 1 with the message on stderr |
 | HTTP API | sends `xs.lagged` as the last line, then the trailer `xs-lagged: N`, then closes |

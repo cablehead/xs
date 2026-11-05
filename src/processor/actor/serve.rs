@@ -6,7 +6,7 @@ use scru128::Scru128Id;
 use crate::processor::actor::Actor;
 use crate::processor::lifecycle::{Event, Slots, ThresholdPick};
 use crate::processor::{Lifecycle, LifecycleReader};
-use crate::store::{FollowOption, Frame, ReadOptions, Store};
+use crate::store::{Frame, Store};
 
 enum StartOutcome {
     Spawned,
@@ -127,8 +127,7 @@ async fn execute_pick(
 }
 
 pub async fn run(store: Store) -> Result<(), crate::Error> {
-    let rx = store.read(ReadOptions::builder().follow(FollowOption::On).build());
-    let mut lifecycle = LifecycleReader::new(rx);
+    let mut lifecycle = LifecycleReader::follow(&store);
     let mut states: HashMap<String, TopicState> = HashMap::new();
 
     while let Some(event) = lifecycle.recv().await? {
