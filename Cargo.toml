@@ -61,6 +61,7 @@ nu-protocol = "0.116.0"
 nu-cmd-lang = "0.116.0"
 nu-engine = "0.116.0"
 nu-parser = "0.116.0"
+nu-plugin-engine = "0.116.0"
 nu-std = "0.116.0"
 
 http = "1.1.0"
@@ -92,8 +93,13 @@ win_uds = { version = "=0.2.4", features = ["async"] }
 [dev-dependencies]
 assert_cmd = "2.0.14"
 duct = "1"
+nu-plugin = "0.116.0"
 static_assertions = "1.1.0"
 tracing-subscriber = "0.3.18"
+
+[[example]]
+name = "nu_plugin_xs_fixture"
+path = "tests/fixtures/nu_plugin_xs_fixture.rs"
 
 [profile.release]
 lto = true

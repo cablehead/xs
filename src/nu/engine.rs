@@ -3,12 +3,17 @@ use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
+use nu_plugin_engine::{add_plugin_to_working_set, GetPlugin, PluginDeclaration};
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{Closure, Command, EngineState, Redirection, Stack, StateWorkingSet};
 use nu_protocol::engine::{Job, ThreadJob};
 use nu_protocol::shell_error::generic::GenericError;
-use nu_protocol::{OutDest, PipelineData, PipelineExecutionData, ShellError, Span, Value};
+use nu_protocol::{
+    OutDest, PipelineData, PipelineExecutionData, PluginIdentity, RegisteredPlugin, ShellError,
+    Span, Value,
+};
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value as JsonValue;
@@ -53,6 +58,31 @@ impl Engine {
         let mut working_set = StateWorkingSet::new(&self.state);
         for command in commands {
             working_set.add_decl(command);
+        }
+        self.state.merge_delta(working_set.render())?;
+        Ok(())
+    }
+
+    /// Register Nushell plugin binaries (`nu_plugin_*`) on this engine. Each
+    /// plugin is spawned once to read its signatures, so a bad path or an
+    /// incompatible plugin fails here rather than on first use.
+    pub fn add_plugins(&mut self, paths: &[PathBuf]) -> Result<(), Error> {
+        let mut working_set = StateWorkingSet::new(&self.state);
+        for path in paths {
+            let mut load = || -> Result<(), Error> {
+                let filename = std::fs::canonicalize(path)?;
+                let identity = PluginIdentity::new(&filename, None)
+                    .map_err(|_| "file name must start with nu_plugin_")?;
+                let plugin = add_plugin_to_working_set(&mut working_set, &identity)?;
+                let interface = plugin.clone().get_plugin(None)?;
+                plugin.set_metadata(Some(interface.get_metadata()?));
+                for signature in interface.get_signature()? {
+                    working_set
+                        .add_decl(Box::new(PluginDeclaration::new(plugin.clone(), signature)));
+                }
+                Ok(())
+            };
+            load().map_err(|e| format!("failed to load plugin {}: {e}", path.display()))?;
         }
         self.state.merge_delta(working_set.render())?;
         Ok(())

@@ -80,6 +80,11 @@ struct CommandServe {
     /// 0 disables the sweeper
     #[clap(long, value_parser, value_name = "MS", default_value_t = 1000)]
     ttl_sweep: u64,
+
+    /// Load a Nushell plugin binary (nu_plugin_*), making its commands
+    /// available to eval and to actors, services and actions. Repeatable
+    #[clap(long = "plugin", value_parser, value_name = "PATH")]
+    plugins: Vec<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -349,7 +354,13 @@ async fn serve(args: CommandServe) -> Result<(), xs::Error> {
         }
         Err(e) => return Err(e.into()),
     };
-    let engine = nu::Engine::new()?;
+    let mut engine = nu::Engine::new()?;
+    let store = if args.plugins.is_empty() {
+        store
+    } else {
+        engine.add_plugins(&args.plugins)?;
+        store.with_base_engine(engine.state.clone())
+    };
 
     {
         let store = store.clone();
