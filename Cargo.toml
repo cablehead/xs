@@ -57,7 +57,8 @@ tempfile = "3.23"
 
 nu-cli = "0.116.0"
 nu-command = { version = "0.116.0", features = ["sqlite"] }
-nu-protocol = "0.116.0"
+nu-protocol = { version = "0.116.0", features = ["plugin"] }
+nu-plugin-engine = "0.116.0"
 nu-cmd-lang = "0.116.0"
 nu-engine = "0.116.0"
 nu-parser = "0.116.0"

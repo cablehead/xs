@@ -202,6 +202,88 @@ async fn test_cat_writes_to_a_file_and_dev_null() {
     child.kill().await.unwrap();
 }
 
+/// `xs serve --plugin` hands the plugin's commands to actors: an actor calls
+/// `inc` (nu_plugin_inc) and its output lands in the store. Without the flag
+/// the same actor stops with `.fin.error`. Needs a nu_plugin_inc built for this
+/// nu version, given as XS_TEST_PLUGIN; skipped when unset.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_serve_plugin_for_actors() {
+    let Ok(plugin) = std::env::var("XS_TEST_PLUGIN") else {
+        eprintln!("skipped: set XS_TEST_PLUGIN to a nu_plugin_inc path");
+        return;
+    };
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let store_path = temp_dir.path();
+    let mut child = spawn_xs_supervisor_with(store_path, &["--plugin", &plugin]).await;
+    wait_until_ready(store_path).await;
+
+    let script = r#"{run: {|frame, state| if $frame.topic == "ping" { {out: {version: ("1.2.3" | inc --patch)}, next: $state} } else { {next: $state} } }}"#;
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "xs.actor.bump.create"
+    )
+    .stdin_bytes(script)
+    .run()
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "append",
+        store_path,
+        "ping"
+    )
+    .stdin_bytes("")
+    .run()
+    .unwrap();
+
+    let start = std::time::Instant::now();
+    let version = loop {
+        let out = cmd!(assert_cmd::cargo::cargo_bin!("xs"), "cat", store_path)
+            .read()
+            .unwrap();
+        let found = out
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Frame>(l).ok())
+            .find(|f| f.topic == "bump.out" || f.topic == "xs.actor.bump.fin.error");
+        if let Some(f) = found {
+            assert_eq!(f.topic, "bump.out", "the actor failed: {:?}", f.meta);
+            break f.meta.unwrap()["version"].clone();
+        }
+        if start.elapsed() > Duration::from_secs(15) {
+            panic!("no output from the actor");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert_eq!(version, "1.2.4");
+
+    child.kill().await.unwrap();
+}
+
+/// A plugin path that cannot be loaded stops `xs serve` with an error.
+#[tokio::test]
+async fn test_serve_plugin_bad_path_fails() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let missing = temp_dir.path().join("nu_plugin_missing");
+    let out = cmd!(
+        assert_cmd::cargo::cargo_bin!("xs"),
+        "serve",
+        temp_dir.path().join("store"),
+        "--plugin",
+        &missing
+    )
+    .stderr_to_stdout()
+    .stdout_capture()
+    .unchecked()
+    .run()
+    .unwrap();
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("nu_plugin_missing"), "{text}");
+}
+
 /// A follow with nothing new to send still ends once its reader closes the
 /// pipe (`xs cat -f | head -1`): what the watch on stdout is for.
 #[cfg(unix)]
@@ -1103,9 +1185,14 @@ async fn spawn_xs_server_with_iroh(store_path: &std::path::Path) -> Child {
 }
 
 async fn spawn_xs_supervisor(store_path: &std::path::Path) -> Child {
+    spawn_xs_supervisor_with(store_path, &[]).await
+}
+
+async fn spawn_xs_supervisor_with(store_path: &std::path::Path, args: &[&str]) -> Child {
     let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("xs"))
         .arg("serve")
         .arg(store_path)
+        .args(args)
         .stdout(std::process::Stdio::piped()) // Capture stdout
         .stderr(std::process::Stdio::piped()) // Capture stderr
         .spawn()

@@ -33,7 +33,7 @@ xs <COMMAND> [OPTIONS]
 Start the supervisor process.
 
 ```sh
-xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>] [--ttl-sweep <MS>]
+xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>] [--ttl-sweep <MS>] [--plugin <PATH>]...
 ```
 
 | Option                   | Description                                                       |
@@ -42,6 +42,7 @@ xs serve <path> [--expose <LISTEN_ADDR>] [--fsync <POLICY>] [--ttl-sweep <MS>]
 | `--expose <LISTEN_ADDR>` | Expose the API on an additional address ([HOST]:PORT, `<PATH>`, or `iroh://`) |
 | `--fsync <POLICY>`       | When to fsync the journal: `always`, `interval:<ms>`, or `never`. Default `interval:1000` |
 | `--ttl-sweep <MS>`       | How often to sweep expired `time:` frames from disk. `0` disables the sweeper. Default `1000` |
+| `--plugin <PATH>`        | Load a Nushell plugin (a `nu_plugin_*` executable) so actors, services and actions can use its commands. Can be given more than once |
 
 Examples:
 
@@ -73,6 +74,17 @@ prefix of the stream. `--fsync` decides when that fsync happens:
 ```sh
 # Old behaviour: fsync on every append
 xs serve ./store --fsync always
+```
+
+#### Plugins
+
+`--plugin` loads a [Nushell plugin](https://www.nushell.sh/book/plugins.html)
+into the engine the actors, services and actions start from, so their
+closures can call its commands. The plugin must be built for the same Nushell
+version xs embeds.
+
+```sh
+xs serve ./store --plugin ~/.cargo/bin/nu_plugin_query
 ```
 
 ### `cat`

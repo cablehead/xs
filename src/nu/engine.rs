@@ -58,6 +58,36 @@ impl Engine {
         Ok(())
     }
 
+    /// Load a Nushell plugin (a `nu_plugin_*` executable) and add its
+    /// commands to this engine. Engines cloned from this one share it.
+    pub fn load_plugin(&mut self, path: &std::path::Path) -> Result<(), Error> {
+        use nu_plugin_engine::{GetPlugin, PluginDeclaration};
+        use nu_protocol::RegisteredPlugin;
+        let path = path
+            .canonicalize()
+            .map_err(|e| format!("plugin {}: {e}", path.display()))?;
+        let identity = nu_protocol::PluginIdentity::new(&path, None).map_err(|_| {
+            format!(
+                "plugin {}: the file must be named nu_plugin_*",
+                path.display()
+            )
+        })?;
+
+        let mut working_set = StateWorkingSet::new(&self.state);
+        let plugin = nu_plugin_engine::add_plugin_to_working_set(&mut working_set, &identity)?;
+        self.state.merge_delta(working_set.render())?;
+
+        // Start the plugin once to read its metadata and command signatures.
+        let interface = plugin.clone().get_plugin(None)?;
+        plugin.set_metadata(Some(interface.get_metadata()?));
+        let mut working_set = StateWorkingSet::new(&self.state);
+        for signature in interface.get_signature()? {
+            working_set.add_decl(Box::new(PluginDeclaration::new(plugin.clone(), signature)));
+        }
+        self.state.merge_delta(working_set.render())?;
+        Ok(())
+    }
+
     pub fn add_alias(&mut self, name: &str, target: &str) -> Result<(), Error> {
         let mut working_set = StateWorkingSet::new(&self.state);
         let _ = parse(
