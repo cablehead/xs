@@ -636,6 +636,18 @@ use std::io::IsTerminal;
 use tokio::io::stdin;
 use tokio::io::AsyncRead;
 
+/// Writes a one-shot command's response to stdout and flushes it. Tokio's
+/// stdout only queues a write for its blocking pool; without the flush, `main`
+/// can return first, and the runtime's shutdown drops the write while it is
+/// still queued, so the command prints nothing (`xs append` on a loaded macOS
+/// runner, in CI for #178).
+async fn print_out(response: &[u8]) -> Result<(), xs::Error> {
+    let mut stdout = tokio::io::stdout();
+    stdout.write_all(response).await?;
+    stdout.flush().await?;
+    Ok(())
+}
+
 async fn append(args: CommandAppend) -> Result<(), xs::Error> {
     let meta = args
         .meta
@@ -666,7 +678,7 @@ async fn append(args: CommandAppend) -> Result<(), xs::Error> {
     )
     .await?;
 
-    tokio::io::stdout().write_all(&response).await?;
+    print_out(&response).await?;
     Ok(())
 }
 
@@ -686,7 +698,7 @@ async fn cas_post(args: CommandCasPost) -> Result<(), xs::Error> {
     };
 
     let response = xs::client::cas_post(&args.addr, input).await?;
-    tokio::io::stdout().write_all(&response).await?;
+    print_out(&response).await?;
     Ok(())
 }
 
@@ -709,7 +721,7 @@ async fn last(args: CommandLast) -> Result<(), xs::Error> {
 
 async fn get(args: CommandGet) -> Result<(), xs::Error> {
     let response = xs::client::get(&args.addr, &args.id, args.with_timestamp).await?;
-    tokio::io::stdout().write_all(&response).await?;
+    print_out(&response).await?;
     Ok(())
 }
 
@@ -728,7 +740,7 @@ async fn import(args: CommandImport) -> Result<(), xs::Error> {
     };
 
     let response = xs::client::import(&args.addr, input).await?;
-    tokio::io::stdout().write_all(&response).await?;
+    print_out(&response).await?;
     Ok(())
 }
 
