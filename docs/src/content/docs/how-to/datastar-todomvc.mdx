@@ -3,16 +3,13 @@ title: TodoMVC with Datastar
 description: Learn to build reactive web apps using the hypermedia approach where backend drives UI updates via immediate mode HTML streaming
 sidebar:
   order: 1
-  badge:
-    text: Deprecated
-    variant: caution
 ---
 
 import { Card, CardGrid, Aside } from "@astrojs/starlight/components";
 import MuxVideo from '../../../components/MuxVideo.astro';
 
-<Aside type="caution" title="Deprecated">
-This tutorial targets Datastar v1.0.0-RC.5 and is no longer maintained. The Datastar SDK has since released breaking changes to its SSE protocol and attribute API. The underlying concepts -- event sourcing, server-driven UI via SSE, hypermedia-style reactivity -- are still valid. The code examples are not.
+<Aside type="note" title="The video is out of date">
+The video was recorded with Datastar v1.0.0-RC.5. The tutorial and its code examples below work with Datastar v1.0.5.
 </Aside>
 
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
