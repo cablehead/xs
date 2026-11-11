@@ -48,7 +48,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@mux/mux-player"></script>
   </head>
   <body>
-    <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0-RC.5/bundles/datastar.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.5/bundles/datastar.js"></script>
 
     <main>
       <div style="background: var(--bg-tertiary); border: 2px solid var(--accent); padding: 1em 1.5em; margin-bottom: 1em; text-align: center; color: var(--text-secondary); font-size: 0.9em;">
@@ -136,22 +136,22 @@
         <label>
           <input
             type="checkbox"
-            data-on-click__prevent="@post('/todos/toggle-all')"
-            data-on-load="el.checked = false"
+            data-on:click__prevent="@post('/todos/toggle-all')"
+            data-init="el.checked = false"
           />
           Toggle All
         </label>
         <input
           type="text"
           placeholder="What needs to be done?"
-          data-bind-input
-          data-on-keydown="
+          data-bind:input
+          data-on:keydown="
             evt.key === 'Enter' && $input.trim() && @post('/todos/add') && ($input = '');
           "
         />
       </header>
 
-      <section id="todos-section" data-on-load="@get('/todos/updates')">
+      <section id="todos-section" data-init="@get('/todos/updates')">
         <!-- Dynamic todo list and footer will be rendered here -->
       </section>
 

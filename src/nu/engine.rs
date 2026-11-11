@@ -261,6 +261,7 @@ impl Engine {
         let job = ThreadJob::new(
             self.state.signals().clone(),
             Some(job_display_name.clone()),
+            false,
             sender,
         );
         let _job_id = {
@@ -446,7 +447,12 @@ impl Engine {
     /// `self.state.signals()`).
     pub fn attach_background_job(&mut self, name: impl Into<String>) {
         let (sender, _rx) = std::sync::mpsc::channel();
-        let job = ThreadJob::new(self.state.signals().clone(), Some(name.into()), sender);
+        let job = ThreadJob::new(
+            self.state.signals().clone(),
+            Some(name.into()),
+            false,
+            sender,
+        );
         {
             let mut j = self.state.jobs.lock().unwrap();
             j.add_job(Job::Thread(job.clone()));
