@@ -118,8 +118,11 @@ func (m *Xs) LinuxArm64Env(
 	return m.withCaches(
 		dag.Container().
 			From("messense/rust-musl-cross:aarch64-musl").
-			// The image's Rust can lag behind xs's rust-version.
-			WithExec([]string{"rustup", "update", "stable"}).
+			// The image's Rust can lag behind xs's rust-version. Updating its
+			// stable in place fails (a broken clippy component), so add the
+			// toolchain beside it.
+			WithExec([]string{"rustup", "toolchain", "install", "1.97.1", "--profile", "minimal", "--target", "aarch64-unknown-linux-musl"}).
+			WithExec([]string{"rustup", "default", "1.97.1"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-arm64",
@@ -148,8 +151,11 @@ func (m *Xs) LinuxAmd64Env(
 	return m.withCaches(
 		dag.Container().
 			From("messense/rust-musl-cross:x86_64-musl").
-			// The image's Rust can lag behind xs's rust-version.
-			WithExec([]string{"rustup", "update", "stable"}).
+			// The image's Rust can lag behind xs's rust-version. Updating its
+			// stable in place fails (a broken clippy component), so add the
+			// toolchain beside it.
+			WithExec([]string{"rustup", "toolchain", "install", "1.97.1", "--profile", "minimal", "--target", "x86_64-unknown-linux-musl"}).
+			WithExec([]string{"rustup", "default", "1.97.1"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-amd64",
