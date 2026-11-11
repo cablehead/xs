@@ -117,7 +117,11 @@ func (m *Xs) LinuxArm64Env(
 	src *dagger.Directory) *dagger.Container {
 	return m.withCaches(
 		dag.Container().
-			From("messense/rust-musl-cross:aarch64-musl").
+			// Rust's official Alpine image: Alpine is built on musl, so a musl
+			// build is native there, C code (SQLite, aws-lc, libgit2) included.
+			// It runs on a runner of the target's own CPU (release-binaries.yml).
+			From("rust:1-alpine").
+			WithExec([]string{"apk", "add", "--no-cache", "build-base", "cmake", "perl", "linux-headers"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-arm64",
@@ -145,7 +149,11 @@ func (m *Xs) LinuxAmd64Env(
 	src *dagger.Directory) *dagger.Container {
 	return m.withCaches(
 		dag.Container().
-			From("messense/rust-musl-cross:x86_64-musl").
+			// Rust's official Alpine image: Alpine is built on musl, so a musl
+			// build is native there, C code (SQLite, aws-lc, libgit2) included.
+			// It runs on a runner of the target's own CPU (release-binaries.yml).
+			From("rust:1-alpine").
+			WithExec([]string{"apk", "add", "--no-cache", "build-base", "cmake", "perl", "linux-headers"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-amd64",
