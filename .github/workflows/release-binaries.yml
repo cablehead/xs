@@ -15,7 +15,7 @@ jobs:
   #-----------------------------------------------------------
   build:
     name: Build ${{ matrix.target }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
 
     strategy:
       matrix:
@@ -26,6 +26,7 @@ jobs:
 
           - target: linux-arm64
             dagger_fn: linux-arm-64-build
+            runner: ubuntu-24.04-arm   # the ARM build runs on an ARM machine
             artifact_suffix: linux-arm64.tar.gz
 
           - target: linux-amd64

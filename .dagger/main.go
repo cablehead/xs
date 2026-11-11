@@ -117,12 +117,11 @@ func (m *Xs) LinuxArm64Env(
 	src *dagger.Directory) *dagger.Container {
 	return m.withCaches(
 		dag.Container().
-			From("messense/rust-musl-cross:aarch64-musl").
-			// The image's Rust can lag behind xs's rust-version. Updating its
-			// stable in place fails (a broken clippy component), so add the
-			// toolchain beside it.
-			WithExec([]string{"rustup", "toolchain", "install", "1.97.1", "--profile", "minimal", "--target", "aarch64-unknown-linux-musl"}).
-			WithExec([]string{"rustup", "default", "1.97.1"}).
+			// Rust's official Alpine image: Alpine is built on musl, so a musl
+			// build is native there, C code (SQLite, aws-lc, libgit2) included.
+			// It runs on a runner of the target's own CPU (release-binaries.yml).
+			From("rust:1-alpine").
+			WithExec([]string{"apk", "add", "--no-cache", "build-base", "cmake", "perl", "linux-headers"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-arm64",
@@ -150,12 +149,11 @@ func (m *Xs) LinuxAmd64Env(
 	src *dagger.Directory) *dagger.Container {
 	return m.withCaches(
 		dag.Container().
-			From("messense/rust-musl-cross:x86_64-musl").
-			// The image's Rust can lag behind xs's rust-version. Updating its
-			// stable in place fails (a broken clippy component), so add the
-			// toolchain beside it.
-			WithExec([]string{"rustup", "toolchain", "install", "1.97.1", "--profile", "minimal", "--target", "x86_64-unknown-linux-musl"}).
-			WithExec([]string{"rustup", "default", "1.97.1"}).
+			// Rust's official Alpine image: Alpine is built on musl, so a musl
+			// build is native there, C code (SQLite, aws-lc, libgit2) included.
+			// It runs on a runner of the target's own CPU (release-binaries.yml).
+			From("rust:1-alpine").
+			WithExec([]string{"apk", "add", "--no-cache", "build-base", "cmake", "perl", "linux-headers"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-amd64",
