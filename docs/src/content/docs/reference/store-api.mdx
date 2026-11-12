@@ -62,6 +62,36 @@ Headers:
 
 Response: Frame JSON
 
+### `POST /append-batch`
+
+Append several frames in one request
+
+```sh
+printf '%s\n' \
+    '{"topic":"clip.add","meta":{"n":1}}' \
+    '{"topic":"clip.add","meta":{"n":2},"ttl":"last:100"}' |
+  curl --unix-socket ./store/sock --data-binary @- \
+    "http://localhost/append-batch"
+```
+
+Body: newline-delimited JSON, one frame per line. Each line takes:
+
+- `topic` - Required
+- `meta` - Optional JSON metadata
+- `ttl` - Optional, as for `/append/{topic}`; defaults to `forever`
+- `hash` - Optional integrity hash of content already stored with `POST /cas`
+
+The frames get consecutive IDs, with no other append interleaved, and are
+committed together: a reader sees all of them or none. A malformed line
+returns 400 and an invalid topic rejects the batch; either way nothing is
+stored.
+
+Query Parameters:
+
+- `with-timestamp` - Include RFC3339 timestamp extracted from frame ID
+
+Response: newline-delimited JSON, the stored frames in order
+
 ### `GET /{id}`
 
 Get frame by id
