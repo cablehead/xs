@@ -3,16 +3,13 @@ title: TodoMVC with Datastar
 description: Learn to build reactive web apps using the hypermedia approach where backend drives UI updates via immediate mode HTML streaming
 sidebar:
   order: 1
-  badge:
-    text: Deprecated
-    variant: caution
 ---
 
 import { Card, CardGrid, Aside } from "@astrojs/starlight/components";
 import MuxVideo from '../../../components/MuxVideo.astro';
 
-<Aside type="caution" title="Deprecated">
-This tutorial targets Datastar v1.0.0-RC.5 and is no longer maintained. The Datastar SDK has since released breaking changes to its SSE protocol and attribute API. The underlying concepts -- event sourcing, server-driven UI via SSE, hypermedia-style reactivity -- are still valid. The code examples are not.
+<Aside type="note" title="The video is out of date">
+The video was recorded with Datastar v1.0.0-RC.5. The tutorial and its code examples below work with Datastar v1.0.5.
 </Aside>
 
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
@@ -419,20 +416,20 @@ Create an `index.html` that uses Datastar for reactive updates:
     <title>TodoMVC with Datastar</title>
     <script
       type="module"
-      src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0-RC.5/bundles/datastar.js"
+      src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.5/bundles/datastar.js"
     ></script>
   </head>
   <body>
     <h1>TodoMVC with Datastar</h1>
 
-    <ul id="todos" data-on-load="@get('/updates')">
+    <ul id="todos" data-init="@get('/updates')">
       <li>Loading todos...</li>
     </ul>
   </body>
 </html>
 ```
 
-When the `#todos` element loads, [`data-on-load`](https://data-star.dev/reference/attributes#data-on-load) executes the [`@get`](https://data-star.dev/reference/actions#get) action to connect to our `/updates` Server-Sent Events endpoint. Datastar receives the streamed HTML fragments and replaces the `#todos` element whenever the todo state changes.
+When the `#todos` element loads, [`data-init`](https://data-star.dev/reference/attributes#data-init) executes the [`@get`](https://data-star.dev/reference/actions#get) action to connect to our `/updates` Server-Sent Events endpoint. Datastar receives the streamed HTML fragments and replaces the `#todos` element whenever the todo state changes.
 
 Visit http://localhost:3001 and then in your terminal try appending some more events:
 
@@ -455,20 +452,20 @@ Let's add an input field so users can add todos directly from the web interface.
   <input
     type="text"
     placeholder="What needs to be done?"
-    data-signals-input
-    data-bind-input
-    data-on-keydown="
+    data-signals:input
+    data-bind:input
+    data-on:keydown="
       evt.key === 'Enter' && $input.trim() && @post('/add') && ($input = '');
     "
   />
 
-  <ul id="todos" data-on-load="@get('/updates')">
+  <ul id="todos" data-init="@get('/updates')">
     <li>Loading todos...</li>
   </ul>
 </body>
 ```
 
-The input uses [`data-signals-input`](https://data-star.dev/reference/attributes#data-signals) to create a `$input` signal, [`data-bind-input`](https://data-star.dev/reference/attributes#data-bind) to sync the field value with the signal, and [`data-on-keydown`](https://data-star.dev/reference/attributes#data-on-keydown) to POST the todo text to our `/add` endpoint when Enter is pressed, then clear the input field.
+The input uses [`data-signals:input`](https://data-star.dev/reference/attributes#data-signals) to create a `$input` signal, [`data-bind:input`](https://data-star.dev/reference/attributes#data-bind) to sync the field value with the signal, and [`data-on:keydown`](https://data-star.dev/reference/attributes#data-on) to POST the todo text to our `/add` endpoint when Enter is pressed, then clear the input field.
 
 Now add the `/add` endpoint to your `serve.nu` by adding this case to the match block (you'll need to restart http-nu after updating the file):
 

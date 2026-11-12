@@ -6,12 +6,12 @@
       <label>
         <input
           type="checkbox"
-          data-on-load="el.checked = {{ todo.completed | lower }}"
-          data-on-click__prevent="@post('/todos/{{ todo.id }}/toggle')"
+          data-init="el.checked = {{ todo.completed | lower }}"
+          data-on:click__prevent="@post('/todos/{{ todo.id }}/toggle')"
         />
         {{ todo.text }}
       </label>
-      <button type="button" data-on-click="@delete('/todos/{{ todo.id }}')">
+      <button type="button" data-on:click="@delete('/todos/{{ todo.id }}')">
         Delete
       </button>
     </li>
@@ -27,7 +27,7 @@
       %}items{% endif %} pending
     </p>
     {% if completed_count > 0 %}
-    <button type="button" data-on-click="@delete('/todos/completed')">
+    <button type="button" data-on:click="@delete('/todos/completed')">
       Clear {{ completed_count }} completed {% if completed_count == 1 %}item{%
       else %}items{% endif %}
     </button>

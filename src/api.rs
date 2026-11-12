@@ -291,9 +291,7 @@ fn error_text(error: &nu_protocol::ShellError) -> String {
     match error {
         nu_protocol::ShellError::Generic(g) if g.msg.is_empty() => g.error.to_string(),
         nu_protocol::ShellError::Generic(g) => format!("{}: {}", g.error, g.msg),
-        nu_protocol::ShellError::EvalBlockWithInput { sources, .. } if !sources.is_empty() => {
-            error_text(&sources[0])
-        }
+        nu_protocol::ShellError::EvalBlockWithInput(e) => error_text(&e.error),
         other => other.to_string(),
     }
 }
