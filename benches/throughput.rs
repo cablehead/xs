@@ -22,6 +22,11 @@
 //                 reach the actor loop
 //   actor-emit    the counter, emitting one output frame per input,
 //                 exercising the buffered .append + flush path
+//   last-n        a topic held at its cap: LAST_N_KEEP frames appended with
+//                 ttl last:LAST_N_KEEP, then LAST_N_APPENDS more, each waited
+//                 on until the gc worker has trimmed it. A steady trickle of
+//                 last:n appends pays the full trim on every one; a burst
+//                 shares one trim scan. frames= is LAST_N_APPENDS.
 //
 // Output is one parseable line per dimension:
 //   <name> frames=<n> ms=<elapsed> frames_per_s=<rate> us_per_frame=<cost>
@@ -34,7 +39,7 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
-use xs::store::{Frame, ReadOptions, Store};
+use xs::store::{Frame, ReadOptions, Store, TTL};
 
 const N: usize = 100_000;
 
@@ -60,6 +65,31 @@ fn bench_append() {
     let start = Instant::now();
     seed(&store, N, 1);
     report("append", N, start.elapsed());
+}
+
+const LAST_N_KEEP: usize = 50_000;
+const LAST_N_APPENDS: usize = 1_000;
+
+async fn bench_last_n() {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+    let ttl = TTL::Last(LAST_N_KEEP as u32);
+    // Fill to exactly the cap, so every timed append is one in and one out.
+    for _ in 0..LAST_N_KEEP {
+        store
+            .append(Frame::builder("ev").ttl(ttl.clone()).build())
+            .unwrap();
+    }
+    store.wait_for_gc().await;
+
+    let start = Instant::now();
+    for _ in 0..LAST_N_APPENDS {
+        store
+            .append(Frame::builder("ev").ttl(ttl.clone()).build())
+            .unwrap();
+        store.wait_for_gc().await;
+    }
+    report("last-n", LAST_N_APPENDS, start.elapsed());
 }
 
 /// Append N frames through the HTTP API: serve the store on its unix
@@ -225,5 +255,6 @@ fn main() {
         run_actor_bench("actor-mixed", &actor_closure(false, false, N / 10), 10).await;
         run_actor_bench("actor-filtered", &actor_closure(false, true, N / 10), 10).await;
         run_actor_bench("actor-emit", &actor_closure(true, false, N), 1).await;
+        bench_last_n().await;
     });
 }
