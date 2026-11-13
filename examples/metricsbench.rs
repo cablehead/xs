@@ -3,7 +3,7 @@
 //! policies can be set from numbers instead of reasoning.
 //!
 //! ```text
-//! cargo run --profile exp --bin metricsbench -- <frames> <topics>
+//! cargo run --profile exp --example metricsbench -- <frames> <topics>
 //! ```
 //!
 //! Counters are cumulative and fjall cannot reset them, so every phase is
