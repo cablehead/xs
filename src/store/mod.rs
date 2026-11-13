@@ -2158,15 +2158,16 @@ impl Store {
         superseded: Option<Frame>,
         stage: &mut CountStage,
     ) -> Result<Option<[u8; 24]>, crate::error::Error> {
-        let topic_key = idx_topic_key_from_frame(frame)?;
         let expiry_key = self.insert_frame_keys(batch, frame)?;
-        let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
 
         // The id may already have been indexed under another topic. Those
         // entries would otherwise survive their frame and answer for a topic
-        // it no longer has.
+        // it no longer has. Only a restore gets here, so only it pays for the
+        // keys.
         let moved_from = superseded.as_ref().filter(|old| old.topic != frame.topic);
         if let Some(old) = moved_from {
+            let topic_key = idx_topic_key_from_frame(frame)?;
+            let prefix_keys = idx_topic_prefix_keys(&frame.topic, &frame.id);
             let mut old_key = idx_topic_key_prefix(&old.topic);
             old_key.extend(frame.id.as_bytes());
             // "a.b" and "a.c" share the prefix key "a.", so drop only the keys
@@ -2229,7 +2230,7 @@ impl Store {
         let Some(was) = was else {
             // Not a counted topic, yet. Remember what this batch adds to it,
             // in case a later frame in the batch makes it one.
-            if fresh {
+            if fresh && stage.watch_uncounted {
                 *stage.uncounted.entry(frame.topic.clone()).or_default() += 1;
             }
             return Ok(expiry_key);
@@ -2422,7 +2423,11 @@ impl Store {
         // every frame. An invalid one returns here, before the commit, so the
         // batch is dropped with nothing written.
         let mut batch = self.db.batch();
-        let mut stage = CountStage::default();
+        let mut stage = CountStage {
+            watch_uncounted: frames.len() > 1
+                && frames.iter().any(|f| matches!(f.ttl, Some(TTL::Last(_)))),
+            ..CountStage::default()
+        };
         let mut stored = Vec::new();
         for frame in &frames {
             let staged = if frame.ttl == Some(TTL::Ephemeral) {
@@ -2995,6 +3000,9 @@ struct CountStage {
     counts: HashMap<String, u64>,
     /// Frames this batch has added to a topic that is not counted (yet).
     uncounted: HashMap<String, u64>,
+    /// Whether to keep `uncounted` at all: only a batch of several frames,
+    /// one of them `last:n`, can start counting a topic part way through.
+    watch_uncounted: bool,
     /// Frames this batch is already removing.
     taken: HashSet<Scru128Id>,
     /// Topics whose trim floor this batch moved.
