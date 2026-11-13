@@ -379,6 +379,11 @@ async fn handle_stream_cat(
         .body(body)?)
 }
 
+/// The most frames one `/append-batch` request may carry. A live follower can
+/// fall [`FOLLOW_BUFFER`](crate::store::FOLLOW_BUFFER) frames behind before it
+/// is cut off with `xs.lagged`, so a batch stays well inside that.
+const MAX_BATCH: usize = 1024;
+
 /// One line of an `/append-batch` body.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -395,7 +400,8 @@ struct BatchItem {
 
 /// Append every NDJSON line of the body as one contiguous, atomic run (see
 /// [`Store::append_many`]). Responds with the stored frames as NDJSON, in
-/// order. A malformed line rejects the whole batch with 400; nothing is stored.
+/// order. A malformed line, or more than [`MAX_BATCH`] frames, rejects the
+/// whole batch with 400; nothing is stored.
 async fn handle_stream_append_batch<B>(store: &Store, body: B, with_timestamp: bool) -> HTTPResult
 where
     B: hyper::body::Body<Data = Bytes>,
@@ -407,6 +413,11 @@ where
     for (n, line) in bytes.split(|b| *b == b'\n').enumerate() {
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
+        }
+        if frames.len() == MAX_BATCH {
+            return response_400(format!(
+                "a batch can hold at most {MAX_BATCH} frames: split it"
+            ));
         }
         let item: BatchItem = match serde_json::from_slice(line) {
             Ok(item) => item,
@@ -1078,10 +1089,14 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
 
-        async fn post(store: &Store, body: &'static str) -> (StatusCode, Vec<serde_json::Value>) {
-            let response = handle_stream_append_batch(store, Full::new(Bytes::from(body)), false)
-                .await
-                .unwrap();
+        async fn post(store: &Store, body: &str) -> (StatusCode, Vec<serde_json::Value>) {
+            let response = handle_stream_append_batch(
+                store,
+                Full::new(Bytes::copy_from_slice(body.as_bytes())),
+                false,
+            )
+            .await
+            .unwrap();
             let status = response.status();
             let body = response.into_body().collect().await.unwrap().to_bytes();
             let frames = body
@@ -1115,6 +1130,20 @@ mod tests {
             stored += 1;
         }
         assert_eq!(2, stored);
+
+        // MAX_BATCH frames are fine; one more rejects the whole batch.
+        let line = "{\"topic\":\"c\"}\n";
+        let (status, frames) = post(&store, &line.repeat(MAX_BATCH)).await;
+        assert_eq!(StatusCode::OK, status);
+        assert_eq!(MAX_BATCH, frames.len());
+        let (status, _) = post(&store, &line.repeat(MAX_BATCH + 1)).await;
+        assert_eq!(StatusCode::BAD_REQUEST, status);
+        let mut rx = store.read(ReadOptions::default());
+        let mut stored = 0;
+        while rx.recv().await.is_some() {
+            stored += 1;
+        }
+        assert_eq!(2 + MAX_BATCH, stored);
     }
 
     #[tokio::test]

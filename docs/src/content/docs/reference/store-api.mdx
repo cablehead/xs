@@ -86,6 +86,9 @@ committed together: a reader sees all of them or none. A malformed line
 returns 400 and an invalid topic rejects the batch; either way nothing is
 stored.
 
+A batch holds at most 1024 frames; a bigger one returns 400, with nothing
+stored. Split it into several requests.
+
 Query Parameters:
 
 - `with-timestamp` - Include RFC3339 timestamp extracted from frame ID
