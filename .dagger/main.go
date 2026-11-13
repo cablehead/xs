@@ -68,8 +68,10 @@ func (m *Xs) MacosBuild(ctx context.Context, src *dagger.Directory, version stri
 					SOURCE_FILE=$(find /root/.cargo/registry/src/index.crates.io-* -name "libproc-*" -type d | head -1)/src/osx_libproc_bindings.rs
 				fi
 
-				# Find the destination directory
-				DEST_DIR=$(find target/aarch64-apple-darwin/release/build/ -name "libproc-*" -type d | head -1)/out
+				# The destination is the folder rustc names in the error. Cargo
+				# has used build/libproc-<hash>/out and, since Rust 1.100,
+				# build/libproc/<hash>/out; the error has whichever is in use.
+				DEST_DIR=$(dirname "$(grep -oE '/[^ :]*/out/osx_libproc_bindings[.]rs' build.log | head -1)")
 
 				if [ -f "$SOURCE_FILE" ] && [ -d "$DEST_DIR" ]; then
 					echo "Copying $SOURCE_FILE to $DEST_DIR/"
