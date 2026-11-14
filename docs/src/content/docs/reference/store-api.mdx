@@ -123,6 +123,27 @@ curl --unix-socket ./store/sock http://localhost/cas/sha256-hash
 
 Response: Raw content or 404 if not found
 
+### `POST /gc`
+
+Delete content no frame uses
+
+```sh
+curl --unix-socket ./store/sock -X POST http://localhost/gc
+```
+
+Removing or trimming a frame leaves its content in CAS, and an ephemeral
+frame's content is never kept by a stored frame. This deletes every content
+file no stored frame points at and that was written more than an hour ago. The
+hour leaves time for content uploaded with `POST /cas` to be appended, and for
+readers following the stream to fetch an ephemeral frame's content. The server
+also does this once each time it starts.
+
+Response: JSON, what was found and deleted
+
+```json
+{"in_use": 18, "recent": 87, "deleted": 28720, "bytes_freed": 10700000000}
+```
+
 ### `POST /import`
 
 Import frame as-is

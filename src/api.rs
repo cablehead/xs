@@ -73,6 +73,7 @@ enum Routes {
     StreamItemRemove(Scru128Id),
     CasGet(ssri::Integrity),
     CasPost,
+    CasGc,
     Import,
     Eval,
     Version,
@@ -179,6 +180,7 @@ fn match_route(
         }
 
         (&Method::POST, "/cas") => Routes::CasPost,
+        (&Method::POST, "/gc") => Routes::CasGc,
         (&Method::POST, "/import") => Routes::Import,
         (&Method::POST, "/eval") => Routes::Eval,
 
@@ -253,6 +255,8 @@ async fn handle(
         }
 
         Routes::CasPost => handle_cas_post(&mut store, req.into_body()).await,
+
+        Routes::CasGc => handle_cas_gc(&store).await,
 
         Routes::StreamItemGet { id, with_timestamp } => {
             response_frame_or_404(store.get(&id), with_timestamp)
@@ -500,6 +504,22 @@ async fn handle_metrics(store: &Store) -> HTTPResult {
         .body(full(serde_json::to_string(&body).unwrap()))?)
 }
 
+/// How long content no frame points at is kept before [`Store::cas_gc`]
+/// deletes it: long enough for an upload to be appended, or an ephemeral
+/// frame's content to be fetched by the readers following it.
+const CAS_GC_GRACE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// `POST /gc`: delete content no stored frame points at that is older than
+/// [`CAS_GC_GRACE`], and answer with what was found and deleted.
+async fn handle_cas_gc(store: &Store) -> HTTPResult {
+    let store = store.clone();
+    let report = tokio::task::spawn_blocking(move || store.cas_gc(CAS_GC_GRACE)).await??;
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(full(serde_json::to_string(&report)?))?)
+}
+
 pub async fn serve(
     store: Store,
     engine: nu::Engine,
@@ -526,6 +546,16 @@ pub async fn serve(
 
     if let Err(e) = store.append(Frame::builder("xs.start").maybe_meta(expose_meta).build()) {
         tracing::error!("Failed to append xs.start frame: {}", e);
+    }
+
+    // Content no frame points at only builds up while the store runs (see
+    // Store::cas_gc), so a server clears what is left once as it starts.
+    {
+        let store = store.clone();
+        tokio::task::spawn_blocking(move || match store.cas_gc(CAS_GC_GRACE) {
+            Ok(report) => tracing::info!(?report, "cas gc at startup"),
+            Err(e) => tracing::error!("cas gc at startup: {e}"),
+        });
     }
 
     let mut tasks = Vec::new();
@@ -947,6 +977,32 @@ mod tests {
         assert_eq!(serde_json::json!({"n": 1}), frame["meta"]);
         let hash: ssri::Integrity = frame["hash"].as_str().unwrap().parse().unwrap();
         assert_eq!(b"x".to_vec(), store.cas_read(&hash).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_handle_cas_gc() {
+        let headers = hyper::HeaderMap::new();
+        assert!(matches!(
+            match_route(&Method::POST, "/gc", &headers, None),
+            Routes::CasGc
+        ));
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let hash = store.cas_insert_sync("in use").unwrap();
+        store
+            .append(Frame::builder("a").hash(hash).build())
+            .unwrap();
+        store.cas_insert_sync("just uploaded").unwrap();
+
+        let response = handle_cas_gc(&store).await.unwrap();
+        assert_eq!(StatusCode::OK, response.status());
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let report: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            report,
+            serde_json::json!({"in_use": 1, "recent": 1, "deleted": 0, "bytes_freed": 0})
+        );
     }
 
     #[test]

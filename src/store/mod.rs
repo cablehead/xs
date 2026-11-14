@@ -1825,6 +1825,70 @@ impl Store {
         self.cas_insert_sync(bytes)
     }
 
+    /// Delete content no stored frame points at, once it is older than `grace`.
+    ///
+    /// Removing or trimming a frame leaves its content in place (see
+    /// [`remove`](Store::remove)), and an ephemeral frame's content is never
+    /// pointed at by a stored frame at all, so without this the content store
+    /// only grows. This reads the hash of every stored frame, then walks the
+    /// content files and deletes each one no frame uses and that was last
+    /// written more than `grace` ago. The grace covers content that is about
+    /// to be used: uploaded with `POST /cas` for a later append, or behind an
+    /// ephemeral frame that live readers are still fetching.
+    ///
+    /// It holds the append lock throughout, so no frame can be appended
+    /// between reading the hashes in use and deleting a file.
+    pub fn cas_gc(&self, grace: Duration) -> Result<CasGcReport, crate::error::Error> {
+        let _guard = self.append_lock.lock().unwrap();
+        let in_use: HashSet<(String, String)> = self
+            .iter_frames(None)
+            .filter_map(|frame| frame.hash)
+            .map(|hash| {
+                let (algorithm, hex) = hash.to_hex();
+                (algorithm.to_string(), hex)
+            })
+            .collect();
+
+        let cutoff = std::time::SystemTime::now()
+            .checked_sub(grace)
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let mut report = CasGcReport::default();
+        let content = self.path.join("cacache").join("content-v2");
+        let algorithms = match std::fs::read_dir(&content) {
+            Ok(dir) => dir,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(report),
+            Err(e) => return Err(e.into()),
+        };
+        for algorithm in algorithms {
+            let algorithm = algorithm?;
+            let name = algorithm.file_name().to_string_lossy().into_owned();
+            let mut files = Vec::new();
+            content_files(&algorithm.path(), &mut files)?;
+            for path in files {
+                // cacache keeps a hash's hex digest split across directories:
+                // content-v2/<algorithm>/ab/cd/ef01..., so its path below the
+                // algorithm, joined, is the digest.
+                let hex: String = path
+                    .strip_prefix(algorithm.path())
+                    .map(|rel| rel.iter().map(|part| part.to_string_lossy()).collect())
+                    .unwrap_or_default();
+                if in_use.contains(&(name.clone(), hex)) {
+                    report.in_use += 1;
+                    continue;
+                }
+                let meta = std::fs::metadata(&path)?;
+                if meta.modified()? > cutoff {
+                    report.recent += 1;
+                    continue;
+                }
+                std::fs::remove_file(&path)?;
+                report.deleted += 1;
+                report.bytes_freed += meta.len();
+            }
+        }
+        Ok(report)
+    }
+
     /// Read back the full payload for `hash` into a `Vec<u8>`.
     pub async fn cas_read(&self, hash: &ssri::Integrity) -> cacache::Result<Vec<u8>> {
         cacache::read_hash(&self.path.join("cacache"), hash).await
@@ -2675,6 +2739,32 @@ pub(crate) fn idx_topic_key_from_frame(frame: &Frame) -> Result<Vec<u8>, crate::
 fn idx_topic_frame_id_from_key(key: &[u8]) -> Scru128Id {
     let frame_id_bytes = &key[key.len() - 16..];
     Scru128Id::from_bytes(frame_id_bytes.try_into().unwrap())
+}
+
+/// What one [`Store::cas_gc`] pass found and did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct CasGcReport {
+    /// Content files a stored frame points at: kept.
+    pub in_use: u64,
+    /// Content files nothing points at, but written within the grace: kept.
+    pub recent: u64,
+    /// Content files nothing points at, older than the grace: deleted.
+    pub deleted: u64,
+    /// The size of the deleted files, in bytes.
+    pub bytes_freed: u64,
+}
+
+/// Every file under `dir`, at any depth.
+fn content_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            content_files(&entry.path(), out)?;
+        } else {
+            out.push(entry.path());
+        }
+    }
+    Ok(())
 }
 
 fn deserialize_frame<B1: AsRef<[u8]> + std::fmt::Debug, B2: AsRef<[u8]>>(
