@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
+use tokio_util::sync::CancellationToken;
 
 use crate::nu;
 use crate::nu::{value_to_json, ReturnOptions};
@@ -336,13 +337,24 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
         // then ends, and the run below stops with that error instead of
         // finishing (ADR 0008).
         let input_lag: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+        // Cancelled when the run is stopped: wakes the input read, which
+        // otherwise waits for the next `.send` frame.
+        let stop = CancellationToken::new();
         let input_pipeline = if task.duplex {
             let options = ReadOptions::builder()
                 .follow(FollowOption::On)
                 .after(start_id)
                 .build();
             let send_rx = store.read(options);
-            build_input_pipeline(store.clone(), &loop_ctx, &task, send_rx, input_lag.clone()).await
+            build_input_pipeline(
+                store.clone(),
+                &loop_ctx,
+                &task,
+                send_rx,
+                input_lag.clone(),
+                stop.clone(),
+            )
+            .await
         } else {
             PipelineData::empty()
         };
@@ -359,6 +371,11 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
         let terminate_topic = format!("xs.service.{}.term", loop_ctx.topic);
         let spawn_topic = format!("xs.service.{}.create", loop_ctx.topic);
         tokio::pin!(done_rx);
+        let halt = |task: &Task| {
+            stop.cancel();
+            task.engine.state.signals().trigger();
+            task.engine.kill_job_by_name(&task.id.to_string());
+        };
 
         let outcome = 'ctrl: loop {
             tokio::select! {
@@ -366,14 +383,12 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                 maybe = control_rx.recv() => {
                     match maybe {
                         Some(Ok(frame)) if frame.topic == terminate_topic => {
-                            task.engine.state.signals().trigger();
-                            task.engine.kill_job_by_name(&task.id.to_string());
+                            halt(&task);
                             let _ = (&mut done_rx).await;
                             break 'ctrl LoopOutcome::Terminate;
                         }
                         Some(Ok(frame)) if frame.topic == "xs.stopping" => {
-                            task.engine.state.signals().trigger();
-                            task.engine.kill_job_by_name(&task.id.to_string());
+                            halt(&task);
                             let _ = (&mut done_rx).await;
                             break 'ctrl LoopOutcome::Shutdown;
                         }
@@ -395,8 +410,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                                                 let interrupt = Arc::new(AtomicBool::new(false));
                                                 new_engine.state.set_signals(Signals::new(interrupt.clone()));
 
-                                                task.engine.state.signals().trigger();
-                                                task.engine.kill_job_by_name(&task.id.to_string());
+                                                halt(&task);
                                                 let _ = (&mut done_rx).await;
 
                                                 let new_task = Task {
@@ -427,8 +441,7 @@ async fn run_loop(store: Store, loop_ctx: ServiceLoop, mut task: Task, base: nu:
                         // The control read fell behind the live stream and
                         // missed frames, maybe a .term: stop the service.
                         Some(Err(err)) => {
-                            task.engine.state.signals().trigger();
-                            task.engine.kill_job_by_name(&task.id.to_string());
+                            halt(&task);
                             let _ = (&mut done_rx).await;
                             break 'ctrl LoopOutcome::Error(format!("control read {err}"));
                         }
@@ -522,28 +535,33 @@ async fn build_input_pipeline(
     store: Store,
     loop_ctx: &ServiceLoop,
     task: &Task,
-    rx: tokio::sync::mpsc::Receiver<crate::store::ReadItem>,
+    mut rx: tokio::sync::mpsc::Receiver<crate::store::ReadItem>,
     lag: Arc<std::sync::Mutex<Option<String>>>,
+    stop: CancellationToken,
 ) -> PipelineData {
     let topic = format!("{loop_topic}.send", loop_topic = loop_ctx.topic);
-    let signals = task.engine.state.signals().clone();
-    let mut rx = rx;
+    // The iterator is pulled from the service's own thread, off the runtime,
+    // so it can block on the runtime: until the next frame, or the stop.
+    let handle = tokio::runtime::Handle::current();
     let iter = std::iter::from_fn(move || loop {
-        if signals.interrupted() {
-            return None;
-        }
-
-        match rx.try_recv() {
+        let next = handle.block_on(async {
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => None,
+                item = rx.recv() => item,
+            }
+        });
+        match next? {
             // The send read fell behind the live stream: the service's input
             // has a gap. The input ends here and the run loop stops the
             // service with the error (ADR 0008). An error item in the stream
             // would not do it: `each` turns it into a value and the run
             // finishes as if nothing happened.
-            Ok(Err(err)) => {
+            Err(err) => {
                 *lag.lock().unwrap() = Some(err.to_string());
                 return None;
             }
-            Ok(Ok(frame)) => {
+            Ok(frame) => {
                 if frame.topic == topic {
                     if let Some(hash) = frame.hash {
                         if let Ok(bytes) = store.cas_read_sync(&hash) {
@@ -553,13 +571,6 @@ async fn build_input_pipeline(
                         }
                     }
                 }
-            }
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                continue;
-            }
-            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                return None;
             }
         }
     });
