@@ -5,6 +5,9 @@
 // Dimensions, each over N tiny frames:
 //
 //   append        raw store writes (the floor for everything else)
+//   append-many-<k>  the same frames as append-batch-<k>, through
+//                 Store::append_many k at a time, with no HTTP: what is left
+//                 of append-batch once the request is taken away
 //   append-http   meta-only POST /append over the unix socket, one request
 //                 at a time on a kept-open connection; append plus the cost
 //                 of HTTP (unix only)
@@ -156,6 +159,26 @@ async fn bench_append_batch_http(batch: usize) {
     report(&name, N / batch * batch, start.elapsed());
 }
 
+/// The frames of `append-batch-<batch>`, meta and all, through
+/// `Store::append_many` directly: N frames in N / batch calls, no HTTP.
+fn bench_append_many(batch: usize) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+    let meta = serde_json::json!({"n": 1});
+    let start = Instant::now();
+    for _ in 0..N / batch {
+        let frames = (0..batch)
+            .map(|_| Frame::builder("ev").meta(meta.clone()).build())
+            .collect();
+        store.append_many(frames).unwrap();
+    }
+    report(
+        &format!("append-many-{batch}"),
+        N / batch * batch,
+        start.elapsed(),
+    );
+}
+
 fn bench_replay() {
     let temp_dir = TempDir::new().unwrap();
     let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
@@ -253,6 +276,9 @@ fn actor_closure(emit: bool, filtered: bool, target: usize) -> String {
 
 fn main() {
     bench_append();
+    for batch in [10, 100, 1000] {
+        bench_append_many(batch);
+    }
     bench_replay();
     bench_replay_topic();
 
