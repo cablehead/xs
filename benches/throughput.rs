@@ -5,10 +5,17 @@
 // Dimensions, each over N tiny frames:
 //
 //   append        raw store writes (the floor for everything else)
+//   append-many-<k>  the same frames as append-batch-<k>, through
+//                 Store::append_many k at a time, with no HTTP: what is left
+//                 of append-batch once the request is taken away
 //   append-http   meta-only POST /append over the unix socket, one request
 //                 at a time on a kept-open connection; append plus the cost
 //                 of HTTP (unix only)
 //   append-http-body  same, with a small body that lands in the CAS
+//   append-batch-<k>  the same meta-only frames through POST /append-batch,
+//                 k frames per request (10, 100, 1000), one request at a
+//                 time on a kept-open connection; compare with append-http
+//                 (unix only)
 //   replay        historical read_sync scan (what `start: "first"` leans on)
 //   replay-topic  topic-filtered scan: idx_topic walk + a point-read per
 //                 matching frame (half the stream matches)
@@ -71,27 +78,7 @@ async fn bench_append_http(name: &str, body: bool) {
     use http_body_util::{BodyExt, Full};
     use hyper::body::Bytes;
 
-    let temp_dir = TempDir::new().unwrap();
-    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
-    let sock = store.path.join("sock");
-    let engine = xs::nu::Engine::new().unwrap();
-    drop(tokio::spawn(xs::api::serve(store, engine, None)));
-
-    let start = Instant::now();
-    let stream = loop {
-        match tokio::net::UnixStream::connect(&sock).await {
-            Ok(stream) => break stream,
-            Err(_) if start.elapsed() < Duration::from_secs(10) => {
-                tokio::time::sleep(Duration::from_millis(10)).await
-            }
-            Err(e) => panic!("{name}: server never came up: {e}"),
-        }
-    };
-    let (mut sender, conn) =
-        hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream))
-            .await
-            .unwrap();
-    drop(tokio::spawn(conn));
+    let (_temp_dir, mut sender) = serve_http(name).await;
 
     let meta = base64::prelude::BASE64_STANDARD.encode(r#"{"n":1}"#);
     let payload = if body {
@@ -112,6 +99,84 @@ async fn bench_append_http(name: &str, body: bool) {
         res.into_body().collect().await.unwrap();
     }
     report(name, N, start.elapsed());
+}
+
+/// Start the API on a fresh store and open one kept-alive connection to its
+/// unix socket. Keep the TempDir alive for as long as the sender is used.
+#[cfg(unix)]
+async fn serve_http(
+    name: &str,
+) -> (
+    TempDir,
+    hyper::client::conn::http1::SendRequest<http_body_util::Full<hyper::body::Bytes>>,
+) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+    let sock = store.path.join("sock");
+    let engine = xs::nu::Engine::new().unwrap();
+    drop(tokio::spawn(xs::api::serve(store, engine, None)));
+
+    let start = Instant::now();
+    let stream = loop {
+        match tokio::net::UnixStream::connect(&sock).await {
+            Ok(stream) => break stream,
+            Err(_) if start.elapsed() < Duration::from_secs(10) => {
+                tokio::time::sleep(Duration::from_millis(10)).await
+            }
+            Err(e) => panic!("{name}: server never came up: {e}"),
+        }
+    };
+    let (sender, conn) =
+        hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream))
+            .await
+            .unwrap();
+    drop(tokio::spawn(conn));
+    (temp_dir, sender)
+}
+
+/// The same meta-only frames as `append-http`, sent through POST
+/// /append-batch `batch` at a time: N frames in N / batch requests.
+#[cfg(unix)]
+async fn bench_append_batch_http(batch: usize) {
+    use http_body_util::{BodyExt, Full};
+    use hyper::body::Bytes;
+
+    let name = format!("append-batch-{batch}");
+    let (_temp_dir, mut sender) = serve_http(&name).await;
+    let body = Bytes::from(r#"{"topic":"ev","meta":{"n":1}}"#.to_string() + "\n").repeat(batch);
+    let body = Bytes::from(body);
+
+    let start = Instant::now();
+    for _ in 0..N / batch {
+        let req = hyper::Request::post("http://localhost/append-batch")
+            .body(Full::new(body.clone()))
+            .unwrap();
+        sender.ready().await.unwrap();
+        let res = sender.send_request(req).await.unwrap();
+        assert_eq!(res.status(), hyper::StatusCode::OK, "{name}");
+        res.into_body().collect().await.unwrap();
+    }
+    report(&name, N / batch * batch, start.elapsed());
+}
+
+/// The frames of `append-batch-<batch>`, meta and all, through
+/// `Store::append_many` directly: N frames in N / batch calls, no HTTP.
+fn bench_append_many(batch: usize) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+    let meta = serde_json::json!({"n": 1});
+    let start = Instant::now();
+    for _ in 0..N / batch {
+        let frames = (0..batch)
+            .map(|_| Frame::builder("ev").meta(meta.clone()).build())
+            .collect();
+        store.append_many(frames).unwrap();
+    }
+    report(
+        &format!("append-many-{batch}"),
+        N / batch * batch,
+        start.elapsed(),
+    );
 }
 
 fn bench_replay() {
@@ -211,6 +276,9 @@ fn actor_closure(emit: bool, filtered: bool, target: usize) -> String {
 
 fn main() {
     bench_append();
+    for batch in [10, 100, 1000] {
+        bench_append_many(batch);
+    }
     bench_replay();
     bench_replay_topic();
 
@@ -220,6 +288,9 @@ fn main() {
         {
             bench_append_http("append-http", false).await;
             bench_append_http("append-http-body", true).await;
+            for batch in [10, 100, 1000] {
+                bench_append_batch_http(batch).await;
+            }
         }
         run_actor_bench("actor-state", &actor_closure(false, false, N), 1).await;
         run_actor_bench("actor-mixed", &actor_closure(false, false, N / 10), 10).await;
