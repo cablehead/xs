@@ -3349,3 +3349,143 @@ mod tests_append_many {
         assert_eq!(store.read_sync(ReadOptions::default()).count(), 0);
     }
 }
+
+#[cfg(test)]
+mod tests_cas_gc {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Age a content file, as though it was written `by` ago.
+    fn age(store: &Store, hash: &ssri::Integrity, by: Duration) {
+        let (algorithm, hex) = hash.to_hex();
+        let path = store
+            .path
+            .join("cacache")
+            .join("content-v2")
+            .join(algorithm.to_string())
+            .join(&hex[0..2])
+            .join(&hex[2..4])
+            .join(&hex[4..]);
+        let when = std::time::SystemTime::now() - by;
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    }
+
+    fn exists(store: &Store, hash: &ssri::Integrity) -> bool {
+        store.cas_reader_sync(hash.clone()).is_ok()
+    }
+
+    /// Content a stored frame points at stays; content behind a trimmed frame,
+    /// an ephemeral frame, or no frame at all goes, once past the grace.
+    #[tokio::test]
+    async fn test_cas_gc_deletes_only_unused_old_content() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let hour = Duration::from_secs(3600);
+
+        let trimmed = store.cas_insert_sync("first screen").unwrap();
+        let kept = store.cas_insert_sync("second screen").unwrap();
+        let ephemeral = store.cas_insert_sync("a keystroke").unwrap();
+        let orphan = store.cas_insert_sync("uploaded, never used").unwrap();
+
+        for hash in [&trimmed, &kept] {
+            store
+                .append(
+                    Frame::builder("screen")
+                        .hash(hash.clone())
+                        .ttl(TTL::Last(1))
+                        .build(),
+                )
+                .unwrap();
+        }
+        store
+            .append(
+                Frame::builder("send")
+                    .hash(ephemeral.clone())
+                    .ttl(TTL::Ephemeral)
+                    .build(),
+            )
+            .unwrap();
+        store.wait_for_gc().await;
+
+        // Within the grace, nothing goes.
+        let report = store.cas_gc(hour).unwrap();
+        assert_eq!(
+            report,
+            CasGcReport {
+                in_use: 1,
+                recent: 3,
+                deleted: 0,
+                bytes_freed: 0
+            }
+        );
+
+        for hash in [&trimmed, &kept, &ephemeral, &orphan] {
+            age(&store, hash, 2 * hour);
+        }
+        let report = store.cas_gc(hour).unwrap();
+        assert_eq!(report.in_use, 1);
+        assert_eq!(report.deleted, 3);
+        assert_eq!(
+            report.bytes_freed,
+            ("first screen".len() + "a keystroke".len() + "uploaded, never used".len()) as u64
+        );
+        assert!(exists(&store, &kept));
+        for hash in [&trimmed, &ephemeral, &orphan] {
+            assert!(!exists(&store, hash));
+        }
+    }
+
+    /// Two frames can share one content file: removing one leaves it for the
+    /// other.
+    #[test]
+    fn test_cas_gc_keeps_content_another_frame_shares() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let hash = store.cas_insert_sync("shared").unwrap();
+        let a = store
+            .append(Frame::builder("a").hash(hash.clone()).build())
+            .unwrap();
+        store
+            .append(Frame::builder("b").hash(hash.clone()).build())
+            .unwrap();
+        store.remove(&a.id).unwrap();
+        age(&store, &hash, Duration::from_secs(7200));
+
+        let report = store.cas_gc(Duration::from_secs(3600)).unwrap();
+        assert_eq!(report.in_use, 1);
+        assert_eq!(report.deleted, 0);
+        assert!(exists(&store, &hash));
+    }
+
+    /// Writing content that is already stored counts as writing it now, so
+    /// content uploaded again for a new append is inside the grace, even
+    /// though the file was first written long ago.
+    #[test]
+    fn test_cas_rewrite_restarts_the_grace() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        let hash = store.cas_insert_sync("again").unwrap();
+        age(&store, &hash, Duration::from_secs(7200));
+        assert_eq!(store.cas_insert_sync("again").unwrap(), hash);
+
+        let report = store.cas_gc(Duration::from_secs(3600)).unwrap();
+        assert_eq!(report.recent, 1);
+        assert_eq!(report.deleted, 0);
+    }
+
+    /// A store with no content at all has nothing to do.
+    #[test]
+    fn test_cas_gc_on_an_empty_store() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = Store::new(temp_dir.path().to_path_buf()).unwrap();
+        assert_eq!(
+            store.cas_gc(Duration::ZERO).unwrap(),
+            CasGcReport::default()
+        );
+    }
+}
