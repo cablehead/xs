@@ -1,5 +1,4 @@
 use std::io::Read;
-use std::io::Write;
 
 use chrono::{DateTime, Utc};
 use nu_protocol::shell_error::generic::GenericError;
@@ -138,87 +137,23 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
-pub fn write_pipeline_to_cas(
+/// A pipeline's content as bytes to store: `None` for nothing, a record as
+/// its JSON. `.append` writes it to its own store's CAS, or sends it as the
+/// body of a remote append (see [`crate::nu::remote`]).
+pub fn pipeline_reader(
     input: PipelineData,
-    store: &Store,
     span: Span,
-) -> Result<Option<ssri::Integrity>, Box<ShellError>> {
-    let mut writer = store.cas_writer_sync().map_err(|e| {
-        Box::new(ShellError::Generic(GenericError::new(
-            "I/O Error",
-            e.to_string(),
-            span,
-        )))
-    })?;
-
+) -> Result<Option<Box<dyn Read>>, Box<ShellError>> {
+    let bytes = |b: Vec<u8>| -> Option<Box<dyn Read>> { Some(Box::new(std::io::Cursor::new(b))) };
     match input {
         PipelineData::Value(value, _) => match value {
             Value::Nothing { .. } => Ok(None),
-            Value::String { val, .. } => {
-                writer.write_all(val.as_bytes()).map_err(|e| {
-                    Box::new(ShellError::Generic(GenericError::new(
-                        "I/O Error",
-                        e.to_string(),
-                        span,
-                    )))
-                })?;
-
-                let hash = writer.commit().map_err(|e| {
-                    Box::new(ShellError::Generic(GenericError::new(
-                        "I/O Error",
-                        e.to_string(),
-                        span,
-                    )))
-                })?;
-
-                Ok(Some(hash))
-            }
-            Value::Binary { val, .. } => {
-                writer.write_all(&val).map_err(|e| {
-                    Box::new(ShellError::Generic(GenericError::new(
-                        "I/O Error",
-                        e.to_string(),
-                        span,
-                    )))
-                })?;
-
-                let hash = writer.commit().map_err(|e| {
-                    Box::new(ShellError::Generic(GenericError::new(
-                        "I/O Error",
-                        e.to_string(),
-                        span,
-                    )))
-                })?;
-
-                Ok(Some(hash))
-            }
+            Value::String { val, .. } => Ok(bytes(val.into_bytes())),
+            Value::Binary { val, .. } => Ok(bytes(val.into_owned())),
             Value::Record { .. } => {
                 let json = value_to_json(&value);
-                let json_string = serde_json::to_string(&json).map_err(|e| {
-                    Box::new(ShellError::Generic(GenericError::new(
-                        "I/O Error",
-                        e.to_string(),
-                        span,
-                    )))
-                })?;
-
-                writer.write_all(json_string.as_bytes()).map_err(|e| {
-                    Box::new(ShellError::Generic(GenericError::new(
-                        "I/O Error",
-                        e.to_string(),
-                        span,
-                    )))
-                })?;
-
-                let hash = writer.commit().map_err(|e| {
-                    Box::new(ShellError::Generic(GenericError::new(
-                        "I/O Error",
-                        e.to_string(),
-                        span,
-                    )))
-                })?;
-
-                Ok(Some(hash))
+                let json_string = serde_json::to_string(&json).map_err(|e| io_error(e, span))?;
+                Ok(bytes(json_string.into_bytes()))
             }
             _ => Err(Box::new(ShellError::PipelineMismatch {
                 exp_input_type: format!(
@@ -232,44 +167,34 @@ pub fn write_pipeline_to_cas(
         PipelineData::ListStream(_stream, ..) => {
             panic!("ListStream handling is not yet implemented");
         }
-        PipelineData::ByteStream(stream, ..) => {
-            if let Some(mut reader) = stream.reader() {
-                let mut buffer = [0; 8192];
-                loop {
-                    let bytes_read = reader.read(&mut buffer).map_err(|e| {
-                        Box::new(ShellError::Generic(GenericError::new(
-                            "I/O Error",
-                            e.to_string(),
-                            span,
-                        )))
-                    })?;
-
-                    if bytes_read == 0 {
-                        break;
-                    }
-
-                    writer.write_all(&buffer[..bytes_read]).map_err(|e| {
-                        Box::new(ShellError::Generic(GenericError::new(
-                            "I/O Error",
-                            e.to_string(),
-                            span,
-                        )))
-                    })?;
-                }
-            }
-
-            let hash = writer.commit().map_err(|e| {
-                Box::new(ShellError::Generic(GenericError::new(
-                    "I/O Error",
-                    e.to_string(),
-                    span,
-                )))
-            })?;
-
-            Ok(Some(hash))
-        }
+        PipelineData::ByteStream(stream, ..) => Ok(match stream.reader() {
+            Some(reader) => Some(Box::new(reader)),
+            None => bytes(Vec::new()),
+        }),
         PipelineData::Empty => Ok(None),
     }
+}
+
+fn io_error(e: impl std::fmt::Display, span: Span) -> Box<ShellError> {
+    Box::new(ShellError::Generic(GenericError::new(
+        "I/O Error",
+        e.to_string(),
+        span,
+    )))
+}
+
+pub fn write_pipeline_to_cas(
+    input: PipelineData,
+    store: &Store,
+    span: Span,
+) -> Result<Option<ssri::Integrity>, Box<ShellError>> {
+    let Some(mut reader) = pipeline_reader(input, span)? else {
+        return Ok(None);
+    };
+    let mut writer = store.cas_writer_sync().map_err(|e| io_error(e, span))?;
+    std::io::copy(&mut reader, &mut writer).map_err(|e| io_error(e, span))?;
+    let hash = writer.commit().map_err(|e| io_error(e, span))?;
+    Ok(Some(hash))
 }
 
 /// A following read's item as a nushell value. A read that falls behind the
@@ -306,11 +231,11 @@ const FOLLOW_INTERRUPT_CHECK: std::time::Duration = std::time::Duration::from_mi
 ///
 /// `rt` is the store's runtime. Without one there is nothing to drive the
 /// timeout on, so the wait falls back to blocking and stays uninterruptible.
-pub fn follow_recv(
-    rx: &mut tokio::sync::mpsc::Receiver<crate::store::ReadItem>,
+pub fn follow_recv<T>(
+    rx: &mut tokio::sync::mpsc::Receiver<T>,
     rt: Option<&tokio::runtime::Handle>,
     signals: &nu_protocol::Signals,
-) -> Option<crate::store::ReadItem> {
+) -> Option<T> {
     let Some(rt) = rt else {
         return rx.blocking_recv();
     };

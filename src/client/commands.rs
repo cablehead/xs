@@ -53,9 +53,16 @@ pub async fn cat(
 
     // The server's bytes, as they arrive; a read that fell behind ends with
     // its error, from the `xs-lagged` trailer (ADR 0008), and a broken
-    // connection with its own.
+    // connection with its own. The task also ends the moment its reader drops
+    // the receiver, so a quiet follow does not hold the connection open until
+    // the next frame arrives: dropping `body` closes it.
     tokio::spawn(async move {
-        while let Some(frame) = body.frame().await {
+        loop {
+            let frame = tokio::select! {
+                frame = body.frame() => frame,
+                _ = tx.closed() => return,
+            };
+            let Some(frame) = frame else { return };
             let item = match frame {
                 Ok(frame) => match frame.into_data() {
                     Ok(bytes) => Ok(bytes),

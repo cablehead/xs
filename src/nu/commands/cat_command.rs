@@ -165,6 +165,21 @@ impl Command for CatCommand {
             }
         };
 
+        // `$env.XS_ADDR` naming another store reads that one instead. Its
+        // read stops on an interrupt either way, and dropping the stream
+        // closes the connection.
+        if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &self.store) {
+            let signals = engine_state.signals().clone();
+            let frames =
+                crate::nu::remote::read(&self.store, &addr, options, signals.clone(), span)?;
+            let stream = ListStream::new(
+                frames.map(move |item| crate::nu::remote::value(&item, span, to_value)),
+                span,
+                signals,
+            );
+            return Ok(PipelineData::ListStream(stream, None));
+        }
+
         if following {
             // Follow mode: stream lazily. The follow/heartbeat task runs on the
             // shared runtime; the consumer dropping the ListStream cancels it

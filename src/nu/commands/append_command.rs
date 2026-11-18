@@ -109,6 +109,17 @@ impl Command for AppendCommand {
             None => None,
         };
 
+        // `$env.XS_ADDR` naming another store sends the frame there.
+        if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &store) {
+            let content = util::pipeline_reader(input, span).map_err(|boxed| *boxed)?;
+            let frame =
+                crate::nu::remote::append(&store, &addr, &topic, content, &final_meta, ttl, span)?;
+            return Ok(PipelineData::Value(
+                util::frame_to_value(&frame, span, with_timestamp),
+                None,
+            ));
+        }
+
         let hash = util::write_pipeline_to_cas(input, &store, span).map_err(|boxed| *boxed)?;
 
         let frame = store.append(
