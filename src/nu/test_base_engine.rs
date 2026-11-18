@@ -76,17 +76,17 @@ fn prepared_base_without_base_engine_still_builds() {
     );
 }
 
-/// `cargo test` builds the fixture example next to the test binary's parent.
+/// The fixture example `cargo test` builds, found in the nearest `examples`
+/// folder above the test binary. Rust 1.100 builds test binaries in a new
+/// place (`target/debug/build/<package>/<hash>/`), so a fixed number of
+/// folders up no longer reaches it.
 fn fixture_plugin_path() -> PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("examples");
-    path.push(format!(
-        "nu_plugin_xs_fixture{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    path
+    let name = format!("nu_plugin_xs_fixture{}", std::env::consts::EXE_SUFFIX);
+    let exe = std::env::current_exe().unwrap();
+    exe.ancestors()
+        .map(|dir| dir.join("examples").join(&name))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| panic!("no examples/{name} above {}", exe.display()))
 }
 
 /// A plugin added to the base engine must run in a processor engine.
