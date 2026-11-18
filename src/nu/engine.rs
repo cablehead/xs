@@ -319,8 +319,12 @@ impl Engine {
 
         // Set default values for optional params not covered by provided args
         let optional_covered = args.len().saturating_sub(num_required);
-        for i in optional_covered..num_optional {
-            let param = &block.signature.optional_positional[i];
+        for param in block
+            .signature
+            .optional_positional
+            .iter()
+            .skip(optional_covered)
+        {
             if let Some(var_id) = param.var_id {
                 let default = param
                     .default_value
@@ -413,8 +417,12 @@ impl Engine {
         }
 
         let optional_covered = args.len().saturating_sub(num_required);
-        for i in optional_covered..num_optional {
-            let param = &block.signature.optional_positional[i];
+        for param in block
+            .signature
+            .optional_positional
+            .iter()
+            .skip(optional_covered)
+        {
             if let Some(var_id) = param.var_id {
                 let default = param
                     .default_value
