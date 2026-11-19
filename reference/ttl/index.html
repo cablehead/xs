@@ -120,25 +120,45 @@ never changes afterward.</p>
 above.</p>
 <h2 id="how-each-kind-behaves">How each kind behaves</h2>
 <ul>
-<li><strong><code dir="auto">forever</code></strong> is the default, and the right choice for anything another part
-of the system reads back later.</li>
-<li><strong><code dir="auto">ephemeral</code></strong> frames are broadcast but never persisted, so they never
+<li>
+<p><strong><code dir="auto">forever</code></strong> is the default, and the right choice for anything another part
+of the system reads back later.</p>
+</li>
+<li>
+<p><strong><code dir="auto">ephemeral</code></strong> frames are broadcast but never persisted, so they never
 appear in <code dir="auto">.cat</code> history or on replay. Use them for liveness signals where a
-missed frame does not matter.</li>
-<li><strong><code dir="auto">time:&#x3C;ms></code></strong> frames expire relative to their own creation timestamp.
+missed frame does not matter.</p>
+</li>
+<li>
+<p><strong><code dir="auto">time:&#x3C;ms></code></strong> frames expire relative to their own creation timestamp.
 A read never returns an expired frame, so expiry is immediate as far as any
 reader is concerned. A background sweeper then removes them from disk. It
 wakes at most once per sweep interval, <code dir="auto">xs serve --ttl-sweep</code>, default one
 second, and removes a bounded batch each time, so clearing a large backlog
-takes several passes. No read has to touch a frame for it to be removed.</li>
-<li><strong><code dir="auto">last:&#x3C;n></code></strong> schedules a per-topic garbage collection when a frame is
-appended to a topic already at its limit: the store keeps the <code dir="auto">n</code> most recent
-frames on that topic and removes the rest. Removal is asynchronous and
-batched, so a topic can briefly hold more than <code dir="auto">n</code> frames on disk, and
-trimming a large overflow takes several passes. Reads are unaffected — they
-return whatever is stored. This is retention by topic, not by frame, so it
-affects every frame that shares the topic.</li>
+takes several passes. No read has to touch a frame for it to be removed.</p>
+</li>
+<li>
+<p><strong><code dir="auto">last:&#x3C;n></code></strong> trims the topic to its <code dir="auto">n</code> most recent frames. The trim runs
+on the append that carries it, in the same commit, so that append never
+leaves the topic over <code dir="auto">n</code>. Reads are unaffected — they return whatever is
+stored. This is retention by topic, not by frame, so a trim takes whatever is
+oldest, whatever ttl those frames carry.</p>
+<p>Frames appended without a <code dir="auto">last:n</code> do not trim, so a topic grows freely
+between them. The next <code dir="auto">last:n</code> append counts those frames too and takes the
+topic back to <code dir="auto">n</code>. Appending one <code dir="auto">last:n</code> frame is therefore a way to collapse
+a topic on demand: let it accumulate, trim it when you want to, let it grow
+again.</p>
+<p>A topic that is already well over its limit — because <code dir="auto">n</code> was lowered, or
+because frames were restored into it — is brought down by the background
+worker instead, a batch at a time, since one append cannot clear it.</p>
+</li>
 </ul>
+<aside aria-label="Adding last:n to a topic that already has frames" class="starlight-aside starlight-aside--note"> <p class="starlight-aside__title" aria-hidden="true"> <svg aria-hidden="true" class="starlight-aside__icon astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 11a1 1 0 0 0-1 1v4a1 1 0 0 0 2 0v-4a1 1 0 0 0-1-1Zm.38-3.92a1 1 0 0 0-.76 0 1 1 0 0 0-.33.21 1.15 1.15 0 0 0-.21.33 1 1 0 0 0 .21 1.09c.097.088.209.16.33.21A1 1 0 0 0 13 8a1.05 1.05 0 0 0-.29-.71 1 1 0 0 0-.33-.21ZM12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16.001A8 8 0 0 1 12 20Z"/></svg> Adding last:n to a topic that already has frames </p> <div class="starlight-aside__content"> <p>To keep a topic at <code dir="auto">n</code>, the store counts how many frames it holds. A topic
+counts from its first <code dir="auto">last:n</code> frame, so putting a <code dir="auto">last:n</code> on a topic that has
+been accumulating frames without one makes that append walk the topic to
+establish the count.</p><p>It happens once for the life of the store, and writes to every topic wait while
+it runs. On a topic of a few million frames that is under a second. Capping a
+topic while it is small avoids it entirely.</p> </div> </aside>
 <aside aria-label="Do not put a pruning TTL on module topics" class="starlight-aside starlight-aside--caution"> <p class="starlight-aside__title" aria-hidden="true"> <svg aria-hidden="true" class="starlight-aside__icon astro-c6vsoqas" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 16a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm10.67 1.47-8.05-14a3 3 0 0 0-5.24 0l-8 14A3 3 0 0 0 3.94 22h16.12a3 3 0 0 0 2.61-4.53Zm-1.73 2a1 1 0 0 1-.88.51H3.94a1 1 0 0 1-.88-.51 1 1 0 0 1 0-1l8-14a1 1 0 0 1 1.78 0l8.05 14a1 1 0 0 1 .05 1.02v-.02ZM12 8a1 1 0 0 0-1 1v4a1 1 0 0 0 2 0V9a1 1 0 0 0-1-1Z"/></svg> Do not put a pruning TTL on module topics </p> <div class="starlight-aside__content"> <p>Processors resolve their modules <strong>as of their own <code dir="auto">.create</code> frame</strong>: a
 service, actor, or action sees the <code dir="auto">xs.module.&#x3C;name></code> versions whose frame id
 is at or below its create id (see <a href="../topics/#module-topics">Module Topics</a>).</p><p><code dir="auto">last:&#x3C;n></code> and <code dir="auto">time:</code> delete older frames on a topic. If you prune
