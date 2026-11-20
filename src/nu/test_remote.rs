@@ -51,12 +51,14 @@ fn remote() -> Store {
     rt().spawn(async move {
         let _ = crate::api::serve(served, Engine::new().unwrap(), None).await;
     });
+    // Wait until it accepts a connection: the socket file can be there
+    // before the server listens on it, and a busy test run shows that gap.
     let sock = store.path.join("sock");
     let start = Instant::now();
-    while !sock.exists() {
+    while std::os::unix::net::UnixStream::connect(&sock).is_err() {
         assert!(
             start.elapsed() < Duration::from_secs(5),
-            "server never bound"
+            "server never listened"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
