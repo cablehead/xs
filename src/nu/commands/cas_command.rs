@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::shell_error::generic::GenericError;
@@ -55,19 +53,8 @@ impl Command for CasCommand {
             ))
         })?;
 
-        let contents = match crate::nu::remote::addr(engine_state, stack, &self.store) {
-            Some(addr) => crate::nu::remote::cas_get(&self.store, &addr, hash, span)?,
-            None => {
-                let mut reader = self.store.cas_reader_sync(hash).map_err(|e| {
-                    ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
-                })?;
-                let mut contents = Vec::new();
-                reader.read_to_end(&mut contents).map_err(|e| {
-                    ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
-                })?;
-                contents
-            }
-        };
+        let contents =
+            crate::nu::remote::target(engine_state, stack, &self.store).cas_get(hash, span)?;
 
         // Try to convert to string if valid UTF-8, otherwise return as binary
         let value = match String::from_utf8(contents.clone()) {

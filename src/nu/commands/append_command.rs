@@ -5,7 +5,7 @@ use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Ty
 use serde_json::Value as JsonValue;
 
 use crate::nu::util;
-use crate::store::{Frame, Store, TTL};
+use crate::store::{Store, TTL};
 
 /// Env var carrying the base metadata stamped on every frame a runner appends
 /// (`service_id`, `{action_id, frame_id}`, ...), as a JSON object string.
@@ -117,26 +117,8 @@ impl Command for AppendCommand {
             None => None,
         };
 
-        // `$env.XS_ADDR` naming another store sends the frame there.
-        if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &store) {
-            let content = util::pipeline_reader(input, span).map_err(|boxed| *boxed)?;
-            let frame =
-                crate::nu::remote::append(&store, &addr, &topic, content, &final_meta, ttl, span)?;
-            return Ok(PipelineData::Value(
-                util::frame_to_value(&frame, span, with_timestamp),
-                None,
-            ));
-        }
-
-        let hash = util::write_pipeline_to_cas(input, &store, span).map_err(|boxed| *boxed)?;
-
-        let frame = store.append(
-            Frame::builder(topic)
-                .maybe_hash(hash)
-                .meta(final_meta)
-                .maybe_ttl(ttl)
-                .build(),
-        )?;
+        let frame = crate::nu::remote::target(engine_state, stack, &store)
+            .append(topic, input, final_meta, ttl, span)?;
 
         Ok(PipelineData::Value(
             util::frame_to_value(&frame, span, with_timestamp),

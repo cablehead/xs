@@ -74,11 +74,10 @@ impl Command for AppendCommand {
         // writes to its own store. It carries the same actor metadata a
         // flushed frame gets: the actor puts it in `$env.XS_APPEND_META` for
         // each frame it handles.
-        if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &self.store) {
-            let content = crate::nu::util::pipeline_reader(input, span).map_err(|boxed| *boxed)?;
+        let target = crate::nu::remote::target(engine_state, stack, &self.store);
+        if !target.is_local() {
             let meta = super::append_command::append_meta(engine_state, stack, call)?;
-            let frame =
-                crate::nu::remote::append(&self.store, &addr, &topic, content, &meta, ttl, span)?;
+            let frame = target.append(topic, input, meta, ttl, span)?;
             return Ok(PipelineData::Value(
                 crate::nu::util::frame_to_value(&frame, span, false),
                 None,

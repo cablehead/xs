@@ -218,7 +218,8 @@ pub fn follow_value(
 /// How long a following read waits before it checks whether it was
 /// interrupted. The wait ends the moment a frame arrives, so this bounds only
 /// how late an interrupt is noticed, not how late a frame is delivered.
-const FOLLOW_INTERRUPT_CHECK: std::time::Duration = std::time::Duration::from_millis(100);
+pub(crate) const FOLLOW_INTERRUPT_CHECK: std::time::Duration =
+    std::time::Duration::from_millis(100);
 
 /// The next frame of a following read, or `None` when the producer is done or
 /// the read was interrupted.

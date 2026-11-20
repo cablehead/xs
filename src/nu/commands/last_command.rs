@@ -80,92 +80,39 @@ impl Command for LastCommand {
             ),
         };
 
-        // With `$env.XS_ADDR` pointing at another store, read that one.
-        if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &self.store) {
-            let options = ReadOptions::builder()
-                .last(n)
-                .maybe_topic(topic)
-                .follow(if follow {
-                    FollowOption::On
-                } else {
-                    FollowOption::Off
-                })
-                .build();
-            let signals = engine_state.signals().clone();
-            let frames =
-                crate::nu::remote::read(&self.store, &addr, options, signals.clone(), span)?;
-            let to_value = move |item: crate::nu::remote::Item| {
-                crate::nu::remote::value(&item, span, |f| {
-                    util::frame_to_value(f, span, with_timestamp)
-                })
-            };
-            if follow {
-                let stream = ListStream::new(frames.map(to_value), span, signals);
-                return Ok(PipelineData::ListStream(stream, None));
-            }
-            let mut values: Vec<Value> = frames.map(to_value).collect();
-            return Ok(match values.len() {
-                0 => PipelineData::Empty,
-                1 => PipelineData::Value(values.remove(0), None),
-                _ => PipelineData::Value(Value::list(values, span), None),
-            });
-        }
-
+        // The store `$env.XS_ADDR` points at, or this one.
+        let options = ReadOptions::builder()
+            .last(n)
+            .maybe_topic(topic)
+            .follow(if follow {
+                FollowOption::On
+            } else {
+                FollowOption::Off
+            })
+            .build();
+        let reader = crate::nu::remote::target(engine_state, stack, &self.store).read(
+            options,
+            engine_state.signals().clone(),
+            span,
+        )?;
+        let to_value = move |item: crate::nu::remote::Item| {
+            crate::nu::remote::value(&item, span, |f| {
+                util::frame_to_value(f, span, with_timestamp)
+            })
+        };
         if follow {
-            // Follow mode: stream historical-then-new through the receiver. The
-            // consumer dropping the ListStream cancels the producer task (L1).
-            let options = ReadOptions::builder()
-                .last(n)
-                .maybe_topic(topic)
-                .follow(FollowOption::On)
-                .build();
-
-            let mut rx = self.store.read(options);
-            let rt = self.store.runtime();
-            let signals = engine_state.signals().clone();
-            let waiting = signals.clone();
-            let stream = ListStream::new(
-                std::iter::from_fn(move || {
-                    let item = util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
-                    Some(util::follow_value(&item, span, |f| {
-                        util::frame_to_value(f, span, with_timestamp)
-                    }))
-                }),
-                span,
-                signals,
-            );
-
+            let signals = reader.signals();
+            let stream = ListStream::new(reader.map(to_value), span, signals);
             return Ok(PipelineData::ListStream(stream, None));
         }
 
-        // Historical-only mode. Collect from the read receiver here (not via a
-        // shared eager helper) so we can preserve the single-value semantics for
-        // count == 1: a bare `.last topic` returns one Value, not a one-element
-        // list. The producer closes the channel once replay completes, so this
-        // loop terminates. blocking_recv parks the caller thread; callers that
-        // reach `.last` during an actor's async setup run the config eval on a
-        // dedicated thread (see parse_config), so this never parks a runtime
-        // thread.
-        let options = ReadOptions::builder().last(n).maybe_topic(topic).build();
-
-        let mut rx = self.store.read(options);
-        let frames: Vec<Value> = std::iter::from_fn(move || {
-            // None when the producer finishes replay; a read that does not
-            // follow never ends with an error.
-            let frame = rx.blocking_recv()?.ok()?;
-            Some(util::frame_to_value(&frame, span, with_timestamp))
+        // Without --follow, a bare `.last topic` gives one value, not a
+        // one-element list.
+        let mut values: Vec<Value> = reader.map(to_value).collect();
+        Ok(match values.len() {
+            0 => PipelineData::Empty,
+            1 => PipelineData::Value(values.remove(0), None),
+            _ => PipelineData::Value(Value::list(values, span), None),
         })
-        .collect();
-
-        if frames.is_empty() {
-            Ok(PipelineData::Empty)
-        } else if frames.len() == 1 {
-            Ok(PipelineData::Value(
-                frames.into_iter().next().unwrap(),
-                None,
-            ))
-        } else {
-            Ok(PipelineData::Value(Value::list(frames, span), None))
-        }
     }
 }

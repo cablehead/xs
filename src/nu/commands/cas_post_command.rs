@@ -2,7 +2,6 @@ use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{Category, PipelineData, ShellError, Signature, Type, Value};
 
-use crate::nu::util;
 use crate::store::Store;
 
 #[derive(Clone)]
@@ -38,20 +37,8 @@ impl Command for CasPostCommand {
         call: &Call,
         input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let hash = match crate::nu::remote::addr(engine_state, stack, &self.store) {
-            Some(addr) => match util::pipeline_reader(input, call.head).map_err(|boxed| *boxed)? {
-                Some(content) => Some(crate::nu::remote::cas_post(
-                    &self.store,
-                    &addr,
-                    content,
-                    call.head,
-                )?),
-                None => None,
-            },
-            None => util::write_pipeline_to_cas(input, &self.store, call.head)
-                .map_err(|boxed| *boxed)?
-                .map(|hash| hash.to_string()),
-        };
+        let hash = crate::nu::remote::target(engine_state, stack, &self.store)
+            .cas_post(input, call.head)?;
         match hash {
             Some(hash) => Ok(PipelineData::Value(Value::string(hash, call.head), None)),
             None => Err(ShellError::Generic(GenericError::new(

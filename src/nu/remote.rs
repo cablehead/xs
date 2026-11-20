@@ -1,34 +1,60 @@
-//! The store commands (`.append`, `.cat`, `.last`, `.get`, `.remove`, `.cas`,
-//! `.cas-post`) against a second store: the one `$env.XS_ADDR` points at.
+//! Which store a store command talks to: its own, or the one `$env.XS_ADDR`
+//! points at.
 //!
-//! Each command is bound to its own store when it is registered, and looks
-//! at `XS_ADDR` every time it runs, so
-//! `with-env {XS_ADDR: /other/store} { "x" | .append topic }` writes to the
-//! other store while a plain `.append` writes to its own. They reach the
-//! other store with xs's own client: `XS_ADDR` accepts what the `xs` command
-//! accepts (a store's folder or its `sock`, `:port`, a URL, `iroh://...`).
+//! Each store command (`.append`, `.cat`, `.last`, `.get`, `.remove`, `.cas`,
+//! `.cas-post`) is registered with its own store. When it runs, it asks
+//! [`target`] once which store to use, and calls the same [`Target`] method
+//! either way. So `with-env {XS_ADDR: /other/store} { "x" | .append topic }`
+//! writes to the other store, while a plain `.append` writes to its own.
+//!
+//! The other store is reached with [`crate::client::frames`], so `XS_ADDR`
+//! accepts what the `xs` command accepts: a store's folder or its `sock`, a
+//! `:port`, a URL, or an `iroh://` ticket. Everything here is the nushell
+//! side of that: blocking calls, nushell errors, and reading a pipeline.
 
 use std::future::Future;
 use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use hyper::body::Bytes;
+use futures::StreamExt;
 use nu_protocol::engine::{EngineState, Stack};
 use nu_protocol::shell_error::generic::GenericError;
-use nu_protocol::{ShellError, Signals, Span, Value};
+use nu_protocol::{PipelineData, ShellError, Signals, Span, Value};
+use scru128::Scru128Id;
 use serde_json::Value as JsonValue;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime::Handle;
-use tokio::sync::mpsc::Receiver;
 
-use crate::store::{Frame, ReadError, ReadOptions, Store, TTL};
+use crate::client::frames;
+use crate::nu::util;
+use crate::store::{FollowOption, Frame, ReadError, ReadItem, ReadOptions, Store, TTL};
 
 pub const ADDR_ENV: &str = "XS_ADDR";
 
-/// The store `$env.XS_ADDR` names in the caller's scope, unless it is unset,
-/// empty, or names `store` itself, in which case the command stays local.
-pub fn addr(engine_state: &EngineState, stack: &Stack, store: &Store) -> Option<String> {
+/// The store a command talks to.
+pub enum Target {
+    /// The store the command was registered with.
+    Local(Store),
+    /// The store at `addr`. `store` is the command's own, kept for its
+    /// runtime.
+    Remote { store: Store, addr: String },
+}
+
+/// The store a command running with `store` should talk to: the one
+/// `$env.XS_ADDR` points at in the caller's scope, or `store` itself when
+/// `XS_ADDR` is unset, empty, or points at `store`.
+pub fn target(engine_state: &EngineState, stack: &Stack, store: &Store) -> Target {
+    match addr(engine_state, stack, store) {
+        Some(addr) => Target::Remote {
+            store: store.clone(),
+            addr,
+        },
+        None => Target::Local(store.clone()),
+    }
+}
+
+fn addr(engine_state: &EngineState, stack: &Stack, store: &Store) -> Option<String> {
     let addr = stack
         .get_env_var(engine_state, ADDR_ENV)?
         .coerce_string()
@@ -41,11 +67,11 @@ pub fn addr(engine_state: &EngineState, stack: &Stack, store: &Store) -> Option<
         (Some(rest), Some(home)) => Path::new(&home).join(rest).to_string_lossy().into_owned(),
         _ => addr.to_string(),
     };
-    (!names_store(&addr, store)).then_some(addr)
+    (!points_at(&addr, store)).then_some(addr)
 }
 
 /// Whether `addr` is `store`'s own directory or its `sock`.
-fn names_store(addr: &str, store: &Store) -> bool {
+fn points_at(addr: &str, store: &Store) -> bool {
     let path = Path::new(addr);
     let dir = if path.is_dir() {
         Some(path)
@@ -78,6 +104,147 @@ fn runtime(store: &Store) -> Handle {
 
 fn remote_error(addr: &str, e: impl std::fmt::Display, span: Span) -> ShellError {
     ShellError::Generic(GenericError::new("xs.remote", format!("{addr}: {e}"), span))
+}
+
+fn io_error(e: impl std::fmt::Display, span: Span) -> ShellError {
+    ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
+}
+
+#[allow(clippy::result_large_err)] // ShellError is nu's error type
+impl Target {
+    /// Whether this is the command's own store.
+    pub fn is_local(&self) -> bool {
+        matches!(self, Target::Local(_))
+    }
+
+    /// The frame with `id`, if the store has one.
+    pub fn get(&self, id: &Scru128Id, span: Span) -> Result<Option<Frame>, ShellError> {
+        match self {
+            Target::Local(store) => Ok(store.get(id)),
+            Target::Remote { store, addr } => runtime(store)
+                .block_on(frames::get(addr, &id.to_string()))
+                .map_err(|e| remote_error(addr, e, span)),
+        }
+    }
+
+    /// Remove the frame with `id`.
+    pub fn remove(&self, id: &Scru128Id, span: Span) -> Result<(), ShellError> {
+        match self {
+            Target::Local(store) => store.remove(id).map_err(|e| {
+                ShellError::Generic(GenericError::new(
+                    "Failed to remove frame",
+                    e.to_string(),
+                    span,
+                ))
+            }),
+            Target::Remote { store, addr } => runtime(store)
+                .block_on(frames::remove(addr, &id.to_string()))
+                .map_err(|e| remote_error(addr, e, span)),
+        }
+    }
+
+    /// The content the store holds for `hash`.
+    pub fn cas_get(&self, hash: ssri::Integrity, span: Span) -> Result<Vec<u8>, ShellError> {
+        match self {
+            Target::Local(store) => {
+                let mut reader = store.cas_reader_sync(hash).map_err(|e| io_error(e, span))?;
+                let mut contents = Vec::new();
+                reader
+                    .read_to_end(&mut contents)
+                    .map_err(|e| io_error(e, span))?;
+                Ok(contents)
+            }
+            Target::Remote { store, addr } => runtime(store)
+                .block_on(frames::cas_get(addr, hash))
+                .map_err(|e| remote_error(addr, e, span)),
+        }
+    }
+
+    /// Store the pipeline's content, returning its hash, or `None` for an
+    /// empty pipeline.
+    pub fn cas_post(&self, input: PipelineData, span: Span) -> Result<Option<String>, ShellError> {
+        match self {
+            Target::Local(store) => Ok(util::write_pipeline_to_cas(input, store, span)
+                .map_err(|boxed| *boxed)?
+                .map(|hash| hash.to_string())),
+            Target::Remote { store, addr } => {
+                let Some(content) = util::pipeline_reader(input, span).map_err(|boxed| *boxed)?
+                else {
+                    return Ok(None);
+                };
+                let to = addr.clone();
+                let hash =
+                    send_streamed(store, addr, Some(content), span, move |body| async move {
+                        frames::cas_post(&to, body).await
+                    })?;
+                Ok(Some(hash.to_string()))
+            }
+        }
+    }
+
+    /// Append a frame on `topic` with the pipeline as its content, and
+    /// return it as the store wrote it.
+    pub fn append(
+        &self,
+        topic: String,
+        input: PipelineData,
+        meta: JsonValue,
+        ttl: Option<TTL>,
+        span: Span,
+    ) -> Result<Frame, ShellError> {
+        match self {
+            Target::Local(store) => {
+                let hash =
+                    util::write_pipeline_to_cas(input, store, span).map_err(|boxed| *boxed)?;
+                Ok(store.append(
+                    Frame::builder(topic)
+                        .maybe_hash(hash)
+                        .meta(meta)
+                        .maybe_ttl(ttl)
+                        .build(),
+                )?)
+            }
+            Target::Remote { store, addr } => {
+                let content = util::pipeline_reader(input, span).map_err(|boxed| *boxed)?;
+                let to = addr.clone();
+                send_streamed(store, addr, content, span, move |body| async move {
+                    frames::append(&to, &topic, body, Some(&meta), ttl).await
+                })
+            }
+        }
+    }
+
+    /// A read of the store, frame by frame. A following read stops when
+    /// `signals` interrupts it, and dropping it ends the read at once.
+    pub fn read(
+        &self,
+        options: ReadOptions,
+        signals: Signals,
+        span: Span,
+    ) -> Result<Reader, ShellError> {
+        match self {
+            Target::Local(store) => {
+                let following = options.follow != FollowOption::Off;
+                Ok(Reader::Local {
+                    rx: store.read(options),
+                    rt: store.runtime(),
+                    signals: if following { signals } else { Signals::empty() },
+                    following,
+                })
+            }
+            Target::Remote { store, addr } => {
+                let rt = runtime(store);
+                let frames = rt
+                    .block_on(frames::cat(addr, options))
+                    .map_err(|e| remote_error(addr, e, span))?;
+                Ok(Reader::Remote {
+                    frames,
+                    rt,
+                    signals,
+                })
+            }
+        }
+    }
 }
 
 /// Send `content` to the request `send` makes, a chunk at a time, so a
@@ -122,153 +289,67 @@ where
         .map_err(|e| remote_error(addr, e, span))
 }
 
-/// Append a frame to the store at `addr`, with `content` as its body.
-#[allow(clippy::result_large_err)] // ShellError is nu's error type
-#[allow(clippy::too_many_arguments)]
-pub fn append(
-    store: &Store,
-    addr: &str,
-    topic: &str,
-    content: Option<Box<dyn Read>>,
-    meta: &JsonValue,
-    ttl: Option<TTL>,
-    span: Span,
-) -> Result<Frame, ShellError> {
-    let (to, topic, meta) = (addr.to_string(), topic.to_string(), meta.clone());
-    let bytes = send_streamed(store, addr, content, span, move |body| async move {
-        crate::client::append(&to, &topic, body, Some(&meta), ttl, false).await
-    })?;
-    serde_json::from_slice(&bytes).map_err(|e| remote_error(addr, e, span))
-}
-
-/// Write `content` to the CAS of the store at `addr`, returning its hash.
-#[allow(clippy::result_large_err)] // ShellError is nu's error type
-pub fn cas_post(
-    store: &Store,
-    addr: &str,
-    content: Box<dyn Read>,
-    span: Span,
-) -> Result<String, ShellError> {
-    let to = addr.to_string();
-    let bytes = send_streamed(store, addr, Some(content), span, move |body| async move {
-        crate::client::cas_post(&to, body).await
-    })?;
-    Ok(String::from_utf8_lossy(&bytes).trim().to_string())
-}
-
-/// The content the CAS of the store at `addr` holds for `hash`.
-#[allow(clippy::result_large_err)] // ShellError is nu's error type
-pub fn cas_get(
-    store: &Store,
-    addr: &str,
-    hash: ssri::Integrity,
-    span: Span,
-) -> Result<Vec<u8>, ShellError> {
-    let mut content = Vec::new();
-    runtime(store)
-        .block_on(crate::client::cas_get(addr, hash, &mut content))
-        .map_err(|e| remote_error(addr, e, span))?;
-    Ok(content)
-}
-
-/// The frame with `id` in the store at `addr`, if it has one.
-#[allow(clippy::result_large_err)] // ShellError is nu's error type
-pub fn get(store: &Store, addr: &str, id: &str, span: Span) -> Result<Option<Frame>, ShellError> {
-    let bytes = runtime(store)
-        .block_on(crate::client::get(addr, id, false))
-        .map_err(|e| remote_error(addr, e, span))?;
-    // A missing frame is a 404 whose body isn't a frame.
-    Ok(serde_json::from_slice(&bytes).ok())
-}
-
-/// Remove the frame with `id` from the store at `addr`.
-#[allow(clippy::result_large_err)] // ShellError is nu's error type
-pub fn remove(store: &Store, addr: &str, id: &str, span: Span) -> Result<(), ShellError> {
-    runtime(store)
-        .block_on(crate::client::remove(addr, id))
-        .map_err(|e| remote_error(addr, e, span))
-}
-
-/// A read of the store at `addr`, frame by frame. It stops when `signals`
-/// interrupts it, and dropping it closes the connection at once, so a quiet
-/// follow does not outlive its reader.
-#[allow(clippy::result_large_err)] // ShellError is nu's error type
-pub fn read(
-    store: &Store,
-    addr: &str,
-    options: ReadOptions,
-    signals: Signals,
-    span: Span,
-) -> Result<Frames, ShellError> {
-    let rt = runtime(store);
-    let bytes = rt
-        .block_on(crate::client::cat(addr, options, false, false))
-        .map_err(|e| remote_error(addr, e, span))?;
-    Ok(Frames {
-        bytes,
-        rt,
-        signals,
-        buf: Vec::new(),
-        done: false,
-    })
-}
-
 pub type Item = Result<Frame, crate::Error>;
 
-/// The frames of a remote read: the server's NDJSON, a line at a time.
-pub struct Frames {
-    bytes: Receiver<Result<Bytes, crate::Error>>,
-    rt: Handle,
-    signals: Signals,
-    buf: Vec<u8>,
-    done: bool,
+/// The frames of a read, from either store, one at a time.
+pub enum Reader {
+    Local {
+        rx: tokio::sync::mpsc::Receiver<ReadItem>,
+        rt: Option<Handle>,
+        signals: Signals,
+        following: bool,
+    },
+    Remote {
+        frames: frames::Frames,
+        rt: Handle,
+        signals: Signals,
+    },
 }
 
-impl Iterator for Frames {
-    type Item = Item;
-
-    fn next(&mut self) -> Option<Item> {
-        loop {
-            let line = match self.buf.iter().position(|b| *b == b'\n') {
-                Some(n) => Some(self.buf.drain(..=n).collect::<Vec<u8>>()),
-                None if self.done => Some(std::mem::take(&mut self.buf)),
-                None => None,
-            };
-            if let Some(line) = line {
-                let line = line.trim_ascii();
-                if line.is_empty() {
-                    if self.done && self.buf.is_empty() {
-                        return None;
-                    }
-                    continue;
-                }
-                let frame = serde_json::from_slice::<Frame>(line);
-                // A read that fell behind sends an `xs.lagged` line, then
-                // the trailer the client turns into its error: the error is
-                // what a local read yields, so the line is skipped.
-                if matches!(&frame, Ok(f) if f.topic == "xs.lagged") {
-                    continue;
-                }
-                return Some(frame.map_err(|e| Box::new(e) as crate::Error));
-            }
-            match crate::nu::util::follow_recv(&mut self.bytes, Some(&self.rt), &self.signals) {
-                Some(Ok(chunk)) => self.buf.extend_from_slice(&chunk),
-                Some(Err(e)) => {
-                    self.done = true;
-                    self.buf.clear();
-                    return Some(Err(e));
-                }
-                // The read ended, or was interrupted.
-                None if self.signals.interrupted() => return None,
-                None => self.done = true,
-            }
+impl Reader {
+    /// The signals a list stream of this read should watch.
+    pub fn signals(&self) -> Signals {
+        match self {
+            Reader::Local { signals, .. } | Reader::Remote { signals, .. } => signals.clone(),
         }
     }
 }
 
-/// A remote read's item as a nushell value: a read that fell behind is the
-/// same `xs.lagged` error a local read gives; any other failure is
-/// `xs.remote`.
+impl Iterator for Reader {
+    type Item = Item;
+
+    fn next(&mut self) -> Option<Item> {
+        match self {
+            Reader::Local {
+                rx,
+                rt,
+                signals,
+                following: true,
+            } => util::follow_recv(rx, rt.as_ref(), signals)
+                .map(|item| item.map_err(|e| Box::new(e) as crate::Error)),
+            // A read that does not follow never ends with an error.
+            Reader::Local { rx, .. } => rx.blocking_recv()?.ok().map(Ok),
+            Reader::Remote {
+                frames,
+                rt,
+                signals,
+            } => loop {
+                if signals.interrupted() {
+                    return None;
+                }
+                let next = rt.block_on(async {
+                    tokio::time::timeout(util::FOLLOW_INTERRUPT_CHECK, frames.next()).await
+                });
+                if let Ok(item) = next {
+                    return item;
+                }
+            },
+        }
+    }
+}
+
+/// A read's item as a nushell value. A read that fell behind gives the
+/// `xs.lagged` error, from either store; any other failure is `xs.remote`.
 pub fn value(item: &Item, span: Span, to_value: impl FnOnce(&Frame) -> Value) -> Value {
     match item {
         Ok(frame) => to_value(frame),

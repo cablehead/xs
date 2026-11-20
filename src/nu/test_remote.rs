@@ -356,3 +356,62 @@ fn a_remote_follow_closes_its_connection_when_dropped() {
     eprintln!("remote follow: connection closed {took:?} after the stream was dropped");
     assert!(took < Duration::from_secs(1), "closed only after {took:?}");
 }
+
+/// `client::frames` used straight from Rust, with no nushell: what a Rust
+/// program talking to another store would write.
+#[test]
+fn client_frames_from_rust() {
+    use crate::client::frames;
+    use crate::store::ReadOptions;
+    use futures::StreamExt;
+
+    let other = remote();
+    let addr = other.path.display().to_string();
+    rt().block_on(async {
+        let first = frames::append(&addr, "note", &b"one"[..], Some(&json!({"k": 1})), None)
+            .await
+            .unwrap();
+        let second = frames::append(&addr, "note", &b"two"[..], None, None)
+            .await
+            .unwrap();
+        assert_eq!(first.topic, "note");
+        assert_eq!(first.meta, Some(json!({"k": 1})));
+        // The frame came back as the other store wrote it.
+        assert_eq!(other.get(&first.id).unwrap().id, first.id);
+
+        let got = frames::get(&addr, &second.id.to_string()).await.unwrap();
+        assert_eq!(got.map(|f| f.id), Some(second.id));
+
+        let options = ReadOptions::builder().topic("note".to_string()).build();
+        let read: Vec<Frame> = frames::cat(&addr, options)
+            .await
+            .unwrap()
+            .map(|f| f.unwrap())
+            .collect()
+            .await;
+        assert_eq!(
+            read.iter().map(|f| f.id).collect::<Vec<_>>(),
+            vec![first.id, second.id]
+        );
+
+        let last: Vec<Frame> = frames::last(&addr, Some("note".to_string()), 1, false)
+            .await
+            .unwrap()
+            .map(|f| f.unwrap())
+            .collect()
+            .await;
+        assert_eq!(
+            last.iter().map(|f| f.id).collect::<Vec<_>>(),
+            vec![second.id]
+        );
+
+        let hash = frames::cas_post(&addr, &b"content"[..]).await.unwrap();
+        assert_eq!(frames::cas_get(&addr, hash).await.unwrap(), b"content");
+
+        frames::remove(&addr, &first.id.to_string()).await.unwrap();
+        assert!(frames::get(&addr, &first.id.to_string())
+            .await
+            .unwrap()
+            .is_none());
+    });
+}

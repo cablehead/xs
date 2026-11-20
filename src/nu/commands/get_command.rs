@@ -52,12 +52,8 @@ impl Command for GetCommand {
             span: call.span(),
         })?;
 
-        let store = self.store.clone();
-
-        let found = match crate::nu::remote::addr(engine_state, stack, &store) {
-            Some(addr) => crate::nu::remote::get(&store, &addr, &id_str, call.head)?,
-            None => store.get(&id),
-        };
+        let found =
+            crate::nu::remote::target(engine_state, stack, &self.store).get(&id, call.head)?;
         if let Some(frame) = found {
             Ok(PipelineData::Value(
                 util::frame_to_value(&frame, call.head, with_timestamp),
