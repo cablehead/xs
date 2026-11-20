@@ -2,7 +2,7 @@ use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{
-    Category, ListStream, PipelineData, ShellError, Signals, Signature, SyntaxShape, Type, Value,
+    Category, ListStream, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
 };
 use std::time::Duration;
 
@@ -132,7 +132,6 @@ impl Command for CatCommand {
             .map_err(|e| *e)?;
 
         // Build ReadOptions
-        let following = pulse.is_some() || follow;
         let options = ReadOptions::builder()
             .follow(if let Some(pulse_ms) = pulse {
                 FollowOption::WithHeartbeat(Duration::from_millis(pulse_ms as u64))
@@ -165,40 +164,18 @@ impl Command for CatCommand {
             }
         };
 
-        if following {
-            // Follow mode: stream lazily. The follow/heartbeat task runs on the
-            // shared runtime; the consumer dropping the ListStream cancels it
-            // (the L1 fd-leak fix). Driven off the runtime in real use.
-            let mut rx = self.store.read(options);
-            let rt = self.store.runtime();
-            let signals = engine_state.signals().clone();
-            let waiting = signals.clone();
-            let stream = ListStream::new(
-                std::iter::from_fn(move || {
-                    let item = crate::nu::util::follow_recv(&mut rx, rt.as_ref(), &waiting)?;
-                    Some(crate::nu::util::follow_value(&item, span, to_value))
-                }),
-                span,
-                signals,
-            );
-            return Ok(PipelineData::ListStream(stream, None));
-        }
-
-        // Historical mode: stream lazily, same shape as the follow branch. The
-        // producer closes the channel once replay completes, so from_fn ends.
-        // blocking_recv parks the caller thread; callers that reach `.cat`
-        // during an actor's async setup run the config eval on a dedicated
-        // thread (see parse_config), so this never parks a runtime thread.
-        let mut rx = self.store.read(options);
-        let stream = ListStream::new(
-            std::iter::from_fn(move || {
-                // None when the producer finishes replay; a read that does not
-                // follow never ends with an error.
-                let frame = rx.blocking_recv()?.ok()?;
-                Some(to_value(&frame))
-            }),
+        // The store `$env.XS_ADDR` points at, or this one. A following read
+        // stops on an interrupt, and dropping the stream ends the read.
+        let reader = crate::nu::remote::target(engine_state, stack, &self.store).read(
+            options,
+            engine_state.signals().clone(),
             span,
-            Signals::empty(),
+        )?;
+        let signals = reader.signals();
+        let stream = ListStream::new(
+            reader.map(move |item| crate::nu::remote::value(&item, span, to_value)),
+            span,
+            signals,
         );
         Ok(PipelineData::ListStream(stream, None))
     }

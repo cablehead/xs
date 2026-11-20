@@ -3,6 +3,7 @@ mod engine;
 pub mod vfs;
 
 pub mod commands;
+pub(crate) mod remote;
 pub mod util;
 pub use config::{parse_config, NuScriptConfig, ReturnOptions};
 pub use engine::{
@@ -19,3 +20,6 @@ mod test_commands;
 mod test_engine;
 #[cfg(test)]
 mod test_vfs;
+// The tests put a unix-socket proxy in front of the other store.
+#[cfg(all(test, unix))]
+mod test_remote;

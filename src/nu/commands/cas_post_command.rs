@@ -2,7 +2,6 @@ use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{Category, PipelineData, ShellError, Signature, Type, Value};
 
-use crate::nu::util;
 use crate::store::Store;
 
 #[derive(Clone)]
@@ -33,16 +32,15 @@ impl Command for CasPostCommand {
 
     fn run(
         &self,
-        _engine_state: &EngineState,
-        _stack: &mut Stack,
+        engine_state: &EngineState,
+        stack: &mut Stack,
         call: &Call,
         input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        match util::write_pipeline_to_cas(input, &self.store, call.head).map_err(|boxed| *boxed)? {
-            Some(hash) => Ok(PipelineData::Value(
-                Value::string(hash.to_string(), call.head),
-                None,
-            )),
+        let hash = crate::nu::remote::target(engine_state, stack, &self.store)
+            .cas_post(input, call.head)?;
+        match hash {
+            Some(hash) => Ok(PipelineData::Value(Value::string(hash, call.head), None)),
             None => Err(ShellError::Generic(GenericError::new(
                 "Empty input",
                 "Nothing to write to the CAS",

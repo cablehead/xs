@@ -4,8 +4,9 @@ use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Ty
 
 use serde_json::Value as JsonValue;
 
+use crate::nu::remote::Batch;
 use crate::nu::util;
-use crate::store::{Frame, Store, TTL};
+use crate::store::{Store, TTL};
 
 /// Env var carrying the base metadata stamped on every frame a runner appends
 /// (`service_id`, `{action_id, frame_id}`, ...), as a JSON object string.
@@ -13,14 +14,58 @@ use crate::store::{Frame, Store, TTL};
 /// can be registered on a prepared engine and reused across spawns and restarts.
 pub const APPEND_META_ENV: &str = "XS_APPEND_META";
 
+/// A frame's metadata: the base in `$env.XS_APPEND_META` (set per
+/// instance by xs, absent or malformed meaning none), with `--meta` merged
+/// on top.
+#[allow(clippy::result_large_err)] // ShellError is nu's error type
+pub fn append_meta(
+    engine_state: &EngineState,
+    stack: &mut Stack,
+    call: &Call,
+) -> Result<JsonValue, ShellError> {
+    let mut base_obj = stack
+        .get_env_var(engine_state, APPEND_META_ENV)
+        .and_then(|v| v.coerce_string().ok())
+        .and_then(|s| serde_json::from_str::<JsonValue>(&s).ok())
+        .and_then(|j| match j {
+            JsonValue::Object(m) => Some(m),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
+    if let Some(user_value) = user_meta {
+        match util::value_to_json(&user_value) {
+            JsonValue::Object(user_obj) => base_obj.extend(user_obj),
+            _ => {
+                return Err(ShellError::TypeMismatch {
+                    err_message: "Meta must be a record".to_string(),
+                    span: call.span(),
+                });
+            }
+        }
+    }
+    Ok(JsonValue::Object(base_obj))
+}
+
 #[derive(Clone)]
 pub struct AppendCommand {
     store: Store,
+    /// An actor's batch: a frame for `store` joins it, and the actor writes
+    /// the batch when its closure returns.
+    batch: Option<Batch>,
 }
 
 impl AppendCommand {
     pub fn new(store: Store) -> Self {
-        Self { store }
+        Self { store, batch: None }
+    }
+
+    /// An `.append` for an actor, whose frames for its own store join `batch`.
+    pub fn for_batch(store: Store, batch: Batch) -> Self {
+        Self {
+            store,
+            batch: Some(batch),
+        }
     }
 }
 
@@ -54,7 +99,7 @@ impl Command for AppendCommand {
     }
 
     fn description(&self) -> &str {
-        "Writes its input to the CAS and then appends a frame with a hash of this content to the given topic on the stream."
+        "Writes its input to the CAS and then appends a frame with a hash of this content to the given topic on the stream. In an actor, a frame for the actor's own store is written when the actor's closure returns, so `.append` returns nothing there."
     }
 
     fn run(
@@ -71,32 +116,7 @@ impl Command for AppendCommand {
 
         let topic: String = call.req(engine_state, stack, 0)?;
 
-        // Base metadata is injected per instance via $env; absent or malformed
-        // resolves to an empty object.
-        let mut base_obj = stack
-            .get_env_var(engine_state, APPEND_META_ENV)
-            .and_then(|v| v.coerce_string().ok())
-            .and_then(|s| serde_json::from_str::<JsonValue>(&s).ok())
-            .and_then(|j| match j {
-                JsonValue::Object(m) => Some(m),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        // Merge user-supplied metadata on top of the base.
-        let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-        if let Some(user_value) = user_meta {
-            match util::value_to_json(&user_value) {
-                JsonValue::Object(user_obj) => base_obj.extend(user_obj),
-                _ => {
-                    return Err(ShellError::TypeMismatch {
-                        err_message: "Meta must be a record".to_string(),
-                        span: call.span(),
-                    });
-                }
-            }
-        }
-        let final_meta = JsonValue::Object(base_obj);
+        let final_meta = append_meta(engine_state, stack, call)?;
 
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {
@@ -109,19 +129,15 @@ impl Command for AppendCommand {
             None => None,
         };
 
-        let hash = util::write_pipeline_to_cas(input, &store, span).map_err(|boxed| *boxed)?;
+        let frame =
+            crate::nu::remote::local_or_remote(engine_state, stack, &store, self.batch.clone())
+                .append(topic, input, final_meta, ttl, span)?;
 
-        let frame = store.append(
-            Frame::builder(topic)
-                .maybe_hash(hash)
-                .meta(final_meta)
-                .maybe_ttl(ttl)
-                .build(),
-        )?;
-
-        Ok(PipelineData::Value(
-            util::frame_to_value(&frame, span, with_timestamp),
-            None,
-        ))
+        Ok(match frame {
+            Some(frame) => {
+                PipelineData::Value(util::frame_to_value(&frame, span, with_timestamp), None)
+            }
+            None => PipelineData::Empty,
+        })
     }
 }

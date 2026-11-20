@@ -37,16 +37,24 @@ impl Engine {
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
 
-        // Only xs sets the append metadata, per instance via set_append_meta.
-        // Nushell exports $env to externals, so a process started from inside
-        // a service (a shell in a pty, a nested xs) inherits the parent's
-        // identity. Left in place it would be stamped on every frame this
-        // engine appends.
-        let key = nu_protocol::engine::EnvName::from(
-            commands::append_command::APPEND_META_ENV.to_string(),
-        );
+        // Two variables in the environment xs started in are not passed on.
+        // The append metadata: only xs sets it, per instance via
+        // set_append_meta. Nushell exports $env to externals, so a process
+        // started from inside a service (a shell in a pty, a nested xs)
+        // inherits the parent's identity, which would be stamped on every
+        // frame this engine appends. XS_ADDR: set in the shell that started
+        // xs, it was meant for the `xs` command there, and would quietly send
+        // every actor's and service's .append and .cat to that store. Code
+        // that wants another store sets XS_ADDR itself.
+        let dropped = [
+            commands::append_command::APPEND_META_ENV,
+            super::remote::ADDR_ENV,
+        ]
+        .map(|k| nu_protocol::engine::EnvName::from(k.to_string()));
         for vars in Arc::make_mut(&mut engine_state.env_vars).values_mut() {
-            vars.remove(&key);
+            for key in &dropped {
+                vars.remove(key);
+            }
         }
 
         Ok(Self {
@@ -534,7 +542,7 @@ pub fn add_write_commands(
             commands::append_command::AppendCommand::new(store.clone()),
         )]),
         AppendMode::Buffered(output) => engine.add_commands(vec![Box::new(
-            commands::append_command_buffered::AppendCommand::new(store.clone(), output),
+            commands::append_command::AppendCommand::for_batch(store.clone(), output),
         )]),
     }
 }

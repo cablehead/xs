@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
-use nu_protocol::shell_error::generic::GenericError;
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Type};
 
 use scru128::Scru128Id;
@@ -49,15 +48,7 @@ impl Command for RemoveCommand {
             span: call.span(),
         })?;
 
-        let store = self.store.clone();
-
-        match store.remove(&id) {
-            Ok(()) => Ok(PipelineData::Empty),
-            Err(e) => Err(ShellError::Generic(GenericError::new(
-                "Failed to remove frame",
-                e.to_string(),
-                call.head,
-            ))),
-        }
+        crate::nu::remote::target(engine_state, stack, &self.store).remove(&id, call.head)?;
+        Ok(PipelineData::Empty)
     }
 }
