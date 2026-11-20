@@ -47,14 +47,18 @@ impl Command for GetCommand {
     ) -> Result<PipelineData, ShellError> {
         let id_str: String = call.req(engine_state, stack, 0)?;
         let with_timestamp = call.has_flag(engine_state, stack, "with-timestamp")?;
-        let id = id_str.parse().map_err(|e| ShellError::TypeMismatch {
+        let id: scru128::Scru128Id = id_str.parse().map_err(|e| ShellError::TypeMismatch {
             err_message: format!("Invalid ID format: {e}"),
             span: call.span(),
         })?;
 
         let store = self.store.clone();
 
-        if let Some(frame) = store.get(&id) {
+        let found = match crate::nu::remote::addr(engine_state, stack, &store) {
+            Some(addr) => crate::nu::remote::get(&store, &addr, &id_str, call.head)?,
+            None => store.get(&id),
+        };
+        if let Some(frame) = found {
             Ok(PipelineData::Value(
                 util::frame_to_value(&frame, call.head, with_timestamp),
                 None,

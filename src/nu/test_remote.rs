@@ -1,4 +1,4 @@
-//! `.append` and `.cat` against the store `$env.XS_ADDR` names.
+//! The store commands against the store `$env.XS_ADDR` points at.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,6 +32,13 @@ fn local() -> (Store, Engine) {
         .add_commands(vec![
             Box::new(commands::cat_command::CatCommand::new(store.clone())),
             Box::new(commands::append_command::AppendCommand::new(store.clone())),
+            Box::new(commands::last_command::LastCommand::new(store.clone())),
+            Box::new(commands::get_command::GetCommand::new(store.clone())),
+            Box::new(commands::remove_command::RemoveCommand::new(store.clone())),
+            Box::new(commands::cas_command::CasCommand::new(store.clone())),
+            Box::new(commands::cas_post_command::CasPostCommand::new(
+                store.clone(),
+            )),
         ])
         .unwrap();
     (store, engine)
@@ -155,6 +162,61 @@ fn append_and_cat_go_where_xs_addr_points() {
     assert!(rec.get("ttl").is_none(), "ttl is stripped without --detail");
 }
 
+fn try_eval(engine: &Engine, command: String) -> Result<Value, String> {
+    let engine = engine.clone();
+    std::thread::spawn(move || {
+        let data = engine
+            .eval(PipelineData::empty(), command)
+            .map_err(|e| e.to_string())?;
+        data.into_value(Span::test_data())
+            .map_err(|e| e.to_string())
+    })
+    .join()
+    .unwrap()
+}
+
+#[test]
+fn the_other_store_commands_go_where_xs_addr_points() {
+    let (store, engine) = local();
+    let other = remote();
+    let at = |body: &str| {
+        format!(
+            r#"with-env {{XS_ADDR: "{}"}} {{ {body} }}"#,
+            other.path.display()
+        )
+    };
+
+    // .cas-post writes to the other store's CAS, and .cas reads it back.
+    let hash = eval(&engine, at(r#""hello" | .cas-post"#));
+    let hash = hash.as_str().unwrap().to_string();
+    assert_eq!(
+        other.cas_read_sync(&hash.parse().unwrap()).unwrap(),
+        b"hello"
+    );
+    assert!(store.cas_read_sync(&hash.parse().unwrap()).is_err());
+    let content = eval(&engine, at(&format!(".cas {hash}")));
+    assert_eq!(content.as_str().unwrap(), "hello");
+    assert!(try_eval(&engine, format!(".cas {hash}")).is_err());
+
+    // .last reads the other store's most recent frames.
+    let first = other.append(Frame::builder("t").build()).unwrap();
+    let second = other.append(Frame::builder("t").build()).unwrap();
+    let last = frame(eval(&engine, at(".last t")));
+    assert_eq!(last.id, second.id);
+    assert_eq!(eval(&engine, at(".last t 2")).as_list().unwrap().len(), 2);
+    assert!(eval(&engine, ".last t".into()).is_nothing());
+
+    // .get finds a frame in the other store, not in this one.
+    let got = frame(eval(&engine, at(&format!(".get {}", first.id))));
+    assert_eq!(got.id, first.id);
+    assert!(try_eval(&engine, format!(".get {}", first.id)).is_err());
+
+    // .remove removes it from the other store.
+    eval(&engine, at(&format!(".remove {}", first.id)));
+    assert!(other.get(&first.id).is_none());
+    assert!(other.get(&second.id).is_some());
+}
+
 #[test]
 fn xs_addr_naming_the_store_itself_stays_local() {
     // No server runs for this store, so a remote call would fail.
@@ -170,6 +232,19 @@ fn xs_addr_naming_the_store_itself_stays_local() {
         assert!(store.cas_read_sync(&f.hash.unwrap()).is_ok());
     }
     assert_eq!(count(&engine, ".cat -T t".into()), 2);
+
+    // The other store commands too.
+    let at = format!(r#"with-env {{XS_ADDR: "{}"}}"#, store.path.display());
+    let hash = eval(&engine, format!(r#"{at} {{ "y" | .cas-post }}"#));
+    let hash = hash.as_str().unwrap().to_string();
+    assert_eq!(store.cas_read_sync(&hash.parse().unwrap()).unwrap(), b"y");
+    let content = eval(&engine, format!("{at} {{ .cas {hash} }}"));
+    assert_eq!(content.as_str().unwrap(), "y");
+    let last = frame(eval(&engine, format!("{at} {{ .last t }}")));
+    let got = frame(eval(&engine, format!("{at} {{ .get {} }}", last.id)));
+    assert_eq!(got.id, last.id);
+    eval(&engine, format!("{at} {{ .remove {} }}", last.id));
+    assert!(store.get(&last.id).is_none());
 }
 
 #[test]

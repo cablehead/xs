@@ -55,14 +55,19 @@ impl Command for CasCommand {
             ))
         })?;
 
-        let mut reader = self.store.cas_reader_sync(hash).map_err(|e| {
-            ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
-        })?;
-
-        let mut contents = Vec::new();
-        reader.read_to_end(&mut contents).map_err(|e| {
-            ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
-        })?;
+        let contents = match crate::nu::remote::addr(engine_state, stack, &self.store) {
+            Some(addr) => crate::nu::remote::cas_get(&self.store, &addr, hash, span)?,
+            None => {
+                let mut reader = self.store.cas_reader_sync(hash).map_err(|e| {
+                    ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
+                })?;
+                let mut contents = Vec::new();
+                reader.read_to_end(&mut contents).map_err(|e| {
+                    ShellError::Generic(GenericError::new("I/O Error", e.to_string(), span))
+                })?;
+                contents
+            }
+        };
 
         // Try to convert to string if valid UTF-8, otherwise return as binary
         let value = match String::from_utf8(contents.clone()) {

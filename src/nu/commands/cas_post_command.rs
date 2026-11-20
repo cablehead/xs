@@ -33,16 +33,27 @@ impl Command for CasPostCommand {
 
     fn run(
         &self,
-        _engine_state: &EngineState,
-        _stack: &mut Stack,
+        engine_state: &EngineState,
+        stack: &mut Stack,
         call: &Call,
         input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        match util::write_pipeline_to_cas(input, &self.store, call.head).map_err(|boxed| *boxed)? {
-            Some(hash) => Ok(PipelineData::Value(
-                Value::string(hash.to_string(), call.head),
-                None,
-            )),
+        let hash = match crate::nu::remote::addr(engine_state, stack, &self.store) {
+            Some(addr) => match util::pipeline_reader(input, call.head).map_err(|boxed| *boxed)? {
+                Some(content) => Some(crate::nu::remote::cas_post(
+                    &self.store,
+                    &addr,
+                    content,
+                    call.head,
+                )?),
+                None => None,
+            },
+            None => util::write_pipeline_to_cas(input, &self.store, call.head)
+                .map_err(|boxed| *boxed)?
+                .map(|hash| hash.to_string()),
+        };
+        match hash {
+            Some(hash) => Ok(PipelineData::Value(Value::string(hash, call.head), None)),
             None => Err(ShellError::Generic(GenericError::new(
                 "Empty input",
                 "Nothing to write to the CAS",

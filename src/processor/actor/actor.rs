@@ -171,6 +171,12 @@ impl Actor {
     /// frame -- that round trip (two context switches) was the dominant
     /// per-frame cost in backlog replay. `state` is threaded by the caller.
     fn eval_frame(&mut self, frame: &Frame, state: &Value) -> Result<ClosureResult, Error> {
+        // The metadata a flushed frame gets, for an `.append` that goes to
+        // another store at once and so is never flushed.
+        self.engine.set_append_meta(&serde_json::json!({
+            "actor_id": self.id.to_string(),
+            "frame_id": frame.id.to_string(),
+        }));
         let frame_val = crate::nu::frame_to_value(frame, nu_protocol::Span::unknown(), false);
         self.engine
             .eval_closure_no_job(&self.closure, vec![frame_val, state.clone()], None)

@@ -2551,3 +2551,83 @@ async fn test_actor_output_is_contiguous_with_concurrent_writer() {
     }
     assert_eq!(runs, ticks);
 }
+
+// An actor's `.append` to another store (`$env.XS_ADDR`) goes there at once,
+// unbuffered, and carries the actor metadata a flushed frame gets.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_append_carries_actor_meta() {
+    let (store, _temp_dir) = setup_test_environment().await;
+
+    let other_dir = TempDir::new().unwrap();
+    let other = Store::new(other_dir.path().to_path_buf()).unwrap();
+    let served = other.clone();
+    tokio::spawn(async move {
+        let _ = crate::api::serve(served, crate::nu::Engine::new().unwrap(), None).await;
+    });
+    let sock = other.path.join("sock");
+    for _ in 0..500 {
+        if sock.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
+    let mut recver = store.read(ReadOptions::builder().follow(FollowOption::On).build());
+    assert_eq!(recver.recv().await.unwrap().unwrap().topic, "xs.threshold");
+
+    let script = format!(
+        r#"{{
+          run: {{|frame, state = null|
+            if $frame.topic != "trigger" {{ {{next: $state}} }} else {{
+              with-env {{XS_ADDR: "{}"}} {{ "1" | .append remote.topic --meta {{t: "1"}} }}
+              {{next: $state}}
+            }}
+          }}
+        }}"#,
+        other.path.display()
+    );
+    let frame_actor = store
+        .append(
+            Frame::builder("xs.actor.action.create")
+                .hash(store.cas_insert(&script).await.unwrap())
+                .build(),
+        )
+        .unwrap();
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.action.create"
+    );
+    assert_eq!(
+        recver.recv().await.unwrap().unwrap().topic,
+        "xs.actor.action.active"
+    );
+
+    let mut remote = other.read(
+        ReadOptions::builder()
+            .follow(FollowOption::On)
+            .topic("remote.topic".to_string())
+            .build(),
+    );
+    let trigger_frame = store.append(Frame::builder("trigger").build()).unwrap();
+
+    let landed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let f = remote.recv().await.unwrap().unwrap();
+            if f.topic == "remote.topic" {
+                return f;
+            }
+        }
+    })
+    .await
+    .expect("the actor's append never reached the other store");
+
+    assert_eq!(
+        landed.meta,
+        Some(serde_json::json!({
+            "actor_id": frame_actor.id.to_string(),
+            "frame_id": trigger_frame.id.to_string(),
+            "t": "1",
+        }))
+    );
+    assert_eq!(other.cas_read_sync(&landed.hash.unwrap()).unwrap(), b"1");
+}

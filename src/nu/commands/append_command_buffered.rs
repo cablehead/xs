@@ -69,13 +69,14 @@ impl Command for AppendCommand {
                     .with_help("TTL must be one of: 'forever', 'ephemeral', 'time:<milliseconds>', or 'last:<n>'"),
             ))?;
 
-        // `$env.XS_ADDR` naming another store appends there at once, instead
-        // of buffering: the actor's flush only writes to its own store.
+        // With `$env.XS_ADDR` pointing at another store, the frame goes there
+        // at once instead of being buffered, since the actor's flush only
+        // writes to its own store. It carries the same actor metadata a
+        // flushed frame gets: the actor puts it in `$env.XS_APPEND_META` for
+        // each frame it handles.
         if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &self.store) {
             let content = crate::nu::util::pipeline_reader(input, span).map_err(|boxed| *boxed)?;
-            let meta = meta
-                .map(|v| value_to_json(&v))
-                .unwrap_or(serde_json::json!({}));
+            let meta = super::append_command::append_meta(engine_state, stack, call)?;
             let frame =
                 crate::nu::remote::append(&self.store, &addr, &topic, content, &meta, ttl, span)?;
             return Ok(PipelineData::Value(

@@ -51,6 +51,11 @@ impl Command for RemoveCommand {
 
         let store = self.store.clone();
 
+        if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &store) {
+            crate::nu::remote::remove(&store, &addr, &id_str, call.head)?;
+            return Ok(PipelineData::Empty);
+        }
+
         match store.remove(&id) {
             Ok(()) => Ok(PipelineData::Empty),
             Err(e) => Err(ShellError::Generic(GenericError::new(

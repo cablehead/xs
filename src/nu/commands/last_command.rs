@@ -80,6 +80,37 @@ impl Command for LastCommand {
             ),
         };
 
+        // With `$env.XS_ADDR` pointing at another store, read that one.
+        if let Some(addr) = crate::nu::remote::addr(engine_state, stack, &self.store) {
+            let options = ReadOptions::builder()
+                .last(n)
+                .maybe_topic(topic)
+                .follow(if follow {
+                    FollowOption::On
+                } else {
+                    FollowOption::Off
+                })
+                .build();
+            let signals = engine_state.signals().clone();
+            let frames =
+                crate::nu::remote::read(&self.store, &addr, options, signals.clone(), span)?;
+            let to_value = move |item: crate::nu::remote::Item| {
+                crate::nu::remote::value(&item, span, |f| {
+                    util::frame_to_value(f, span, with_timestamp)
+                })
+            };
+            if follow {
+                let stream = ListStream::new(frames.map(to_value), span, signals);
+                return Ok(PipelineData::ListStream(stream, None));
+            }
+            let mut values: Vec<Value> = frames.map(to_value).collect();
+            return Ok(match values.len() {
+                0 => PipelineData::Empty,
+                1 => PipelineData::Value(values.remove(0), None),
+                _ => PipelineData::Value(Value::list(values, span), None),
+            });
+        }
+
         if follow {
             // Follow mode: stream historical-then-new through the receiver. The
             // consumer dropping the ListStream cancels the producer task (L1).

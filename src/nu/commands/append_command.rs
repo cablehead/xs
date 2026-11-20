@@ -13,6 +13,39 @@ use crate::store::{Frame, Store, TTL};
 /// can be registered on a prepared engine and reused across spawns and restarts.
 pub const APPEND_META_ENV: &str = "XS_APPEND_META";
 
+/// A frame's metadata: the base in `$env.XS_APPEND_META` (set per
+/// instance by xs, absent or malformed meaning none), with `--meta` merged
+/// on top.
+#[allow(clippy::result_large_err)] // ShellError is nu's error type
+pub fn append_meta(
+    engine_state: &EngineState,
+    stack: &mut Stack,
+    call: &Call,
+) -> Result<JsonValue, ShellError> {
+    let mut base_obj = stack
+        .get_env_var(engine_state, APPEND_META_ENV)
+        .and_then(|v| v.coerce_string().ok())
+        .and_then(|s| serde_json::from_str::<JsonValue>(&s).ok())
+        .and_then(|j| match j {
+            JsonValue::Object(m) => Some(m),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
+    if let Some(user_value) = user_meta {
+        match util::value_to_json(&user_value) {
+            JsonValue::Object(user_obj) => base_obj.extend(user_obj),
+            _ => {
+                return Err(ShellError::TypeMismatch {
+                    err_message: "Meta must be a record".to_string(),
+                    span: call.span(),
+                });
+            }
+        }
+    }
+    Ok(JsonValue::Object(base_obj))
+}
+
 #[derive(Clone)]
 pub struct AppendCommand {
     store: Store,
@@ -71,32 +104,7 @@ impl Command for AppendCommand {
 
         let topic: String = call.req(engine_state, stack, 0)?;
 
-        // Base metadata is injected per instance via $env; absent or malformed
-        // resolves to an empty object.
-        let mut base_obj = stack
-            .get_env_var(engine_state, APPEND_META_ENV)
-            .and_then(|v| v.coerce_string().ok())
-            .and_then(|s| serde_json::from_str::<JsonValue>(&s).ok())
-            .and_then(|j| match j {
-                JsonValue::Object(m) => Some(m),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        // Merge user-supplied metadata on top of the base.
-        let user_meta: Option<Value> = call.get_flag(engine_state, stack, "meta")?;
-        if let Some(user_value) = user_meta {
-            match util::value_to_json(&user_value) {
-                JsonValue::Object(user_obj) => base_obj.extend(user_obj),
-                _ => {
-                    return Err(ShellError::TypeMismatch {
-                        err_message: "Meta must be a record".to_string(),
-                        span: call.span(),
-                    });
-                }
-            }
-        }
-        let final_meta = JsonValue::Object(base_obj);
+        let final_meta = append_meta(engine_state, stack, call)?;
 
         let ttl: Option<String> = call.get_flag(engine_state, stack, "ttl")?;
         let ttl = match ttl {
