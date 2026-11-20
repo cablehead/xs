@@ -149,6 +149,29 @@ mod tests {
         assert_eq!(frame.meta.unwrap(), json!({"service_id": "svc", "k": 1}));
     }
 
+    // An XS_ADDR in the process's environment was meant for the `xs` command
+    // in that shell. It must not reach the engine, or every .append in an
+    // actor or service would go to that store. Code that wants another store
+    // sets XS_ADDR itself (with-env), as the remote tests do.
+    #[test]
+    fn test_inherited_xs_addr_is_dropped() {
+        std::env::set_var(crate::nu::remote::ADDR_ENV, "/some/other/store");
+        let (store, mut engine) = setup_test_env();
+        std::env::remove_var(crate::nu::remote::ADDR_ENV);
+        engine
+            .add_commands(vec![Box::new(
+                commands::append_command::AppendCommand::new(store.clone()),
+            )])
+            .unwrap();
+
+        let addr = nu_eval(&engine, PipelineData::empty(), r#"$env | get -o XS_ADDR"#);
+        assert!(addr.is_nothing());
+
+        // .append writes to this store.
+        let frame = value_to_frame(nu_eval(&engine, PipelineData::empty(), r#".append here"#));
+        assert_eq!(store.get(&frame.id).unwrap().topic, "here");
+    }
+
     #[test]
     fn test_cas_command_string() {
         let (store, mut engine) = setup_test_env();

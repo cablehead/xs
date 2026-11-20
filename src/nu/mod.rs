@@ -3,7 +3,7 @@ mod engine;
 pub mod vfs;
 
 pub mod commands;
-mod remote;
+pub(crate) mod remote;
 pub mod util;
 pub use config::{parse_config, NuScriptConfig, ReturnOptions};
 pub use engine::{
