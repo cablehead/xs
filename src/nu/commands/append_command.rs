@@ -4,6 +4,7 @@ use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Ty
 
 use serde_json::Value as JsonValue;
 
+use crate::nu::remote::Step;
 use crate::nu::util;
 use crate::store::{Store, TTL};
 
@@ -49,11 +50,22 @@ pub fn append_meta(
 #[derive(Clone)]
 pub struct AppendCommand {
     store: Store,
+    /// An actor's step: a frame for `store` joins it, and the actor writes
+    /// them all once the step ends.
+    step: Option<Step>,
 }
 
 impl AppendCommand {
     pub fn new(store: Store) -> Self {
-        Self { store }
+        Self { store, step: None }
+    }
+
+    /// An `.append` for an actor, whose frames for its own store join `step`.
+    pub fn for_step(store: Store, step: Step) -> Self {
+        Self {
+            store,
+            step: Some(step),
+        }
     }
 }
 
@@ -87,7 +99,7 @@ impl Command for AppendCommand {
     }
 
     fn description(&self) -> &str {
-        "Writes its input to the CAS and then appends a frame with a hash of this content to the given topic on the stream."
+        "Writes its input to the CAS and then appends a frame with a hash of this content to the given topic on the stream. In an actor, a frame for the actor's own store is written once the actor's step ends, so `.append` returns nothing there."
     }
 
     fn run(
@@ -117,12 +129,15 @@ impl Command for AppendCommand {
             None => None,
         };
 
-        let frame = crate::nu::remote::target(engine_state, stack, &store)
-            .append(topic, input, final_meta, ttl, span)?;
+        let frame =
+            crate::nu::remote::local_or_remote(engine_state, stack, &store, self.step.clone())
+                .append(topic, input, final_meta, ttl, span)?;
 
-        Ok(PipelineData::Value(
-            util::frame_to_value(&frame, span, with_timestamp),
-            None,
-        ))
+        Ok(match frame {
+            Some(frame) => {
+                PipelineData::Value(util::frame_to_value(&frame, span, with_timestamp), None)
+            }
+            None => PipelineData::Empty,
+        })
     }
 }

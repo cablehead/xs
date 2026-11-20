@@ -15,7 +15,7 @@
 use std::future::Future;
 use std::io::Read;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::StreamExt;
 use nu_protocol::engine::{EngineState, Stack};
@@ -34,23 +34,41 @@ pub const ADDR_ENV: &str = "XS_ADDR";
 
 /// The store a command talks to.
 pub enum Target {
-    /// The store the command was registered with.
-    Local(Store),
+    /// The store the command was registered with. With `step` (an actor's
+    /// `.append`), a frame appended to it joins the actor's step, and the
+    /// actor writes them all once the step ends.
+    Local { store: Store, step: Option<Step> },
     /// The store at `addr`. `store` is the command's own, kept for its
     /// runtime.
     Remote { store: Store, addr: String },
 }
 
+/// The frames an actor appends to its own store during one step.
+pub type Step = Arc<Mutex<Vec<Frame>>>;
+
 /// The store a command running with `store` should talk to: the one
 /// `$env.XS_ADDR` points at in the caller's scope, or `store` itself when
 /// `XS_ADDR` is unset, empty, or points at `store`.
 pub fn target(engine_state: &EngineState, stack: &Stack, store: &Store) -> Target {
+    local_or_remote(engine_state, stack, store, None)
+}
+
+/// [`target`], with `step` used when the frame stays in `store`.
+pub fn local_or_remote(
+    engine_state: &EngineState,
+    stack: &Stack,
+    store: &Store,
+    step: Option<Step>,
+) -> Target {
     match addr(engine_state, stack, store) {
         Some(addr) => Target::Remote {
             store: store.clone(),
             addr,
         },
-        None => Target::Local(store.clone()),
+        None => Target::Local {
+            store: store.clone(),
+            step,
+        },
     }
 }
 
@@ -112,15 +130,10 @@ fn io_error(e: impl std::fmt::Display, span: Span) -> ShellError {
 
 #[allow(clippy::result_large_err)] // ShellError is nu's error type
 impl Target {
-    /// Whether this is the command's own store.
-    pub fn is_local(&self) -> bool {
-        matches!(self, Target::Local(_))
-    }
-
     /// The frame with `id`, if the store has one.
     pub fn get(&self, id: &Scru128Id, span: Span) -> Result<Option<Frame>, ShellError> {
         match self {
-            Target::Local(store) => Ok(store.get(id)),
+            Target::Local { store, .. } => Ok(store.get(id)),
             Target::Remote { store, addr } => runtime(store)
                 .block_on(frames::get(addr, &id.to_string()))
                 .map_err(|e| remote_error(addr, e, span)),
@@ -130,7 +143,7 @@ impl Target {
     /// Remove the frame with `id`.
     pub fn remove(&self, id: &Scru128Id, span: Span) -> Result<(), ShellError> {
         match self {
-            Target::Local(store) => store.remove(id).map_err(|e| {
+            Target::Local { store, .. } => store.remove(id).map_err(|e| {
                 ShellError::Generic(GenericError::new(
                     "Failed to remove frame",
                     e.to_string(),
@@ -146,7 +159,7 @@ impl Target {
     /// The content the store holds for `hash`.
     pub fn cas_get(&self, hash: ssri::Integrity, span: Span) -> Result<Vec<u8>, ShellError> {
         match self {
-            Target::Local(store) => {
+            Target::Local { store, .. } => {
                 let mut reader = store.cas_reader_sync(hash).map_err(|e| io_error(e, span))?;
                 let mut contents = Vec::new();
                 reader
@@ -164,7 +177,7 @@ impl Target {
     /// empty pipeline.
     pub fn cas_post(&self, input: PipelineData, span: Span) -> Result<Option<String>, ShellError> {
         match self {
-            Target::Local(store) => Ok(util::write_pipeline_to_cas(input, store, span)
+            Target::Local { store, .. } => Ok(util::write_pipeline_to_cas(input, store, span)
                 .map_err(|boxed| *boxed)?
                 .map(|hash| hash.to_string())),
             Target::Remote { store, addr } => {
@@ -183,7 +196,8 @@ impl Target {
     }
 
     /// Append a frame on `topic` with the pipeline as its content, and
-    /// return it as the store wrote it.
+    /// return it as the store wrote it. A frame that joins an actor's step
+    /// isn't written yet, so there is nothing to return.
     pub fn append(
         &self,
         topic: String,
@@ -191,18 +205,23 @@ impl Target {
         meta: JsonValue,
         ttl: Option<TTL>,
         span: Span,
-    ) -> Result<Frame, ShellError> {
+    ) -> Result<Option<Frame>, ShellError> {
         match self {
-            Target::Local(store) => {
+            Target::Local { store, step } => {
                 let hash =
                     util::write_pipeline_to_cas(input, store, span).map_err(|boxed| *boxed)?;
-                Ok(store.append(
-                    Frame::builder(topic)
-                        .maybe_hash(hash)
-                        .meta(meta)
-                        .maybe_ttl(ttl)
-                        .build(),
-                )?)
+                let frame = Frame::builder(topic)
+                    .maybe_hash(hash)
+                    .meta(meta)
+                    .maybe_ttl(ttl)
+                    .build();
+                match step {
+                    Some(step) => {
+                        step.lock().unwrap().push(frame);
+                        Ok(None)
+                    }
+                    None => Ok(Some(store.append(frame)?)),
+                }
             }
             Target::Remote { store, addr } => {
                 let content = util::pipeline_reader(input, span).map_err(|boxed| *boxed)?;
@@ -210,6 +229,7 @@ impl Target {
                 send_streamed(store, addr, content, span, move |body| async move {
                     frames::append(&to, &topic, body, Some(&meta), ttl).await
                 })
+                .map(Some)
             }
         }
     }
@@ -223,7 +243,7 @@ impl Target {
         span: Span,
     ) -> Result<Reader, ShellError> {
         match self {
-            Target::Local(store) => {
+            Target::Local { store, .. } => {
                 let following = options.follow != FollowOption::Off;
                 Ok(Reader::Local {
                     rx: store.read(options),
