@@ -1,5 +1,6 @@
 mod commands;
 mod connect;
+pub mod frames;
 mod request;
 mod types;
 
