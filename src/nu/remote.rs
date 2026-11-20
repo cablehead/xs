@@ -34,17 +34,18 @@ pub const ADDR_ENV: &str = "XS_ADDR";
 
 /// The store a command talks to.
 pub enum Target {
-    /// The store the command was registered with. With `step` (an actor's
-    /// `.append`), a frame appended to it joins the actor's step, and the
-    /// actor writes them all once the step ends.
-    Local { store: Store, step: Option<Step> },
+    /// The store the command was registered with. With `batch` (an actor's
+    /// `.append`), a frame appended to it joins the batch instead, and the
+    /// actor writes the whole batch when its closure returns.
+    Local { store: Store, batch: Option<Batch> },
     /// The store at `addr`. `store` is the command's own, kept for its
     /// runtime.
     Remote { store: Store, addr: String },
 }
 
-/// The frames an actor appends to its own store during one step.
-pub type Step = Arc<Mutex<Vec<Frame>>>;
+/// The frames an actor appends to its own store while it handles one frame.
+/// xs writes them together when the actor's closure returns.
+pub type Batch = Arc<Mutex<Vec<Frame>>>;
 
 /// The store a command running with `store` should talk to: the one
 /// `$env.XS_ADDR` points at in the caller's scope, or `store` itself when
@@ -53,12 +54,12 @@ pub fn target(engine_state: &EngineState, stack: &Stack, store: &Store) -> Targe
     local_or_remote(engine_state, stack, store, None)
 }
 
-/// [`target`], with `step` used when the frame stays in `store`.
+/// [`target`], with `batch` used when the frame stays in `store`.
 pub fn local_or_remote(
     engine_state: &EngineState,
     stack: &Stack,
     store: &Store,
-    step: Option<Step>,
+    batch: Option<Batch>,
 ) -> Target {
     match addr(engine_state, stack, store) {
         Some(addr) => Target::Remote {
@@ -67,7 +68,7 @@ pub fn local_or_remote(
         },
         None => Target::Local {
             store: store.clone(),
-            step,
+            batch,
         },
     }
 }
@@ -196,7 +197,7 @@ impl Target {
     }
 
     /// Append a frame on `topic` with the pipeline as its content, and
-    /// return it as the store wrote it. A frame that joins an actor's step
+    /// return it as the store wrote it. A frame that joins an actor's batch
     /// isn't written yet, so there is nothing to return.
     pub fn append(
         &self,
@@ -207,7 +208,7 @@ impl Target {
         span: Span,
     ) -> Result<Option<Frame>, ShellError> {
         match self {
-            Target::Local { store, step } => {
+            Target::Local { store, batch } => {
                 let hash =
                     util::write_pipeline_to_cas(input, store, span).map_err(|boxed| *boxed)?;
                 let frame = Frame::builder(topic)
@@ -215,9 +216,9 @@ impl Target {
                     .meta(meta)
                     .maybe_ttl(ttl)
                     .build();
-                match step {
-                    Some(step) => {
-                        step.lock().unwrap().push(frame);
+                match batch {
+                    Some(batch) => {
+                        batch.lock().unwrap().push(frame);
                         Ok(None)
                     }
                     None => Ok(Some(store.append(frame)?)),

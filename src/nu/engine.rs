@@ -542,7 +542,7 @@ pub fn add_write_commands(
             commands::append_command::AppendCommand::new(store.clone()),
         )]),
         AppendMode::Buffered(output) => engine.add_commands(vec![Box::new(
-            commands::append_command::AppendCommand::for_step(store.clone(), output),
+            commands::append_command::AppendCommand::for_batch(store.clone(), output),
         )]),
     }
 }
