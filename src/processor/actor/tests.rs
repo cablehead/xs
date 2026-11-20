@@ -2579,7 +2579,7 @@ async fn test_remote_append_carries_actor_meta() {
         r#"{{
           run: {{|frame, state = null|
             if $frame.topic != "trigger" {{ {{next: $state}} }} else {{
-              with-env {{XS_ADDR: "{}"}} {{ "1" | .append remote.topic --meta {{t: "1"}} }}
+              with-env {{XS_ADDR: '{}'}} {{ "1" | .append remote.topic --meta {{t: "1"}} }}
               {{next: $state}}
             }}
           }}
