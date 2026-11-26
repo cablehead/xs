@@ -33,12 +33,14 @@
   --dot-amber: #ffbd2e;
   --dot-green: #27ca3f;
 
-  --mono: "Roboto Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  --text-sm: 0.8125rem;
-  --text-md: 0.9375rem;
+  /* the old site's stack: on a Mac it lands on Courier New, lighter and wider than the system mono */
+  --mono: "Roboto Mono", Consolas, "Liberation Mono", "Courier New", monospace;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
   --text-lg: 1.25rem;
   --text-xl: clamp(2.25rem, 7vw, 3.5rem);
   --leading: 1.6;
+  --leading-code: 2;   /* a terminal's lines, each its own command */
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -78,7 +80,7 @@ p { max-width: var(--measure); }
 a { color: var(--accent); text-underline-offset: 3px; }
 a:hover { color: var(--accent-strong); }
 code { font: inherit; color: var(--fg-strong); }
-pre { font: var(--text-sm)/var(--leading) var(--mono); white-space: pre-wrap; overflow-x: auto; }
+pre { font: var(--text-sm)/var(--leading-code) var(--mono); white-space: pre-wrap; overflow-x: auto; }
 small { font-size: var(--text-sm); color: var(--fg-quiet); }
 time { color: var(--fg-quiet); font-size: var(--text-sm); }
 table { border-collapse: collapse; font-size: var(--text-sm); }
@@ -168,6 +170,7 @@ button.picked { border-color: var(--accent); color: var(--accent); }
 /* the store's frames: a topic is a kind, so it takes its brand colour; the
    frames the picked query reads stand out, the rest fade */
 .frames { display: grid; gap: var(--space-2); }
+.frames > li { line-height: var(--leading-code); }
 .frames > li {
   display: flex; justify-content: space-between; gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
