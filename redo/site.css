@@ -13,7 +13,8 @@
 :root {
   --bg: #0d1117;
   --surface: #161b22;
-  --surface-2: #21262d;
+  --surface-2: #21262d;   /* a terminal's title bar */
+  --term-bg: #1e1e1e;
   --line-c: #30363d;
   --fg: #c9d1d9;
   --fg-strong: #e6edf3;
@@ -35,12 +36,15 @@
 
   /* the old site's stack: on a Mac it lands on Courier New, lighter and wider than the system mono */
   --mono: "Roboto Mono", Consolas, "Liberation Mono", "Courier New", monospace;
+  --term: "Courier New", Courier, "Lucida Console", "Liberation Mono", monospace;   /* the terminals' face, as the old site had */
   --text-sm: 0.875rem;
   --text-md: 1rem;
   --text-lg: 1.25rem;
-  --text-xl: clamp(2.25rem, 7vw, 3.5rem);
-  --leading: 1.6;
+  --text-xl: clamp(2.25rem, 7vw, 3rem);
+  --text-tag: 1.2rem;
+  --leading: 1.5;
   --leading-code: 2;   /* a terminal's lines, each its own command */
+  --bar: 2.75rem;      /* a terminal's title bar */
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -70,7 +74,7 @@ body {
   font: var(--text-md)/var(--leading) var(--mono);
   -webkit-font-smoothing: antialiased;
   --gutter: clamp(var(--space-3), 4vw, var(--space-6));
-  padding: var(--space-7) var(--gutter) var(--space-5);
+  padding: 20vh var(--gutter) var(--space-5);
 }
 header, main, footer { max-width: var(--page); margin-inline: auto; }
 h1, h2, h3 { font-weight: normal; color: var(--fg-strong); }
@@ -80,10 +84,10 @@ p { max-width: var(--measure); }
 a { color: var(--accent); text-underline-offset: 3px; }
 a:hover { color: var(--accent-strong); }
 code { font: inherit; color: var(--fg-strong); }
-pre { font: var(--text-sm)/var(--leading-code) var(--mono); white-space: pre-wrap; overflow-x: auto; }
+pre { font: var(--text-md)/var(--leading-code) var(--term); white-space: pre-wrap; overflow-x: auto; }
 small { font-size: var(--text-sm); color: var(--fg-quiet); }
 time { color: var(--fg-quiet); font-size: var(--text-sm); }
-table { border-collapse: collapse; font-size: var(--text-sm); }
+table { border-collapse: collapse; font: var(--text-md)/var(--leading) var(--term); }
 td { padding: var(--space-1) var(--space-3); border: var(--line) solid var(--line-c); }
 td:first-child { color: var(--fg-quiet); text-align: right; }
 ol { list-style: none; padding: 0; }
@@ -118,10 +122,10 @@ h1 > span, footer a > span {
 }
 @keyframes flow { 50% { background-position: 100% 50%; } }
 @media (prefers-reduced-motion: reduce) { h1 > span, footer a > span { animation: none; } }
-header > p { margin: var(--space-4) auto 0; font-style: italic; color: var(--fg-strong); }
+header > p { margin: var(--space-6) auto 0; font-size: var(--text-tag); font-style: italic; color: var(--fg-strong); }
 
 /* where to go: links set as keys, the first one leading */
-nav { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-5); }
+nav { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-6); }
 nav > a {
   padding: var(--space-2) var(--space-4);
   border: var(--line) solid var(--line-c);
@@ -139,15 +143,22 @@ nav > a:has(time) { border-color: transparent; background: none; }
 
 figure.term {
   position: relative;
-  background: var(--surface);
+  background: var(--term-bg);
   border: var(--line) solid var(--line-c);
   border-radius: var(--radius);
-  padding: calc(var(--space-5) + var(--space-3)) var(--space-4) var(--space-4);
+  padding: calc(var(--bar) + var(--space-4)) var(--space-4) var(--space-4);
   overflow: hidden;
+}
+/* the title bar: a band across the top with the three dots */
+figure.term::after {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: var(--bar);
+  background: var(--surface-2);
+  border-bottom: var(--line) solid var(--line-c);
 }
 figure.term::before {
   content: "";
-  position: absolute; top: var(--space-3); left: var(--space-4);
+  position: absolute; z-index: 1; top: calc((var(--bar) - var(--dot)) / 2); left: var(--space-3);
   width: var(--dot); height: var(--dot); border-radius: 50%;
   background: var(--dot-red);
   box-shadow: calc(var(--dot) * 1.6) 0 var(--dot-amber), calc(var(--dot) * 3.2) 0 var(--dot-green);
@@ -159,18 +170,18 @@ figure.term > * + * { margin-top: var(--space-3); }
 
 /* the terminal's caption sits on the dots' line: a name and the queries */
 figcaption {
-  position: absolute; top: var(--space-2); left: calc(var(--space-4) + var(--dot) * 5.2); right: var(--space-3);
+  position: absolute; z-index: 1; top: 0; height: var(--bar); left: calc(var(--space-3) + var(--dot) * 5.2); right: var(--space-2);
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
   font-size: var(--text-sm); color: var(--brand-amber);
 }
 figcaption > span { margin-right: auto; }
-figure.term:has(figcaption) { padding-top: calc(var(--space-6) + var(--space-2)); }
+
 button.picked { border-color: var(--accent); color: var(--accent); }
 
 /* the store's frames: a topic is a kind, so it takes its brand colour; the
    frames the picked query reads stand out, the rest fade */
 .frames { display: grid; gap: var(--space-2); }
-.frames > li { line-height: var(--leading-code); }
+.frames > li { font: var(--text-md)/var(--leading) var(--term); }
 .frames > li {
   display: flex; justify-content: space-between; gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -204,7 +215,7 @@ button.picked { border-color: var(--accent); color: var(--accent); }
 
 /* ---- layout -------------------------------------------------------------- */
 
-.row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+.row { display: grid; grid-template-columns: auto minmax(min(24rem, 100%), 1fr); gap: var(--space-3); align-items: start; }
 .row > * { margin: 0; }
 footer {
   display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-4);
@@ -220,6 +231,5 @@ footer a:nth-child(3) { color: var(--fg-strong); }
   body { padding-top: var(--space-6); }
   .row { grid-template-columns: 1fr; }
   figure.term { margin-inline: calc(-1 * var(--gutter)); border-radius: 0; border-inline: 0; }
-  figcaption { position: static; margin-bottom: var(--space-2); }
-  figure.term:has(figcaption) { padding-top: calc(var(--space-5) + var(--space-3)); }
+  figcaption > span { display: none; }
 }
