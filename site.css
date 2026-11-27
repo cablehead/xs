@@ -187,7 +187,7 @@ button.picked { color: var(--kind); border-color: var(--kind); background: color
 .frames > li {
   display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
   padding: 10px 14px;
-  font: 13px/1.4 monospace;
+  font: var(--text-sm)/var(--leading-code) var(--term);
   color: var(--kind);
   background: color-mix(in srgb, var(--kind) 15%, transparent);
   border: var(--line) solid var(--kind);
