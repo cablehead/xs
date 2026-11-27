@@ -75,7 +75,7 @@ jobs:
 
       # 6) Defensive: pre-pull the engine image
       - name: Pre-pull Dagger Engine
-        run: docker pull registry.dagger.io/engine:v0.18.14
+        run: docker pull registry.dagger.io/engine:v0.21.12
 
       # 7) Run one Dagger build function and export artifact.
       # Retried: the builder image is pulled inside Dagger, so a transient
