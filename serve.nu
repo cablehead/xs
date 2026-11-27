@@ -37,8 +37,8 @@ const PARTS = [
       {id: notes title: "Get all notes" comment: "Filter events to show only notes entries" cmd: '.cat | where topic == "notes" | each { $in.meta.text }' rows: ($FRAMES | where topic == notes | get text)}
       {id: goal title: "Get current goal" comment: "The latest goal: the last frame on its topic" cmd: '.last goal | $in.meta.text' rows: [($FRAMES | where topic == goal | last | get text)]}
     ]
-    # the stylesheet's version, so a browser fetches it again when it changes
-    let css_v = open --raw ($DIR | path join site.css) | hash md5 | str substring 0..7
+    # the stylesheets' version, so a browser fetches them again when either changes
+    let css_v = [stellar.css site.css] | each {|f| open --raw ($DIR | path join $f) } | str join | hash md5 | str substring 0..7
     {frames: $FRAMES parts: $PARTS release: $RELEASE queries: $queries datastar: $DATASTAR_JS_PATH css_v: $css_v}
     | .mj ($DIR | path join index.html)
   } else {

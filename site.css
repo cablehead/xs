@@ -10,6 +10,9 @@
 
 /* ---- tokens -------------------------------------------------------------- */
 
+/* Fonts come from stellar.css: --font-mono for the page, and
+   --font-monospace-slab-serif (Courier New) inside the terminals. */
+
 :root {
   --bg: #0d1117;
   --surface: #161b22;
@@ -34,9 +37,6 @@
   --dot-amber: #ffbd2e;
   --dot-green: #27ca3f;
 
-  /* the old site's stack: on a Mac it lands on Courier New, lighter and wider than the system mono */
-  --mono: "Roboto Mono", Consolas, "Liberation Mono", "Courier New", monospace;
-  --term: "Courier New", Courier, "Lucida Console", "Liberation Mono", monospace;   /* the terminals' face, as the old site had */
   --text-sm: 0.875rem;
   --text-md: 1rem;
   --text-lg: 1.25rem;
@@ -70,7 +70,7 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--fg);
-  font: var(--text-md)/var(--leading) var(--mono);
+  font: var(--text-md)/var(--leading) var(--font-mono);
   -webkit-font-smoothing: antialiased;
   --gutter: clamp(var(--space-3), 4vw, var(--space-6));
   padding: 20vh var(--gutter) var(--space-5);
@@ -82,15 +82,15 @@ h3 { font-size: var(--text-md); }
 a { color: var(--accent); text-underline-offset: 3px; }
 a:hover { color: var(--accent-strong); }
 code { font: inherit; color: var(--fg-strong); }
-pre { font: var(--text-md)/var(--leading-code) var(--term); white-space: pre-wrap; overflow-x: auto; }
+pre { font: var(--text-md)/var(--leading-code) var(--font-monospace-slab-serif); white-space: pre-wrap; overflow-x: auto; }
 small { font-size: var(--text-sm); color: var(--fg-quiet); }
 time { color: var(--fg-quiet); font-size: var(--text-sm); }
-table { border-collapse: collapse; font: var(--text-md)/var(--leading) var(--term); }
+table { border-collapse: collapse; font: var(--text-md)/var(--leading) var(--font-monospace-slab-serif); }
 td { padding: var(--space-1) var(--space-3); border: var(--line) solid var(--line-c); }
 td:first-child { color: var(--fg-quiet); text-align: right; }
 ol { list-style: none; padding: 0; }
 button {
-  font: var(--text-sm) var(--mono);
+  font: var(--text-sm) var(--font-mono);
   color: var(--fg);
   background: var(--bg);
   border: var(--line) solid var(--line-c);
@@ -187,7 +187,7 @@ button.picked { color: var(--kind); border-color: var(--kind); background: color
 .frames > li {
   display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
   padding: 10px 14px;
-  font: var(--text-sm)/var(--leading-code) var(--term);
+  font: var(--text-sm)/var(--leading-code) var(--font-monospace-slab-serif);
   color: var(--kind);
   background: color-mix(in srgb, var(--kind) 15%, transparent);
   border: var(--line) solid var(--kind);
