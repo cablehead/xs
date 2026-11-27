@@ -55,7 +55,6 @@
   --space-7: 5rem;
 
   --page: 64rem;
-  --measure: 80ch;
   --line: 1px;
   --radius: 8px;
   --dot: 0.75rem;
@@ -80,7 +79,6 @@ header, main, footer { max-width: var(--page); margin-inline: auto; }
 h1, h2, h3 { font-weight: normal; color: var(--fg-strong); }
 h2 { font-size: var(--text-lg); color: var(--accent); }
 h3 { font-size: var(--text-md); }
-p { max-width: var(--measure); }
 a { color: var(--accent); text-underline-offset: 3px; }
 a:hover { color: var(--accent-strong); }
 code { font: inherit; color: var(--fg-strong); }
