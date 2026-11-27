@@ -1,6 +1,6 @@
 {
   "name": "xs",
-  "engineVersion": "v0.21.12",
+  "engineVersion": "v1.0.0-beta.30",
   "sdk": {
     "source": "go"
   },
