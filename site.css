@@ -14,25 +14,29 @@
    --font-monospace-slab-serif (Courier New) inside the terminals. */
 
 :root {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --surface-2: #21262d;   /* a terminal's title bar */
-  --term-bg: #1e1e1e;
-  --line-c: #30363d;
-  --fg: #c9d1d9;
-  --fg-strong: #e6edf3;
-  --fg-quiet: #8b949e;
-  --accent: #79c0ff;
-  --accent-strong: #a5d6ff;
-  --glow: #58a6ff;
+  /* Colours come from stellar.css's named ramps, generated from the seeds in
+     stellar.config.json: a seed is step 0, higher steps are lighter, and
+     each step has an -on colour for text on it and a -dim one for quieter
+     text, as http-nu's site does. */
+  --bg: var(--named-night-0);
+  --surface: var(--named-night-1);
+  --surface-2: var(--named-night-2);   /* a terminal's title bar */
+  --term-bg: var(--named-terminal-0);
+  --line-c: var(--named-night-4);
+  --fg: var(--named-night-0-on);
+  --fg-quiet: var(--named-night-0-dim);
+  --accent: var(--named-blue-0);
+  --accent-strong: var(--named-blue-2);
+  --glow: var(--named-glow-0);
 
-  --brand-blue: #79c0ff;
-  --brand-amber: #ffa657;
-  --brand-violet: #a5a2ff;
-  --brand-green: #56d364;
-  --brand-red: #ff7b72;
-  --brand-teal: #39c5cf;
+  --brand-blue: var(--named-blue-0);
+  --brand-amber: var(--named-amber-0);
+  --brand-violet: var(--named-violet-0);
+  --brand-green: var(--named-green-0);
+  --brand-red: var(--named-red-0);
+  --brand-teal: var(--named-teal-0);
 
+  /* a picture of a Mac window's buttons, not a colour with a job */
   --dot-red: #ff5f56;
   --dot-amber: #ffbd2e;
   --dot-green: #27ca3f;
@@ -76,12 +80,12 @@ body {
   padding: 20vh var(--gutter) var(--space-5);
 }
 header, main, footer { max-width: var(--page); margin-inline: auto; }
-h1, h2, h3 { font-weight: normal; color: var(--fg-strong); }
+h1, h2, h3 { font-weight: normal; color: var(--fg); }
 h2 { font-size: var(--text-lg); color: var(--accent); }
 h3 { font-size: var(--text-md); }
 a { color: var(--accent); text-underline-offset: 3px; }
 a:hover { color: var(--accent-strong); }
-code { font: inherit; color: var(--fg-strong); }
+code { font: inherit; color: var(--fg); }
 pre { font: var(--text-md)/var(--leading-code) var(--font-monospace-slab-serif); white-space: pre-wrap; overflow-x: auto; }
 small { font-size: var(--text-sm); color: var(--fg-quiet); }
 time { color: var(--fg-quiet); font-size: var(--text-sm); }
@@ -120,7 +124,7 @@ h1 > span, footer a > span {
 }
 @keyframes flow { 50% { background-position: 100% 50%; } }
 @media (prefers-reduced-motion: reduce) { h1 > span, footer a > span { animation: none; } }
-header > p { margin: var(--space-6) auto 0; font-size: var(--text-tag); font-style: italic; color: var(--fg-strong); }
+header > p { margin: var(--space-6) auto 0; font-size: var(--text-tag); font-style: italic; color: var(--fg); }
 
 /* where to go: links set as keys, the first one leading */
 nav { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-6); }
@@ -129,7 +133,7 @@ nav > a {
   border: var(--line) solid var(--line-c);
   border-radius: var(--radius);
   background: var(--surface);
-  color: var(--fg-strong);
+  color: var(--fg);
   text-decoration: none;
   transition: border-color var(--fade);
 }
@@ -227,7 +231,7 @@ footer {
   font-size: var(--text-sm);
 }
 footer a { text-decoration: none; }
-footer a:nth-child(3) { color: var(--fg-strong); }
+footer a:nth-child(3) { color: var(--fg); }
 
 /* narrow: one column, terminals run to the screen's edges */
 @media (max-width: 760px) {

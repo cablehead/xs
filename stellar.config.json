@@ -1,0 +1,1196 @@
+{
+  "$schema": "https://raw.githubusercontent.com/starfederation/stellar/main/internal/config/stellar.config.schema.json",
+  "version": 1,
+  "general": {
+    "viewport": {
+      "disabled": false,
+      "min": 320,
+      "max": 1440,
+      "baseFont": {
+        "mode": "multiplier",
+        "value": 1
+      }
+    },
+    "size": {
+      "disabled": false,
+      "baseMin": 0.5,
+      "baseMax": 1.1,
+      "scaleMin": "Minor Second",
+      "scaleMax": "Minor Third",
+      "negativeSteps": 2,
+      "positiveSteps": 12,
+      "pairs": []
+    },
+    "zindexes": {
+      "disabled": false,
+      "levels": [
+        {
+          "name": "drawer",
+          "description": "Navigation drawers and shell surfaces.",
+          "value": 700
+        },
+        {
+          "name": "dialog",
+          "description": "Modal dialogs and confirmation overlays.",
+          "value": 800
+        },
+        {
+          "name": "dropdown",
+          "description": "Anchored dropdowns and menus.",
+          "value": 900
+        },
+        {
+          "name": "toast",
+          "description": "Transient toast notifications.",
+          "value": 950
+        },
+        {
+          "name": "tooltip",
+          "description": "Tooltips and quick helpers.",
+          "value": 1000
+        },
+        {
+          "name": "important",
+          "description": "Emergency override layer for critical UI.",
+          "value": 18014398509481984
+        }
+      ]
+    },
+    "aspectRatio": {
+      "disabled": false,
+      "pairs": [],
+      "named": [
+        {
+          "name": "portrait",
+          "description": "Portrait aspect ratio (3:4)",
+          "min": 0.75,
+          "max": 0.75
+        },
+        {
+          "name": "widescreen",
+          "description": "Widescreen aspect ratio (16:9)",
+          "min": 1.77777777778,
+          "max": 1.77777777778
+        },
+        {
+          "name": "square",
+          "description": "Square aspect ratio (1:1)",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "name": "landscape",
+          "description": "Landscape aspect ratio (4:3)",
+          "min": 1.333333,
+          "max": 1.333333
+        },
+        {
+          "name": "cinematic",
+          "description": "Cinematic aspect ratio (21:9)",
+          "min": 2.35,
+          "max": 2.35
+        },
+        {
+          "name": "ultrawide",
+          "description": "Ultrawide aspect ratio (32:9)",
+          "min": 3.5556,
+          "max": 3.5556
+        }
+      ]
+    },
+    "normalize": {
+      "disabled": false,
+      "palette": "neutral",
+      "reset": "none",
+      "semantic": "none"
+    }
+  },
+  "colors": {
+    "theme": {
+      "disabled": false,
+      "imageUrl": "https://i.imgur.com/mLZ5vrL.jpeg",
+      "theory": "best",
+      "darkMode": {
+        "class": "dark"
+      },
+      "colorVision": {
+        "mode": "none"
+      },
+      "colorIdx": 3,
+      "easing": "inoutquad",
+      "toneBiasPercentage": 5,
+      "apca": {
+        "onTargetLc": 90,
+        "dimTargetLc": 30
+      }
+    },
+    "named": {
+      "disabled": false,
+      "negativeSteps": 2,
+      "positiveSteps": 4,
+      "hueStep": 6,
+      "chromaStep": 1.5,
+      "toneStep": 4,
+      "apca": {
+        "onTargetLc": 90,
+        "dimTargetLc": 45
+      },
+      "colors": [
+        {
+          "name": "night",
+          "color": "#0d1117"
+        },
+        {
+          "name": "terminal",
+          "color": "#1e1e1e"
+        },
+        {
+          "name": "blue",
+          "color": "#79c0ff"
+        },
+        {
+          "name": "glow",
+          "color": "#58a6ff"
+        },
+        {
+          "name": "amber",
+          "color": "#ffa657"
+        },
+        {
+          "name": "violet",
+          "color": "#a5a2ff"
+        },
+        {
+          "name": "green",
+          "color": "#56d364"
+        },
+        {
+          "name": "red",
+          "color": "#ff7b72"
+        },
+        {
+          "name": "teal",
+          "color": "#39c5cf"
+        }
+      ],
+      "prefix": "named"
+    },
+    "charts": {
+      "disabled": false,
+      "qualitativeCount": 12,
+      "divergingCount": 6,
+      "toneSteps": 12,
+      "apca": {
+        "onTargetLc": 90,
+        "dimTargetLc": 30
+      },
+      "qualitativeExport": true,
+      "divergingExport": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "gradients": {
+      "disabled": false,
+      "items": [
+        {
+          "name": "brand-surface",
+          "kind": "Linear",
+          "angle": 135,
+          "repeating": false,
+          "stops": [
+            {
+              "palette": "Primary",
+              "toneStep": 6,
+              "position": 0,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Secondary",
+              "toneStep": 6,
+              "position": 100,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            }
+          ]
+        },
+        {
+          "name": "brand-diagonal",
+          "kind": "Linear",
+          "angle": 315,
+          "repeating": false,
+          "stops": [
+            {
+              "palette": "Primary",
+              "toneStep": 6,
+              "position": 0,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Secondary",
+              "toneStep": 5,
+              "position": 100
+            }
+          ]
+        },
+        {
+          "name": "vapor",
+          "kind": "Linear",
+          "angle": 135,
+          "repeating": false,
+          "stops": [
+            {
+              "palette": "Primary",
+              "toneStep": 6,
+              "position": 0,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Tertiary",
+              "toneStep": 6,
+              "position": 50,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Secondary",
+              "toneStep": 6,
+              "position": 100
+            }
+          ]
+        },
+        {
+          "name": "spotlight",
+          "kind": "Radial",
+          "angle": 0,
+          "repeating": false,
+          "stops": [
+            {
+              "palette": "Primary",
+              "toneStep": 5,
+              "position": 0,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Neutral",
+              "toneStep": 2,
+              "position": 100
+            }
+          ]
+        },
+        {
+          "name": "qualitative-sweep",
+          "kind": "Conic",
+          "angle": 0,
+          "repeating": false,
+          "stops": [
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 1,
+              "position": 0,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 2,
+              "position": 9,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 3,
+              "position": 18,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 4,
+              "position": 27,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 5,
+              "position": 36,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 6,
+              "position": 45,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 7,
+              "position": 54,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 8,
+              "position": 63,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 9,
+              "position": 72,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 10,
+              "position": 81,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 11,
+              "position": 90,
+              "interp": "Steps",
+              "easing": "linear",
+              "stepCount": 1
+            },
+            {
+              "palette": "Chart Qualitative",
+              "toneStep": 12,
+              "position": 100
+            }
+          ]
+        },
+        {
+          "name": "neutral-soft",
+          "kind": "Linear",
+          "angle": 180,
+          "repeating": false,
+          "stops": [
+            {
+              "palette": "Neutral Variant",
+              "toneStep": 5,
+              "position": 0
+            },
+            {
+              "palette": "Neutral Variant",
+              "toneStep": 7,
+              "position": 100
+            }
+          ]
+        },
+        {
+          "name": "striped",
+          "kind": "Linear",
+          "angle": 45,
+          "repeating": true,
+          "stops": [
+            {
+              "palette": "Neutral",
+              "toneStep": 6,
+              "position": 0,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Neutral",
+              "toneStep": 6,
+              "position": 8,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Secondary",
+              "toneStep": 6,
+              "position": 8,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Secondary",
+              "toneStep": 6,
+              "position": 16
+            }
+          ]
+        },
+        {
+          "name": "diverging",
+          "kind": "Linear",
+          "angle": 120,
+          "repeating": false,
+          "stops": [
+            {
+              "palette": "Secondary",
+              "toneStep": 6,
+              "position": 0,
+              "interp": "Easing",
+              "easing": "linear",
+              "stepCount": 8
+            },
+            {
+              "palette": "Error",
+              "toneStep": 6,
+              "position": 100
+            }
+          ]
+        }
+      ]
+    },
+    "shadows": {
+      "disabled": false,
+      "palette": "Neutral",
+      "baseStep": 1,
+      "outer": {
+        "steps": 6,
+        "pow": 3.965398,
+        "layer": 4.518945,
+        "alphaStep": 0.430454,
+        "alphaLayer": 0.980098,
+        "alphaMinScale": 0.828863,
+        "range": {
+          "yMin": 1.09683,
+          "yMax": 93.014527,
+          "blurMin": 3.180445,
+          "blurMax": 76.603431,
+          "spreadMin": -2.582253,
+          "spreadMax": -1.457,
+          "opacityMin": 0.028506,
+          "opacityMax": 0,
+          "strengthMin": 0.309779,
+          "strengthMax": 0.309779
+        }
+      },
+      "inner": {
+        "steps": 4,
+        "pow": 0.709677,
+        "alphaStep": 0.485594,
+        "range": {
+          "yMin": 0.367976,
+          "yMax": 1.41686,
+          "blurMin": 2.702843,
+          "blurMax": 9.255569,
+          "opacityMin": 0.020355,
+          "opacityMax": 0.020355,
+          "strengthMin": 0.32654,
+          "strengthMax": 0.32654
+        }
+      }
+    },
+    "code": {
+      "disabled": false,
+      "index": 9,
+      "invertDarkMode": false,
+      "apca": {
+        "onTargetLc": 90,
+        "dimTargetLc": 30,
+        "surfaceTargetLc": 30
+      }
+    }
+  },
+  "fonts": {
+    "families": {
+      "disabled": false,
+      "values": [
+        {
+          "name": "antique",
+          "faces": [
+            "Superclarendon",
+            "Bookman Old Style",
+            "URW Bookman",
+            "URW Bookman L",
+            "Georgia Pro",
+            "Georgia",
+            "serif"
+          ]
+        },
+        {
+          "name": "classical-humanist",
+          "faces": [
+            "Optima",
+            "Candara",
+            "Noto Sans",
+            "source-sans-pro",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "didone",
+          "faces": [
+            "Didot",
+            "Bodoni MT",
+            "Noto Serif Display",
+            "URW Palladio L",
+            "P052",
+            "Sylfaen",
+            "serif"
+          ]
+        },
+        {
+          "name": "geometric-humanist",
+          "faces": [
+            "Avenir",
+            "Montserrat",
+            "Corbel",
+            "URW Gothic",
+            "source-sans-pro",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "handwritten",
+          "faces": [
+            "Segoe Print",
+            "Bradley Hand",
+            "Chilanka",
+            "TSCu_Comic",
+            "casual",
+            "cursive"
+          ]
+        },
+        {
+          "name": "humanist",
+          "faces": [
+            "Seravek",
+            "Gill Sans Nova",
+            "Ubuntu",
+            "Calibri",
+            "DejaVu Sans",
+            "source-sans-pro",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "industrial",
+          "faces": [
+            "Bahnschrift",
+            "DIN Alternate",
+            "Franklin Gothic Medium",
+            "Nimbus Sans Narrow",
+            "sans-serif-condensed",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "mono",
+          "faces": [
+            "Dank Mono",
+            "Operator Mono",
+            "Inconsolata",
+            "Fira Mono",
+            "ui-monospace",
+            "SF Mono",
+            "Monaco",
+            "Droid Sans Mono",
+            "Source Code Pro",
+            "Cascadia Code",
+            "Menlo",
+            "Consolas",
+            "DejaVu Sans Mono",
+            "monospace"
+          ]
+        },
+        {
+          "name": "monospace-code",
+          "faces": [
+            "Dank Mono",
+            "Operator Mono",
+            "Inconsolata",
+            "Fira Mono",
+            "ui-monospace",
+            "SF Mono",
+            "Monaco",
+            "Droid Sans Mono",
+            "Source Code Pro",
+            "Cascadia Code",
+            "Menlo",
+            "Consolas",
+            "DejaVu Sans Mono",
+            "monospace"
+          ]
+        },
+        {
+          "name": "monospace-slab-serif",
+          "faces": [
+            "Nimbus Mono PS",
+            "Courier New",
+            "monospace"
+          ]
+        },
+        {
+          "name": "neo-grotesque",
+          "faces": [
+            "Inter",
+            "Roboto",
+            "Helvetica Neue",
+            "Arial Nova",
+            "Nimbus Sans",
+            "Arial",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "old-style",
+          "faces": [
+            "Iowan Old Style",
+            "Palatino Linotype",
+            "URW Palladio L",
+            "P052",
+            "serif"
+          ]
+        },
+        {
+          "name": "rounded-sans",
+          "faces": [
+            "ui-rounded",
+            "Hiragino Maru Gothic ProN",
+            "Quicksand",
+            "Comfortaa",
+            "Manjari",
+            "Arial Rounded MT",
+            "Arial Rounded MT Bold",
+            "Calibri",
+            "source-sans-pro",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "sans",
+          "faces": [
+            "system-ui",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "serif",
+          "faces": [
+            "ui-serif",
+            "serif"
+          ]
+        },
+        {
+          "name": "slab-serif",
+          "faces": [
+            "Rockwell",
+            "Rockwell Nova",
+            "Roboto Slab",
+            "DejaVu Serif",
+            "Sitka Small",
+            "serif"
+          ]
+        },
+        {
+          "name": "system-ui",
+          "faces": [
+            "system-ui",
+            "sans-serif"
+          ]
+        },
+        {
+          "name": "transitional",
+          "faces": [
+            "Charter",
+            "Bitstream Charter",
+            "Sitka Text",
+            "Cambria",
+            "serif"
+          ]
+        }
+      ]
+    },
+    "imports": {
+      "disabled": false,
+      "options": {
+        "preconnect": true
+      },
+      "families": [
+        {
+          "name": "Inter",
+          "variants": [
+            {
+              "italic": false,
+              "weight": {
+                "range": {
+                  "min": 100,
+                  "max": 900
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inconsolata",
+          "variants": [
+            {
+              "italic": false,
+              "weight": {
+                "set": [
+                  400,
+                  700
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "weights": {
+      "disabled": false,
+      "named": [
+        {
+          "name": "thin",
+          "description": "Thin (Hairline)",
+          "value": 100
+        },
+        {
+          "name": "extra-light",
+          "description": "Extra Light (Ultra Light)",
+          "value": 200
+        },
+        {
+          "name": "light",
+          "description": "Light",
+          "value": 300
+        },
+        {
+          "name": "normal",
+          "description": "Normal (Regular)",
+          "value": 400
+        },
+        {
+          "name": "medium",
+          "description": "Medium",
+          "value": 500
+        },
+        {
+          "name": "semi-bold",
+          "description": "Semi Bold (Demi Bold)",
+          "value": 600
+        },
+        {
+          "name": "bold",
+          "description": "Bold",
+          "value": 700
+        },
+        {
+          "name": "extra-bold",
+          "description": "Extra Bold (Ultra Bold)",
+          "value": 800
+        },
+        {
+          "name": "black",
+          "description": "Black (Heavy)",
+          "value": 900
+        },
+        {
+          "name": "extra-black",
+          "description": "Extra Black (Ultra Black)",
+          "value": 950
+        }
+      ]
+    },
+    "sizes": {
+      "disabled": false,
+      "baseMin": 1,
+      "baseMax": 1,
+      "scaleMin": "Major Second",
+      "scaleMax": "Minor Third",
+      "negativeSteps": 2,
+      "positiveSteps": 12,
+      "pairs": []
+    },
+    "spacing": {
+      "disabled": false,
+      "baseMin": 0.025,
+      "baseMax": 0.025,
+      "scaleMin": "Major Sixth",
+      "scaleMax": "Octave",
+      "negativeSteps": 2,
+      "positiveSteps": 3,
+      "pairs": []
+    },
+    "lineHeights": {
+      "disabled": false,
+      "baseMin": 1.5,
+      "baseMax": 1.5,
+      "scaleMin": "Minor Second",
+      "scaleMax": "Minor Second",
+      "negativeSteps": 3,
+      "positiveSteps": 4,
+      "pairs": []
+    }
+  },
+  "borders": {
+    "widths": {
+      "disabled": false,
+      "baseMin": 0.1,
+      "baseMax": 0.1,
+      "scaleMin": "Major Second",
+      "scaleMax": "Augmented Fourth",
+      "negativeSteps": 0,
+      "positiveSteps": 5,
+      "pairs": []
+    },
+    "radii": {
+      "disabled": false,
+      "baseMin": 0.125,
+      "baseMax": 0.5,
+      "scaleMin": "Major Third",
+      "scaleMax": "Major Third",
+      "negativeSteps": 2,
+      "positiveSteps": 6,
+      "pairs": [
+        {
+          "fromStep": 1,
+          "toStep": 2
+        },
+        {
+          "fromStep": 2,
+          "toStep": 3
+        },
+        {
+          "fromStep": 3,
+          "toStep": 4
+        },
+        {
+          "fromStep": 4,
+          "toStep": 5
+        },
+        {
+          "fromStep": 5,
+          "toStep": 6
+        }
+      ]
+    },
+    "generators": {
+      "disabled": false,
+      "drawn": {
+        "count": 6,
+        "seed": 42,
+        "longMin": 7.8125,
+        "longMax": 15.9375,
+        "longClampMin": 6.25,
+        "longClampMax": 15.9375,
+        "shortMin": 0.625,
+        "shortMax": 7.1875,
+        "shortClampMin": 0.625,
+        "shortClampMax": 7.1875,
+        "shortMaxWeight": 0.35,
+        "longJitter": 0.12,
+        "shortJitter": 0.25,
+        "roundStep": 0.3125,
+        "minGap": 0.3125
+      },
+      "blobs": {
+        "count": 5,
+        "seed": 43,
+        "longMin": 55,
+        "longMax": 70,
+        "longClampMin": 30,
+        "longClampMax": 70,
+        "shortMin": 30,
+        "shortMax": 55,
+        "shortClampMin": 30,
+        "shortClampMax": 70,
+        "shortMaxWeight": 0.4,
+        "longJitter": 0.1,
+        "shortJitter": 0.18,
+        "roundStep": 1,
+        "minGap": 1
+      },
+      "shouldGenerateDrawn": true,
+      "shouldGenerateBlobs": true
+    }
+  },
+  "animations": {
+    "durations": {
+      "disabled": false,
+      "baseMin": 0.12,
+      "baseMax": 0.2,
+      "scaleMin": "Minor Second",
+      "scaleMax": "Minor Third",
+      "negativeSteps": 2,
+      "positiveSteps": 4,
+      "pairs": [],
+      "named": [
+        {
+          "name": "none",
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "instant",
+          "min": 0.01,
+          "max": 0.01
+        },
+        {
+          "name": "fast",
+          "min": 0.12,
+          "max": 0.18
+        },
+        {
+          "name": "base",
+          "min": 0.18,
+          "max": 0.24
+        },
+        {
+          "name": "slow",
+          "min": 0.28,
+          "max": 0.36
+        }
+      ]
+    },
+    "distances": {
+      "disabled": false,
+      "baseMin": 0.25,
+      "baseMax": 0.6,
+      "scaleMin": "Major Second",
+      "scaleMax": "Major Third",
+      "negativeSteps": 0,
+      "positiveSteps": 4,
+      "pairs": [],
+      "named": [
+        {
+          "name": "none",
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "xs",
+          "min": 0.125,
+          "max": 0.2
+        },
+        {
+          "name": "sm",
+          "min": 0.25,
+          "max": 0.35
+        },
+        {
+          "name": "md",
+          "min": 0.5,
+          "max": 0.7
+        },
+        {
+          "name": "lg",
+          "min": 0.75,
+          "max": 1
+        },
+        {
+          "name": "xl",
+          "min": 1.25,
+          "max": 1.6
+        }
+      ]
+    },
+    "scales": {
+      "disabled": false,
+      "baseMin": 0.95,
+      "baseMax": 1.02,
+      "scaleMin": "Minor Second",
+      "scaleMax": "Minor Second",
+      "negativeSteps": 2,
+      "positiveSteps": 2,
+      "pairs": [],
+      "named": [
+        {
+          "name": "down-strong",
+          "min": 0.88,
+          "max": 0.92
+        },
+        {
+          "name": "down",
+          "min": 0.96,
+          "max": 0.98
+        },
+        {
+          "name": "base",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "name": "up",
+          "min": 1.03,
+          "max": 1.06
+        },
+        {
+          "name": "up-strong",
+          "min": 1.08,
+          "max": 1.12
+        }
+      ]
+    },
+    "rotations": {
+      "disabled": false,
+      "baseMin": 4,
+      "baseMax": 8,
+      "scaleMin": "Minor Second",
+      "scaleMax": "Minor Third",
+      "negativeSteps": 1,
+      "positiveSteps": 2,
+      "pairs": [],
+      "named": [
+        {
+          "name": "none",
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "xs",
+          "min": 1,
+          "max": 2
+        },
+        {
+          "name": "sm",
+          "min": 3,
+          "max": 5
+        },
+        {
+          "name": "md",
+          "min": 8,
+          "max": 12
+        },
+        {
+          "name": "lg",
+          "min": 15,
+          "max": 20
+        },
+        {
+          "name": "neg-xs",
+          "min": -2,
+          "max": -1
+        },
+        {
+          "name": "neg-sm",
+          "min": -5,
+          "max": -3
+        },
+        {
+          "name": "neg-md",
+          "min": -12,
+          "max": -8
+        }
+      ]
+    },
+    "opacities": {
+      "disabled": false,
+      "baseMin": 0.2,
+      "baseMax": 0.6,
+      "scaleMin": "Minor Second",
+      "scaleMax": "Minor Second",
+      "negativeSteps": 0,
+      "positiveSteps": 2,
+      "pairs": [],
+      "named": [
+        {
+          "name": "transparent",
+          "min": 0,
+          "max": 0
+        },
+        {
+          "name": "muted",
+          "min": 0.4,
+          "max": 0.6
+        },
+        {
+          "name": "solid",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    "easings": [
+      {
+        "name": "standard",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)"
+      },
+      {
+        "name": "emphasized",
+        "value": "cubic-bezier(0.2, 0, 0, 1)"
+      },
+      {
+        "name": "entrance",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)"
+      },
+      {
+        "name": "bounce",
+        "value": "linear(0, 0.011 2.9%, 0.045 5.8%, 0.1 8.6%, 0.176 11.5%, 0.273 14.4%, 0.391 17.3%, 0.53 20.2%, 0.69 23%, 0.871 25.9%, 1.068 28.8%, 1.156 30.3%, 1.171 30.8%, 1.171 31.6%, 1.163 32.4%, 1.138 33.3%, 1.017 36.7%, 0.977 38.1%, 0.945 39.5%, 0.93 40.9%, 0.928 42.4%, 0.937 43.8%, 0.958 45.2%, 1.075 49.2%, 1.101 50.8%, 1.11 52.1%, 1.105 53.4%, 1.062 56.2%, 1.017 58.1%, 0.991 60.2%, 0.98 62.7%, 0.985 65.2%, 1 68.1%, 1.036 74.2%, 1.046 77.4%, 1.044 80.4%, 1.028 83.5%, 1.001 86.9%, 0.999 99.9%)"
+      },
+      {
+        "name": "shake",
+        "value": "linear(0, 0.5 12%, 0.25 22%, 0.75 32%, 0.35 42%, 0.65 52%, 0.43 62%, 0.57 72%, 0.48 82%, 0.52 90%, 1)"
+      },
+      {
+        "name": "heartbeat",
+        "value": "linear(0, 0.38 14%, 0.7 28%, 0.46 36%, 0.84 50%, 0.62 60%, 0.9 74%, 1)"
+      },
+      {
+        "name": "pulse",
+        "value": "cubic-bezier(0.42, 0, 0.58, 1)"
+      },
+      {
+        "name": "linear",
+        "value": "linear"
+      }
+    ]
+  },
+  "settings": {
+    "general": {
+      "input": "stellar.config.json",
+      "force": false,
+      "verbose": false,
+      "cpuProfile": "",
+      "watchMs": 10
+    },
+    "export": {
+      "output": "css/stellar.css",
+      "namespace": ":root",
+      "overwrite": true,
+      "includeColorFallback": true,
+      "includeFontImports": true,
+      "includeReducedMotion": true,
+      "fontDir": "./fonts",
+      "fontFormat": "both",
+      "bundle": {
+        "minifyWhitespace": true,
+        "sourcemap": "none",
+        "sourcesContent": "include",
+        "sourceRoot": "",
+        "lineLimit": 0
+      }
+    }
+  }
+}
