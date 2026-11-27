@@ -176,7 +176,10 @@ figcaption {
 }
 figcaption > span { margin-right: auto; }
 
-button.picked { border-color: var(--accent); color: var(--accent); }
+/* the picked query wears its topic's colour, as the frames it reads do */
+figcaption > button { border-color: var(--line-c); }
+figcaption > button:hover { border-color: var(--kind); }
+button.picked { color: var(--kind); border-color: var(--kind); background: color-mix(in srgb, var(--kind) 15%, transparent); }
 
 /* the store's frames: a topic is a kind, so it takes its brand colour; the
    frames the picked query reads stand out, the rest fade */

@@ -42,7 +42,7 @@
   <figure class="term">
     <figcaption>
       <span>Query the event store</span>
-      {% for q in queries %}<button type="button" data-class:picked="$q == '{{ q.id }}'" data-on:click="$q = '{{ q.id }}'">{{ q.title }}</button>{% endfor %}
+      {% for q in queries %}<button type="button" style="--kind: var(--brand-{{ 'violet' if q.id == 'goal' else 'blue' }})" data-class:picked="$q == '{{ q.id }}'" data-on:click="$q = '{{ q.id }}'">{{ q.title }}</button>{% endfor %}
     </figcaption>
     {% for q in queries %}<div data-show="$q == '{{ q.id }}'"{% if not loop.first %} style="display: none"{% endif %}>
       <pre><span class="comment"># {{ q.comment }}</span>
