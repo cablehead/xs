@@ -5,6 +5,7 @@ import starlight from "@astrojs/starlight";
 
 import { rehypeMermaid } from "@beoe/rehype-mermaid";
 import solid from "@astrojs/solid-js";
+import { unified } from "@astrojs/markdown-remark";
 import { pluginCodeOutput } from "./src/utils/custom-code-output-plugin.js";
 
 // https://astro.build/config
@@ -26,35 +27,35 @@ export default defineConfig({
         Hero: './src/components/Hero.astro',
       },
 
-      social: {
-        github: "https://github.com/cablehead/xs",
-        discord: "https://discord.com/invite/YNbScHBHrh",
-      },
+      social: [
+        { icon: "github", label: "GitHub", href: "https://github.com/cablehead/xs" },
+        { icon: "discord", label: "Discord", href: "https://discord.com/invite/YNbScHBHrh" },
+      ],
 
       sidebar: [
         {
           label: "Getting Started",
-          autogenerate: { directory: "getting-started" },
+          items: [{ autogenerate: { directory: "getting-started" } }],
         },
 
         {
           label: "Tutorials",
-          autogenerate: { directory: "tutorials" },
+          items: [{ autogenerate: { directory: "tutorials" } }],
         },
 
         {
           label: "How-to Guides",
-          autogenerate: { directory: "how-to" },
+          items: [{ autogenerate: { directory: "how-to" } }],
         },
 
         {
           label: "Explanation",
-          autogenerate: { directory: "explanation" },
+          items: [{ autogenerate: { directory: "explanation" } }],
         },
 
         {
           label: "Reference",
-          autogenerate: { directory: "reference" },
+          items: [{ autogenerate: { directory: "reference" } }],
         },
       ],
 
@@ -70,16 +71,18 @@ export default defineConfig({
   ],
 
   markdown: {
-    rehypePlugins: [
-      [
-        rehypeMermaid,
-        {
-          strategy: "file", // alternatively use "data-url"
-          fsPath: "public/beoe", // add this to gitignore
-          webPath: "/xs/beoe",
-          darkScheme: "class",
-        },
+    processor: unified({
+      rehypePlugins: [
+        [
+          rehypeMermaid,
+          {
+            strategy: "file", // alternatively use "data-url"
+            fsPath: "public/beoe", // add this to gitignore
+            webPath: "/xs/beoe",
+            darkScheme: "class",
+          },
+        ],
       ],
-    ],
+    }),
   },
 });

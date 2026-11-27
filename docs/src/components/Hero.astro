@@ -1,7 +1,5 @@
 ---
-import type { Props } from '@astrojs/starlight/props';
-
-const { data } = Astro.props.entry;
+const { data } = Astro.locals.starlightRoute.entry;
 const { actions = [] } = data.hero || {};
 ---
 
