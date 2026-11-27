@@ -5,12 +5,11 @@ sidebar:
   order: 1
 ---
 
-import { Card, CardGrid, Aside } from "@astrojs/starlight/components";
-import MuxVideo from '../../../components/MuxVideo.astro';
 
-<Aside type="note" title="The video is out of date">
-The video was recorded with Datastar v1.0.0-RC.5. The tutorial and its code examples below work with Datastar v1.0.5.
-</Aside>
+> [!NOTE]
+> **The video is out of date**
+>
+> The video was recorded with Datastar v1.0.0-RC.5. The tutorial and its code examples below work with Datastar v1.0.5.
 
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
 

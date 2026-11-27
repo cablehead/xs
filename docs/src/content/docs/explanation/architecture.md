@@ -5,7 +5,6 @@ sidebar:
   order: 1
 ---
 
-import { Link } from '../../../utils/links';
 
 cross.stream is built on a decoupled architecture that separates event metadata from content storage, optimizing for both stream processing and content retrieval.
 
@@ -39,7 +38,7 @@ flowchart TD
 
 ### Event Stream
 
-The event stream uses <Link to="fjall" /> (a log-structured merge-tree store) as an append-only index for frame metadata. Each frame contains:
+The event stream uses [fjall](https://github.com/fjall-rs/fjall) (a log-structured merge-tree store) as an append-only index for frame metadata. Each frame contains:
 
 - [Topic](../../reference/topics/)
 - Unique ID (using SCRU128)
@@ -108,14 +107,14 @@ A server process sits between clients and the store, enabling:
 When appending an event:
    - If content is provided, it's written to CAS first, generating a hash
    - A frame is created with metadata and the content hash
-   - The frame is appended to the <Link to="fjall" /> index
+   - The frame is appended to the [fjall](https://github.com/fjall-rs/fjall) index
    - The frame is broadcast to any active subscribers
    - A topic index is updated for quick head retrieval
 
 ### Reading Events
 
 When reading the stream (`cat`):
-   - Only frame metadata is retrieved from <Link to="fjall" />
+   - Only frame metadata is retrieved from [fjall](https://github.com/fjall-rs/fjall)
    - Content remains in CAS until specifically requested
    - The stream can be read efficiently without pulling content
 

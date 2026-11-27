@@ -5,9 +5,7 @@ sidebar:
   order: 1
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-import { Link } from '../../../utils/links';
 
 <Tabs syncKey="installer">
 
@@ -153,16 +151,15 @@ curl http://localhost:3021/version
 
 ## Import `xs.nu`
 
-<Aside title="optional">
+> [!NOTE]
+> **optional**
+>
+> `xs` is designed to be orchestrated with [Nushell](https://www.nushell.sh), but it also works
+> great with any POSIX shell, so this step is optional.
+>
+> For Docker installations, this is already done for you.
 
-`xs` is designed to be orchestrated with <Link to="nu" />, but it also works
-great with any POSIX shell, so this step is optional.
-
-For Docker installations, this is already done for you.
-
-</Aside>
-
-If you've never used <Link to="nu" /> before, you're in for a treat. Visit the
+If you've never used [Nushell](https://www.nushell.sh) before, you're in for a treat. Visit the
 Nushell site to install it, then install the `xs.nu` helper module:
 
 ```sh

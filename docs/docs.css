@@ -1,0 +1,25 @@
+/* Layout only, on raw tags. */
+body {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 16rem minmax(0, 1fr);
+  font: 16px/1.6 system-ui, sans-serif;
+}
+nav {
+  padding: 1rem 1.5rem;
+  border-right: 1px solid #8884;
+  min-height: 100vh;
+}
+nav h2 { font-size: 0.85rem; text-transform: uppercase; margin: 1.5rem 0 0.5rem; }
+nav ul { list-style: none; margin: 0; padding: 0; }
+nav a { display: block; padding: 0.15rem 0; text-decoration: none; }
+nav a[aria-current] { font-weight: 600; }
+main { padding: 1rem 2.5rem; max-width: 80ch; }
+pre { overflow-x: auto; padding: 0.75rem 1rem; background: #8881; border-radius: 4px; }
+@media (max-width: 50rem) {
+  body { grid-template-columns: 1fr; }
+  nav { min-height: 0; border-right: 0; border-bottom: 1px solid #8884; }
+}
+blockquote[class^="markdown-alert"] { margin: 1rem 0; padding: 0.5rem 1rem; border-left: 4px solid #888; background: #8881; }
+blockquote.markdown-alert-tip { border-color: #2a8; }
+blockquote.markdown-alert-caution, blockquote.markdown-alert-warning { border-color: #c80; }

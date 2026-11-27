@@ -5,8 +5,6 @@ sidebar:
   order: 3
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-import { Link } from '../../../utils/links';
 
 cross.stream actors use the same closure shape as the streaming form of
 Nushell's [`generate`](https://www.nushell.sh/commands/docs/generate.html)
@@ -14,16 +12,17 @@ command. This tutorial teaches that shape in plain Nushell first, then applies
 it on the stream to build a materialized aggregate: a bread and butter of
 stream processing.
 
-<Aside type="note" title="Did you know?">
-The streaming form of `generate`, where input is piped in and the closure
-receives both the element and carried state, was added to Nushell in January
-2025 by [bahex](https://github.com/bahex)
-([nushell#14804](https://github.com/nushell/nushell/pull/14804)).
-</Aside>
+> [!NOTE]
+> **Did you know?**
+>
+> The streaming form of `generate`, where input is piped in and the closure
+> receives both the element and carried state, was added to Nushell in January
+> 2025 by [bahex](https://github.com/bahex)
+> ([nushell#14804](https://github.com/nushell/nushell/pull/14804)).
 
 ## Prerequisites
 
-- <Link to="nu" /> installed
+- [Nushell](https://www.nushell.sh) installed
 
 ## Part 1: generate with input
 
@@ -115,7 +114,7 @@ is frames from the store.
 ## Prerequisites for Part 2
 
 - xs installed and on your PATH (see [Installation](../../getting-started/installation/))
-- Two terminal windows, both running <Link to="nu" /> with `use xs.nu *`
+- Two terminal windows, both running [Nushell](https://www.nushell.sh) with `use xs.nu *`
 
 ## Part 2: Running sum on the stream
 
@@ -196,8 +195,7 @@ non-`sale` frame: state carried forward, no output emitted.
 | Omit `next` to stop                      | Actor self-terminates, emits `fin.ok` (the actor self-terminates without a `next`)  |
 | Default param sets initial state          | Default param or `initial` config field       |
 
-<Aside type="tip">
-See the [Actors reference](../../reference/actors/) for all
-configuration options including `pulse`, `return_options`, and
-[lifecycle details](../../reference/actors/#lifecycle).
-</Aside>
+> [!TIP]
+> See the [Actors reference](../../reference/actors/) for all
+> configuration options including `pulse`, `return_options`, and
+> [lifecycle details](../../reference/actors/#lifecycle).

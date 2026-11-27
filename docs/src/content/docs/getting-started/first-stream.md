@@ -5,20 +5,19 @@ sidebar:
   order: 2
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-import { Link } from '../../../utils/links';
 
 Let's create your first event stream.
 
-<Aside type="tip" title="Prerequisites">
-Before starting, make sure you have:
-1. Run `xs nu --install` once to install the Nushell integration
-2. Started a new Nushell session (or run `use xs.nu *`)
-3. Have **two terminal windows** ready: one for the server, one for the client
-
-See the [installation guide](../installation/) for details.
-</Aside>
+> [!TIP]
+> **Prerequisites**
+>
+> Before starting, make sure you have:
+> 1. Run `xs nu --install` once to install the Nushell integration
+> 2. Started a new Nushell session (or run `use xs.nu *`)
+> 3. Have **two terminal windows** ready: one for the server, one for the client
+>
+> See the [installation guide](../installation/) for details.
 
 ## Serve
 
@@ -48,18 +47,19 @@ To point tools at another store, set `XS_ADDR`. This can be done temporarily wit
 with-env {XS_ADDR: "./store"} { .cat }
 ```
 
-<Aside type="caution" title="Set XS_ADDR for this tutorial">
-Since we're using `./store` instead of the default location, set `XS_ADDR`
-in your client terminal before running any commands:
-
-```nushell
-$env.XS_ADDR = "./store" | path expand
-```
-
-Without this, the client will try to connect to the default path
-(`~/.local/share/cross.stream/store`) and fail with a connection error
-(on Windows, this may appear as "dead network (os error 10050)").
-</Aside>
+> [!CAUTION]
+> **Set XS_ADDR for this tutorial**
+>
+> Since we're using `./store` instead of the default location, set `XS_ADDR`
+> in your client terminal before running any commands:
+>
+> ```nushell
+> $env.XS_ADDR = "./store" | path expand
+> ```
+>
+> Without this, the client will try to connect to the default path
+> (`~/.local/share/cross.stream/store`) and fail with a connection error
+> (on Windows, this may appear as "dead network (os error 10050)").
 
 ## Client
 
@@ -142,12 +142,13 @@ a quick note
 
 </Tabs>
 
-<Aside type="tip" title="When to use CAS">
-For binary content or large blobs, `xs` provides Content-Addressable Storage
-(CAS). Pipe content directly to `.append` and it gets stored in CAS,
-referenced by a content hash. For structured data, prefer `--meta`. Read more
-about the [architecture](../../explanation/architecture/).
-</Aside>
+> [!TIP]
+> **When to use CAS**
+>
+> For binary content or large blobs, `xs` provides Content-Addressable Storage
+> (CAS). Pipe content directly to `.append` and it gets stored in CAS,
+> referenced by a content hash. For structured data, prefer `--meta`. Read more
+> about the [architecture](../../explanation/architecture/).
 
 ### `.last` command
 
@@ -243,7 +244,7 @@ a quick note
 submit TPS report
 ```
 
-Fun! If you haven't already, check out the <Link to="nu" /> tab. `xs` pairs
+Fun! If you haven't already, check out the [Nushell](https://www.nushell.sh) tab. `xs` pairs
 well with Nushell's structured data pipeline.
 
 </TabItem>

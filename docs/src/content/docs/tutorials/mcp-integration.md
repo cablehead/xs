@@ -5,17 +5,14 @@ sidebar:
   order: 2
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-import MuxVideo from '../../../components/MuxVideo.astro';
 
 This tutorial teaches you how to interact with Model Context Protocol (MCP) servers, starting with direct terminal communication and then integrating through cross.stream's event streaming system.
 
 <MuxVideo playbackId="9FFQOzqMzax02WqVZYvMeM4lzsxy01IDgHlwLVsTQkpA00" muted={false} />
 
-<Aside type="tip">
-For a full-featured project that integrates MCP servers with cross.stream this way, see
-<a href="https://github.com/cablehead/gpt2099.nu" target="_blank" rel="noopener noreferrer">gpt2099</a>.
-</Aside>
+> [!TIP]
+> For a full-featured project that integrates MCP servers with cross.stream this way, see
+> <a href="https://github.com/cablehead/gpt2099.nu" target="_blank" rel="noopener noreferrer">gpt2099</a>.
 
 ## What You'll Learn
 
@@ -87,9 +84,8 @@ You'll get back:
 
 Press Ctrl+C to stop the server when you're done exploring.
 
-<Aside>
-The direct terminal approach shows the raw JSONRPC protocol that MCP servers use. This is useful for understanding and debugging, but not practical for building applications.
-</Aside>
+> [!NOTE]
+> The direct terminal approach shows the raw JSONRPC protocol that MCP servers use. This is useful for understanding and debugging, but not practical for building applications.
 
 ## Part 2: Integration with cross.stream
 

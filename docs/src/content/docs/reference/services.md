@@ -5,9 +5,8 @@ sidebar:
   order: 2
 ---
 
-import { Link } from '../../../utils/links';
 
-cross.stream services use <Link to="nu" /> closures to create streams of data
+cross.stream services use [Nushell](https://www.nushell.sh) closures to create streams of data
 that are emitted as frames into the store.
 
 You can also compose external request-response servers, particularly CLI tools

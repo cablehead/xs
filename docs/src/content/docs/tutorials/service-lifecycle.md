@@ -5,23 +5,20 @@ sidebar:
   order: 4
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-import { Link } from '../../../utils/links';
 
 This tutorial walks through every stage of a [service](../../reference/services/)
 lifecycle so you can build intuition for what happens under the hood.
 
-<Aside type="tip">
-See the [Services reference](../../reference/services/) for configuration
-options, duplex communication, and return options. See the
-[lifecycle reference](../../reference/lifecycle/) for the full event vocabulary that
-applies to actors, services, and actions alike.
-</Aside>
+> [!TIP]
+> See the [Services reference](../../reference/services/) for configuration
+> options, duplex communication, and return options. See the
+> [lifecycle reference](../../reference/lifecycle/) for the full event vocabulary that
+> applies to actors, services, and actions alike.
 
 ## Prerequisites
 
 - xs installed and on your PATH (see [Installation](../../getting-started/installation/))
-- Two terminal windows, both running <Link to="nu" /> with `use xs.nu *`
+- Two terminal windows, both running [Nushell](https://www.nushell.sh) with `use xs.nu *`
 
 ## Serve
 

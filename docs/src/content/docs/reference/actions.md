@@ -5,9 +5,8 @@ sidebar:
   order: 4
 ---
 
-import { Link } from '../../../utils/links';
 
-cross.stream actions use <Link to="nu" /> expressions to define reusable
+cross.stream actions use [Nushell](https://www.nushell.sh) expressions to define reusable
 operations that can be called on-demand with arguments. Unlike actors which
 maintain state between invocations, or services which run continuously,
 actions are stateless and execute independently each time they are called.

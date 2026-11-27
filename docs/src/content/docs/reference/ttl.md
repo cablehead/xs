@@ -5,7 +5,6 @@ sidebar:
   order: 8
 ---
 
-import { Aside } from '@astrojs/starlight/components';
 
 Every frame carries a TTL (time-to-live) that sets how long the store keeps
 it. The default is `forever`. A frame's TTL is fixed when it is appended and
@@ -64,38 +63,40 @@ above.
   because frames were restored into it -- is brought down by the background
   worker instead, a batch at a time, since one append cannot clear it.
 
-<Aside type="note" title="Adding last:n to a topic that already has frames">
-To keep a topic at `n`, the store counts how many frames it holds. A topic
-counts from its first `last:n` frame, so putting a `last:n` on a topic that has
-been accumulating frames without one makes that append walk the topic to
-establish the count.
+> [!NOTE]
+> **Adding last:n to a topic that already has frames**
+>
+> To keep a topic at `n`, the store counts how many frames it holds. A topic
+> counts from its first `last:n` frame, so putting a `last:n` on a topic that has
+> been accumulating frames without one makes that append walk the topic to
+> establish the count.
+>
+> It happens once for the life of the store, and writes to every topic wait while
+> it runs. On a topic of a few million frames that is under a second. Capping a
+> topic while it is small avoids it entirely.
 
-It happens once for the life of the store, and writes to every topic wait while
-it runs. On a topic of a few million frames that is under a second. Capping a
-topic while it is small avoids it entirely.
-</Aside>
-
-<Aside type="caution" title="Do not put a pruning TTL on module topics">
-Processors resolve their modules **as of their own `.create` frame**: a
-service, actor, or action sees the `xs.module.<name>` versions whose frame id
-is at or below its create id (see [Module Topics](../topics/#module-topics)).
-
-`last:<n>` and `time:` delete older frames on a topic. If you prune
-`xs.module.<name>`, you can delete the module version that an
-already-registered processor's create id resolves against. The next time that
-processor spawns (a restart, a replay, or a hot-replace), the only surviving
-module frame has a **higher** id than its create frame, so it is skipped, and
-the matching older one is gone. The script's `use <name>` then fails with
-`ModuleNotFound`.
-
-It looks intermittent because whether it fires depends on the newest module
-frame's id versus each processor's create id, but it is not a race.
-
-The rule: retain a module version for at least as long as anything relies on
-it, that is, as long as a registered processor's create id resolves against
-it. The simplest way to guarantee that is to leave module topics on the
-default `forever`. If you prune with `last:<n>`, `n` must cover every version
-still resolved by a live processor. To update a module, append the new version
-and re-register the dependent processors so their new create ids resolve to
-it.
-</Aside>
+> [!CAUTION]
+> **Do not put a pruning TTL on module topics**
+>
+> Processors resolve their modules **as of their own `.create` frame**: a
+> service, actor, or action sees the `xs.module.<name>` versions whose frame id
+> is at or below its create id (see [Module Topics](../topics/#module-topics)).
+>
+> `last:<n>` and `time:` delete older frames on a topic. If you prune
+> `xs.module.<name>`, you can delete the module version that an
+> already-registered processor's create id resolves against. The next time that
+> processor spawns (a restart, a replay, or a hot-replace), the only surviving
+> module frame has a **higher** id than its create frame, so it is skipped, and
+> the matching older one is gone. The script's `use <name>` then fails with
+> `ModuleNotFound`.
+>
+> It looks intermittent because whether it fires depends on the newest module
+> frame's id versus each processor's create id, but it is not a race.
+>
+> The rule: retain a module version for at least as long as anything relies on
+> it, that is, as long as a registered processor's create id resolves against
+> it. The simplest way to guarantee that is to leave module topics on the
+> default `forever`. If you prune with `last:<n>`, `n` must cover every version
+> still resolved by a live processor. To update a module, append the new version
+> and re-register the dependent processors so their new create ids resolve to
+> it.

@@ -5,17 +5,14 @@ sidebar:
   order: 1
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-import { Link } from '../../../utils/links';
 
 A *thread* is a chain of conversation turns where each turn knows which message it follows.
 We'll use cross.stream to store those turns so we can rebuild the conversation history at any point.
 
 
-<Aside type="tip">
-For a full-featured project that manages LLM conversations this way, see
-<a href="https://github.com/cablehead/gpt2099.nu" target="_blank" rel="noopener noreferrer">gpt2099</a>.
-</Aside>
+> [!TIP]
+> For a full-featured project that manages LLM conversations this way, see
+> <a href="https://github.com/cablehead/gpt2099.nu" target="_blank" rel="noopener noreferrer">gpt2099</a>.
 
 ## Serve
 
@@ -27,7 +24,7 @@ xs serve ./chat-store
 
 ## Record a conversation
 
-In another terminal running <Link to="nu" />, import `xs.nu` for some handy commands:
+In another terminal running [Nushell](https://www.nushell.sh), import `xs.nu` for some handy commands:
 
 ```nushell
 use xs.nu *
