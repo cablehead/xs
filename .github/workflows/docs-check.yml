@@ -1,0 +1,33 @@
+name: Docs check
+
+# The docs as a reader meets them, and their examples against the xs this
+# commit builds: docs/check-site.nu and docs/check-examples.nu.
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths: [ "docs/**", "www/**", "src/**", "xs.nu", ".github/workflows/docs-check.yml" ]
+  push:
+    branches: [ "main" ]
+    paths: [ "docs/**", "www/**", "src/**", "xs.nu", ".github/workflows/docs-check.yml" ]
+
+jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - uses: hustcer/setup-nu@v3
+      with:
+        version: "0.116.0"
+    - name: Build xs
+      run: cargo build --release --bin xs
+    - name: Fetch http-nu
+      run: |
+        curl -sL https://github.com/cablehead/http-nu/releases/download/v0.19.0/http-nu-v0.19.0-linux-amd64.tar.gz | tar -xz
+        echo "$PWD/http-nu-v0.19.0" >> "$GITHUB_PATH"
+    - name: Every page, link and image
+      run: |
+        http-nu --datastar 127.0.0.1:3045 docs/serve.nu &
+        for i in $(seq 1 50); do curl -s -o /dev/null http://127.0.0.1:3045/docs/ && break; sleep 0.2; done
+        nu docs/check-site.nu http://127.0.0.1:3045
+    - name: The examples against xs
+      run: nu docs/check-examples.nu target/release/xs

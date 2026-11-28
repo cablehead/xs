@@ -76,7 +76,7 @@ Check what's in the store:
 
 Now let's add a second todo and capture the returned frame:
 
-```bash
+```nushell
 let todo = .append todos --meta {action: "add", text: "Build something cool"}
 $todo
 ```
