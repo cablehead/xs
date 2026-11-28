@@ -50,6 +50,29 @@
   --flow: 3s;
 }
 
+/* Light mode, for a reader whose system is set to light: Sunlit brick, a
+   city in daylight, brick and plaster in afternoon sun, after the splash
+   page's night (n2 #11353). The same tokens, each given a daytime colour;
+   everything else follows from them. Every text colour clears 5:1 against
+   the ground. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fbf6ee;             /* cream plaster */
+    --surface: #fffdf8;
+    --surface-2: #f0e3d2;      /* a terminal's title bar */
+    --term-bg: #fffcf6;
+    --line-c: #e2d3bf;
+    --fg: #2b241e;             /* brown ink */
+    --fg-quiet: #6e6257;
+    --accent: #9c3d1e;         /* terracotta */
+    --accent-strong: #7c2e14;
+    --glow: #e07a4a;
+    --brand-amber: #56682a;    /* olive, for code */
+  }
+  /* in daylight the name catches the sun rather than glowing */
+  .wordmark > span { text-shadow: 0 0 1px color-mix(in srgb, var(--glow) 60%, transparent); }
+}
+
 /* ---- raw tags ------------------------------------------------------------ */
 
 * { box-sizing: border-box; }

@@ -190,8 +190,9 @@ def demo [] {
     let q = "" | from datastar-signals $req | get q? | default ""
     search $q | to datastar-patch-elements | to sse
   } else if $slug == "syntax.css" {
-    # code colours: Dracula, as the Astro docs used for their dark mode
-    .highlight theme Dracula | metadata set { merge {'http.response': {headers: {content-type: "text/css"}}} }
+    # code colours: Dracula in dark mode, as the Astro docs used; GitHub's
+    # in light mode, against Sunlit brick
+    $"@media \(prefers-color-scheme: dark\) {(.highlight theme Dracula)}\n@media \(prefers-color-scheme: light\) {(.highlight theme GitHub)}" | metadata set { merge {'http.response': {headers: {content-type: "text/css"}}} }
   } else if ($path | str starts-with "/assets/") {
     # the pages link images as ../../../assets/..., which from /docs/<section>/<page>/ lands here
     .static ($DIR | path join src) $path
