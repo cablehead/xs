@@ -130,6 +130,34 @@ button:hover { border-color: var(--accent); }
 @keyframes flow { 50% { background-position: 100% 50%; } }
 @media (prefers-reduced-motion: reduce) { .wordmark > span { animation: none; } }
 
+/* ---- search: a field in the bar, the results under it --------------------- */
+
+search { position: relative; flex: 0 1 18rem; margin-right: auto; }
+search input {
+  width: 100%;
+  font: var(--text-sm) var(--font-mono);
+  color: var(--fg);
+  background: var(--surface);
+  border: var(--line) solid var(--line-c);
+  border-radius: calc(var(--radius) / 2);
+  padding: var(--space-1) var(--space-3);
+}
+search input:focus { outline: none; border-color: var(--accent); }
+#results:not(:empty) {
+  position: absolute; top: calc(100% + var(--space-2)); left: 0; width: min(32rem, 90vw);
+  max-height: 70vh; overflow-y: auto;
+  background: var(--surface); border: var(--line) solid var(--line-c); border-radius: var(--radius);
+  box-shadow: 0 var(--space-3) var(--space-5) color-mix(in srgb, black 50%, transparent);
+  padding: var(--space-2);
+}
+#results ul { list-style: none; margin: 0; padding: 0; }
+#results li + li { margin-top: 0; }
+#results a { display: block; padding: var(--space-2) var(--space-3); border-radius: calc(var(--radius) / 2); color: var(--fg); text-decoration: none; }
+#results a:hover, #results a:focus { background: var(--surface-2); }
+#results a > span { color: var(--accent); }
+#results p { margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--fg-quiet); }
+#results > p { padding: var(--space-2) var(--space-3); margin: 0; font-size: var(--text-sm); color: var(--fg-quiet); }
+
 /* ---- the page: a bar across the top, the sidebar, the page ---------------- */
 
 body {
@@ -147,7 +175,7 @@ body > header {
   position: sticky; top: 0; z-index: 2;
 }
 body > header .wordmark { font-size: var(--text-lg); }
-body > header > small { margin-right: auto; }
+
 body > header > a:not(.wordmark) { color: var(--fg-quiet); text-decoration: none; font-size: var(--text-sm); }
 body > header > a:not(.wordmark):hover { color: var(--accent); }
 
@@ -250,6 +278,7 @@ body.home main { max-width: none; padding: 0 var(--gutter) var(--space-7); }
   body > header { gap: var(--space-2) var(--space-4); }
   body > header > small, body > header > a[href^="https://www"] { display: none; }
   body > header .wordmark { margin-right: auto; }
+  search { order: 3; flex: 1 1 100%; margin-right: 0; }
   #pages { grid-row: 3; position: static; max-height: none; border-right: 0; border-top: var(--line) solid var(--line-c); padding-left: var(--gutter); }
   main { padding-top: var(--space-4); }
   pre, figure.session, mux-player { margin-inline: calc(-1 * var(--gutter)); border-radius: 0; border-inline: 0; }

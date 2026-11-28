@@ -59,11 +59,18 @@ def escape-html []: string -> string {
   str replace -a '&' '&amp;' | str replace -a '<' '&lt;' | str replace -a '>' '&gt;'
 }
 
-# The bar across the top of every page: the name, links out.
+# The bar across the top of every page: the name, search, links out.
 def topbar [] {
-  $'<header>
+  # Datastar expressions hold single quotes, which this string can't
+  let empty = "''"
+  let get = "@get('" + $BASE + "/search')"
+  $'<header data-signals:q="($empty)">
 <a class="wordmark" href="($BASE)/">cross.<span>stream</span></a>
 <small>xs docs</small>
+<search>
+<input type="search" placeholder="Search the docs" aria-label="Search the docs" data-bind:q data-on:input__debounce.200ms="($get)">
+<div id="results"></div>
+</search>
 <a href="https://www.cross.stream/">cross.stream</a>
 <a href="https://github.com/cablehead/xs">GitHub</a>
 <a href="https://discord.com/invite/YNbScHBHrh">Discord</a>
@@ -129,6 +136,31 @@ def home [] {
 </html>'
 }
 
+# Search: every page whose title or text holds the words, the title matches
+# first, each with the line it was found on. Read from the Markdown on each
+# request, as the pages are.
+def search [q: string] {
+  let words = $q | str downcase | split words | where ($it | str length) > 1
+  if ($words | is-empty) { return '<div id="results"></div>' }
+  let hits = pages | each {|p|
+    let title = $p.title | str downcase
+    let doc = read-page $p.file
+    let lines = $doc.body | lines | where {|l| ($l | str trim) != "" and not ($l | str starts-with "```") }
+    let found = $lines | where {|l| let low = $l | str downcase; $words | all {|w| $low | str contains $w } }
+    let in_title = $words | all {|w| $title | str contains $w }
+    if (not $in_title) and ($found | is-empty) { return null }
+    # the line it was found on, or the page's description when only the title matched
+    {page: $p score: ((if $in_title { 100 } else { 0 }) + ($found | length)) line: ($found | get 0? | default ($doc.meta.description? | default ""))}
+  } | compact | sort-by score --reverse | first 8
+  if ($hits | is-empty) { return $'<div id="results"><p>Nothing matches ($q | escape-html).</p></div>' }
+  let items = $hits | each {|h|
+    # the line as text: a link keeps its words, Markdown marks go
+    let snippet = $h.line | str replace -ra '\[([^\]]*)\]\([^)]*\)' '$1' | str replace -ra '^[#>|\s-]+|[`*]' '' | str trim | str substring 0..140 | escape-html
+    $'<li><a href="($BASE)/($h.page.slug)/"><span>($h.page.title | escape-html)</span> <small>($h.page.section)</small><p>($snippet)</p></a></li>'
+  } | str join
+  $'<div id="results"><ul>($items)</ul></div>'
+}
+
 # The demo page: for each example, its Markdown, the code that lays it out,
 # and the result.
 def demo [] {
@@ -153,6 +185,10 @@ def demo [] {
   if $page != null {
     let p = read-page $page.file
     layout $page.title $page.slug (md render (open --raw $page.file))
+  } else if $slug == "search" {
+    # a GET carries its signals in the query, so there is no body to read
+    let q = "" | from datastar-signals $req | get q? | default ""
+    search $q | to datastar-patch-elements | to sse
   } else if $slug == "syntax.css" {
     # code colours: Dracula, as the Astro docs used for their dark mode
     .highlight theme Dracula | metadata set { merge {'http.response': {headers: {content-type: "text/css"}}} }
