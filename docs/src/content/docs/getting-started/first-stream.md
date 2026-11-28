@@ -111,10 +111,10 @@ and then `cat` the stream:
 ```
 
 ```text output
-─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────meta──────────┬───ttl───
- 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │                        │
- 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"} │ forever
-───┴──────────┴───────────────────────────┴──────┴────────────────────────┴─────────
+─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────meta──────────
+ 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │
+ 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"}
+───┴──────────┴───────────────────────────┴──────┴────────────────────────
 ```
 
 These are the raw `frames` on the stream. Structured data lives inline in the
@@ -175,11 +175,11 @@ null | .append notes --meta {text: "submit TPS report"}
 ```
 
 ```text output
-─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────────meta──────────────┬───ttl───
- 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │                                │
- 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"}         │ forever
- 2 │ notes    │ 03d4qbrxizqgav09m7hicksb0 │      │ {text: "submit TPS report"}    │ forever
-───┴──────────┴───────────────────────────┴──────┴────────────────────────────────┴─────────
+─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────────meta──────────────
+ 0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │
+ 1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"}
+ 2 │ notes    │ 03d4qbrxizqgav09m7hicksb0 │      │ {text: "submit TPS report"}
+───┴──────────┴───────────────────────────┴──────┴────────────────────────────────
 ```
 
 We can get the most recent note on the stream using the `.last` command:

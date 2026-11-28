@@ -29,13 +29,13 @@ nodes: the frontmatter, each heading with its level, each code block with its
 language, each node with the lines it came from.
 
 ```nushell
-open --raw first-stream.md | from md --verbose | where type == code | first | reject children
+open --raw getting-started/first-stream.md | from md --verbose | where type == code | first | reject children
 ```
 
 ```text output
 {
   type: code,
-  position: {start: {line: 29, column: 1}, end: {line: 31, column: 4}},
+  position: {start: {line: 28, column: 1}, end: {line: 30, column: 4}},
   attrs: {value: "xs serve ./store", lang: bash, fence: true}
 }
 ```
@@ -97,7 +97,9 @@ null | .append notes --meta {text: "a quick note"}
 ───────┬─────────────────────────────
  topic │ notes
  id    │ 03d4q1qhbiv09ovtuhokw5yxv
+ hash  │
  meta  │ {text: "a quick note"}
+ ttl   │ forever
 ───────┴─────────────────────────────
 ```
 

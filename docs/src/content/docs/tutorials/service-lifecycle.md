@@ -53,11 +53,14 @@ Create a temporary file for the service to watch:
 touch /tmp/log.txt
 ```
 
-Now create a service that tails the file:
+Now create a service that tails the file. Each line it reads becomes a
+`log.recv` frame. A line is text, not a record, so `return_options` stores it
+in CAS (`target: "cas"`), where `.cas` reads it back:
 
 ```nushell
 r#'{
   run: {|| ^tail -F /tmp/log.txt | lines }
+  return_options: {target: "cas"}
 }'# | .append xs.service.log.create
 ```
 
@@ -119,6 +122,7 @@ Append a new `xs.service.log.create` while the service is running:
 ```nushell
 r#'{
   run: {|| ^tail -F /tmp/log.txt | lines | each {|line| $"[LOG] ($line)" } }
+  return_options: {target: "cas"}
 }'# | .append xs.service.log.create
 ```
 
@@ -177,6 +181,7 @@ Restart the service so we can see this in action:
 ```nushell
 r#'{
   run: {|| ^tail -F /tmp/log.txt | lines }
+  return_options: {target: "cas"}
 }'# | .append xs.service.log.create
 ```
 

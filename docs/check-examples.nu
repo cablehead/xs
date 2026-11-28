@@ -78,11 +78,13 @@ def run-page [xs: path, file: path]: nothing -> list {
   }
   let script = $"use ($XS_NU) *\n$env.XS_ADDR = '($store)'\n($steps | str join "\n")"
   # xs.nu runs `xs`, so the one being checked goes first on the PATH
+  # The page's commands run from the docs' content folder, so an example
+  # can open a page by its path there.
   # a block that never ends (a server, a stream followed without -f) would
   # hang the check: a page gets two minutes, and what it printed so far
   # counts. Its input is empty, as at a prompt: `.append` with nothing piped
   # in would otherwise wait on this script's input for ever.
-  let out = with-env {PATH: ($env.PATH | prepend ($xs | path dirname))} { do { "" | ^perl -e 'alarm shift; exec @ARGV' 120 nu --no-config-file -c $script } | complete }
+  let out = with-env {PATH: ($env.PATH | prepend ($xs | path dirname))} { cd $CONTENT; do { "" | ^perl -e 'alarm shift; exec @ARGV' 120 nu --no-config-file -c $script } | complete }
   job kill $job
   rm -rf $store
   let parts = $out.stdout | split row -r '<<<example \d+>>>\n?' | skip 1

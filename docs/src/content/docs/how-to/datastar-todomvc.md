@@ -51,7 +51,7 @@ What may not be intuitive about event sourcing - and by extension, [Datastar's](
        │  action │ add
        │  text   │ Learn event sourcing
        │ ────────┴──────────────────────
- ttl   │
+ ttl   │ forever
 ───────┴─────────────────────────────────────────────────────
 ```
 
@@ -90,7 +90,7 @@ $todo
        │  action │ add
        │  text   │ Build something cool
        │ ────────┴──────────────────────
- ttl   │
+ ttl   │ forever
 ───────┴─────────────────────────────────────────────────────
 ```
 
@@ -111,7 +111,7 @@ OK, now let's mark that second todo as complete. With event streams, you express
        │  action │ toggle
        │  id     │ 03elvd8txt25bf13qyggp0cdp
        │ ────────┴───────────────────────────
- ttl   │
+ ttl   │ forever
 ───────┴─────────────────────────────────────────────────────
 ```
 
