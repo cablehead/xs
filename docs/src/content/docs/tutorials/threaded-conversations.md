@@ -18,7 +18,11 @@ We'll use cross.stream to store those turns so we can rebuild the conversation h
 
 Start a local store in a separate terminal:
 
-```bash withOutput
+```bash
+
+```
+
+```text output
 xs serve ./chat-store
 ```
 

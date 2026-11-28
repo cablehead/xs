@@ -3,13 +3,13 @@ title: Installation
 description: Install cross.stream using cargo or homebrew
 sidebar:
   order: 1
+tabs: [install]
 ---
 
+## Install
 
+### brew
 
-<Tabs syncKey="installer">
-
-<TabItem label="brew">
 ```sh
 # Homebrew now asks you to trust a third-party tap before installing from it
 brew trust --formula cablehead/tap/cross-stream
@@ -23,9 +23,9 @@ Optionally start the store as a background service. This creates a store at the 
 ```sh
 brew services start cablehead/tap/cross-stream
 ```
-</TabItem>
 
-<TabItem label="eget">
+### eget
+
 [eget](https://github.com/zyedidia/eget) downloads prebuilt binaries from GitHub releases. We use [dagger](https://dagger.io) to run pipelines that generate binaries for macOS (ARM64), Linux (AMD64), and Linux (ARM64). See [our build pipeline](https://github.com/cablehead/xs/blob/main/.dagger/main.go) if you're interested in adding more platforms.
 
 If you don't have eget yet:
@@ -39,9 +39,9 @@ Then install `xs`:
 ```sh
 eget cablehead/xs
 ```
-</TabItem>
 
-<TabItem label="cargo">
+### cargo
+
 Works on Linux, macOS, and Windows.
 
 For fast installation using pre-built binaries:
@@ -55,9 +55,9 @@ Or build from source:
 ```sh
 cargo install cross-stream --locked
 ```
-</TabItem>
 
-<TabItem label="docker">
+### docker
+
 Run `xs` in a container with a pre-built image:
 
 ```sh
@@ -95,9 +95,9 @@ You can now run xs.nu commands like:
 ```nushell
 .cat
 ```
-</TabItem>
 
-<TabItem label="nix">
+### nix
+
 Install directly using the xs flake:
 
 ```sh
@@ -131,9 +131,6 @@ You can also add xs to your own flake:
   };
 }
 ```
-</TabItem>
-
-</Tabs>
 
 ## Verifying Installation
 

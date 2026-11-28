@@ -24,7 +24,11 @@ lifecycle so you can build intuition for what happens under the hood.
 
 Start a store in terminal 1:
 
-```bash withOutput
+```bash
+
+```
+
+```text output
 xs serve ./store
 ```
 
@@ -79,8 +83,11 @@ Write some lines to the file:
 Two `log.recv` frames appear, one per line. (Note: `recv`/`send` are
 app-namespace data topics, not under `xs.`.) Read the content back:
 
-```bash withOutput
-> .last log.recv | .cas $in.hash
+```nushell
+.last log.recv | .cas $in.hash
+```
+
+```text output
 world
 ```
 
@@ -125,8 +132,11 @@ Verify the new behaviour:
 "reloaded\n" | save -a /tmp/log.txt
 ```
 
-```bash withOutput
-> .last log.recv | .cas $in.hash
+```nushell
+.last log.recv | .cas $in.hash
+```
+
+```json output
 [LOG] reloaded
 ```
 

@@ -3,9 +3,8 @@ title: Your First Stream
 description: Create and interact with your first event stream
 sidebar:
   order: 2
+tabs: [append-command, cat-command, last-command, riffing]
 ---
-
-
 
 Let's create your first event stream.
 
@@ -27,8 +26,11 @@ subscribing to real-time updates from the event stream.
 
 Start an `xs` store in a dedicated window:
 
-```bash withOutput
-> xs serve ./store
+```bash
+xs serve ./store
+```
+
+```text output
 13:35:16.868 TRACE         event src/main.rs:185 Starting server with path: "./store"                                                                    xs:185
 13:35:16.957  INFO         read options=ReadOptions { follow: On, tail: false, last_id: None, limit: None }                                      xs::store:174
 13:35:16.957  INFO         read options=ReadOptions { follow: On, tail: true, last_id: None, limit: None }                                       xs::store:174
@@ -67,12 +69,13 @@ with-env {XS_ADDR: "./store"} { .cat }
 
 OK! Let's append our first event:
 
-<Tabs syncKey="shell">
+#### nushell
 
-<TabItem label="nushell">
+```nushell
+null | .append notes --meta {text: "a quick note"}
+```
 
-```nushell withOutput
-> null | .append notes --meta {text: "a quick note"}
+```text output
 ───────┬─────────────────────────────
  topic │ notes
  id    │ 03d4q1qhbiv09ovtuhokw5yxv
@@ -82,29 +85,27 @@ OK! Let's append our first event:
 ───────┴─────────────────────────────
 ```
 
-</TabItem>
+#### bash
 
-<TabItem label="bash">
-
-```bash withOutput
-> echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
-{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
+```bash
+echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
 ```
 
-</TabItem>
-
-</Tabs>
+```json output
+{"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
+```
 
 ### `cat` command
 
 and then `cat` the stream:
 
-<Tabs syncKey="shell">
+#### nushell
 
-<TabItem label="nushell">
+```nushell
+.cat
+```
 
-```nushell withOutput
-> .cat
+```text output
 ─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────meta──────────┬───ttl───
  0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │                        │
  1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"} │ forever
@@ -115,17 +116,21 @@ These are the raw `frames` on the stream. Structured data lives inline in the
 `meta` field. We have the full expressiveness of Nushell available to us --
 for example, we can read the note text directly:
 
-```nushell withOutput
-> .cat | last | $in.meta.text
+```nushell
+.cat | last | $in.meta.text
+```
+
+```text output
 a quick note
 ```
 
-</TabItem>
+#### bash
 
-<TabItem label="bash">
+```bash
+xs cat ./store
+```
 
-```bash withOutput
-> xs cat ./store
+```json output
 {"topic":"xs.start","id":"03d4qiab9g5vagrlrvxa2vjw0","hash":null,"meta":null,"ttl":null}
 {"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
 ```
@@ -133,14 +138,13 @@ a quick note
 These are the raw `frames` on the stream. Structured data lives inline in the
 `meta` field:
 
-```bash withOutput
-> xs cat ./store | tail -n1 | jq -r .meta.text
-a quick note
+```bash
+xs cat ./store | tail -n1 | jq -r .meta.text
 ```
 
-</TabItem>
-
-</Tabs>
+```text output
+a quick note
+```
 
 > [!TIP]
 > **When to use CAS**
@@ -154,13 +158,14 @@ a quick note
 
 Let's submit another note:
 
-<Tabs syncKey="shell">
+#### nushell
 
-<TabItem label="nushell">
+```nushell
+null | .append notes --meta {text: "submit TPS report"}
+.cat
+```
 
-```nushell withOutput
-> null | .append notes --meta {text: "submit TPS report"}
-> .cat
+```text output
 ─#─┬──topic───┬────────────id─────────────┬─hash─┬──────────────meta──────────────┬───ttl───
  0 │ xs.start │ 03d4q1o70y6ek0ig8hwy9q00n │      │                                │
  1 │ notes    │ 03d4q1qhbiv09ovtuhokw5yxv │      │ {text: "a quick note"}         │ forever
@@ -170,8 +175,11 @@ Let's submit another note:
 
 We can get the most recent note on the stream using the `.last` command:
 
-```nushell withOutput
-> .last notes
+```nushell
+.last notes
+```
+
+```text output
 ───────┬─────────────────────────────────
  topic │ notes
  id    │ 03d4qbrxizqgav09m7hicksb0
@@ -181,18 +189,22 @@ We can get the most recent note on the stream using the `.last` command:
 ───────┴─────────────────────────────────
 ```
 
-```nushell withOutput
-> .last notes | $in.meta.text
+```nushell
+.last notes | $in.meta.text
+```
+
+```text output
 submit TPS report
 ```
 
-</TabItem>
+#### bash
 
-<TabItem label="bash">
+```bash
+echo -n | xs append ./store notes --meta '{"text":"submit TPS report"}'
+xs cat ./store
+```
 
-```bash withOutput
-> echo -n | xs append ./store notes --meta '{"text":"submit TPS report"}'
-> xs cat ./store
+```json output
 {"topic":"xs.start","id":"03d4qiab9g5vagrlrvxa2vjw0","hash":null,"meta":null,"ttl":null}
 {"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
 {"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":null,"meta":{"text":"submit TPS report"},"ttl":"forever"}
@@ -200,32 +212,35 @@ submit TPS report
 
 We can get the most recent note on the stream using the `last` command:
 
-```bash withOutput
-> xs last ./store notes
+```bash
+xs last ./store notes
+```
+
+```json output
 {"topic":"notes","id":"03d4qjwnhwudlfyg1ygemmt7b","hash":null,"meta":{"text":"submit TPS report"},"ttl":"forever"}
 ```
 
-```bash withOutput
-> xs last ./store notes | jq -r .meta.text
-submit TPS report
+```bash
+xs last ./store notes | jq -r .meta.text
 ```
 
-</TabItem>
-
-</Tabs>
+```text output
+submit TPS report
+```
 
 ### riffing
 
 Finally, let's pull a list of all our notes.
 
-<Tabs syncKey="shell">
-
-<TabItem label="nushell">
+#### nushell
 
 We can filter by topic and then pull out the text of each note:
 
-```nushell withOutput
-> .cat | where topic == "notes" | each { $in.meta.text }
+```nushell
+.cat | where topic == "notes" | each { $in.meta.text }
+```
+
+```text output
 ───┬───────────────────
 0 │ a quick note
 1 │ submit TPS report
@@ -234,12 +249,13 @@ We can filter by topic and then pull out the text of each note:
 
 Fun!
 
-</TabItem>
+#### bash
 
-<TabItem label="bash">
+```bash
+xs cat ./store | jq -r 'select(.topic == "notes") | .meta.text'
+```
 
-```bash withOutput
-> xs cat ./store | jq -r 'select(.topic == "notes") | .meta.text'
+```text output
 a quick note
 submit TPS report
 ```
@@ -247,6 +263,3 @@ submit TPS report
 Fun! If you haven't already, check out the [Nushell](https://www.nushell.sh) tab. `xs` pairs
 well with Nushell's structured data pipeline.
 
-</TabItem>
-
-</Tabs>

@@ -122,7 +122,11 @@ is frames from the store.
 
 In terminal 1:
 
-```bash withOutput
+```bash
+
+```
+
+```text output
 xs serve ./store
 ```
 
@@ -165,8 +169,11 @@ The monitor shows `revenue.active`. The actor is live.
 
 Three `revenue.total` frames appear. Check the latest:
 
-```bash withOutput
-> .last revenue.total | get meta.total
+```nushell
+.last revenue.total | get meta.total
+```
+
+```text output
 70.48
 ```
 

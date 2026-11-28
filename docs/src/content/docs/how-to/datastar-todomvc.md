@@ -50,8 +50,11 @@ This tutorial demonstrates the hypermedia/immediate mode approach to web develop
 
 What may not be intuitive about event sourcing - and by extension, [Datastar's](https://data-star.dev) hypermedia approach - is when you have an idea, you don't start with the UI. You start with the event stream. I like to call this "stream driven development". So, we're making a todo app? Let's start by adding a todo event to the stream and build from there:
 
-```bash withOutput
-> .append todos --meta {action: "add", text: "Learn event sourcing"}
+```nushell
+.append todos --meta {action: "add", text: "Learn event sourcing"}
+```
+
+```text output
 ───────┬─────────────────────────────────────────────────────
  topic │ todos
  id    │ 03elvd78yq84vp6botmro8jyt
@@ -68,8 +71,11 @@ What may not be intuitive about event sourcing - and by extension, [Datastar's](
 
 Check what's in the store:
 
-```bash withOutput
-> .cat | where topic == "todos"
+```nushell
+.cat | where topic == "todos"
+```
+
+```text output
 ─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
  0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
    │       │                           │      │  action │ add
@@ -82,9 +88,12 @@ Check what's in the store:
 
 Now let's add a second todo and capture the returned frame:
 
-```bash withOutput
-> let todo = .append todos --meta {action: "add", text: "Build something cool"}
-> $todo
+```bash
+let todo = .append todos --meta {action: "add", text: "Build something cool"}
+$todo
+```
+
+```text output
 ───────┬─────────────────────────────────────────────────────
  topic │ todos
  id    │ 03elvd8txt25bf13qyggp0cdp
@@ -101,8 +110,11 @@ Now let's add a second todo and capture the returned frame:
 
 OK, now let's mark that second todo as complete. With event streams, you express updates by appending more events. We'll make use of metadata to point to the frame we are modifying:
 
-```bash withOutput
-> .append todos --meta {action: "toggle", id: $todo.id}
+```nushell
+.append todos --meta {action: "toggle", id: $todo.id}
+```
+
+```text output
 ───────┬─────────────────────────────────────────────────────
  topic │ todos
  id    │ 03elvdlutpeeusqvf1xfdf7ig
@@ -117,8 +129,11 @@ OK, now let's mark that second todo as complete. With event streams, you express
 
 Check the stream:
 
-```bash withOutput
-> .cat | where topic == "todos"
+```nushell
+.cat | where topic == "todos"
+```
+
+```text output
 ─#─┬─topic─┬────────────id─────────────┬─hash─┬──────────────meta───────────────
  0 │ todos │ 03elvd78yq84vp6botmro8jyt │      │ ────────┬──────────────────────
    │       │                           │      │  action │ add
@@ -141,24 +156,27 @@ You now have three events: two "add" events and one "toggle" event.
 
 Raw events are awkward for presenting a summary of the current state of things. We want to create a projection of the stream. We can use Nushell's `generate` command to aggregate events into state:
 
-```bash withOutput wrap
-> .cat | where topic == "todos" | generate {|frame, todos = []|
->   match $frame.meta.action {
->     "add" => {
->       $todos
->       | append {id: $frame.id text: $frame.meta.text completed: false}
->       | {out: $in next: $in}
->     }
->     "toggle" => {
->       $todos | each {|todo|
->         if $todo.id == $frame.meta.id {
->           {id: $todo.id text: $todo.text completed: (not $todo.completed)}
->         } else { $todo }
->       } | {out: $in next: $in}
->     }
->     _ => {next: $todos}
->   }
-> } | last
+```nushell
+.cat | where topic == "todos" | generate {|frame, todos = []|
+  match $frame.meta.action {
+    "add" => {
+      $todos
+      | append {id: $frame.id text: $frame.meta.text completed: false}
+      | {out: $in next: $in}
+    }
+    "toggle" => {
+      $todos | each {|todo|
+        if $todo.id == $frame.meta.id {
+          {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+        } else { $todo }
+      } | {out: $in next: $in}
+    }
+    _ => {next: $todos}
+  }
+} | last
+```
+
+```text output
 ─#─┬────────────id─────────────┬─────────text─────────┬─completed─
  0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
  1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ true
@@ -180,24 +198,27 @@ This shows the current aggregated state: a list of todos with their completion s
 
 Let's see the aggregated projection update in real-time. In a second terminal window, run the [same generate command](#aggregated-view) with live streaming:
 
-```bash withOutput
-> .cat -f | where topic == "todos" | generate {|frame, todos = []|
->   match $frame.meta.action {
->     "add" => {
->       $todos
->       | append {id: $frame.id text: $frame.meta.text completed: false}
->       | {out: $in next: $in}
->     }
->     "toggle" => {
->       $todos | each {|todo|
->         if $todo.id == $frame.meta.id {
->           {id: $todo.id text: $todo.text completed: (not $todo.completed)}
->         } else { $todo }
->       } | {out: $in next: $in}
->     }
->     _ => {next: $todos}
->   }
-> } | each { print ($in | table -e) }
+```nushell
+.cat -f | where topic == "todos" | generate {|frame, todos = []|
+  match $frame.meta.action {
+    "add" => {
+      $todos
+      | append {id: $frame.id text: $frame.meta.text completed: false}
+      | {out: $in next: $in}
+    }
+    "toggle" => {
+      $todos | each {|todo|
+        if $todo.id == $frame.meta.id {
+          {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+        } else { $todo }
+      } | {out: $in next: $in}
+    }
+    _ => {next: $todos}
+  }
+} | each { print ($in | table -e) }
+```
+
+```text output
 ─#─┬────────────id─────────────┬─────────text─────────┬─completed─
  0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
 ───┴───────────────────────────┴──────────────────────┴───────────
@@ -215,13 +236,17 @@ Let's see the aggregated projection update in real-time. In a second terminal wi
 
 You see three outputs - one for each event processed so far. Now toggle that same todo back to incomplete:
 
-```bash withOutput
-> .append todos --meta {action: "toggle", id: $todo.id}
+```nushell
+.append todos --meta {action: "toggle", id: $todo.id}
 ```
 
 In your watching terminal, you immediately see the new aggregated state:
 
-```bash withOutput
+```bash
+
+```
+
+```text output
 ─#─┬────────────id─────────────┬─────────text─────────┬─completed─
  0 │ 03elvd78yq84vp6botmro8jyt │ Learn event sourcing │ false
  1 │ 03elvd8txt25bf13qyggp0cdp │ Build something cool │ false
@@ -234,17 +259,17 @@ Notice both todos now show as incomplete. The aggregated projection automaticall
 
 Now let's visualize this projection as HTML fragments. First, save a Jinja2 template:
 
-```bash withOutput
-> r#'<ul id="todos">
-> {%- for todo in todos %}
-> <li data-completed="{{ todo.completed }}">
->   <label>
->     <input type="checkbox" {% if todo.completed %}checked{% endif %} disabled />
->     {{ todo.text }}
->   </label>
-> </li>
-> {% endfor -%}
-> </ul>'# | save todo_template.html
+```bash
+r#'<ul id="todos">
+{%- for todo in todos %}
+<li data-completed="{{ todo.completed }}">
+  <label>
+    <input type="checkbox" {% if todo.completed %}checked{% endif %} disabled />
+    {{ todo.text }}
+  </label>
+</li>
+{% endfor -%}
+</ul>'# | save todo_template.html
 ```
 
 ### minijinja-cli
@@ -255,16 +280,19 @@ Now let's visualize this projection as HTML fragments. First, save a Jinja2 temp
 - `-f json` - expect JSON input format
 - `-` - read the data that will be fed to the template from stdin
 
-```bash withOutput
-> [{
->   id: "1"
->   text: "Test todo"
->   completed: false
-> } {
->   id: "2"
->   text: "Done todo"
->   completed: true
-> }] | {todos: $in} | to json -r | minijinja-cli -f json todo_template.html -
+```bash
+[{
+  id: "1"
+  text: "Test todo"
+  completed: false
+} {
+  id: "2"
+  text: "Done todo"
+  completed: true
+}] | {todos: $in} | to json -r | minijinja-cli -f json todo_template.html -
+```
+
+```text output
 <ul id="todos">
 <li data-completed="false">
   <label>
@@ -283,24 +311,27 @@ Now let's visualize this projection as HTML fragments. First, save a Jinja2 temp
 
 Now run the live stream with HTML rendering:
 
-```bash withOutput
-> .cat -f | where topic == "todos" | generate {|frame, todos = []|
->   match $frame.meta.action {
->     "add" => {
->       $todos
->       | append {id: $frame.id text: $frame.meta.text completed: false}
->       | {out: $in next: $in}
->     }
->     "toggle" => {
->       $todos | each {|todo|
->         if $todo.id == $frame.meta.id {
->           {id: $todo.id text: $todo.text completed: (not $todo.completed)}
->         } else { $todo }
->       } | {out: $in next: $in}
->     }
->     _ => {next: $todos}
->   }
-> } | each { {todos: $in} | to json -r | minijinja-cli -f json todo_template.html - | print $in }
+```nushell
+.cat -f | where topic == "todos" | generate {|frame, todos = []|
+  match $frame.meta.action {
+    "add" => {
+      $todos
+      | append {id: $frame.id text: $frame.meta.text completed: false}
+      | {out: $in next: $in}
+    }
+    "toggle" => {
+      $todos | each {|todo|
+        if $todo.id == $frame.meta.id {
+          {id: $todo.id text: $todo.text completed: (not $todo.completed)}
+        } else { $todo }
+      } | {out: $in next: $in}
+    }
+    _ => {next: $todos}
+  }
+} | each { {todos: $in} | to json -r | minijinja-cli -f json todo_template.html - | print $in }
+```
+
+```text output
 <ul>
 <li data-completed="false">
   <label>
@@ -330,10 +361,10 @@ Now run the live stream with HTML rendering:
 
 Now toggle the todo several more times and watch the HTML fragments update in real-time:
 
-```bash withOutput
-> .append todos --meta {action: "toggle", id: $todo.id}
-> .append todos --meta {action: "toggle", id: $todo.id}
-> .append todos --meta {action: "toggle", id: $todo.id}
+```nushell
+.append todos --meta {action: "toggle", id: $todo.id}
+.append todos --meta {action: "toggle", id: $todo.id}
+.append todos --meta {action: "toggle", id: $todo.id}
 ```
 
 Each append immediately triggers a new HTML fragment in your watching terminal, showing the updated todo states.
