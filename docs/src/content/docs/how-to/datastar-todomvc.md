@@ -17,21 +17,9 @@ This tutorial demonstrates the hypermedia/immediate mode approach to web develop
 
 ![Datastar TodoMVC Demo](../../../assets/datastar.gif)
 
-<CardGrid>
-  <Card title="Live Demo" icon="rocket">
-    **[Try it live](https://datastar-todomvc.cross.stream)** - historical snapshot
-    using Datastar v1.0.0-RC.5.
-  </Card>
-  <Card title="Original Guide" icon="open-book">
-    **[Datastar's TodoMVC example](https://data-star.dev/examples/todomvc)** -
-    the original implementation this is based on.
-  </Card>
-  <Card title="Source Code" icon="github">
-    **[View on
-    GitHub](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc)**
-    - explore the complete working example.
-  </Card>
-</CardGrid>
+- **Live demo:** [try it live](https://datastar-todomvc.cross.stream), a historical snapshot using Datastar v1.0.0-RC.5.
+- **Original guide:** [Datastar's TodoMVC example](https://data-star.dev/examples/todomvc), the original implementation this is based on.
+- **Source code:** [view on GitHub](https://github.com/cablehead/xs/tree/main/examples/datastar-todomvc), the complete working example.
 
 ## What You'll Learn
 
