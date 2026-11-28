@@ -1,0 +1,242 @@
+/* site.css: www.cross.stream. Built the way n2's pages and the instant-intent
+   page are: every value is a token, raw tags are styled once and make most of
+   the page, and a class names a block or a state, never a look. The feel is
+   the old site's: a dark terminal, monospace, the glowing "stream".
+
+   Colour has a job each time it is used:
+   - the brand colours name a kind (an xs part, a frame's topic), one each;
+   - the accent marks what you can act on (links, the picked query);
+   - everything else is the neutrals. */
+
+/* ---- tokens -------------------------------------------------------------- */
+
+/* Fonts come from stellar.css: --font-mono for the page, and
+   --font-monospace-slab-serif (Courier New) inside the terminals. */
+
+:root {
+  /* Colours come from stellar.css's named ramps, generated from the seeds in
+     stellar.config.json: a seed is step 0, higher steps are lighter, and
+     each step has an -on colour for text on it and a -dim one for quieter
+     text, as http-nu's site does. */
+  --bg: var(--named-night-0);
+  --surface: var(--named-night-1);
+  --surface-2: var(--named-night-2);   /* a terminal's title bar */
+  --term-bg: var(--named-terminal-0);
+  --line-c: var(--named-night-4);
+  --fg: var(--named-night-0-on);
+  --fg-quiet: var(--named-night-0-dim);
+  --accent: var(--named-blue-0);
+  --accent-strong: var(--named-blue-2);
+  --glow: var(--named-glow-0);
+
+  --brand-blue: var(--named-blue-0);
+  --brand-amber: var(--named-amber-0);
+  --brand-violet: var(--named-violet-0);
+  --brand-green: var(--named-green-0);
+  --brand-red: var(--named-red-0);
+  --brand-teal: var(--named-teal-0);
+
+  /* a picture of a Mac window's buttons, not a colour with a job */
+  --dot-red: #ff5f56;
+  --dot-amber: #ffbd2e;
+  --dot-green: #27ca3f;
+
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: clamp(2.25rem, 7vw, 3rem);
+  --text-tag: 1.2rem;
+  --leading: 1.5;
+  --leading-code: 2;   /* a terminal's lines, each its own command */
+  --bar: 2.75rem;      /* a terminal's title bar */
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2rem;
+  --space-6: 3rem;
+  --space-7: 5rem;
+
+  --page: 64rem;
+  --line: 1px;
+  --radius: 8px;
+  --dot: 0.75rem;
+  --fade: 0.2s;
+  --flow: 3s;
+}
+
+/* ---- raw tags ------------------------------------------------------------ */
+
+* { box-sizing: border-box; margin: 0; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--text-md)/var(--leading) var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  --gutter: clamp(var(--space-3), 4vw, var(--space-6));
+  padding: 20vh var(--gutter) var(--space-5);
+}
+header, main, footer { max-width: var(--page); margin-inline: auto; }
+h1, h2, h3 { font-weight: normal; color: var(--fg); }
+h2 { font-size: var(--text-lg); color: var(--accent); }
+h3 { font-size: var(--text-md); }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { color: var(--accent-strong); }
+code { font: inherit; color: var(--fg); }
+pre { font: var(--text-md)/var(--leading-code) var(--font-monospace-slab-serif); white-space: pre-wrap; overflow-x: auto; }
+small { font-size: var(--text-sm); color: var(--fg-quiet); }
+time { color: var(--fg-quiet); font-size: var(--text-sm); }
+table { border-collapse: collapse; font: var(--text-md)/var(--leading) var(--font-monospace-slab-serif); }
+td { padding: var(--space-1) var(--space-3); border: var(--line) solid var(--line-c); }
+td:first-child { color: var(--fg-quiet); text-align: right; }
+ol { list-style: none; padding: 0; }
+button {
+  font: var(--text-sm) var(--font-mono);
+  color: var(--fg);
+  background: var(--bg);
+  border: var(--line) solid var(--line-c);
+  border-radius: calc(var(--radius) / 2);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition: border-color var(--fade), color var(--fade);
+}
+button:hover { border-color: var(--accent); }
+
+/* flow: the space between blocks comes from the tags */
+main > * + * { margin-top: var(--space-6); }
+section > * + * { margin-top: var(--space-3); }
+h2 { padding-bottom: var(--space-2); border-bottom: var(--line) solid var(--line-c); }
+
+/* ---- the header: the name glowing, the line under it, where to go -------- */
+
+header { text-align: center; margin-bottom: var(--space-7); }
+h1 { font-size: var(--text-xl); letter-spacing: 0.02em; }
+h1 > span, footer a > span {
+  background: linear-gradient(45deg, var(--glow), var(--accent), var(--accent-strong), var(--accent), var(--glow)) 0 50% / 200% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--glow) 60%, transparent), 0 0 24px color-mix(in srgb, var(--glow) 40%, transparent);
+  animation: flow var(--flow) ease-in-out infinite;
+}
+@keyframes flow { 50% { background-position: 100% 50%; } }
+@media (prefers-reduced-motion: reduce) { h1 > span, footer a > span { animation: none; } }
+header > p { margin: var(--space-6) auto 0; font-size: var(--text-tag); font-style: italic; color: var(--fg); }
+
+/* where to go: links set as keys, the first one leading */
+nav { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-6); }
+nav > a {
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--line-c);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color var(--fade);
+}
+nav > a:first-child { border-color: var(--accent); color: var(--accent); }
+nav > a:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+nav > a:has(time) { border-color: transparent; background: none; }
+
+/* ---- a terminal: a figure with three dots ------------------------------- */
+
+figure.term {
+  position: relative;
+  background: var(--term-bg);
+  border: var(--line) solid var(--line-c);
+  border-radius: var(--radius);
+  padding: calc(var(--bar) + var(--space-4)) var(--space-4) var(--space-4);
+  overflow: hidden;
+}
+/* the title bar: a band across the top with the three dots */
+figure.term::after {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: var(--bar);
+  background: var(--surface-2);
+  border-bottom: var(--line) solid var(--line-c);
+}
+figure.term::before {
+  content: "";
+  position: absolute; z-index: 1; top: calc((var(--bar) - var(--dot)) / 2); left: var(--space-3);
+  width: var(--dot); height: var(--dot); border-radius: 50%;
+  background: var(--dot-red);
+  box-shadow: calc(var(--dot) * 1.6) 0 var(--dot-amber), calc(var(--dot) * 3.2) 0 var(--dot-green);
+}
+figure.term > * + * { margin-top: var(--space-3); }
+.prompt { color: var(--fg-quiet); }
+.cmd { color: var(--brand-amber); }
+.comment { color: var(--fg-quiet); }
+
+/* the terminal's caption sits on the dots' line: a name and the queries */
+figcaption {
+  position: absolute; z-index: 1; top: 0; height: var(--bar); left: calc(var(--space-3) + var(--dot) * 5.2); right: var(--space-2);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--brand-amber);
+}
+figcaption > span { margin-right: auto; }
+
+/* the picked query wears its topic's colour, as the frames it reads do */
+figcaption > button { border-color: var(--line-c); }
+figcaption > button:hover { border-color: var(--kind); }
+button.picked { color: var(--kind); border-color: var(--kind); background: color-mix(in srgb, var(--kind) 15%, transparent); }
+
+/* the store's frames: a topic is a kind, so it takes its brand colour; the
+   frames the picked query reads stand out, the rest fade */
+.frames { display: grid; gap: calc(var(--space-1) * 1.5); }   /* 6px, as the old store */
+/* a frame: tinted in its topic's colour, its id a little fainter, set in
+   the browser's own monospace at 13 px as the old site's frames were */
+.frames > li {
+  display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
+  padding: 10px 14px;
+  font: var(--text-sm)/var(--leading-code) var(--font-monospace-slab-serif);
+  color: var(--kind);
+  background: color-mix(in srgb, var(--kind) 15%, transparent);
+  border: var(--line) solid var(--kind);
+  border-radius: calc(var(--radius) / 2);
+  opacity: 0.3;
+  transition: opacity var(--fade);
+}
+.frames code { font: inherit; color: inherit; opacity: 0.7; letter-spacing: -0.5px; overflow: hidden; text-overflow: ellipsis; }
+.frames > li.on { opacity: 1; }
+
+/* ---- the parts of xs: tiles, each title in its kind's brand colour ------- */
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-3); }
+.tiles > * + * { margin-top: 0; }
+.tiles > a {
+  display: block;
+  padding: var(--space-4);
+  background: var(--surface);
+  border: var(--line) solid var(--line-c);
+  border-radius: var(--radius);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color var(--fade);
+}
+.tiles > a:hover { border-color: var(--kind); }
+.tiles h3 { color: var(--kind); margin-bottom: var(--space-2); }
+.tiles p { font-size: var(--text-sm); }
+
+/* ---- layout -------------------------------------------------------------- */
+
+.row { display: grid; grid-template-columns: auto minmax(min(24rem, 100%), 1fr); gap: var(--space-3); align-items: start; }
+.row > * { margin: 0; }
+footer {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-4);
+  margin-top: var(--space-7); padding-top: var(--space-5);
+  border-top: var(--line) solid var(--line-c);
+  font-size: var(--text-sm);
+}
+footer a { text-decoration: none; }
+footer a:nth-child(3) { color: var(--fg); }
+
+/* narrow: one column, terminals run to the screen's edges */
+@media (max-width: 760px) {
+  body { padding-top: var(--space-6); }
+  .row { grid-template-columns: 1fr; }
+  figure.term { margin-inline: calc(-1 * var(--gutter)); border-radius: 0; border-inline: 0; }
+  figcaption > span { display: none; }
+}
