@@ -12,6 +12,8 @@
 # One HTML tag passes through as written: `<mux-player>`, Mux's video
 # player. Every other tag is escaped by `.md`. The player's script goes in
 # once, just before the first player on the page.
+# A ```mermaid block becomes a diagram, drawn in the browser by mermaid's
+# script, which also goes in once, before the first diagram.
 
 def node-text []: record -> string {
   let n = $in
@@ -68,6 +70,34 @@ def is-player [lines: list<string>]: record -> bool {
   $in.type == "html" and (raw-of $lines [$in] | str trim | str starts-with "<mux-player")
 }
 
+const MERMAID_SCRIPT = '<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.esm.min.mjs"
+// mermaid draws on load by itself, with its own colours, unless told not to
+mermaid.initialize({ startOnLoad: false })
+// mermaid takes hex colours, so each colour token of the page is read
+// back through a canvas, which turns any CSS colour into its pixel. It
+// waits for the page to load, so the stylesheets are there to read.
+if (document.readyState !== "complete") await new Promise(done => addEventListener("load", done))
+const page = getComputedStyle(document.body)
+const ink = document.createElement("canvas").getContext("2d")
+const hex = name => {
+  ink.fillStyle = page.getPropertyValue(name).trim(); ink.fillRect(0, 0, 1, 1)
+  return "#" + [...ink.getImageData(0, 0, 1, 1).data].slice(0, 3).map(v => v.toString(16).padStart(2, "0")).join("")
+}
+mermaid.initialize({ startOnLoad: false, theme: "base", fontFamily: page.fontFamily, themeVariables: {
+  darkMode: true, fontFamily: page.fontFamily, background: hex("--bg"),
+  primaryColor: hex("--surface"), primaryTextColor: hex("--fg"), primaryBorderColor: hex("--accent"),
+  secondaryColor: hex("--surface-2"), tertiaryColor: hex("--bg"),
+  lineColor: hex("--fg-quiet"), textColor: hex("--fg"),
+  clusterBkg: hex("--bg"), clusterBorder: hex("--line-c"), edgeLabelBackground: hex("--bg"),
+} })
+await mermaid.run()
+</script>'
+
+def is-diagram []: record -> bool {
+  $in.type == "code" and ($in.attrs.lang? | default "") == "mermaid"
+}
+
 const MUX_SCRIPT = '<script src="https://cdn.jsdelivr.net/npm/@mux/mux-player@3.14.1" defer></script>'
 
 def is-comment [word: string]: record -> bool {
@@ -86,6 +116,10 @@ def render-nodes [lines: list<string> nodes: list]: nothing -> string {
     if $n.type == "code" and $next != null and $next.type == "code" and ($next.attrs.meta? | default "" | split words | any {|w| $w == "output" }) {
       $out = ($out | append (session-html $lines $n $next))
       $i = $i + 2
+    } else if ($n | is-diagram) {
+      let src = $n.attrs.value | str replace -a '&' '&amp;' | str replace -a '<' '&lt;' | str replace -a '>' '&gt;'
+      $out = ($out | append $'<pre class="mermaid">($src)</pre>')
+      $i = $i + 1
     } else if ($n | is-player $lines) {
       $out = ($out | append (raw-of $lines [$n]))
       $i = $i + 1
@@ -128,4 +162,5 @@ export def "md render" [text: string]: nothing -> string {
   let html = render-nodes $lines (blocks $lines ($text | from md --verbose | where type != yaml))
   # str replace changes only the first match
   $html | str replace "<mux-player" $"($MUX_SCRIPT)\n<mux-player"
+  | str replace '<pre class="mermaid">' $"($MERMAID_SCRIPT)\n<pre class=\"mermaid\">"
 }

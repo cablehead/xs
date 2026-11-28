@@ -232,6 +232,9 @@ mux-player {
   box-shadow: 0 0 30px color-mix(in srgb, var(--glow) 45%, transparent);
 }
 
+/* a diagram: drawn by mermaid in the browser, on the page itself */
+pre.mermaid { background: none; border: 0; padding: 0; text-align: center; color: var(--fg-quiet); }
+
 /* the demo page: the Markdown and the code, then what they render */
 pre.source { background: var(--surface); }
 .rendered { border: var(--line) dashed var(--line-c); border-radius: var(--radius); padding: var(--space-4); }
