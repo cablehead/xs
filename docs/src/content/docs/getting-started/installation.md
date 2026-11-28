@@ -3,10 +3,9 @@ title: Installation
 description: Install cross.stream using cargo or homebrew
 sidebar:
   order: 1
-tabs: [install]
 ---
 
-## Install
+<!-- tabs -->
 
 ### brew
 
@@ -131,6 +130,8 @@ You can also add xs to your own flake:
   };
 }
 ```
+
+<!-- /tabs -->
 
 ## Verifying Installation
 

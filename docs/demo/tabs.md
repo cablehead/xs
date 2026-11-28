@@ -1,9 +1,10 @@
 ---
 title: Installation
-tabs: [install]
 ---
 
 ## Install
+
+<!-- tabs -->
 
 ### brew
 
@@ -28,3 +29,5 @@ eget cablehead/xs
 ```sh
 cargo binstall cross-stream
 ```
+
+<!-- /tabs -->

@@ -3,7 +3,6 @@ title: Your First Stream
 description: Create and interact with your first event stream
 sidebar:
   order: 2
-tabs: [append-command, cat-command, last-command, riffing]
 ---
 
 Let's create your first event stream.
@@ -69,6 +68,8 @@ with-env {XS_ADDR: "./store"} { .cat }
 
 OK! Let's append our first event:
 
+<!-- tabs -->
+
 #### nushell
 
 ```nushell
@@ -95,9 +96,13 @@ echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
 {"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","hash":null,"meta":{"text":"a quick note"},"ttl":"forever"}
 ```
 
+<!-- /tabs -->
+
 ### `cat` command
 
 and then `cat` the stream:
+
+<!-- tabs -->
 
 #### nushell
 
@@ -146,6 +151,8 @@ xs cat ./store | tail -n1 | jq -r .meta.text
 a quick note
 ```
 
+<!-- /tabs -->
+
 > [!TIP]
 > **When to use CAS**
 >
@@ -157,6 +164,8 @@ a quick note
 ### `.last` command
 
 Let's submit another note:
+
+<!-- tabs -->
 
 #### nushell
 
@@ -228,9 +237,13 @@ xs last ./store notes | jq -r .meta.text
 submit TPS report
 ```
 
+<!-- /tabs -->
+
 ### riffing
 
 Finally, let's pull a list of all our notes.
+
+<!-- tabs -->
 
 #### nushell
 
@@ -263,3 +276,4 @@ submit TPS report
 Fun! If you haven't already, check out the [Nushell](https://www.nushell.sh) tab. `xs` pairs
 well with Nushell's structured data pipeline.
 
+<!-- /tabs -->

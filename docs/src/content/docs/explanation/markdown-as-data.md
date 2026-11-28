@@ -3,7 +3,6 @@ title: Markdown as data
 description: Why the docs are plain Markdown, read as data and laid out by the server
 sidebar:
   order: 3
-tabs: [two-shells]
 ---
 
 A docs page is mostly prose and code, which Markdown handles well. It can't say
@@ -43,29 +42,30 @@ open --raw first-stream.md | from md --verbose | where type == code | first | re
 
 Once a page is a list, layout is ordinary code. `markdown.nu` walks the nodes.
 Most go straight to `.md`, a node at a time, so highlighting and tables come
-out exactly as before. When the walk meets a section named for tabs, or a code
-block followed by its output, it draws those differently.
+out exactly as before. When the walk meets a group of tabs, or a code block
+followed by its output, it draws those differently.
 
 ## The marks
 
 Each mark sits where it applies.
 
-A section has a name, its heading, so tabs are named in the frontmatter. Every
-heading one level down inside that section becomes a tab, labelled with the
-heading's text:
+A group of tabs opens and closes with an HTML comment, like a pair of braces.
+The first heading inside sets the level, and each heading at that level becomes
+a tab, labelled with its text:
 
 ```markdown
----
-tabs: [install]
----
-
-## Install
+<!-- tabs -->
 
 ### brew
 ...
 ### cargo
 ...
+
+<!-- /tabs -->
 ```
+
+Anything after the closing comment is outside the group, so a note that
+follows the tabs shows whichever tab is picked.
 
 A code block has no name, so output is marked on the block itself, with a
 second word after the language:
@@ -80,10 +80,12 @@ echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
 ```
 ````
 
-This page uses both. Here is one command in two shells. The tabs are named
-`two-shells` in this page's frontmatter, and each output block says `output`:
+This page uses both. Here is one command in two shells, with the group
+between a pair of comments, and each output block marked `output`:
 
 ## Two shells
+
+<!-- tabs -->
 
 ### nushell
 
@@ -109,13 +111,14 @@ echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
 {"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","meta":{"text":"a quick note"}}
 ```
 
+<!-- /tabs -->
+
 ## On GitHub
 
-Both marks are things GitHub already passes over. It shows the frontmatter as a
-small table at the top of the file, and it reads only the first word after a
-fence's backticks, so `json output` highlights as JSON. On
-GitHub the install section reads as a heading per method, one after another,
-which is a fine way to read it.
+Both marks are things GitHub already passes over. It hides HTML comments, and
+it reads only the first word after a fence's backticks, so `json output`
+highlights as JSON. On GitHub the install section reads as a heading per
+method, one after another, which is a fine way to read it.
 
 That rules out most of the syntax other tools use for the same job. Markdoc
 writes `{% tabs %}`, Pandoc and Djot write `::: tabs`, MyST writes
@@ -124,8 +127,19 @@ renderer and shows as stray text everywhere else.
 
 ## Alternatives
 
-An HTML comment around the tabs, `<!-- tabs -->`, is invisible on GitHub. But
-`.md` escapes HTML, comments included, so it printed the marker on the page.
+The first version named the tabbed sections in the frontmatter, `tabs:
+[install]`, and each tab ran to the next heading. The frontmatter could open a
+group but not close it, so a note after the tabs landed in the last one. A
+`---` block can't be reopened mid-page either: both Nushell's parser and GitHub
+read it as a rule and a heading. Comments close the group where it ends.
+
+Comments on their own didn't work at first: `.md` escapes HTML, comments
+included, so it printed the marker on the page. Reading the page as data fixed
+that, since the walk takes the comment out before `.md` sees anything.
+
+A link definition, `[//]: # (tabs)`, is hidden on GitHub too, and reaches the
+walk as a node of its own. It was passed over for comments, which read more
+plainly.
 
 A `console` code block is GitHub's convention for a terminal session: lines
 starting `$ ` are commands, the rest is their output. There is no session
@@ -138,12 +152,8 @@ read. They were set aside for the data approach, which needs nothing new in
 
 ## Limits
 
-A tab runs to the next heading. So whatever follows a group of tabs inside the
-same section lands in the last tab. A note placed after the tabs has to move
-above them, or under a heading of its own.
-
-The frontmatter can only name sections, by their headings. Two sections with
-the same heading on one page would both become tabs.
+A group without its closing comment runs to the end of the page. Tabs can't
+sit inside other tabs: the first closing comment ends the group.
 
 ## The code
 
