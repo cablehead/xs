@@ -23,3 +23,12 @@ pre { overflow-x: auto; padding: 0.75rem 1rem; background: #8881; border-radius:
 blockquote[class^="markdown-alert"] { margin: 1rem 0; padding: 0.5rem 1rem; border-left: 4px solid #888; background: #8881; }
 blockquote.markdown-alert-tip { border-color: #2a8; }
 blockquote.markdown-alert-caution, blockquote.markdown-alert-warning { border-color: #c80; }
+pre.source { background: #f3f0e8; }
+.rendered { border: 1px solid #8884; padding: 0 1rem; border-radius: 4px; }
+.tabs [role=tablist] { display: flex; gap: 0.25rem; border-bottom: 1px solid #8886; }
+.tabs [role=tab] { border: 0; background: none; padding: 0.4rem 0.8rem; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
+.tabs [role=tab][aria-selected] { border-bottom-color: currentColor; font-weight: 600; }
+figure.session { margin: 1rem 0; }
+figure.session pre { margin: 0; }
+figure.session pre + pre { border-top: 1px dashed #8886; border-top-left-radius: 0; border-top-right-radius: 0; }
+figure.session pre:first-child { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
