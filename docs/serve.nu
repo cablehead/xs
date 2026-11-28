@@ -71,7 +71,7 @@ def topbar [] {
 <input type="search" placeholder="Search the docs" aria-label="Search the docs" data-bind:q data-on:input__debounce.200ms="($get)">
 <div id="results"></div>
 </search>
-<a href="https://www.cross.stream/">cross.stream</a>
+<a href="/">cross.stream</a>
 <a href="https://github.com/cablehead/xs">GitHub</a>
 <a href="https://discord.com/invite/YNbScHBHrh">Discord</a>
 </header>'

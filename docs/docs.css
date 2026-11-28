@@ -299,7 +299,7 @@ body.home main { max-width: none; padding: 0 var(--gutter) var(--space-7); }
 @media (max-width: 760px) {
   body { grid-template-columns: minmax(0, 1fr); }
   body > header { gap: var(--space-2) var(--space-4); }
-  body > header > small, body > header > a[href^="https://www"] { display: none; }
+  body > header > small, body > header > a[href="/"] { display: none; }
   body > header .wordmark { margin-right: auto; }
   search { order: 3; flex: 1 1 100%; margin-right: 0; }
   #pages { grid-row: 3; position: static; max-height: none; border-right: 0; border-top: var(--line) solid var(--line-c); padding-left: var(--gutter); }

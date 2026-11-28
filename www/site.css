@@ -66,6 +66,33 @@
   --flow: 3s;
 }
 
+/* Light mode, for a reader whose system is set to light: Sunlit brick, a
+   city in daylight, the same as the docs' (n2 #11353, #11469). Each brand
+   colour is a darker shade of its night one, to read on the cream: each
+   clears 5:1 against the ground. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fbf6ee;
+    --surface: #fffdf8;
+    --surface-2: #f0e3d2;
+    --term-bg: #fffcf6;
+    --line-c: #e2d3bf;
+    --fg: #2b241e;
+    --fg-quiet: #6e6257;
+    --accent: #9c3d1e;
+    --accent-strong: #7c2e14;
+    --glow: #e07a4a;
+    --brand-blue: #2f5fa8;
+    --brand-amber: #8a5a00;
+    --brand-violet: #6b46a8;
+    --brand-green: #2f6b3b;
+    --brand-red: #a8322a;
+    --brand-teal: #1f6b6b;
+  }
+  /* in daylight the name catches the sun rather than glowing */
+  h1 > span, footer a > span { text-shadow: 0 0 1px color-mix(in srgb, var(--glow) 60%, transparent); }
+}
+
 /* ---- raw tags ------------------------------------------------------------ */
 
 * { box-sizing: border-box; margin: 0; }

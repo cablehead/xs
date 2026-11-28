@@ -3,10 +3,16 @@
 # thing that changes in the page, the query you pick.
 #
 #   http-nu --datastar :3021 www/serve.nu
+#
+# One site with the docs: /docs/ is theirs, drawn by docs/serve.nu.
 
 use http-nu/datastar *
 
-const DIR = path self | path dirname
+# (not DIR: the docs' serve.nu, sourced below, has its own)
+const SITE = path self | path dirname
+
+# the docs' own handler, for everything under /docs/
+let docs = source ../docs/serve.nu
 
 const RELEASE = {version: "v0.16.0" url: "https://github.com/cablehead/xs/releases/tag/v0.16.0" date: "2026-11-18"}
 
@@ -23,25 +29,31 @@ const FRAMES = [
 # The parts of xs, each a kind with its brand colour (n2's kind title).
 const PARTS = [
   [name kind href text];
-  ["Event Store" blue "https://cablehead.github.io/xs/explanation/architecture/" "Append-only stream with structured metadata inline on each frame. Content-addressable storage (CAS) for binary and large blobs."]
-  [Actors amber "https://cablehead.github.io/xs/reference/actors/" "React to incoming frames with stateful processors: transform, trigger, fan-out."]
-  [Actions violet "https://cablehead.github.io/xs/reference/actions/" "On-demand, stateless ops. Perfect for RPC-style calls or streaming data back to the caller."]
-  [Services green "https://cablehead.github.io/xs/reference/services/" "Continuously pull data from files, APIs, websockets, serial devices, or sensors."]
-  [Local-First red "https://cablehead.github.io/xs/getting-started/first-stream/" "Single binary, file-based store, Unix socket API. No cloud, works offline."]
-  ["Nushell Integration" teal "https://cablehead.github.io/xs/reference/xs-nu/" "Write actors and services in Nushell with strong typing and structured pipelines."]
+  ["Event Store" blue "/docs/explanation/architecture/" "Append-only stream with structured metadata inline on each frame. Content-addressable storage (CAS) for binary and large blobs."]
+  [Actors amber "/docs/reference/actors/" "React to incoming frames with stateful processors: transform, trigger, fan-out."]
+  [Actions violet "/docs/reference/actions/" "On-demand, stateless ops. Perfect for RPC-style calls or streaming data back to the caller."]
+  [Services green "/docs/reference/services/" "Continuously pull data from files, APIs, websockets, serial devices, or sensors."]
+  [Local-First red "/docs/getting-started/first-stream/" "Single binary, file-based store, Unix socket API. No cloud, works offline."]
+  ["Nushell Integration" teal "/docs/reference/xs-nu/" "Write actors and services in Nushell with strong typing and structured pipelines."]
 ]
 
 {|req|
-  if $req.path == "/" {
+  if $req.path == "/docs" or ($req.path | str starts-with "/docs/") {
+    do $docs $req
+  } else if ($req.path | str starts-with "/assets/") and not ($SITE | path join ($req.path | str trim --left --char "/") | path exists) {
+    # the docs' images: their Markdown links them as ../../../assets/..., a
+    # path that from /docs/<section>/<page>/ lands here
+    do $docs $req
+  } else if $req.path == "/" {
     let queries = [
       {id: notes title: "Get all notes" comment: "Filter events to show only notes entries" cmd: '.cat | where topic == "notes" | each { $in.meta.text }' rows: ($FRAMES | where topic == notes | get text)}
       {id: goal title: "Get current goal" comment: "The latest goal: the last frame on its topic" cmd: '.last goal | $in.meta.text' rows: [($FRAMES | where topic == goal | last | get text)]}
     ]
     # the stylesheets' version, so a browser fetches them again when either changes
-    let css_v = [stellar.css site.css] | each {|f| open --raw ($DIR | path join $f) } | str join | hash md5 | str substring 0..7
+    let css_v = [stellar.css site.css] | each {|f| open --raw ($SITE | path join $f) } | str join | hash md5 | str substring 0..7
     {frames: $FRAMES parts: $PARTS release: $RELEASE queries: $queries datastar: $DATASTAR_JS_PATH css_v: $css_v}
-    | .mj ($DIR | path join index.html)
+    | .mj ($SITE | path join index.html)
   } else {
-    .static $DIR $req.path
+    .static $SITE $req.path
   }
 }
