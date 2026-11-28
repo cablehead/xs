@@ -67,6 +67,7 @@ def layout [title: string current: string body: string] {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>($title | escape-html) - xs docs</title>
 <link rel="stylesheet" href="($BASE)/docs.css">
+<link rel="stylesheet" href="($BASE)/syntax.css">
 <script type="module" src="($DATASTAR_JS_PATH)"></script>
 </head>
 <body>
@@ -100,6 +101,12 @@ def demo [] {
   if $page != null {
     let p = read-page $page.file
     layout $page.title $page.slug (md render (open --raw $page.file))
+  } else if $slug == "syntax.css" {
+    # code colours, GitHub's; the page has no dark mode yet
+    .highlight theme GitHub | metadata set { merge {'http.response': {headers: {content-type: "text/css"}}} }
+  } else if ($path | str starts-with "/assets/") {
+    # the pages link images as ../../../assets/..., which from /docs/<section>/<page>/ lands here
+    .static ($DIR | path join src) $path
   } else if $slug == "demo" {
     layout "Layout in Markdown" "demo" (demo)
   } else if $slug == "" {
