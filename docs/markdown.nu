@@ -9,6 +9,9 @@
 #     labels switch together. GitHub hides the comments.
 #   - command and output: a code block followed by one marked `output`
 #     (```json output) is drawn as one figure.
+# One HTML tag passes through as written: `<mux-player>`, Mux's video
+# player. Every other tag is escaped by `.md`. The player's script goes in
+# once, just before the first player on the page.
 
 def node-text []: record -> string {
   let n = $in
@@ -56,6 +59,17 @@ def session-html [lines: list<string> command: record output: record] {
 }
 # /demo:session
 
+# The source lines of nodes, as written.
+def raw-of [lines: list<string> nodes: list] {
+  $lines | slice (($nodes | first).position.start.line - 1)..(($nodes | last).position.end.line - 1) | str join "\n"
+}
+
+def is-player [lines: list<string>]: record -> bool {
+  $in.type == "html" and (raw-of $lines [$in] | str trim | str starts-with "<mux-player")
+}
+
+const MUX_SCRIPT = '<script src="https://cdn.jsdelivr.net/npm/@mux/mux-player@3.14.1" defer></script>'
+
 def is-comment [word: string]: record -> bool {
   $in.type == "html" and ($in.attrs.value? | default "" | str trim) =~ $'^<!--\s*($word)\s*-->$'
 }
@@ -72,6 +86,9 @@ def render-nodes [lines: list<string> nodes: list]: nothing -> string {
     if $n.type == "code" and $next != null and $next.type == "code" and ($next.attrs.meta? | default "" | split words | any {|w| $w == "output" }) {
       $out = ($out | append (session-html $lines $n $next))
       $i = $i + 2
+    } else if ($n | is-player $lines) {
+      $out = ($out | append (raw-of $lines [$n]))
+      $i = $i + 1
     } else if ($n | is-comment "tabs") {
       # the group runs to its closing comment, or to the end of the page
       let rest = $nodes | skip ($i + 1)
@@ -108,5 +125,7 @@ def blocks [lines: list<string> nodes: list]: nothing -> list {
 
 export def "md render" [text: string]: nothing -> string {
   let lines = $text | lines
-  render-nodes $lines (blocks $lines ($text | from md --verbose | where type != yaml))
+  let html = render-nodes $lines (blocks $lines ($text | from md --verbose | where type != yaml))
+  # str replace changes only the first match
+  $html | str replace "<mux-player" $"($MUX_SCRIPT)\n<mux-player"
 }

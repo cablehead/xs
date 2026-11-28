@@ -8,7 +8,7 @@ sidebar:
 
 This tutorial teaches you how to interact with Model Context Protocol (MCP) servers, starting with direct terminal communication and then integrating through cross.stream's event streaming system.
 
-<MuxVideo playbackId="9FFQOzqMzax02WqVZYvMeM4lzsxy01IDgHlwLVsTQkpA00" muted={false} />
+<mux-player playback-id="9FFQOzqMzax02WqVZYvMeM4lzsxy01IDgHlwLVsTQkpA00" metadata-viewer-user-id="xs-docs-viewer"></mux-player>
 
 > [!TIP]
 > For a full-featured project that integrates MCP servers with cross.stream this way, see

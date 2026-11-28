@@ -32,3 +32,5 @@ figure.session { margin: 1rem 0; }
 figure.session pre { margin: 0; }
 figure.session pre + pre { border-top: 1px dashed #8886; border-top-left-radius: 0; border-top-right-radius: 0; }
 figure.session pre:first-child { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+mux-player { display: block; width: 100%; aspect-ratio: 863 / 540; margin: 1.5rem 0; border-radius: 8px; overflow: hidden; box-shadow: 0 0 30px rgba(0, 0, 0, 0.8); }
+@media (prefers-color-scheme: dark) { mux-player { box-shadow: 0 0 30px rgba(100, 255, 255, 0.6); } }

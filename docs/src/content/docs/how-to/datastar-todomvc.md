@@ -13,7 +13,7 @@ sidebar:
 
 This tutorial demonstrates the hypermedia/immediate mode approach to web development: backend-first development where the server drives UI updates by streaming HTML fragments to the client. We'll use [Datastar](https://data-star.dev/) for reactive frontend bindings.
 
-<MuxVideo playbackId="KX01ZSZ8CXv5SVfVwMZKJTcuBcUQmo1ReS9U5JjoHm4k" muted={false} />
+<mux-player playback-id="KX01ZSZ8CXv5SVfVwMZKJTcuBcUQmo1ReS9U5JjoHm4k" metadata-viewer-user-id="xs-docs-viewer"></mux-player>
 
 ![Datastar TodoMVC Demo](../../../assets/datastar.gif)
 

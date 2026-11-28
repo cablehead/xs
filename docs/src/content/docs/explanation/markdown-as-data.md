@@ -113,6 +113,16 @@ echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
 
 <!-- /tabs -->
 
+A video is the one HTML tag a page may use. `.md` escapes HTML, so the walk
+hands a `<mux-player>` tag out as written, and puts Mux's player script just
+before the first one on the page:
+
+```markdown
+<mux-player playback-id="KX01ZSZ8CXv5SVfVwMZKJTcuBcUQmo1ReS9U5JjoHm4k"></mux-player>
+```
+
+Every other tag is still escaped.
+
 ## On GitHub
 
 Both marks are things GitHub already passes over. It hides HTML comments, and
