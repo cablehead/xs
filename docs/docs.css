@@ -1,36 +1,254 @@
-/* Layout only, on raw tags. */
+/* docs.css: the xs docs, in the look of www.cross.stream. Built the same
+   way as that page's site.css: every value is a token, raw tags are styled
+   once and make most of the page, and a class names a block, never a look.
+   Fonts and colour ramps come from stellar.css, the splash page's own copy. */
+
+/* ---- tokens -------------------------------------------------------------- */
+
+:root {
+  --bg: var(--named-night-0);
+  --surface: var(--named-night-1);
+  --surface-2: var(--named-night-2);   /* a terminal's title bar */
+  --term-bg: var(--named-terminal-0);
+  --line-c: var(--named-night-4);
+  --fg: var(--named-night-0-on);
+  --fg-quiet: var(--named-night-0-dim);
+  --accent: var(--named-blue-0);
+  --accent-strong: var(--named-blue-2);
+  --glow: var(--named-glow-0);
+  --brand-amber: var(--named-amber-0);
+
+  /* a picture of a Mac window's buttons, not a colour with a job */
+  --dot-red: #ff5f56;
+  --dot-amber: #ffbd2e;
+  --dot-green: #27ca3f;
+
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-hero: clamp(2.25rem, 7vw, 3rem);
+  --text-tag: 1.2rem;
+  --leading: 1.6;
+  --leading-code: 1.7;
+  --bar: 2.25rem;      /* a terminal's title bar */
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2rem;
+  --space-6: 3rem;
+  --space-7: 5rem;
+
+  --side: 16rem;       /* the sidebar */
+  --measure: 46rem;    /* a line of prose */
+  --line: 1px;
+  --radius: 8px;
+  --dot: 0.65rem;
+  --fade: 0.2s;
+  --flow: 3s;
+}
+
+/* ---- raw tags ------------------------------------------------------------ */
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 body {
   margin: 0;
-  display: grid;
-  grid-template-columns: 16rem minmax(0, 1fr);
-  font: 16px/1.6 system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--text-md)/var(--leading) var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  --gutter: clamp(var(--space-3), 4vw, var(--space-5));
 }
-nav {
-  padding: 1rem 1.5rem;
-  border-right: 1px solid #8884;
+h1, h2, h3, h4 { font-weight: normal; color: var(--fg); line-height: 1.3; margin: var(--space-6) 0 var(--space-3); }
+h1 { font-size: var(--text-xl); margin-top: 0; }
+h2 { font-size: var(--text-lg); color: var(--accent); padding-bottom: var(--space-2); border-bottom: var(--line) solid var(--line-c); }
+h3 { font-size: var(--text-md); color: var(--brand-amber); margin-top: var(--space-5); }
+h4 { font-size: var(--text-md); color: var(--fg-quiet); }
+p, ul, ol, table, blockquote, figure, pre, mux-player { margin: 0 0 var(--space-3); }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { color: var(--accent-strong); }
+strong { font-weight: normal; color: var(--accent-strong); }
+code { font: inherit; color: var(--brand-amber); }
+small { font-size: var(--text-sm); color: var(--fg-quiet); }
+hr { border: 0; border-top: var(--line) solid var(--line-c); margin: var(--space-5) 0; }
+img { max-width: 100%; height: auto; border-radius: var(--radius); }
+li + li { margin-top: var(--space-1); }
+ul ul, ol ol, li > ul, li > ol { margin: var(--space-1) 0 0; }
+
+/* code: a terminal pane, without the title bar unless it is a session */
+pre {
+  font: var(--text-sm)/var(--leading-code) var(--font-mono);
+  background: var(--term-bg);
+  border: var(--line) solid var(--line-c);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  overflow-x: auto;
+}
+pre code { color: var(--fg); }
+/* syntax.css colours the code, on a background of its own: the pane wins */
+pre.code, pre .code { background: var(--term-bg); }
+
+table { border-collapse: collapse; font-size: var(--text-sm); display: block; overflow-x: auto; }
+th, td { padding: var(--space-1) var(--space-3); border: var(--line) solid var(--line-c); text-align: left; vertical-align: top; }
+th { font-weight: normal; color: var(--accent); background: var(--surface); }
+
+blockquote {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: var(--line) solid var(--line-c);
+  border-radius: var(--radius);
+}
+blockquote > :last-child { margin-bottom: 0; }
+
+button {
+  font: var(--text-sm) var(--font-mono);
+  color: var(--fg);
+  background: var(--bg);
+  border: var(--line) solid var(--line-c);
+  border-radius: calc(var(--radius) / 2);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition: border-color var(--fade), color var(--fade);
+}
+button:hover { border-color: var(--accent); }
+
+/* ---- the name: cross.stream, the "stream" glowing ------------------------ */
+
+.wordmark { color: var(--fg); text-decoration: none; letter-spacing: 0.02em; }
+.wordmark > span {
+  background: linear-gradient(45deg, var(--glow), var(--accent), var(--accent-strong), var(--accent), var(--glow)) 0 50% / 200% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--glow) 60%, transparent), 0 0 24px color-mix(in srgb, var(--glow) 40%, transparent);
+  animation: flow var(--flow) ease-in-out infinite;
+}
+@keyframes flow { 50% { background-position: 100% 50%; } }
+@media (prefers-reduced-motion: reduce) { .wordmark > span { animation: none; } }
+
+/* ---- the page: a bar across the top, the sidebar, the page ---------------- */
+
+body {
+  display: grid;
+  grid-template-columns: var(--side) minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
   min-height: 100vh;
 }
-nav h2 { font-size: 0.85rem; text-transform: uppercase; margin: 1.5rem 0 0.5rem; }
-nav ul { list-style: none; margin: 0; padding: 0; }
-nav a { display: block; padding: 0.15rem 0; text-decoration: none; }
-nav a[aria-current] { font-weight: 600; }
-main { padding: 1rem 2.5rem; max-width: 80ch; }
-pre { overflow-x: auto; padding: 0.75rem 1rem; background: #8881; border-radius: 4px; }
-@media (max-width: 50rem) {
-  body { grid-template-columns: 1fr; }
-  nav { min-height: 0; border-right: 0; border-bottom: 1px solid #8884; }
+body > header {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+  padding: var(--space-3) var(--gutter);
+  border-bottom: var(--line) solid var(--line-c);
+  background: var(--bg);
+  position: sticky; top: 0; z-index: 2;
 }
-blockquote[class^="markdown-alert"] { margin: 1rem 0; padding: 0.5rem 1rem; border-left: 4px solid #888; background: #8881; }
-blockquote.markdown-alert-tip { border-color: #2a8; }
-blockquote.markdown-alert-caution, blockquote.markdown-alert-warning { border-color: #c80; }
-pre.source { background: #f3f0e8; }
-.rendered { border: 1px solid #8884; padding: 0 1rem; border-radius: 4px; }
-.tabs [role=tablist] { display: flex; gap: 0.25rem; border-bottom: 1px solid #8886; }
-.tabs [role=tab] { border: 0; background: none; padding: 0.4rem 0.8rem; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
-.tabs [role=tab][aria-selected] { border-bottom-color: currentColor; font-weight: 600; }
-figure.session { margin: 1rem 0; }
-figure.session pre { margin: 0; }
-figure.session pre + pre { border-top: 1px dashed #8886; border-top-left-radius: 0; border-top-right-radius: 0; }
-figure.session pre:first-child { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-mux-player { display: block; width: 100%; aspect-ratio: 863 / 540; margin: 1.5rem 0; border-radius: 8px; overflow: hidden; box-shadow: 0 0 30px rgba(0, 0, 0, 0.8); }
-@media (prefers-color-scheme: dark) { mux-player { box-shadow: 0 0 30px rgba(100, 255, 255, 0.6); } }
+body > header .wordmark { font-size: var(--text-lg); }
+body > header > small { margin-right: auto; }
+body > header > a:not(.wordmark) { color: var(--fg-quiet); text-decoration: none; font-size: var(--text-sm); }
+body > header > a:not(.wordmark):hover { color: var(--accent); }
+
+#pages {
+  padding: var(--space-4) var(--space-4) var(--space-6) var(--gutter);
+  border-right: var(--line) solid var(--line-c);
+  font-size: var(--text-sm);
+  position: sticky; top: 3.5rem; align-self: start; max-height: calc(100vh - 3.5rem); overflow-y: auto;
+}
+#pages h2 { font-size: var(--text-sm); color: var(--fg-quiet); border: 0; padding: 0; margin: var(--space-4) 0 var(--space-2); text-transform: lowercase; }
+#pages h2:first-child { margin-top: 0; }
+#pages ul { list-style: none; margin: 0; padding: 0; }
+#pages li + li { margin-top: 0; }
+#pages a { display: block; padding: var(--space-1) var(--space-2); margin-left: calc(-1 * var(--space-2)); border-radius: calc(var(--radius) / 2); color: var(--fg); text-decoration: none; }
+#pages a:hover { color: var(--accent); }
+#pages a[aria-current] { color: var(--accent); background: var(--surface); }
+
+main { padding: var(--space-5) var(--gutter) var(--space-7); max-width: calc(var(--measure) + 2 * var(--space-6)); }
+main > h1 { margin-bottom: var(--space-4); }
+
+/* ---- the home page: the splash page's header ------------------------------ */
+
+.hero { text-align: center; padding: 14vh var(--gutter) var(--space-7); }
+.hero h1 { font-size: var(--text-hero); margin: 0; }
+.hero > p { margin: var(--space-5) auto 0; font-size: var(--text-tag); font-style: italic; }
+.hero > p code { color: var(--fg); }
+.hero nav { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); margin-top: var(--space-6); }
+.hero nav > a {
+  padding: var(--space-2) var(--space-4);
+  border: var(--line) solid var(--line-c);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color var(--fade);
+}
+.hero nav > a:first-child { border-color: var(--accent); color: var(--accent); }
+.hero nav > a:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-3); list-style: none; padding: 0; max-width: 64rem; margin: 0 auto; }
+.tiles > li + li { margin-top: 0; }
+.tiles a { display: block; height: 100%; padding: var(--space-4); background: var(--surface); border: var(--line) solid var(--line-c); border-radius: var(--radius); color: var(--fg); text-decoration: none; transition: border-color var(--fade); }
+.tiles a:hover { border-color: var(--accent); }
+.tiles h2 { margin: 0 0 var(--space-2); border: 0; padding: 0; font-size: var(--text-md); }
+.tiles p { margin: 0; font-size: var(--text-sm); color: var(--fg-quiet); }
+
+/* ---- blocks the renderer draws -------------------------------------------- */
+
+/* tabs: a row of keys over the panes */
+.tabs { margin: 0 0 var(--space-3); }
+.tabs [role=tablist] { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+.tabs [role=tab][aria-selected]:not([aria-selected=false]) { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* a command and its output: one terminal, with the title bar and its dots */
+figure.session {
+  position: relative;
+  background: var(--term-bg);
+  border: var(--line) solid var(--line-c);
+  border-radius: var(--radius);
+  padding-top: var(--bar);
+  overflow: hidden;
+}
+figure.session::before {
+  content: "";
+  position: absolute; z-index: 1; top: calc((var(--bar) - var(--dot)) / 2); left: var(--space-3);
+  width: var(--dot); height: var(--dot); border-radius: 50%;
+  background: var(--dot-red);
+  box-shadow: calc(var(--dot) * 1.6) 0 var(--dot-amber), calc(var(--dot) * 3.2) 0 var(--dot-green);
+}
+figure.session::after {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: var(--bar);
+  background: var(--surface-2);
+  border-bottom: var(--line) solid var(--line-c);
+}
+figure.session pre { margin: 0; border: 0; border-radius: 0; }
+figure.session pre + pre { border-top: var(--line) dashed var(--line-c); color: var(--fg-quiet); }
+figure.session pre + pre code { color: var(--fg-quiet); }
+
+mux-player {
+  display: block; width: 100%; aspect-ratio: 863 / 540;
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: 0 0 30px color-mix(in srgb, var(--glow) 45%, transparent);
+}
+
+/* the demo page: the Markdown and the code, then what they render */
+pre.source { background: var(--surface); }
+.rendered { border: var(--line) dashed var(--line-c); border-radius: var(--radius); padding: var(--space-4); }
+
+/* the home page has no sidebar */
+body.home { display: block; }
+body.home main { max-width: none; padding: 0 var(--gutter) var(--space-7); }
+
+/* ---- narrow: one column, the page first, the sidebar after it ------------- */
+
+@media (max-width: 760px) {
+  body { grid-template-columns: minmax(0, 1fr); }
+  body > header { gap: var(--space-2) var(--space-4); }
+  body > header > small, body > header > a[href^="https://www"] { display: none; }
+  body > header .wordmark { margin-right: auto; }
+  #pages { grid-row: 3; position: static; max-height: none; border-right: 0; border-top: var(--line) solid var(--line-c); padding-left: var(--gutter); }
+  main { padding-top: var(--space-4); }
+  pre, figure.session, mux-player { margin-inline: calc(-1 * var(--gutter)); border-radius: 0; border-inline: 0; }
+  body > header { position: static; }
+}

@@ -59,20 +59,72 @@ def escape-html []: string -> string {
   str replace -a '&' '&amp;' | str replace -a '<' '&lt;' | str replace -a '>' '&gt;'
 }
 
-def layout [title: string current: string body: string] {
+# The bar across the top of every page: the name, links out.
+def topbar [] {
+  $'<header>
+<a class="wordmark" href="($BASE)/">cross.<span>stream</span></a>
+<small>xs docs</small>
+<a href="https://www.cross.stream/">cross.stream</a>
+<a href="https://github.com/cablehead/xs">GitHub</a>
+<a href="https://discord.com/invite/YNbScHBHrh">Discord</a>
+</header>'
+}
+
+def head [title: string] {
   $'<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>($title | escape-html) - xs docs</title>
-<link rel="stylesheet" href="($BASE)/docs.css">
+<title>($title | escape-html)</title>
+<link rel="stylesheet" href="($BASE)/stellar.css">
 <link rel="stylesheet" href="($BASE)/syntax.css">
+<link rel="stylesheet" href="($BASE)/docs.css">
 <script type="module" src="($DATASTAR_JS_PATH)"></script>
-</head>
+</head>'
+}
+
+def layout [title: string current: string body: string] {
+  $'(head $"($title) - xs docs")
 <body>
-<nav>(sidebar $current)</nav>
+(topbar)
+<nav id="pages">(sidebar $current)</nav>
 <main><h1>($title | escape-html)</h1>($body)</main>
+</body>
+</html>'
+}
+
+# The home page: the splash page's header, then a tile for each section.
+const BLURBS = {
+  "Getting Started": "Install xs and append your first frame."
+  "Tutorials": "Build something with xs, a step at a time."
+  "How-to Guides": "Recipes for a particular job."
+  "Explanation": "Why xs works the way it does."
+  "Reference": "Every command, option and built-in."
+}
+
+def home [] {
+  let all = pages
+  let tiles = $SECTIONS | each {|s|
+    let first = $all | where section == $s.label | get 0?
+    if $first == null { return "" }
+    $'<li><a href="($BASE)/($first.slug)/"><h2>($s.label)</h2><p>($BLURBS | get $s.label)</p></a></li>'
+  } | str join
+  $'(head "xs docs")
+<body class="home">
+(topbar)
+<main>
+<section class="hero">
+<h1><span class="wordmark">cross.<span>stream</span></span></h1>
+<p><code>xs</code> is an event stream store for personal, local-first use</p>
+<nav>
+<a href="($BASE)/getting-started/installation/">Get started</a>
+<a href="https://github.com/cablehead/xs">View on GitHub</a>
+<a href="https://discord.com/invite/YNbScHBHrh">Join the Discord</a>
+</nav>
+</section>
+<ul class="tiles">($tiles)</ul>
+</main>
 </body>
 </html>'
 }
@@ -102,16 +154,15 @@ def demo [] {
     let p = read-page $page.file
     layout $page.title $page.slug (md render (open --raw $page.file))
   } else if $slug == "syntax.css" {
-    # code colours, GitHub's; the page has no dark mode yet
-    .highlight theme GitHub | metadata set { merge {'http.response': {headers: {content-type: "text/css"}}} }
+    # code colours: Dracula, as the Astro docs used for their dark mode
+    .highlight theme Dracula | metadata set { merge {'http.response': {headers: {content-type: "text/css"}}} }
   } else if ($path | str starts-with "/assets/") {
     # the pages link images as ../../../assets/..., which from /docs/<section>/<page>/ lands here
     .static ($DIR | path join src) $path
   } else if $slug == "demo" {
     layout "Layout in Markdown" "demo" (demo)
   } else if $slug == "" {
-    let first = pages | first
-    "" | metadata set { merge {'http.response': {status: 302 headers: {location: $"($BASE)/($first.slug)/"}}} }
+    home
   } else {
     .static $DIR $path
   }
