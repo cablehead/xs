@@ -12,7 +12,7 @@ a code block is the output of the command above it. Most docs tools
 answer that by extending Markdown. These docs answer it by reading Markdown as
 data, and leaving the layout to the server.
 
-## Where this came from
+## Background
 
 The xs docs used to be built with Astro and MDX. MDX lets a page drop a
 component into the Markdown, `<Tabs>` with a `<TabItem>` per choice, and a
@@ -46,7 +46,7 @@ Most go straight to `.md`, a node at a time, so highlighting and tables come
 out exactly as before. When the walk meets a section named for tabs, or a code
 block followed by its output, it draws those differently.
 
-## What the page says
+## The marks
 
 Each mark sits where it applies.
 
@@ -109,7 +109,7 @@ echo -n | xs append ./store notes --meta '{"text":"a quick note"}'
 {"topic":"notes","id":"03d4qic9vqkve1krajjtlbavd","meta":{"text":"a quick note"}}
 ```
 
-## Why it reads right on GitHub
+## On GitHub
 
 Both marks are things GitHub already passes over. It shows the frontmatter as a
 small table at the top of the file, and it reads only the first word after a
@@ -122,7 +122,7 @@ writes `{% tabs %}`, Pandoc and Djot write `::: tabs`, MyST writes
 ```` ```{tab-set} ````, Nuxt Content writes `::tabs`. Each is clear to its own
 renderer and shows as stray text everywhere else.
 
-## What was tried first
+## Alternatives
 
 An HTML comment around the tabs, `<!-- tabs -->`, is invisible on GitHub. But
 `.md` escapes HTML, comments included, so it printed the marker on the page.
@@ -136,7 +136,7 @@ pages almost untouched. GitHub drops tags it doesn't know, so the pages still
 read. They were set aside for the data approach, which needs nothing new in
 `.md` and keeps the Markdown free of markup.
 
-## Where it falls short
+## Limits
 
 A tab runs to the next heading. So whatever follows a group of tabs inside the
 same section lands in the last tab. A note placed after the tabs has to move
@@ -145,7 +145,7 @@ above them, or under a heading of its own.
 The frontmatter can only name sections, by their headings. Two sections with
 the same heading on one page would both become tabs.
 
-## Where it lives
+## The code
 
 The renderer is `docs/markdown.nu`, a Nushell module of a little over 100 lines, used by
 `docs/serve.nu`. It could move into http-nu's standard library, beside
